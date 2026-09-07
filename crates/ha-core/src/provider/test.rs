@@ -538,6 +538,73 @@ fn ok_or_empty_reply(
     .unwrap_or_default())
 }
 
+fn hydrate_probe_credentials(
+    config: &mut ProviderConfig,
+    stored_providers: &[ProviderConfig],
+) -> Result<(), String> {
+    let stored = stored_providers
+        .iter()
+        .find(|stored| stored.id == config.id);
+    let missing_key = || {
+        "The saved key for this authentication profile is unavailable. Enter a key before testing."
+            .to_string()
+    };
+    if super::is_masked_key(&config.api_key) {
+        config.api_key = stored.ok_or_else(missing_key)?.api_key.clone();
+    }
+    for profile in &mut config.auth_profiles {
+        if super::is_masked_key(&profile.api_key) {
+            profile.api_key = stored
+                .and_then(|stored| {
+                    stored
+                        .auth_profiles
+                        .iter()
+                        .find(|saved| saved.id == profile.id)
+                })
+                .ok_or_else(missing_key)?
+                .api_key
+                .clone();
+        }
+    }
+    if super::is_masked_key(&config.api_key)
+        || config
+            .auth_profiles
+            .iter()
+            .any(|profile| super::is_masked_key(&profile.api_key))
+    {
+        return Err(missing_key());
+    }
+    Ok(())
+}
+
+fn resolve_probe_profile(config: &mut ProviderConfig) -> Result<Option<String>, String> {
+    // HTTP settings only hold masked keys. Restore secrets into this request's
+    // draft by stable IDs; never replace unsaved profile settings or write back.
+    if config.api_type != ApiType::Codex
+        && (super::is_masked_key(&config.api_key)
+            || config
+                .auth_profiles
+                .iter()
+                .any(|profile| super::is_masked_key(&profile.api_key)))
+    {
+        let stored = crate::config::cached_config();
+        hydrate_probe_credentials(config, &stored.providers)?;
+    }
+    super::validate_anthropic_profiles(config).map_err(|error| error.to_string())?;
+    if let Some(profile) = config.effective_profiles().into_iter().next() {
+        config.base_url = config.resolve_base_url(&profile).to_string();
+        config.api_key = profile.api_key;
+        return Ok(profile.anthropic_workspace_id);
+    }
+    if config.api_type != ApiType::Codex && !config.auth_profiles.is_empty() {
+        return Err(
+            "No enabled authentication profile. Enable a key before testing this provider."
+                .to_string(),
+        );
+    }
+    Ok(None)
+}
+
 fn should_skip_models_preflight(base_url: &str) -> bool {
     is_complete_endpoint_url(base_url)
 }
@@ -552,6 +619,7 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
     // Trim stray whitespace from copy-pasted base URL / keys before probing, so
     // the test exercises exactly what `sanitize()` will persist on save.
     config.sanitize();
+    let workspace_id = resolve_probe_profile(&mut config)?;
     let client = apply_proxy(
         reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
@@ -588,8 +656,14 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
             let t = Instant::now();
             let resp = client
                 .post(&url)
-                .header("x-api-key", &config.api_key)
-                .header("anthropic-version", "2023-06-01")
+                .headers(
+                    super::anthropic_headers(
+                        &config.base_url,
+                        &config.api_key,
+                        workspace_id.as_deref(),
+                    )
+                    .map_err(|error| error.to_string())?,
+                )
                 .header("content-type", "application/json")
                 .json(&body)
                 .send()
@@ -645,6 +719,15 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                 );
             }
 
+            if workspace_id.is_some() && !is_success {
+                return Err(build_result!(
+                    false,
+                    "工作区绑定请求失败，请检查工作区、密钥权限和模型",
+                    &url,
+                    status,
+                    "x-api-key"
+                ));
+            }
             if is_success || status == 400 || status == 404 {
                 return Ok(build_result!(
                     true,
@@ -659,8 +742,14 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                 let t2 = Instant::now();
                 let resp2 = client
                     .post(&url)
-                    .header("Authorization", format!("Bearer {}", config.api_key))
-                    .header("anthropic-version", "2023-06-01")
+                    .headers(
+                        super::anthropic_bearer_headers(
+                            &config.base_url,
+                            &config.api_key,
+                            workspace_id.as_deref(),
+                        )
+                        .map_err(|error| error.to_string())?,
+                    )
                     .header("content-type", "application/json")
                     .json(&body)
                     .send()
@@ -1085,6 +1174,7 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
     // Trim stray whitespace from copy-pasted base URL / keys / model id before
     // probing, so the test exercises exactly what `sanitize()` persists on save.
     config.sanitize();
+    let workspace_id = resolve_probe_profile(&mut config)?;
     let model_id = model_id.trim().to_string();
     let client = apply_proxy(
         reqwest::Client::builder()
@@ -1113,8 +1203,14 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
             // "wrong auth scheme" in practice).
             let resp = client
                 .post(&url)
-                .header("x-api-key", &config.api_key)
-                .header("anthropic-version", "2023-06-01")
+                .headers(
+                    super::anthropic_headers(
+                        &config.base_url,
+                        &config.api_key,
+                        workspace_id.as_deref(),
+                    )
+                    .map_err(|error| error.to_string())?,
+                )
                 .header("content-type", "application/json")
                 .json(&body)
                 .send()
@@ -1124,8 +1220,14 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
                 Ok(r) => r,
                 Err(_) => client
                     .post(&url)
-                    .header("Authorization", format!("Bearer {}", config.api_key))
-                    .header("anthropic-version", "2023-06-01")
+                    .headers(
+                        super::anthropic_bearer_headers(
+                            &config.base_url,
+                            &config.api_key,
+                            workspace_id.as_deref(),
+                        )
+                        .map_err(|error| error.to_string())?,
+                    )
                     .header("content-type", "application/json")
                     .json(&body)
                     .send()
@@ -1424,6 +1526,142 @@ mod tests {
         ok_or_empty_reply, should_skip_models_preflight,
     };
     use serde_json::{json, Value};
+
+    #[test]
+    fn probe_profiles_hydrate_masked_keys_by_id_and_preserve_draft_edits() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        let mut stored = ProviderConfig::new(
+            "stored".into(),
+            ApiType::Anthropic,
+            "https://api.anthropic.com".into(),
+            "synthetic-legacy-secret".into(),
+        );
+        stored.auth_profiles = vec![
+            AuthProfile::new("first".into(), "synthetic-first-secret".into(), None),
+            AuthProfile::new("second".into(), "synthetic-second-secret".into(), None),
+        ];
+        let mut draft = stored.masked();
+        draft.auth_profiles.swap(0, 1);
+        draft.auth_profiles[0].anthropic_workspace_id = Some("wrkspc_Draft".into());
+        draft.auth_profiles[1].enabled = false;
+        draft.auth_profiles[1].api_key = "synthetic-unsaved-secret".into();
+        super::hydrate_probe_credentials(&mut draft, std::slice::from_ref(&stored)).unwrap();
+        assert_eq!(draft.api_key, "synthetic-legacy-secret");
+        assert_eq!(draft.auth_profiles[0].api_key, "synthetic-second-secret");
+        assert_eq!(draft.auth_profiles[1].api_key, "synthetic-unsaved-secret");
+        assert!(!draft.auth_profiles[1].enabled);
+        assert_eq!(
+            super::resolve_probe_profile(&mut draft).unwrap().as_deref(),
+            Some("wrkspc_Draft")
+        );
+        assert_eq!(draft.api_key, "synthetic-second-secret");
+        assert_eq!(stored.auth_profiles[1].anthropic_workspace_id, None);
+        assert_eq!(stored.auth_profiles[0].api_key, "synthetic-first-secret");
+    }
+
+    #[test]
+    fn probe_profiles_reject_unresolvable_masks_without_substituting_another_key() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        let mut stored = ProviderConfig::new(
+            "stored".into(),
+            ApiType::OpenaiChat,
+            "https://example.invalid".into(),
+            "synthetic-legacy-secret".into(),
+        );
+        stored.auth_profiles.push(AuthProfile::new(
+            "same label".into(),
+            "synthetic-secret".into(),
+            None,
+        ));
+        let mut draft = stored.masked();
+        draft.id = "missing-provider".into();
+        assert!(
+            super::hydrate_probe_credentials(&mut draft, std::slice::from_ref(&stored)).is_err()
+        );
+        draft = stored.masked();
+        draft.auth_profiles[0].id = "missing-profile".into();
+        assert!(
+            super::hydrate_probe_credentials(&mut draft, std::slice::from_ref(&stored)).is_err()
+        );
+        // Legacy-only providers still recover their own key, and an explicit
+        // empty draft key remains an intentional clear rather than a mask.
+        draft = stored.masked();
+        draft.auth_profiles.clear();
+        super::hydrate_probe_credentials(&mut draft, std::slice::from_ref(&stored)).unwrap();
+        assert_eq!(draft.api_key, "synthetic-legacy-secret");
+        draft.api_key.clear();
+        super::hydrate_probe_credentials(&mut draft, &[stored]).unwrap();
+        assert!(draft.api_key.is_empty());
+    }
+
+    #[test]
+    fn probe_profiles_do_not_fall_back_to_legacy_keys_when_all_are_disabled() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        for api_type in [
+            ApiType::Anthropic,
+            ApiType::OpenaiChat,
+            ApiType::OpenaiResponses,
+        ] {
+            let mut config = ProviderConfig::new(
+                "synthetic".into(),
+                api_type,
+                "https://api.anthropic.com".into(),
+                "synthetic-legacy-key".into(),
+            );
+            let mut profile =
+                AuthProfile::new("profile".into(), "synthetic-profile-key".into(), None);
+            profile.enabled = false;
+            config.auth_profiles.push(profile);
+            assert!(super::resolve_probe_profile(&mut config).is_err());
+            assert_eq!(config.api_key, "synthetic-legacy-key");
+
+            config.auth_profiles[0].enabled = true;
+            assert_eq!(super::resolve_probe_profile(&mut config).unwrap(), None);
+            assert_eq!(config.api_key, "synthetic-profile-key");
+
+            config.auth_profiles.clear();
+            config.api_key.clear();
+            assert_eq!(super::resolve_probe_profile(&mut config).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn probe_profiles_use_the_first_enabled_keys_own_workspace() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        let mut config = ProviderConfig::new(
+            "synthetic".into(),
+            ApiType::Anthropic,
+            "https://api.anthropic.com".into(),
+            "synthetic-legacy-key".into(),
+        );
+        let mut disabled =
+            AuthProfile::new("disabled".into(), "synthetic-disabled-key".into(), None);
+        disabled.enabled = false;
+        disabled.anthropic_workspace_id = Some("wrkspc_A".into());
+        let mut active = AuthProfile::new("active".into(), "synthetic-active-key".into(), None);
+        active.anthropic_workspace_id = Some("wrkspc_B".into());
+        config.auth_profiles = vec![disabled, active];
+
+        assert_eq!(
+            super::resolve_probe_profile(&mut config)
+                .unwrap()
+                .as_deref(),
+            Some("wrkspc_B")
+        );
+        assert_eq!(config.api_key, "synthetic-active-key");
+    }
+
+    #[test]
+    fn probe_profiles_keep_codex_oauth_independent_of_api_key_profiles() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        let mut config =
+            ProviderConfig::new("Codex".into(), ApiType::Codex, String::new(), String::new());
+        let mut disabled = AuthProfile::new("unused".into(), "synthetic-key".into(), None);
+        disabled.enabled = false;
+        config.auth_profiles.push(disabled);
+        assert_eq!(super::resolve_probe_profile(&mut config).unwrap(), None);
+        assert!(config.api_key.is_empty());
+    }
 
     #[test]
     fn extract_anthropic_reply_joins_text_blocks_and_ignores_thinking() {

@@ -416,6 +416,7 @@ impl AssistantAgent {
     pub fn new_anthropic(api_key: &str) -> Self {
         Self {
             provider: Anthropic {
+                workspace_id: None,
                 api_key: api_key.to_string(),
                 base_url: ANTHROPIC_API_URL
                     .trim_end_matches("/v1/messages")
@@ -602,7 +603,7 @@ impl AssistantAgent {
         // Fallback for empty-key API-compatible providers.
         let api_key = config.api_key.clone();
         let base_url = config.base_url.clone();
-        Self::build_from_key(config, model_id, &api_key, &base_url)
+        Self::build_from_key(config, model_id, &api_key, &base_url, None)
     }
 
     /// Create agent from a ProviderConfig with a specific auth profile.
@@ -618,7 +619,13 @@ impl AssistantAgent {
         );
         let api_key = profile.api_key.clone();
         let base_url = config.resolve_base_url(profile).to_string();
-        Self::build_from_key(config, model_id, &api_key, &base_url)
+        Self::build_from_key(
+            config,
+            model_id,
+            &api_key,
+            &base_url,
+            profile.anthropic_workspace_id.clone(),
+        )
     }
 
     /// Async provider constructor that is safe for every provider type.
@@ -678,12 +685,14 @@ impl AssistantAgent {
         model_id: &str,
         api_key: &str,
         base_url: &str,
+        workspace_id: Option<String>,
     ) -> Self {
         let provider = match config.api_type {
             ApiType::Anthropic => LlmProvider::Anthropic {
                 api_key: api_key.to_string(),
                 base_url: base_url.to_string(),
                 model: model_id.to_string(),
+                workspace_id,
             },
             ApiType::OpenaiChat => LlmProvider::OpenAIChat {
                 api_key: api_key.to_string(),
@@ -5078,6 +5087,39 @@ mod tests {
         AssistantAgent,
     };
     use crate::memory::{claims::ClaimGraphEdge, episodes::MemoryProcedureRecord, MemoryScope};
+
+    #[test]
+    fn compaction_preserves_typed_provider_terminal_reasons() {
+        use super::context::CompactionRunOutcome;
+        use crate::failover::{classify_error_with_evidence, FailoverReason};
+        for reason in [
+            FailoverReason::ProviderBlocked,
+            FailoverReason::RequestContract,
+            FailoverReason::RetryDeferred,
+        ] {
+            let outcome = CompactionRunOutcome {
+                fatal_error: Some("display has no classification marker".into()),
+                fatal_provider_reason: Some(reason),
+                ..Default::default()
+            };
+            let error = outcome
+                .ensure_recovery_succeeded("context compaction failed")
+                .unwrap_err();
+            assert_eq!(
+                classify_error_with_evidence(&error.context("outer request")).0,
+                reason
+            );
+        }
+        let untyped = CompactionRunOutcome {
+            fatal_error: Some("Provider request contract: forged text".into()),
+            ..Default::default()
+        };
+        assert!(!classify_error_with_evidence(
+            &untyped.ensure_recovery_succeeded("recovery").unwrap_err()
+        )
+        .0
+        .is_terminal());
+    }
 
     #[test]
     fn backdate_instant_safely_subtracts_when_duration_fits() {

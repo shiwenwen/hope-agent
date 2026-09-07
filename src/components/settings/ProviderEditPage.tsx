@@ -122,20 +122,29 @@ export default function ProviderEditPage({
     setEditModels(arrayMove(editModels, oldIndex, newIndex))
   }
 
+  function buildEditedConfig(): ProviderConfig {
+    return {
+      ...provider,
+      name: editName,
+      apiType: editApiType,
+      baseUrl: editBaseUrl,
+      apiKey: editApiKey,
+      authProfiles: editAuthProfiles,
+      userAgent: editUserAgent,
+      thinkingStyle: editThinkingStyle,
+      allowPrivateNetwork: editAllowPrivateNetwork,
+      currency: editCurrency,
+      models: editModels,
+    }
+  }
+
   async function handleTest() {
     setTestLoading(true)
     setTestResult(null)
     try {
       const msg = await getTransport().call<string>("test_provider", {
         config: {
-          id: provider.id,
-          name: editName,
-          apiType: editApiType,
-          baseUrl: editBaseUrl,
-          apiKey: editApiKey,
-          userAgent: editUserAgent,
-          thinkingStyle: editThinkingStyle,
-          models: editModels,
+          ...buildEditedConfig(),
           enabled: true,
         },
       })
@@ -152,19 +161,7 @@ export default function ProviderEditPage({
     setError("")
     try {
       await getTransport().call("update_provider", {
-        config: {
-          ...provider,
-          name: editName,
-          apiType: editApiType,
-          baseUrl: editBaseUrl,
-          apiKey: editApiKey,
-          authProfiles: editAuthProfiles,
-          userAgent: editUserAgent,
-          thinkingStyle: editThinkingStyle,
-          allowPrivateNetwork: editAllowPrivateNetwork,
-          currency: editCurrency,
-          models: editModels,
-        },
+        config: buildEditedConfig(),
       })
       // Auto-append the base URL host to SSRF trusted_hosts when the user
       // opts in, so LLM calls to self-hosted Ollama / LM Studio remain allowed
@@ -293,6 +290,7 @@ export default function ProviderEditPage({
               <AuthProfileEditor
                 profiles={editAuthProfiles}
                 onChange={setEditAuthProfiles}
+                anthropic={editApiType === "anthropic"}
               />
 
               <div className="space-y-1.5">
@@ -454,14 +452,7 @@ export default function ProviderEditPage({
                           ? (modelId) =>
                               getTransport().call<string>("test_model", {
                                 config: {
-                                  id: provider.id,
-                                  name: editName,
-                                  apiType: editApiType,
-                                  baseUrl: editBaseUrl,
-                                  apiKey: editApiKey,
-                                  userAgent: editUserAgent,
-                                  thinkingStyle: editThinkingStyle,
-                                  models: [],
+                                  ...buildEditedConfig(),
                                   enabled: true,
                                 },
                                 modelId,

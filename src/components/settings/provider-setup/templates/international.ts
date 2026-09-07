@@ -13,6 +13,16 @@ export const internationalTemplates: ProviderTemplate[] = [
     requiresApiKey: true,
     models: [
       {
+        id: "claude-fable-5-1",
+        name: "Claude Fable 5.1",
+        inputTypes: ["text", "image"],
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        reasoning: true,
+        costInput: 10.0,
+        costOutput: 50.0,
+      },
+      {
         id: "claude-fable-5",
         name: "Claude Fable 5",
         inputTypes: ["text", "image"],
@@ -115,6 +125,17 @@ export const internationalTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
+      {
+        id: "gpt-6-astra",
+        name: "GPT-6 Astra",
+        inputTypes: ["text", "image"],
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        reasoning: true,
+        // Standard base rates (<=272K input); cache/tier surcharges are not represented.
+        costInput: 10.0,
+        costOutput: 50.0,
+      },
       {
         id: "gpt-5.6",
         name: "GPT-5.6",

@@ -79,6 +79,14 @@ impl OpenAIChatStreamingAdapter<'_> {
         thinking_disabled: bool,
         model_supports_vision: bool,
     ) -> Result<PreparedProviderRequest> {
+        if crate::agent::config::is_direct_openai_astra(self.base_url, self.model)
+            && (!req.tool_schemas.is_empty() || !req.deferred_tool_schemas.is_empty())
+            && !req.is_final_round
+        {
+            return Err(crate::failover::ProviderRequestContractError(
+                "GPT-6 Astra tool calling requires the OpenAI Responses API; change this provider's API type in settings.".to_string(),
+            ).into());
+        }
         let thinking_style = if thinking_disabled {
             &ThinkingStyle::None
         } else {
@@ -206,7 +214,18 @@ fn build_chat_body(
         thinking_style,
         req.reasoning_effort,
     );
-    if let Some(temp) = req.temperature {
+    let is_astra = crate::agent::config::is_direct_openai_astra(base_url, model);
+    if is_astra {
+        body["reasoning_effort"] = json!(crate::agent::config::astra_reasoning_effort(
+            req.reasoning_effort
+        ));
+        if tools_array.is_empty() {
+            body.as_object_mut()
+                .expect("chat body is an object")
+                .remove("tools");
+        }
+    }
+    if let Some(temp) = req.temperature.filter(|_| !is_astra) {
         body["temperature"] = json!(temp);
     }
     if prompt_cache_key_is_supported(base_url) {
@@ -1280,6 +1299,43 @@ pub(crate) async fn parse_chat_completions_sse(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn astra_chat_rejects_tool_requests_before_dispatch_and_retains_text_mode() {
+        use crate::agent::streaming_adapter::StreamingChatAdapter;
+        let history = vec![serde_json::json!({"role":"user", "content":"hello"})];
+        let tools = vec![serde_json::json!({"name":"read","parameters":{"type":"object"}})];
+        let mut req = super::super::test_support::round_request(&history);
+        req.reasoning_effort = Some("max");
+        req.tool_schemas = &tools;
+        let style = crate::provider::ThinkingStyle::Openai;
+        let adapter = super::OpenAIChatStreamingAdapter {
+            api_key: "synthetic-key",
+            base_url: "https://api.openai.com",
+            model: "gpt-6-astra",
+            thinking_style: &style,
+            provider_config: None,
+            vision_runtime_disabled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            vision_notice_emitted: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            prepared_history_had_images: std::sync::atomic::AtomicBool::new(false),
+        };
+        let error = adapter
+            .prepare_round_request(&req)
+            .err()
+            .expect("Chat tools must be rejected");
+        assert!(error
+            .downcast_ref::<crate::failover::ProviderRequestContractError>()
+            .is_some());
+        req.tool_schemas = &[];
+        let prepared = adapter.prepare_round_request(&req).unwrap();
+        let body: serde_json::Value = serde_json::from_slice(prepared.body().as_ref()).unwrap();
+        assert_eq!(body["reasoning_effort"], "max");
+        assert!(body.get("tools").is_none());
+        assert!(body.get("temperature").is_none());
+        let (relay, _, _) =
+            super::build_chat_body("https://relay.example", "gpt-6-astra", &style, false, &req);
+        assert_eq!(relay["temperature"], 0.2);
+        assert_eq!(relay["reasoning_effort"], "high");
+    }
     use super::{
         apply_official_chat_effort, build_chat_body, decode_chat_completion_sse_data,
         emit_vision_auto_disabled, finalize_chat_completion_stream, is_unsupported_image_url_error,

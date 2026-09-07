@@ -198,6 +198,46 @@ pub fn is_valid_reasoning_effort(effort: &str) -> bool {
     VALID_REASONING_EFFORTS.contains(&effort)
 }
 
+/// Apply Astra's contract only to the verified direct HTTPS endpoint and exact
+/// model ID. A relay with a similar name may implement a different protocol.
+pub fn is_direct_openai_astra(base_url: &str, model: &str) -> bool {
+    model == "gpt-6-astra"
+        && url::Url::parse(base_url).is_ok_and(|url| {
+            url.scheme() == "https"
+                && url.host_str() == Some("api.openai.com")
+                && url.port_or_known_default() == Some(443)
+                && url.username().is_empty()
+                && url.password().is_none()
+        })
+}
+
+pub fn astra_reasoning_effort(effort: Option<&str>) -> &str {
+    match effort {
+        Some(effort @ ("low" | "medium" | "high" | "xhigh" | "max")) => effort,
+        Some("minimal" | "none") | None => "low",
+        _ => "medium",
+    }
+}
+
+/// Resolve the round's effort before it is frozen into RoundRequest. The
+/// generic clamp would otherwise erase Astra's max before the adapter sees it.
+pub fn provider_reasoning_effort(
+    provider: &super::types::LlmProvider,
+    effort: Option<&str>,
+) -> Option<String> {
+    match provider {
+        super::types::LlmProvider::OpenAIChat {
+            base_url, model, ..
+        }
+        | super::types::LlmProvider::OpenAIResponses {
+            base_url, model, ..
+        } if is_direct_openai_astra(base_url, model) => {
+            Some(astra_reasoning_effort(effort).to_string())
+        }
+        _ => effort.and_then(|effort| clamp_reasoning_effort(provider.model(), effort)),
+    }
+}
+
 /// Clamp reasoning effort to valid range for the given model
 pub fn clamp_reasoning_effort(model: &str, effort: &str) -> Option<String> {
     if effort == "none" {
@@ -1203,6 +1243,47 @@ mod build_api_url_tests {
                 expected,
                 "model={model}, requested={requested}"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod provider_effort_tests {
+    use super::*;
+    use crate::agent::LlmProvider;
+
+    #[test]
+    fn provider_round_effort_does_not_preclamp_direct_astra_max() {
+        for chat in [false, true] {
+            for direct in [false, true] {
+                let base_url = if direct {
+                    "https://api.openai.com"
+                } else {
+                    "https://relay.example"
+                }
+                .to_string();
+                let provider = if chat {
+                    LlmProvider::OpenAIChat {
+                        api_key: "".into(),
+                        base_url,
+                        model: "gpt-6-astra".into(),
+                    }
+                } else {
+                    LlmProvider::OpenAIResponses {
+                        api_key: "".into(),
+                        base_url,
+                        model: "gpt-6-astra".into(),
+                    }
+                };
+                assert_eq!(
+                    provider_reasoning_effort(&provider, Some("max")).as_deref(),
+                    Some(if direct { "max" } else { "xhigh" })
+                );
+                assert_eq!(
+                    provider_reasoning_effort(&provider, Some("none")).as_deref(),
+                    if direct { Some("low") } else { None }
+                );
+            }
         }
     }
 }

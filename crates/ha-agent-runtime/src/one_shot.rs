@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use super::config::{build_api_url, ANTHROPIC_API_VERSION, CODEX_API_URL};
+use super::config::{build_api_url, CODEX_API_URL};
 use super::errors::parse_error_response;
 use super::provider_adapters::anthropic_adapter::parse_anthropic_sse;
 use super::provider_adapters::codex_adapter::{apply_codex_headers, codex_user_agent};
@@ -46,8 +46,15 @@ use ha_core::agent::llm_adapter::{
 /// where we consume the body stream ourselves.
 async fn stream_error(resp: reqwest::Response) -> anyhow::Error {
     let status = resp.status().as_u16();
+    let retry_after = resp
+        .headers()
+        .get("retry-after")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     let err_text = resp.text().await.unwrap_or_default();
-    anyhow::anyhow!("{}", parse_error_response(status, &err_text))
+    crate::failover::ProviderApiError::from_http_response("LLM", status, &err_text)
+        .with_retry_after_header(retry_after.as_deref())
+        .into()
 }
 
 /// The SSE parsers wrap each text increment in the main-loop streaming envelope
@@ -76,10 +83,12 @@ fn as_adapter(provider: &LlmProvider) -> Box<dyn LlmApiAdapter + '_> {
             api_key,
             base_url,
             model,
+            workspace_id,
         } => Box::new(AnthropicAdapter {
             key: api_key,
             base_url,
             model,
+            workspace_id: workspace_id.as_deref(),
         }),
         LlmProvider::OpenAIChat {
             api_key,
@@ -144,6 +153,7 @@ pub(super) struct AnthropicAdapter<'a> {
     pub key: &'a str,
     pub base_url: &'a str,
     pub model: &'a str,
+    pub workspace_id: Option<&'a str>,
 }
 
 #[async_trait]
@@ -153,18 +163,31 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
         client: &reqwest::Client,
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult> {
-        let body = build_anthropic_body(self.model, &req);
+        let mut body = build_anthropic_body(self.model, &req);
+        super::provider_adapters::anthropic_adapter::apply_thinking_binding_policy(
+            self.base_url,
+            self.model,
+            &mut body,
+        );
         let api_url = build_api_url(self.base_url, "/v1/messages");
         let result = send_json_request(
             client,
             &api_url,
             &body,
-            &[
-                ("x-api-key", self.key),
-                ("anthropic-version", ANTHROPIC_API_VERSION),
-            ],
+            &crate::provider::anthropic_header_pairs(
+                self.base_url,
+                self.key,
+                self.workspace_id,
+                true,
+            )?,
         )
         .await?;
+        super::provider_adapters::anthropic_adapter::report_thinking_transformations(
+            result.get("input_transformations"),
+            &mut Default::default(),
+            &mut String::new(),
+            &|_| {},
+        );
         Ok(OneShotResult {
             text: extract_anthropic_text(&result),
             usage: extract_anthropic_usage(&result),
@@ -179,6 +202,11 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
         let mut body = build_anthropic_body(self.model, &req);
+        super::provider_adapters::anthropic_adapter::apply_thinking_binding_policy(
+            self.base_url,
+            self.model,
+            &mut body,
+        );
         if let Some(obj) = body.as_object_mut() {
             obj.insert("stream".into(), json!(true));
         }
@@ -186,8 +214,11 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
         let request_start = std::time::Instant::now();
         let resp = client
             .post(&api_url)
-            .header("x-api-key", self.key)
-            .header("anthropic-version", ANTHROPIC_API_VERSION)
+            .headers(crate::provider::anthropic_headers(
+                self.base_url,
+                self.key,
+                self.workspace_id,
+            )?)
             .header("content-type", "application/json")
             .json(&body)
             .send()
@@ -265,7 +296,8 @@ impl<'a> LlmApiAdapter for OpenAIChatAdapter<'a> {
         client: &reqwest::Client,
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult> {
-        let body = build_openai_chat_body(self.model, &req);
+        let mut body = build_openai_chat_body(self.model, &req);
+        apply_astra_chat_contract(self.base_url, self.model, &mut body)?;
         let api_url = build_api_url(self.base_url, "/v1/chat/completions");
         let bearer = format!("Bearer {}", self.key);
         let result =
@@ -284,6 +316,7 @@ impl<'a> LlmApiAdapter for OpenAIChatAdapter<'a> {
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
         let mut body = build_openai_chat_body(self.model, &req);
+        apply_astra_chat_contract(self.base_url, self.model, &mut body)?;
         if let Some(obj) = body.as_object_mut() {
             obj.insert("stream".into(), json!(true));
             // Chat Completions only reports usage in the stream when asked.
@@ -353,6 +386,26 @@ fn build_openai_chat_body(model: &str, req: &OneShotRequest<'_>) -> Value {
 }
 
 // ── OpenAI Responses adapter ─────────────────────────────────────────
+
+fn apply_astra_chat_contract(base_url: &str, model: &str, body: &mut Value) -> Result<()> {
+    if !crate::agent::config::is_direct_openai_astra(base_url, model) {
+        return Ok(());
+    }
+    if body
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|tools| !tools.is_empty())
+    {
+        return Err(crate::failover::ProviderRequestContractError(
+            "GPT-6 Astra tool calling requires the OpenAI Responses API; change this provider's API type in settings.".to_string(),
+        ).into());
+    }
+    body.as_object_mut()
+        .expect("chat body is an object")
+        .remove("tools");
+    body["reasoning_effort"] = json!("low");
+    Ok(())
+}
 
 pub(super) struct OpenAIResponsesAdapter<'a> {
     pub key: &'a str,
@@ -676,7 +729,15 @@ pub(super) async fn send_json_request(
         .json(body);
 
     for (key, value) in headers {
-        req = req.header(*key, *value);
+        let mut value = reqwest::header::HeaderValue::from_str(value).map_err(|_| {
+            crate::failover::ProviderRequestContractError("Invalid provider request header.".into())
+        })?;
+        value.set_sensitive(
+            key.eq_ignore_ascii_case("authorization")
+                || key.eq_ignore_ascii_case("x-api-key")
+                || key.eq_ignore_ascii_case("anthropic-workspace-id"),
+        );
+        req = req.header(*key, value);
     }
 
     let resp = req
@@ -685,8 +746,7 @@ pub(super) async fn send_json_request(
         .map_err(|e| anyhow::anyhow!("LLM request failed: {}", e))?;
 
     if !resp.status().is_success() {
-        let err = resp.text().await.unwrap_or_default();
-        return Err(anyhow::anyhow!("LLM API error: {}", err));
+        return Err(stream_error(resp).await);
     }
 
     resp.json()
@@ -853,6 +913,26 @@ pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn astra_background_chat_contract_refuses_cached_tools_and_preserves_relays() {
+        let tools = serde_json::json!({"model":"gpt-6-astra","tools":[{"type":"function","function":{"name":"read"}}]});
+        let mut direct = tools.clone();
+        assert!(super::apply_astra_chat_contract(
+            "https://api.openai.com",
+            "gpt-6-astra",
+            &mut direct
+        )
+        .is_err());
+        let mut relay = tools.clone();
+        super::apply_astra_chat_contract("https://relay.example", "gpt-6-astra", &mut relay)
+            .unwrap();
+        assert_eq!(relay, tools);
+        let mut text = serde_json::json!({"model":"gpt-6-astra","tools":[]});
+        super::apply_astra_chat_contract("https://api.openai.com", "gpt-6-astra", &mut text)
+            .unwrap();
+        assert!(text.get("tools").is_none());
+        assert_eq!(text["reasoning_effort"], "low");
+    }
     use super::*;
 
     fn cached_anthropic() -> CacheSafeParams {

@@ -2657,9 +2657,7 @@ impl RuntimeAgentExt for AssistantAgent {
                 on_delta,
             )
             .await;
-        if let Some(error) = compaction.fatal_error.as_deref() {
-            anyhow::bail!("context compaction recovery failed closed: {error}");
-        }
+        compaction.ensure_recovery_succeeded("context compaction recovery failed closed")?;
         if compaction.summary_applied {
             // Turn-start Tier 3 runs before the first main Provider request.
             // Publish the winning summary (and atomically clear any Tier 4
@@ -2901,9 +2899,10 @@ impl RuntimeAgentExt for AssistantAgent {
                 });
             }
             let effort_requested = self.effective_reasoning_effort(reasoning_effort).await;
-            let effort_effective = effort_requested
-                .as_deref()
-                .and_then(|effort| super::config::clamp_reasoning_effort(model, effort));
+            let effort_effective = super::config::provider_reasoning_effort(
+                self.runtime_provider(),
+                effort_requested.as_deref(),
+            );
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "debug",

@@ -113,6 +113,10 @@ pub enum ChatTurnInterruptReason {
     /// All `model_chain` attempts failed at the provider layer.
     /// `chat_turns.error` carries the raw last-attempt message.
     ProviderFailed,
+    /// Structured provider verdicts retained independently of untrusted error text.
+    ProviderBlocked,
+    RequestContract,
+    RetryDeferred,
     /// The current tool-result group's cheapest protocol-legal envelope still
     /// exceeded capacity after the bounded recovery ladder. This terminal
     /// application verdict must survive independently of display/error text.
@@ -137,6 +141,9 @@ impl ChatTurnInterruptReason {
             Self::RuntimeCancel => "runtime_cancel",
             Self::NoProfile => "no_profile",
             Self::ProviderFailed => "provider_failed",
+            Self::ProviderBlocked => "provider_blocked",
+            Self::RequestContract => "request_contract",
+            Self::RetryDeferred => "retry_deferred",
             Self::CurrentToolGroupOverflow => "current_tool_group_overflow",
             Self::DispatchUnknown => "dispatch_unknown",
             Self::CompactionFailed => "compaction_failed",
@@ -153,6 +160,9 @@ impl ChatTurnInterruptReason {
             "runtime_cancel" => Some(Self::RuntimeCancel),
             "no_profile" => Some(Self::NoProfile),
             "provider_failed" => Some(Self::ProviderFailed),
+            "provider_blocked" => Some(Self::ProviderBlocked),
+            "request_contract" => Some(Self::RequestContract),
+            "retry_deferred" => Some(Self::RetryDeferred),
             "current_tool_group_overflow" => Some(Self::CurrentToolGroupOverflow),
             "dispatch_unknown" => Some(Self::DispatchUnknown),
             "compaction_failed" => Some(Self::CompactionFailed),
@@ -1770,6 +1780,57 @@ mod tests {
             .get_chat_turn("delegated-after-incognito")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn provider_terminal_reasons_survive_storage_without_display_markers() {
+        use crate::{chat_engine::finalize::TerminationReason, failover::FailoverReason};
+        let db = temp_db();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
+        for (kind, interrupt) in [
+            (
+                FailoverReason::ProviderBlocked,
+                ChatTurnInterruptReason::ProviderBlocked,
+            ),
+            (
+                FailoverReason::RequestContract,
+                ChatTurnInterruptReason::RequestContract,
+            ),
+            (
+                FailoverReason::RetryDeferred,
+                ChatTurnInterruptReason::RetryDeferred,
+            ),
+        ] {
+            let reason = TerminationReason::ProviderFailed {
+                last_kind: kind,
+                last_message: "display has no classification marker".into(),
+                is_codex_auth: false,
+            };
+            assert_eq!(reason.to_chat_turn_interrupt_reason(), interrupt);
+            let turn = db
+                .create_chat_turn(&session.id, "desktop", None, Some(1))
+                .unwrap();
+            db.finish_chat_turn_once(
+                &turn.id,
+                ChatTurnStatus::Failed,
+                Some(reason.to_chat_turn_interrupt_reason()),
+                reason.to_error_text().as_deref(),
+                None,
+            )
+            .unwrap();
+            let persisted = db.get_chat_turn(&turn.id).unwrap().unwrap();
+            assert_eq!(persisted.interrupt_reason, Some(interrupt));
+            let restored = crate::chat_engine::mirror_reason_from_terminal_state(
+                persisted.status,
+                persisted.interrupt_reason,
+                persisted.error.as_deref(),
+            );
+            assert!(
+                matches!(restored, TerminationReason::ProviderFailed {last_kind, ..} if last_kind == kind)
+            );
+        }
     }
 
     #[test]

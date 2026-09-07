@@ -182,7 +182,10 @@
     "baseUrlPlaceholder": "Substituição de Base URL (opcional)",
     "empty": "Nenhum perfil de rotação configurado. A API Key principal acima será usada.",
     "labelPlaceholder": "Rótulo (ex. Chave Org A)",
-    "title": "Perfis de rotação de API Key"
+    "multiWorkspace": "Chave de vários espaços",
+    "title": "Perfis de rotação de API Key",
+    "workspaceHint": "Para acesso direto à Anthropic. Chaves de vários espaços exigem um ID; desative para chaves de um só espaço. A rotação permanece no mesmo espaço.",
+    "workspaceId": "ID do espaço Anthropic"
   },
   "canvas": {
     "close": "Fechar",

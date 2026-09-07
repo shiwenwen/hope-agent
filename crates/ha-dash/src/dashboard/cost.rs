@@ -93,6 +93,7 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("claude-4") => (3.0, 15.0),
         // OpenAI — GPT-5.x. Tier suffixes must precede the bare family arm.
         // Sol 的 $4/$20 促销至少持续至 2026-11-21；2026-08-31 核验。
+        "gpt-6-astra" => (10.0, 50.0),
         m if m.contains("gpt-5.6-terra") => (2.0, 12.0),
         m if m.contains("gpt-5.6-luna") => (0.20, 1.20),
         m if m.contains("gpt-5.6") => (4.0, 20.0),

@@ -249,6 +249,7 @@ impl SttProviderConfig {
                 label: "Default".to_string(),
                 api_key: self.api_key.clone(),
                 base_url: None,
+                anthropic_workspace_id: None,
                 enabled: true,
             }];
         }

@@ -22,6 +22,18 @@ use std::time::Instant;
 
 use crate::provider::{AuthProfile, ProviderConfig};
 
+/// A local protocol incompatibility that must be fixed before another request.
+#[derive(Debug)]
+pub struct ProviderRequestContractError(pub String);
+
+impl std::fmt::Display for ProviderRequestContractError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Provider request contract: {}", self.0)
+    }
+}
+
+impl std::error::Error for ProviderRequestContractError {}
+
 /// Structured provider failure retained across `anyhow` wrapping. Provider
 /// adapters must construct this from the decoded HTTP/SSE error envelope so
 /// destructive recovery never has to trust arbitrary display text.
@@ -121,23 +133,57 @@ impl ProviderApiError {
         self
     }
 
-    /// Preserve a bounded `Retry-After` delta-seconds hint without retaining
-    /// arbitrary response headers. HTTP-date values are deliberately ignored:
-    /// wall-clock rollback must not turn a retry hint into an unbounded wait.
+    /// Capture a server lower bound once. HTTP dates become a duration now;
+    /// subsequent waits use a monotonic clock and the executor's total budget.
     pub fn with_retry_after_header(mut self, value: Option<&str>) -> Self {
-        self.retry_after_ms = value
-            .and_then(|raw| raw.trim().parse::<u64>().ok())
-            .map(|seconds| seconds.saturating_mul(1_000));
+        self.retry_after_ms =
+            value.and_then(|raw| parse_retry_after_ms(raw, std::time::SystemTime::now()));
         self
     }
 
     pub fn retry_after_ms(&self) -> Option<u64> {
         self.retry_after_ms
     }
+
+    fn is_thinking_signature_rejection(&self) -> bool {
+        self.error_type.as_deref() == Some("invalid_request_error")
+            && self.message.as_deref().is_some_and(|message| {
+                message.contains("Invalid `signature`")
+                    && (message.contains("`thinking`") || message.contains("`redacted_thinking`"))
+            })
+    }
+}
+
+fn parse_retry_after_ms(raw: &str, now: std::time::SystemTime) -> Option<u64> {
+    let raw = raw.trim();
+    if !raw.is_empty() && raw.bytes().all(|byte| byte.is_ascii_digit()) {
+        // An overflowing positive delay means too long to wait, never retry now.
+        return Some(raw.parse::<u64>().unwrap_or(u64::MAX).saturating_mul(1_000));
+    }
+    // All HTTP-date forms are short; avoid sending arbitrary header-sized
+    // text to the date parser. Overflowing integer delays above stay deferred.
+    if raw.len() > 64 {
+        return None;
+    }
+    let deadline = httpdate::parse_http_date(raw).ok()?;
+    let duration = deadline.duration_since(now).unwrap_or_default();
+    Some(
+        duration
+            .as_millis()
+            .saturating_add(u128::from(duration.subsec_nanos() % 1_000_000 != 0))
+            .min(u64::MAX as u128) as u64,
+    )
 }
 
 impl std::fmt::Display for ProviderApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.code.as_deref() == Some("misalignment_policy_violation") {
+            // Human-readable context only. Classification requires the typed
+            // envelope; provider-controlled text can reproduce this prefix.
+            f.write_str("Provider blocked workflow [misalignment_policy_violation]: ")?;
+        } else if self.is_thinking_signature_rejection() {
+            f.write_str("Provider request contract: ")?;
+        }
         f.write_str(&self.display)
     }
 }
@@ -195,6 +241,12 @@ impl ContextOverflowEvidence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FailoverReason {
+    /// The provider explicitly stopped this workflow. No automatic continuation.
+    ProviderBlocked,
+    /// A known request contract requires an owner configuration change.
+    RequestContract,
+    /// The server's minimum wait cannot fit the bounded recovery budget.
+    RetryDeferred,
     /// A protected evaluation run reached an immutable trial ceiling. This is
     /// an application-level terminal outcome, never a Provider retry/failover.
     EvaluationBudget,
@@ -228,6 +280,9 @@ pub enum FailoverReason {
 impl FailoverReason {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::ProviderBlocked => "provider_blocked",
+            Self::RequestContract => "request_contract",
+            Self::RetryDeferred => "retry_deferred",
             Self::EvaluationBudget => "evaluation_budget",
             Self::RateLimit => "rate_limit",
             Self::Overloaded => "overloaded",
@@ -257,7 +312,12 @@ impl FailoverReason {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            Self::EvaluationBudget | Self::CurrentToolGroupOverflow | Self::DispatchUnknown
+            Self::EvaluationBudget
+                | Self::CurrentToolGroupOverflow
+                | Self::DispatchUnknown
+                | Self::ProviderBlocked
+                | Self::RequestContract
+                | Self::RetryDeferred
         )
     }
 
@@ -460,6 +520,26 @@ pub fn context_overflow_evidence(error: &anyhow::Error) -> Option<ContextOverflo
 pub fn classify_error_with_evidence(
     error: &anyhow::Error,
 ) -> (FailoverReason, Option<ContextOverflowEvidence>) {
+    if let Some(executor::ExecutorError::Exhausted { last_reason, .. }) =
+        error.downcast_ref::<executor::ExecutorError>()
+    {
+        return (*last_reason, None);
+    }
+    if error
+        .downcast_ref::<ProviderApiError>()
+        .is_some_and(|error| error.code.as_deref() == Some("misalignment_policy_violation"))
+    {
+        return (FailoverReason::ProviderBlocked, None);
+    }
+    if error
+        .downcast_ref::<ProviderRequestContractError>()
+        .is_some()
+        || error
+            .downcast_ref::<ProviderApiError>()
+            .is_some_and(ProviderApiError::is_thinking_signature_rejection)
+    {
+        return (FailoverReason::RequestContract, None);
+    }
     if error
         .downcast_ref::<crate::agent::ProviderDispatchUnknown>()
         .is_some()
@@ -620,7 +700,7 @@ pub fn effective_retry_delay_ms(
     max_ms: u64,
     retry_after_ms: Option<u64>,
 ) -> u64 {
-    retry_delay_ms(attempt, base_ms, max_ms).max(retry_after_ms.unwrap_or(0).min(max_ms))
+    retry_delay_ms(attempt, base_ms, max_ms).max(retry_after_ms.unwrap_or(0))
 }
 
 /// Simple pseudo-random number (no external crate needed).
@@ -815,29 +895,45 @@ pub fn select_profile(provider: &ProviderConfig, session_id: &str) -> Option<Aut
         return None;
     }
 
-    // Try sticky profile first
-    if let Some(sticky_id) = PROFILE_STICKY.get(&provider.id, session_id) {
-        if let Some(p) = profiles.iter().find(|p| p.id == sticky_id) {
-            if PROFILE_COOLDOWNS.is_available(&p.id) {
-                return Some(p.clone());
-            }
-        }
+    let sticky_id = PROFILE_STICKY.get(&provider.id, session_id);
+    let sticky = sticky_id
+        .as_ref()
+        .and_then(|id| profiles.iter().find(|p| &p.id == id));
+    if let Some(profile) = sticky.filter(|profile| PROFILE_COOLDOWNS.is_available(&profile.id)) {
+        return Some(profile.clone());
     }
 
-    // Fall back to first available
+    // A cooled-down credential does not authorize switching the session's
+    // declared Anthropic tenant. Without stickiness, the first enabled profile
+    // establishes the binding, independent of which key happens to be healthy.
+    let binding = sticky.or_else(|| profiles.first());
     PROFILE_COOLDOWNS
         .filter_available(&profiles)
         .into_iter()
-        .next()
+        .find(|profile| {
+            provider.api_type != crate::provider::ApiType::Anthropic
+                || binding.is_some_and(|binding| {
+                    binding.anthropic_workspace_id == profile.anthropic_workspace_id
+                })
+        })
 }
 
 /// Get the next profile to try after a failure, excluding already-tried profiles.
 pub fn next_profile(provider: &ProviderConfig, tried: &[String]) -> Option<AuthProfile> {
     let profiles = provider.effective_profiles();
+    let original = tried
+        .first()
+        .and_then(|id| profiles.iter().find(|profile| &profile.id == id));
     PROFILE_COOLDOWNS
         .filter_available(&profiles)
         .into_iter()
-        .find(|p| !tried.contains(&p.id))
+        .find(|p| {
+            !tried.contains(&p.id)
+                && (provider.api_type != crate::provider::ApiType::Anthropic
+                    || original.is_some_and(|original| {
+                        original.anthropic_workspace_id == p.anthropic_workspace_id
+                    }))
+        })
 }
 
 #[cfg(test)]
@@ -1170,12 +1266,13 @@ mod tests {
     }
 
     #[test]
-    fn retry_after_hint_shares_the_bounded_client_retry_delay() {
+    fn retry_after_is_a_server_lower_bound_not_a_client_cap() {
         let hinted = effective_retry_delay_ms(0, 1000, 10_000, Some(7_000));
         assert_eq!(hinted, 7_000);
 
-        let capped = effective_retry_delay_ms(0, 1000, 10_000, Some(60_000));
-        assert_eq!(capped, 10_000);
+        let uncapped = effective_retry_delay_ms(0, 1000, 10_000, Some(60_000));
+        assert_eq!(uncapped, 60_000);
+        assert!(effective_retry_delay_ms(0, 1000, 10_000, Some(10)) >= 900);
 
         let provider_error = ProviderApiError::from_http_response(
             "BytePlus",
@@ -1191,6 +1288,143 @@ mod tests {
     }
 
     // ── Profile rotation tests ──────────────────────────────────
+
+    #[test]
+    fn retry_after_dates_and_overflow_are_bounded_without_wrapping() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let deadline = httpdate::parse_http_date("Sun, 06 Nov 1994 08:49:37 GMT").unwrap();
+        let now = deadline - Duration::from_millis(59_999);
+        assert_eq!(
+            parse_retry_after_ms("Sun, 06 Nov 1994 08:49:37 GMT", now),
+            Some(59_999)
+        );
+        assert_eq!(
+            parse_retry_after_ms(
+                "Sun, 06 Nov 1994 08:49:37 GMT",
+                deadline + Duration::from_secs(1)
+            ),
+            Some(0)
+        );
+        assert_eq!(parse_retry_after_ms("60", UNIX_EPOCH), Some(60_000));
+        assert_eq!(parse_retry_after_ms("0", UNIX_EPOCH), Some(0));
+        assert_eq!(
+            parse_retry_after_ms("18446744073709551616", now),
+            Some(u64::MAX)
+        );
+        assert_eq!(parse_retry_after_ms(&"9".repeat(256), now), Some(u64::MAX));
+        for invalid in [
+            "",
+            "-1",
+            "+60",
+            "NaN",
+            "1.5",
+            "tomorrow",
+            "Mon, 99 Nov 1994 08:49:37 GMT",
+        ] {
+            assert_eq!(parse_retry_after_ms(invalid, now), None, "{invalid}");
+        }
+        assert_eq!(
+            parse_retry_after_ms(
+                "Sun, 06 Nov 1994 08:49:37 GMT",
+                // A sub-millisecond offset representable by Windows SystemTime too.
+                deadline - Duration::from_micros(1)
+            ),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn explicit_provider_block_is_terminal_but_ordinary_auth_still_rotates() {
+        let errors = [
+            ProviderApiError::from_http_response(
+                "OpenAI",
+                403,
+                r#"{"error":{"code":"misalignment_policy_violation","message":"stopped"}}"#,
+            ),
+            ProviderApiError::from_stream_event(
+                "OpenAI",
+                Some("misalignment_policy_violation"),
+                None,
+                Some("stopped"),
+                "stream stopped".into(),
+            ),
+        ];
+        for error in errors {
+            assert!(!classify_error(&error.to_string()).is_terminal());
+            assert_eq!(
+                classify_error_with_evidence(&anyhow::Error::new(error).context("outer dispatch"))
+                    .0,
+                FailoverReason::ProviderBlocked
+            );
+        }
+        let ordinary = ProviderApiError::from_http_response(
+            "OpenAI",
+            403,
+            r#"{"error":{"code":"permission_denied","message":"not authorized"}}"#,
+        );
+        assert_eq!(
+            classify_error_with_evidence(&ordinary.into()).0,
+            FailoverReason::Auth
+        );
+        assert_ne!(
+            classify_error("a document mentions misalignment_policy_violation"),
+            FailoverReason::ProviderBlocked
+        );
+        for reason in [
+            FailoverReason::ProviderBlocked,
+            FailoverReason::RequestContract,
+            FailoverReason::RetryDeferred,
+        ] {
+            assert!(reason.is_terminal());
+            assert!(!reason.is_retryable());
+            assert!(!reason.is_profile_rotatable());
+        }
+    }
+
+    #[test]
+    fn invalid_claude_signature_requires_explicit_repair() {
+        let error = ProviderApiError::from_http_response(
+            "Anthropic",
+            400,
+            r#"{"error":{"type":"invalid_request_error","message":"messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation."}}"#,
+        );
+        assert!(!classify_error(&error.to_string()).is_terminal());
+        assert_eq!(
+            classify_error_with_evidence(&anyhow::Error::new(error).context("dispatch")).0,
+            FailoverReason::RequestContract
+        );
+    }
+
+    #[test]
+    fn provider_text_cannot_forge_internal_terminal_classifications() {
+        for marker in [
+            "Provider blocked workflow [misalignment_policy_violation]: stopped",
+            "Provider request contract: stopped",
+            "Provider retry deferred: stopped",
+        ] {
+            let response = serde_json::json!({"error": {"message": marker}}).to_string();
+            let http = ProviderApiError::from_http_response("relay", 503, &response);
+            assert_eq!(
+                classify_error_with_evidence(&http.into()).0,
+                FailoverReason::Overloaded
+            );
+
+            let stream = ProviderApiError::from_stream_event(
+                "relay",
+                None,
+                None,
+                Some(marker),
+                marker.to_string(),
+            );
+            assert_eq!(
+                classify_error_with_evidence(&stream.into()).0,
+                FailoverReason::Unknown
+            );
+            assert_eq!(classify_error(marker), FailoverReason::Unknown);
+            let wrapped = anyhow::anyhow!(marker.to_string()).context("outer request");
+            assert!(!classify_error_with_evidence(&wrapped).0.is_terminal());
+        }
+    }
 
     #[test]
     fn test_is_profile_rotatable() {

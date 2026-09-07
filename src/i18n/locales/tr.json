@@ -182,7 +182,10 @@
     "baseUrlPlaceholder": "Base URL geçersiz kılma (isteğe bağlı)",
     "empty": "Yapılandırılmış rotasyon profili yok. Yukarıdaki ana API Key kullanılacak.",
     "labelPlaceholder": "Etiket (örn. Org A Anahtarı)",
-    "title": "API Key Rotasyon Profilleri"
+    "multiWorkspace": "Çoklu çalışma alanı anahtarı",
+    "title": "API Key Rotasyon Profilleri",
+    "workspaceHint": "Doğrudan Anthropic erişimi içindir. Çoklu alan anahtarları kimlik gerektirir; tek alan anahtarları için kapatın. Otomatik anahtar değişimi aynı alanda kalır.",
+    "workspaceId": "Anthropic çalışma alanı kimliği"
   },
   "canvas": {
     "close": "Kapat",

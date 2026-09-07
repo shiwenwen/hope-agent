@@ -500,6 +500,8 @@ stateDiagram-v2
 
 终态写入是幂等的，`finish_chat_turn_once` / `finish_chat_turn_after_execution` 不会让 late success 覆盖已中断 turn。Chat Engine 在可见 stream 结束时广播 `chat:stream_end`，payload 带 `sessionId / streamId / turnId / status / interruptReason / error / finalSeq / durableSeq / assistantMessageId / persistenceStatus`，前端据此清理 loading 并恢复停止后的展示状态。
 
+服务商阻断、请求契约拒绝和等待预算不足分别写入 `provider_blocked`、`request_contract`、`retry_deferred` 中断原因。重连与另一运行时负责收尾时直接恢复该字段，不从 `error` 显示文本推断这三类终态；压缩调用也保留类型化原因，避免包装错误时恢复为可重试失败。
+
 ### 主动 Stop 的退出预算
 
 停止不是一个瞬时操作——在途工具可能正在写文件、子进程正在跑、审批弹窗正在等。Stop 编排把"尽快让出前台"和"别丢已耐久内容"分层处理，各有独立时间预算：

@@ -254,11 +254,20 @@ where
     let allow_rotation = policy.allow_profile_rotation && provider.api_type != ApiType::Codex;
 
     let mut current_profile = select_profile(provider, session_id);
+    if provider.api_type != ApiType::Codex
+        && current_profile.is_none()
+        && (!provider.auth_profiles.is_empty() || !provider.effective_profiles().is_empty())
+    {
+        // Do not let operation(None) silently reconstruct the first key and
+        // bypass cooldown, disabled profiles, or a workspace selection fence.
+        return Err(ExecutorError::NoProfileAvailable);
+    }
     let mut tried_profiles: Vec<String> = Vec::new();
     if let Some(ref p) = current_profile {
         tried_profiles.push(p.id.clone());
     }
     let mut retry_count: u32 = 0;
+    let mut waited_ms = 0u64;
 
     // Codex case: effective_profiles() is empty → current_profile is None.
     // We still want to call operation(None) at least once. The loop below
@@ -341,6 +350,27 @@ where
                 } else {
                     0
                 };
+                let remaining_wait_ms = policy
+                    .retry_max_ms
+                    .saturating_mul(u64::from(retry_budget))
+                    .saturating_sub(waited_ms);
+                if reason.is_retryable()
+                    && retry_after_ms.is_some_and(|minimum| {
+                        minimum > remaining_wait_ms || (minimum > 0 && retry_count >= retry_budget)
+                    })
+                {
+                    crate::app_warn!(
+                        "provider",
+                        "retry_deferred",
+                        "Provider {} minimum retry wait exceeds remaining recovery budget",
+                        provider.id
+                    );
+                    return Err(ExecutorError::Exhausted {
+                        last_reason: FailoverReason::RetryDeferred,
+                        last_error: format!("Provider retry deferred: server requires at least {} ms; remaining wait budget is {} ms. {}",
+                            retry_after_ms.unwrap_or(0), remaining_wait_ms, err_str),
+                    });
+                }
                 if retry_count < retry_budget {
                     if can_replay_operation.is_some_and(|can_replay| !can_replay()) {
                         return Err(ExecutorError::Exhausted {
@@ -354,6 +384,7 @@ where
                         policy.retry_max_ms,
                         retry_after_ms,
                     );
+                    let wait_started = std::time::Instant::now();
                     let next_attempt = retry_count + 1;
                     let wait_outcome = if let Some(ref cb) = on_retry {
                         let recovery_wait = crate::recovery_control::register(session_id);
@@ -374,7 +405,7 @@ where
                     } else {
                         crate::recovery_control::RecoveryWaitOutcome::Elapsed
                     };
-                    let effective_delay = match wait_outcome {
+                    let mut effective_delay = match wait_outcome {
                         crate::recovery_control::RecoveryWaitOutcome::Elapsed => delay,
                         crate::recovery_control::RecoveryWaitOutcome::SkipWait => 0,
                         crate::recovery_control::RecoveryWaitOutcome::SwitchModel => {
@@ -387,6 +418,17 @@ where
                             return Err(ExecutorError::Cancelled);
                         }
                     };
+                    // "Skip wait" can skip local backoff, but cannot authorize
+                    // an earlier request than the provider's explicit minimum.
+                    let minimum_remaining = Duration::from_millis(retry_after_ms.unwrap_or(0))
+                        .saturating_sub(wait_started.elapsed());
+                    if !minimum_remaining.is_zero() {
+                        if sleep_or_cancel(minimum_remaining, policy.cancel.as_ref()).await {
+                            return Err(ExecutorError::Cancelled);
+                        }
+                        effective_delay = effective_delay.max(retry_after_ms.unwrap_or(0));
+                    }
+                    waited_ms = waited_ms.saturating_add(effective_delay);
                     retry_count = next_attempt;
                     crate::eval_context::record_model_retry(
                         session_id,
@@ -474,6 +516,144 @@ mod tests {
     use crate::provider::{ApiType, AuthProfile};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+
+    #[tokio::test]
+    async fn provider_block_and_insufficient_retry_budget_never_replay_or_rotate() {
+        for blocked in [true, false] {
+            let (cfg, _) = make_provider(2);
+            let attempts = AtomicU32::new(0);
+            let result: Result<(), _> = execute_with_failover(
+                &cfg,
+                &uuid::Uuid::new_v4().to_string(),
+                FailoverPolicy::chat_engine_default(),
+                Some(&|_, _, _| panic!("terminal response must not rotate")),
+                |_| {
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        Err(if blocked {
+                            super::super::ProviderApiError::from_http_response(
+                                "OpenAI",
+                                403,
+                                r#"{"error":{"code":"misalignment_policy_violation"}}"#,
+                            )
+                        } else {
+                            super::super::ProviderApiError::from_http_response(
+                                "OpenAI",
+                                503,
+                                r#"{"error":{"message":"overloaded"}}"#,
+                            )
+                            .with_retry_after_header(Some("60"))
+                        }
+                        .into())
+                    }
+                },
+            )
+            .await;
+            assert_eq!(attempts.load(Ordering::SeqCst), 1);
+            assert!(
+                matches!(result, Err(ExecutorError::Exhausted {last_reason, ..})
+                if last_reason == if blocked { FailoverReason::ProviderBlocked } else { FailoverReason::RetryDeferred })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn skip_wait_keeps_server_minimum_and_stop_cancels_it() {
+        for stop in [false, true] {
+            let (cfg, _) = make_provider(2);
+            let session = uuid::Uuid::new_v4().to_string();
+            let attempts = AtomicU32::new(0);
+            let cancel = Arc::new(AtomicBool::new(false));
+            let started = std::time::Instant::now();
+            let on_retry = |progress: &RetryProgress| {
+                assert!(
+                    crate::recovery_control::request(
+                        &session,
+                        &progress.recovery_id,
+                        crate::recovery_control::RecoveryAction::SkipWait
+                    )
+                    .applied
+                );
+                if stop {
+                    cancel.store(true, Ordering::SeqCst);
+                }
+            };
+            let result: Result<(), _> = execute_with_failover_observed(
+                &cfg,
+                &session,
+                FailoverPolicy {
+                    max_retries: 1,
+                    max_unknown_retries: 0,
+                    allow_profile_rotation: true,
+                    retry_base_ms: 1,
+                    retry_max_ms: 100,
+                    cancel: Some(cancel.clone()),
+                },
+                None,
+                Some(&on_retry),
+                None,
+                |_| {
+                    let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        if attempt == 0 {
+                            let mut error = super::super::ProviderApiError::from_http_response(
+                                "OpenAI", 429, "{}",
+                            );
+                            error.retry_after_ms = Some(60);
+                            Err(error.into())
+                        } else {
+                            assert!(started.elapsed() >= Duration::from_millis(60));
+                            Ok(())
+                        }
+                    }
+                },
+            )
+            .await;
+            if stop {
+                assert!(matches!(result, Err(ExecutorError::Cancelled)));
+                assert_eq!(attempts.load(Ordering::SeqCst), 1);
+            } else {
+                assert!(result.is_ok());
+                assert_eq!(attempts.load(Ordering::SeqCst), 2);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn anthropic_rotation_stays_within_the_declared_workspace() {
+        let (mut cfg, ids) = make_provider(3);
+        cfg.auth_profiles[0].anthropic_workspace_id = Some("wrkspc_A".into());
+        cfg.auth_profiles[1].anthropic_workspace_id = Some("wrkspc_B".into());
+        cfg.auth_profiles[2].anthropic_workspace_id = Some("wrkspc_A".into());
+        let attempted = std::sync::Mutex::new(Vec::new());
+        let result: Result<(), _> = execute_with_failover(
+            &cfg,
+            "workspace-rotation",
+            FailoverPolicy::chat_engine_default(),
+            None,
+            |profile| {
+                attempted.lock().unwrap().push(profile.unwrap().id.clone());
+                async { Err(anyhow::anyhow!("401 Unauthorized")) }
+            },
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(
+            *attempted.lock().unwrap(),
+            vec![ids[0].clone(), ids[2].clone()]
+        );
+        // Both keys in A are now cooling down. Neither a new turn nor a
+        // reconstructed operation(None) may select the healthy key in B.
+        let result: Result<(), _> = execute_with_failover(
+            &cfg,
+            "workspace-rotation",
+            FailoverPolicy::chat_engine_default(),
+            None,
+            |_| async { panic!("workspace fence must stop before operation") },
+        )
+        .await;
+        assert!(matches!(result, Err(ExecutorError::NoProfileAvailable)));
+    }
 
     /// Helper: build a provider with N enabled auth profiles.
     fn make_provider(n_profiles: usize) -> (ProviderConfig, Vec<String>) {

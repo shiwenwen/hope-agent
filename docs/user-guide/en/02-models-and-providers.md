@@ -80,6 +80,9 @@ Attach multiple API keys to the same provider, and when one is rate-limited or f
 
 Each key configuration includes: a label (to tell them apart), the API key, an enable toggle, and an optional dedicated Base URL.
 
+**Anthropic multi-workspace keys**: enable “Multi-workspace key” on the relevant key entry and enter the workspace ID beginning with `wrkspc_`. A missing or invalid ID prevents saving and sending. This applies to Anthropic’s direct HTTPS endpoint; keep it off for existing workspace-scoped keys. Create separate providers for different workspaces. Automatic rotation stays within the same declared workspace. Like API keys, this binding is editable only in Settings.
+
+
 **How it works**: on rate-limit, overload, authentication, or billing errors it automatically switches keys and gives the failed key a cooldown period; for errors like network timeouts where "switching wouldn't help," it only retries the same key. A given session tries to "stick" to the same key to hit the model's prompt cache and save costs.
 
 > Providers signed in with a ChatGPT / Codex account do not participate in key rotation (there is no rotatable key). See [2.4](#24-sign-in-with-a-chatgpt--codex-account).
@@ -145,8 +148,12 @@ Two knobs that affect answer style, both layered as "**session > Agent > global*
 
 **Where**: Settings → Global Model.
 
-- **Thinking effort (Think)**: controls how deeply the model thinks, with values up to `none / minimal / low / medium / high / xhigh` (the actual available tiers depend on the model's API type; for example Claude / OpenAI Chat only offer `none / low / medium / high`). The global default is `medium`. In a conversation you can use `/thinking high` to adjust it quickly.
+- **Thinking effort (Think)**: offers up to seven levels, `none / minimal / low / medium / high / xhigh / max`, with a global default of `medium`. Requests map the preference to supported levels for the model, protocol, and endpoint. Use `/thinking high` in a conversation to adjust it quickly.
 - **Temperature**: controls the randomness of answers, a slider from 0.00–2.00, defaulting to 1.00. A "Reset" button returns it to the inherited state.
+
+For direct **GPT-6 Astra** conversations with tools, choose OpenAI Responses. Astra preserves `max`, maps `none` / `minimal` to `low`, and omits temperature. New presets affect new connections only; add the model or adjust the protocol yourself for existing providers.
+
+**Claude Fable 5.1** stores original thinking signatures with the conversation. If dynamic prefixes, compaction, or a model switch make some historical thinking unusable, the reply displays a notice. Local original blocks remain available, but full reasoning continuity across models is not guaranteed.
 
 **Thinking Style** is a provider-level setting (which can also be overridden per model) that determines "how" reasoning parameters are sent. Built-in templates have it pre-filled, so usually you don't need to touch it. There are 5 styles:
 

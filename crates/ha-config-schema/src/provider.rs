@@ -145,6 +145,10 @@ pub struct AuthProfile {
     /// Optional base_url override (None = use provider's base_url)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// None: a workspace-scoped/legacy key. Some: explicitly bind this key to
+    /// a workspace; an empty or invalid ID must fail before any network call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anthropic_workspace_id: Option<String>,
     /// Whether this profile is enabled
     #[serde(default = "crate::default_true")]
     pub enabled: bool,
@@ -158,6 +162,7 @@ impl AuthProfile {
             label,
             api_key,
             base_url,
+            anthropic_workspace_id: None,
             enabled: true,
         }
     }
@@ -347,6 +352,7 @@ impl ProviderConfig {
                 label: "Default".to_string(),
                 api_key: self.api_key.clone(),
                 base_url: None,
+                anthropic_workspace_id: None,
                 enabled: true,
             }];
         }

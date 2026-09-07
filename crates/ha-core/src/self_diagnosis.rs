@@ -1,6 +1,7 @@
 use crate::crash_journal::{CrashJournal, DiagnosisResult};
 use crate::paths;
 use crate::provider::{ApiType, ModelConfig, ProviderConfig};
+use anyhow::Context as _;
 use std::time::Duration;
 
 const REQUEST_TIMEOUT_SECS: u64 = 30;
@@ -61,7 +62,8 @@ fn record_diagnosis_usage(
 
 /// Run self-diagnosis using available LLM providers.
 /// Reads crash logs, builds a diagnostic prompt, and calls the cheapest available LLM.
-/// Falls back to basic log analysis if all LLM calls fail.
+/// Falls back to basic log analysis when no candidates are available or all fail
+/// with non-terminal errors. A terminal error exits without offline analysis.
 pub fn diagnose(journal: &CrashJournal) -> Result<DiagnosisResult, String> {
     let log_excerpt = read_recent_logs();
     let crash_summary = build_crash_summary(journal);
@@ -70,16 +72,10 @@ pub fn diagnose(journal: &CrashJournal) -> Result<DiagnosisResult, String> {
     // Try LLM diagnosis with provider failover
     let providers = load_candidate_providers();
     if !providers.is_empty() {
-        for provider in &providers {
-            match call_llm(provider, &prompt) {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    eprintln!(
-                        "[Diagnosis] Provider '{}' failed: {}, trying next...",
-                        provider.name, e
-                    );
-                }
-            }
+        if let Some(result) = try_diagnosis_providers(&providers, &prompt, call_llm)
+            .map_err(|error| error.to_string())?
+        {
+            return Ok(result);
         }
         eprintln!("[Diagnosis] All LLM providers failed, falling back to basic analysis.");
     } else {
@@ -88,6 +84,31 @@ pub fn diagnose(journal: &CrashJournal) -> Result<DiagnosisResult, String> {
 
     // Fallback: basic analysis without LLM
     Ok(basic_analysis(journal))
+}
+
+fn try_diagnosis_providers(
+    providers: &[ProviderConfig],
+    prompt: &str,
+    mut call: impl FnMut(&ProviderConfig, &str) -> anyhow::Result<DiagnosisResult>,
+) -> anyhow::Result<Option<DiagnosisResult>> {
+    for provider in providers {
+        match call(provider, prompt) {
+            Ok(result) => return Ok(Some(result)),
+            Err(error) => {
+                if crate::failover::classify_error_with_evidence(&error)
+                    .0
+                    .is_terminal()
+                {
+                    return Err(error);
+                }
+                eprintln!(
+                    "[Diagnosis] Provider '{}' failed: {}, trying next...",
+                    provider.name, error
+                );
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Apply safe auto-fixes based on diagnosis result.
@@ -262,7 +283,7 @@ fn rank_cost(currency: Option<crate::provider::Currency>, m: &ModelConfig) -> f6
 
 // ── LLM Calling ────────────────────────────────────────────────────
 
-fn call_llm(provider: &ProviderConfig, prompt: &str) -> Result<DiagnosisResult, String> {
+fn call_llm(provider: &ProviderConfig, prompt: &str) -> anyhow::Result<DiagnosisResult> {
     // Pick the cheapest model from this provider
     let model = provider
         .models
@@ -272,24 +293,24 @@ fn call_llm(provider: &ProviderConfig, prompt: &str) -> Result<DiagnosisResult, 
                 .partial_cmp(&rank_cost(provider.currency, b))
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
-        .ok_or_else(|| "No models available".to_string())?;
+        .ok_or_else(|| anyhow::anyhow!("No models available"))?;
 
     let client = crate::provider::apply_proxy_blocking(
         reqwest::blocking::Client::builder().timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS)),
     )
     .build()
-    .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    .context("Failed to create HTTP client")?;
 
     let response_text = match provider.api_type {
         ApiType::Anthropic => call_anthropic(&client, provider, &model.id, prompt)?,
         ApiType::OpenaiChat | ApiType::OpenaiResponses => {
             call_openai(&client, provider, &model.id, prompt)?
         }
-        ApiType::Codex => return Err("Codex OAuth not supported for diagnosis".to_string()),
+        ApiType::Codex => anyhow::bail!("Codex OAuth not supported for diagnosis"),
     };
 
     // Try to parse structured JSON response
-    parse_diagnosis_response(&response_text, &provider.name)
+    parse_diagnosis_response(&response_text, &provider.name).map_err(anyhow::Error::msg)
 }
 
 fn call_anthropic(
@@ -297,8 +318,31 @@ fn call_anthropic(
     provider: &ProviderConfig,
     model_id: &str,
     prompt: &str,
-) -> Result<String, String> {
-    let url = format!("{}/v1/messages", provider.base_url.trim_end_matches('/'));
+) -> anyhow::Result<String> {
+    crate::provider::validate_anthropic_profiles(provider)?;
+    let profile = provider
+        .effective_profiles()
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No enabled Anthropic authentication profile"))?;
+    let base_url = provider.resolve_base_url(&profile);
+    let url = crate::agent::config::build_api_url(base_url, "/v1/messages");
+    let headers = crate::provider::anthropic_headers(
+        base_url,
+        &profile.api_key,
+        profile.anthropic_workspace_id.as_deref(),
+    )?;
+    // Crash diagnosis is a synchronous, standalone path (it already uses
+    // reqwest::blocking), so resolve the same SSRF gate in a short-lived runtime.
+    let policy = if provider.allow_private_network {
+        crate::security::ssrf::SsrfPolicy::AllowPrivate
+    } else {
+        crate::security::ssrf::SsrfPolicy::Default
+    };
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(crate::security::ssrf::check_url(&url, policy, &[]))?;
     let body = serde_json::json!({
         "model": model_id,
         "max_tokens": 1024,
@@ -310,8 +354,7 @@ fn call_anthropic(
     let started = std::time::Instant::now();
     let resp = match client
         .post(&url)
-        .header("x-api-key", &provider.api_key)
-        .header("anthropic-version", "2023-06-01")
+        .headers(headers)
         .header("content-type", "application/json")
         .json(&body)
         .send()
@@ -327,26 +370,31 @@ fn call_anthropic(
                 Some(format!("Anthropic request failed: {}", e)),
                 None,
             );
-            return Err(format!("Anthropic request failed: {}", e));
+            return Err(anyhow::Error::new(e).context("Anthropic request failed"));
         }
     };
 
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().unwrap_or_default();
+        let error = crate::failover::ProviderApiError::from_http_response(
+            "Anthropic",
+            status.as_u16(),
+            &text,
+        );
         record_diagnosis_usage(
             provider,
             model_id,
             "self_diagnosis.anthropic",
             started.elapsed().as_millis() as u64,
             false,
-            Some(format!("Anthropic API error: {} {}", status, text)),
+            Some(error.to_string()),
             None,
         );
-        return Err(format!("Anthropic API error: {} {}", status, text));
+        return Err(error.into());
     }
 
-    let resp_json: serde_json::Value = resp.json().map_err(|e| format!("Parse error: {}", e))?;
+    let resp_json: serde_json::Value = resp.json().context("Parse error")?;
     record_diagnosis_usage(
         provider,
         model_id,
@@ -359,7 +407,7 @@ fn call_anthropic(
     resp_json["content"][0]["text"]
         .as_str()
         .map(|s| s.to_string())
-        .ok_or_else(|| "No text in Anthropic response".to_string())
+        .ok_or_else(|| anyhow::anyhow!("No text in Anthropic response"))
 }
 
 fn call_openai(
@@ -367,7 +415,7 @@ fn call_openai(
     provider: &ProviderConfig,
     model_id: &str,
     prompt: &str,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     let url = format!(
         "{}/v1/chat/completions",
         provider.base_url.trim_end_matches('/')
@@ -399,26 +447,28 @@ fn call_openai(
                 Some(format!("OpenAI request failed: {}", e)),
                 None,
             );
-            return Err(format!("OpenAI request failed: {}", e));
+            return Err(anyhow::Error::new(e).context("OpenAI request failed"));
         }
     };
 
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().unwrap_or_default();
+        let error =
+            crate::failover::ProviderApiError::from_http_response("OpenAI", status.as_u16(), &text);
         record_diagnosis_usage(
             provider,
             model_id,
             "self_diagnosis.openai_chat",
             started.elapsed().as_millis() as u64,
             false,
-            Some(format!("OpenAI API error: {} {}", status, text)),
+            Some(error.to_string()),
             None,
         );
-        return Err(format!("OpenAI API error: {} {}", status, text));
+        return Err(error.into());
     }
 
-    let resp_json: serde_json::Value = resp.json().map_err(|e| format!("Parse error: {}", e))?;
+    let resp_json: serde_json::Value = resp.json().context("Parse error")?;
     record_diagnosis_usage(
         provider,
         model_id,
@@ -431,7 +481,7 @@ fn call_openai(
     resp_json["choices"][0]["message"]["content"]
         .as_str()
         .map(|s| s.to_string())
-        .ok_or_else(|| "No content in OpenAI response".to_string())
+        .ok_or_else(|| anyhow::anyhow!("No content in OpenAI response"))
 }
 
 fn parse_diagnosis_response(text: &str, provider_name: &str) -> Result<DiagnosisResult, String> {
@@ -655,5 +705,84 @@ fn try_restore_config_from_backup() -> bool {
         crate::backup::restore_backup(&latest.name).is_ok()
     } else {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::failover::{
+        classify_error_with_evidence, executor::ExecutorError, FailoverReason, ProviderApiError,
+        ProviderRequestContractError,
+    };
+
+    fn providers() -> Vec<ProviderConfig> {
+        ["first", "second"]
+            .into_iter()
+            .map(|name| {
+                ProviderConfig::new(
+                    name.into(),
+                    ApiType::OpenaiChat,
+                    "https://example.invalid".into(),
+                    String::new(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn diagnosis_provider_terminals_stop_before_the_next_candidate() {
+        let cases: [(anyhow::Error, FailoverReason); 3] = [
+            (
+                ProviderApiError::from_http_response(
+                    "OpenAI",
+                    403,
+                    r#"{"error":{"code":"misalignment_policy_violation","message":"stopped"}}"#,
+                )
+                .into(),
+                FailoverReason::ProviderBlocked,
+            ),
+            (
+                ProviderRequestContractError("opaque contract failure".into()).into(),
+                FailoverReason::RequestContract,
+            ),
+            (
+                ExecutorError::Exhausted {
+                    last_reason: FailoverReason::RetryDeferred,
+                    last_error: "opaque deferred failure".into(),
+                }
+                .into(),
+                FailoverReason::RetryDeferred,
+            ),
+        ];
+        for (error, reason) in cases {
+            let mut pending = Some(error.context("diagnosis request"));
+            let mut calls = 0;
+            let result = try_diagnosis_providers(&providers(), "synthetic prompt", |_, _| {
+                calls += 1;
+                Err(pending
+                    .take()
+                    .expect("a terminal must not reach another provider"))
+            });
+            assert_eq!(calls, 1);
+            assert_eq!(classify_error_with_evidence(&result.unwrap_err()).0, reason);
+        }
+    }
+
+    #[test]
+    fn diagnosis_provider_terminal_markers_in_text_do_not_stop_other_candidates() {
+        let mut calls = 0;
+        let result = try_diagnosis_providers(&providers(), "synthetic prompt", |_, _| {
+            calls += 1;
+            Err(ProviderApiError::from_http_response(
+                "relay",
+                503,
+                r#"{"error":{"message":"Provider request contract: try later"}}"#,
+            )
+            .into())
+        })
+        .unwrap();
+        assert!(result.is_none());
+        assert_eq!(calls, 2);
     }
 }

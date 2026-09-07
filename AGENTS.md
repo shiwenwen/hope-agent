@@ -67,7 +67,7 @@ Tauri 2 + React 19 + Rust AI 助手，支持桌面、HTTP/WS、ACP。依赖与�
 | 涉及内容 | 文档入口 |
 | --- | --- |
 | 分层、装配、并发、阻塞 IO | [分层架构](docs/architecture/system/backend-separation.md)、[进程模型](docs/architecture/system/process-model.md)、[平台](docs/architecture/infra/platform.md)、[日志](docs/architecture/infra/logging.md) |
-| 配置、OAuth、Provider、STT、本地模型 | [配置](docs/architecture/infra/config-system.md)、[OAuth](docs/architecture/core/llm-oauth.md)、[Provider](docs/architecture/core/provider-system.md)、[语音转写](docs/architecture/core/stt.md)、[本地模型](docs/architecture/core/local-model-loading.md) |
+| 配置、OAuth、Provider、STT、本地模型 | [配置](docs/architecture/infra/config-system.md)、[OAuth](docs/architecture/core/llm-oauth.md)、[Provider](docs/architecture/core/provider-system.md)、[恢复](docs/architecture/agent/failover.md)、[语音转写](docs/architecture/core/stt.md)、[本地模型](docs/architecture/core/local-model-loading.md) |
 | 工具、审批、沙箱、浏览器、媒体 | [工具](docs/architecture/core/tool-system.md)、[权限](docs/architecture/agent/permission-system.md)、[沙箱](docs/architecture/infra/sandbox.md)、[浏览器](docs/architecture/core/browser.md)、[媒体](docs/architecture/infra/media-generation.md) |
 | 对话、流、Stop / Continue、侧聊、压缩 | [对话引擎](docs/architecture/core/chat-engine.md)、[会话](docs/architecture/core/session.md)、[压缩](docs/architecture/core/context-compact.md)、[运行模式](docs/architecture/system/transport-modes.md) |
 | 记忆、召回、嵌入、知识空间 | [记忆](docs/architecture/core/memory.md)、[Dreaming](docs/architecture/core/dreaming.md)、[知识空间](docs/architecture/core/knowledge-base.md)、[检索](docs/architecture/agent/context-retrieval.md) |

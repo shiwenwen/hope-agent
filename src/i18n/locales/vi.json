@@ -182,7 +182,10 @@
     "baseUrlPlaceholder": "Ghi đè Base URL (tùy chọn)",
     "empty": "Chưa cấu hình hồ sơ luân phiên. Sẽ dùng API Key chính ở trên.",
     "labelPlaceholder": "Nhãn (vd. Key Org A)",
-    "title": "Hồ sơ luân phiên API Key"
+    "multiWorkspace": "Khóa nhiều không gian làm việc",
+    "title": "Hồ sơ luân phiên API Key",
+    "workspaceHint": "Dành cho kết nối trực tiếp Anthropic. Khóa nhiều không gian cần ID; tắt với khóa giới hạn một không gian. Tự động đổi khóa không chuyển sang không gian khác.",
+    "workspaceId": "ID không gian làm việc Anthropic"
   },
   "canvas": {
     "close": "Đóng",

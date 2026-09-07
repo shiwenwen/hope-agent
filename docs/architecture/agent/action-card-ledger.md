@@ -1,5 +1,24 @@
 # 行动卡统一迭代台账
 
+## 2026-09-07：模型适配更新
+
+依据专项 01 的 `reports/2026/2026-09-07-1031.md`（上海时间 10:31），在 `main@77cd06cf33dfe7a0e7ca325b9de196a6d7c21e5d` 上落实 A01–A06。对应 [PR #710](https://github.com/shiwenwen/hope-agent/pull/710)，下表记录本轮实现范围；历史雷达文件与原账户配置保持不变。真实模型、账户权限及计费表现尚未验证。
+
+| 行动卡 | 本轮实现 | 验证边界 |
+| --- | --- | --- |
+| A01 公共退役预设 | Cerebras 移除 `gemma-4-31b`、`zai-glm-4.7`、`qwen-3-235b-a22b-instruct-2507`、`llama3.1-8b`；Together 改为 `deepseek-ai/DeepSeek-V4-Pro-0813` | 仅更新新建模板，其他渠道同名模型与用户专属部署不受影响 |
+| A02 最短重试等待 | `Retry-After` 保留服务端下限；整数溢出饱和、有界解析日期并转为单调计时；超出剩余等待预算返回 `RetryDeferred` | 合成 60 秒提示与 10 秒本地上限、预算不足、跳过等待、取消、日期及畸形值 |
+| A03 服务商阻断终态 | HTTP / SSE 精确识别 `misalignment_policy_violation`；主对话及后台一次性调用停止重试、密钥轮换、模型回退和后续工具；保留类型化失败与持久终态标识 | 仅合成错误；默认 `store=false`、不请求持久推理，未启用状态能力 |
+| A04 Astra 请求策略 | OpenAI Responses 预设新增 `gpt-6-astra`；仅官方 HTTPS 端点应用档位和采样限制；`max` 保留、`minimal` / `none` 映射 `low`；Chat 工具请求在发送前拒绝并提示协议选择 | 请求构造、后台请求与中转回归；基础价 10/50 美元每百万令牌，只覆盖标准短上下文档 |
+| A05 Claude 原始思考 | 新增 Fable 5.1 预设；工具轮与最终轮均保存原始思考、签名、遮蔽块及顺序；官方端点用绑定控制明确请求前缀失配时由服务端舍弃，显示提示并记录原因；本地不删原块 | 合成签名单独增量、摘要加签名、遮蔽块、工具续轮、保留的压缩后缀、前缀变化及切旧模型提示；未验证新旧账户差异 |
+| A06 工作区绑定 | 每个鉴权档案新增可选 `anthropicWorkspaceId`；开启后缺失值拒绝保存和发送；共用请求头构造覆盖主对话、一次性请求与连接测试；冷却后的选取、轮换和缓存隔离均遵守声明的工作区 | 无真实密钥的配置、请求头敏感标记、GUI 与档案轮换回归；限定工作区旧密钥继续省略该头 |
+
+A07（新渠道与资格）、A08（多维计价）、A09（运行时升级与模型对比）、A10（Astra 执行协议）仍为实验或待证据范围；本轮不安装运行时、不上传资料、不执行付费模型实验。Fable 的兼容处理能观察到思考被服务端舍弃，不能据此承诺跨前缀或跨模型保留全部推理连续性。大盘价格仍是估算，不包含 Astra 超过 272,000 输入令牌的阶梯、缓存写入、地区加价或实际账单。
+
+本地验证已通过：`ha-agent-runtime` / `ha-dash` / `ha-server` 单点编译；相关 `ha-core` 故障恢复、请求构造、思考历史、工作区及后台终态回归；`ha-agent-runtime` 的 20 项一次性调用回归；前端 3 个文件的 16 项测试、类型检查、12 种语言完整性、用户指南中英文对齐与运行内核边界检查。桌面界面未做视觉验收，服务商真实 API 冒烟未执行。
+
+主要官方依据：[Astra 模型与请求规则](https://developers.openai.com/api/docs/guides/latest-model)、[服务商阻断语义](https://developers.openai.com/api/docs/guides/safety-checks/misalignment-monitoring)、[Claude 思考绑定控制](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)、[Claude 工作区鉴权](https://platform.claude.com/docs/en/manage-claude/authentication)、[Cerebras 退役清单](https://inference-docs.cerebras.ai/support/deprecation)、[Together 变更记录](https://docs.together.ai/docs/changelog)。
+
 ## 2026-08-31：范围与证据
 
 本轮从 `main@b14100692`（`v0.38.0`）核对。上一轮 [PR #674](https://github.com/shiwenwen/hope-agent/pull/674) 已合并，开始检查时没有未关闭 PR。本台账记录工程状态，不改写历史雷达报告，也不把报告建议视为外部操作授权。

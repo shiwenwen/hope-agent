@@ -1194,6 +1194,15 @@ impl TurnFailureFallback {
                 Some(crate::session::ChatTurnInterruptReason::ProviderFailed)
             }
             TurnFailureKind::Terminal => match failure.reason() {
+                Some(crate::failover::FailoverReason::ProviderBlocked) => {
+                    Some(crate::session::ChatTurnInterruptReason::ProviderBlocked)
+                }
+                Some(crate::failover::FailoverReason::RequestContract) => {
+                    Some(crate::session::ChatTurnInterruptReason::RequestContract)
+                }
+                Some(crate::failover::FailoverReason::RetryDeferred) => {
+                    Some(crate::session::ChatTurnInterruptReason::RetryDeferred)
+                }
                 Some(crate::failover::FailoverReason::CurrentToolGroupOverflow) => {
                     Some(crate::session::ChatTurnInterruptReason::CurrentToolGroupOverflow)
                 }
@@ -1801,6 +1810,58 @@ mod tests {
         assert!(error
             .to_string()
             .contains("outside the admitted config snapshot"));
+    }
+
+    #[tokio::test]
+    async fn kernel_fallback_preserves_provider_terminals_in_storage() {
+        use crate::{
+            failover::FailoverReason,
+            session::{ChatTurnInterruptReason, ChatTurnStatus},
+        };
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(
+                &tempfile::tempdir().unwrap().path().join("sessions.db"),
+            )
+            .unwrap(),
+        );
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        for (reason, interrupt) in [
+            (
+                FailoverReason::ProviderBlocked,
+                ChatTurnInterruptReason::ProviderBlocked,
+            ),
+            (
+                FailoverReason::RequestContract,
+                ChatTurnInterruptReason::RequestContract,
+            ),
+            (
+                FailoverReason::RetryDeferred,
+                ChatTurnInterruptReason::RetryDeferred,
+            ),
+        ] {
+            let turn = db
+                .create_chat_turn(&session.id, ChatSource::Eval.as_str(), None, None)
+                .unwrap();
+            TurnFailureFallback {
+                db: db.clone(),
+                session_id: session.id.clone(),
+                turn_id: Some(turn.id.clone()),
+                stream_id: None,
+                run: None,
+                source: ChatSource::Eval,
+            }
+            .converge(&TurnFailure::classified(
+                TurnFailureKind::Terminal,
+                Some(reason),
+                "opaque failure",
+            ))
+            .await;
+            let persisted = db.get_chat_turn(&turn.id).unwrap().unwrap();
+            assert_eq!(persisted.status, ChatTurnStatus::Failed);
+            assert_eq!(persisted.interrupt_reason, Some(interrupt));
+        }
     }
 
     #[tokio::test]

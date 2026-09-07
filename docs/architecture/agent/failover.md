@@ -64,6 +64,9 @@ flowchart TB
 
 | Reason | 触发关键字（节选） | 行为 |
 |---|---|---|
+| `ProviderBlocked` | HTTP / SSE 的精确 `misalignment_policy_violation` | 终态：停止同一工作流的重试、密钥轮换、模型回退与工具续跑；普通 403 仍按鉴权错误处理 |
+| `RequestContract` | 本地请求协议不匹配、工作区绑定缺失或类型化签名拒绝 | 终态：提示修正配置或会话，不重放同一无效请求 |
+| `RetryDeferred` | 服务端最短等待超过剩余恢复预算 | 终态：明确结束本次恢复，不能提前请求或自动切模型规避下限 |
 | `EvaluationBudget` | `evaluation budget exhausted` | **terminal**：评测预算耗尽，直接 Exhausted，永不重试 / 轮换 |
 | `ContextOverflow` | typed `PreflightOverflow` 或 Provider 结构化 status/code/type | 返回带 evidence 的 `NeedsCompaction`；只有本地不可变完整请求容量证书才能进入 Tier 4，单有 Provider evidence 时不改历史 |
 | `CurrentToolGroupOverflow` | typed C0 group capacity error | **terminal**：当前用户 + 当前完整工具组的最小合法请求仍放不下；禁止重跑工具、重试或轮换 |
@@ -76,17 +79,18 @@ flowchart TB
 | `ModelNotFound` | `404` / `model not found` / `model_not_found` / `provider not found` / `does not exist` / `not_found_error` | **不**重试 / **不**轮换，直接上交给上层跳下一个 fallback model |
 | `Unknown` | 上面都不命中 | 谨慎重试（小预算，默认 2 次）；仍失败则上交给上层跳下一个 fallback model |
 
-判定先级是：typed `DispatchUnknown` / `CurrentToolGroupOverflow` → typed overflow evidence → 文本 fallback。文本 fallback 内部再按 `EvaluationBudget → RateLimit → Overloaded → Timeout → Auth → Billing → ModelNotFound → Unknown`。这种顺序保证发送歧义和确定性容量终态永远不会被字符串降级成可重试错误。
+判定先级是：类型化执行器终态 / `ProviderBlocked` / `RequestContract` → 类型化 `DispatchUnknown` / `CurrentToolGroupOverflow` → 类型化溢出证据 → 文本回退。服务端阻断只按结构化错误代码认定；`ProviderBlocked`、`RequestContract`、`RetryDeferred` 的持久终态分别使用 `chat_turns.interrupt_reason` 的类型化值，压缩过程通过 `CompactionRunOutcome.fatal_provider_reason` 保留分类。错误文本即使完整复制内部显示前缀，也不能获得这三类终态身份。文本回退内部再按 `EvaluationBudget → RateLimit → Overloaded → Timeout → Auth → Billing → ModelNotFound → Unknown`。这种顺序保证发送歧义和确定性容量终态永远不会被字符串降级成可重试错误。
 
 三条容易忽略的设计取舍：
 
 - **`Timeout` 故意不算 `is_profile_rotatable`**：传输层错误换 key 也救不了，应当退避后重试同一把 key。否则一阵网络抽风会把所有 key 全打进 cooldown。
-- **有三个 terminal**：`EvaluationBudget`、`CurrentToolGroupOverflow`、`DispatchUnknown` 都必须立即对用户可见，不能进入任何自动 fallback。
+- **终态必须立即对用户可见**：`ProviderBlocked`、`RequestContract`、`RetryDeferred`、`EvaluationBudget`、`CurrentToolGroupOverflow`、`DispatchUnknown` 均不能进入自动回退。主执行器和后台文本、视觉、流式一次性调用共用此规则，`side_query` 保留类型化错误，不因包装成字符串而丢失终态。
+- **诊断与延迟接管也保留分类**：独立自诊断在服务商调用链内传递类型化错误，只在最外层返回界面时转换成文字；运行内核兜底收尾保留这三类中断原因，IM 延迟接管从持久化原因恢复提示，不能根据错误正文重新认定终态。
 - **`ContextOverflow` 不是 terminal，但也不等于一定执行 Tier 4**：它只是携 evidence 的 `NeedsCompaction`。chat_engine 只有拿到与失败请求完全匹配的本地容量证书，且工具副作用可安全重放时才发布紧急 history；否则保持旧历史并走普通模型链或失败关闭。
 
 ## 单次调用的决策流程
 
-执行器对每次 `operation(profile)` 的结果按下面的分支决策。retry 预算用尽后才考虑轮换 profile；轮换会把 `retry_count` 归零，让新 key 重新享有完整的重试预算。
+执行器对每次 `operation(profile)` 的结果按下面的分支决策。重试次数用尽后才考虑轮换鉴权档案；轮换会把 `retry_count` 归零，但不会重置已消耗的等待额度。服务端最短等待无法满足时直接结束恢复。
 
 ```mermaid
 flowchart TD
@@ -97,7 +101,7 @@ flowchart TD
     Cls --> Comp{"needs_compaction?"}
     Comp -- "是 · ContextOverflow" --> NC["return NeedsCompaction<br/>{ last_profile, evidence }"]
     Comp -- 否 --> Term{"is_terminal?"}
-    Term -- "是 · 3 类 terminal" --> Exh["return Exhausted"]
+    Term -- "是 · 终态" --> Exh["return Exhausted"]
     Term -- 否 --> Budget{"retry 预算未用尽?"}
 
     Budget -- 是 --> Guard1{"can_replay?"}
@@ -126,11 +130,11 @@ flowchart TD
 | 出口 | 何时触发 | Caller 行为 |
 |---|---|---|
 | `Ok(T)` | 操作成功 | 无；执行器已自动 `PROFILE_STICKY.set` + `PROFILE_COOLDOWNS.clear` |
-| `Exhausted { last_reason, last_error }` | 所有 retry / 所有 profile 都试过 / 命中不可重试错误 / terminal | 主 runtime 仅对**非 terminal** reason 进入 fallback chain 下一个 model；`EvaluationBudget` / `CurrentToolGroupOverflow` / `DispatchUnknown` 立即持久收敛并返回。side_query / summarize 直接返回 |
+| `Exhausted { last_reason, last_error }` | 所有 retry / 所有 profile 都试过 / 命中不可重试错误 / terminal | 主 runtime 仅对**非 terminal** reason 进入 fallback chain 下一个 model；全部终态立即持久收敛并返回。side_query / summarize 直接返回 |
 | `NeedsCompaction { last_profile, evidence }` | attempt 命中高置信 ContextOverflow | 主 runtime 只在 evidence 含失败请求的本地完整容量证书时调用 kernel Tier 4 capability；仅 Provider 结构化 evidence 不足以发布有损 history。side_query / summarize 直接报错（无主对话 canonical 可压） |
 | `SwitchModel { last_reason, last_error }` | 用户在可见退避期点击「立即换模型」 | 主 runtime 跳过当前模型剩余重试，进入下一个 fallback model；没有下一个则终止，不重启同一条链 |
 | `Cancelled` | 用户停止本轮对话 | 主 runtime 进入 kernel 统一取消收尾 |
-| `NoProfileAvailable` | 执行器当前不产出此出口，保留供未来在 attempt 前置 cooldown 检查 | 主 runtime 另有一条 `TerminationReason::NoProfileAvailable`，用于「压根没走到执行器」的快路径 |
+| `NoProfileAvailable` | 已配置的鉴权候选全部禁用、冷却或被工作区边界排除 | 主 runtime 以 `TerminationReason::NoProfileAvailable` 收敛，不用无档案调用取回旧密钥 |
 
 ### 主 runtime 的 compaction-retry 闭环
 
@@ -146,9 +150,11 @@ flowchart TD
 
 ## Profile 轮换：Cooldown + Sticky
 
+Anthropic 显式工作区绑定属于凭据租户边界。首次按第一条启用档案确定工作区，后续优先沿用会话档案的绑定；冷却不能导致跨工作区选取，失败后的轮换只允许相同绑定（含旧密钥均未声明绑定）。不同工作区应使用独立服务商。全部候选不可用时返回 `NoProfileAvailable`，禁止 `operation(None)` 重新拿回首把密钥。
+
 同一个 `ProviderConfig` 挂多把 API Key 时（`auth_profiles`），执行器用两个**进程级单例 `LazyLock`** 维护轮换状态。二者都**只在内存**，重启进程即清零——历史失败不该惩罚下次启动。
 
-`effective_profiles()` 是 key 池的唯一口径：Codex 恒返回空；否则取 `auth_profiles` 里 `enabled` 的那些；两者都空但 `api_key` 非空时，把裸 `api_key` 包成一把 `__legacy__` 合成 profile。
+`effective_profiles()` 是 key 池的唯一口径：Codex 恒返回空；`auth_profiles` 非空时只取其中启用档案，全部禁用不能借用旧密钥；仅在档案列表本身为空且 `api_key` 非空时，把裸 `api_key` 包成一把 `__legacy__` 合成档案。
 
 ### `PROFILE_COOLDOWNS`：失败 Key 的临时拉黑
 
@@ -200,11 +206,17 @@ return   max(delay + jitter, 0)
 
 三档默认 policy 都用 `base=1000ms` / `max=10000ms`。主对话已知瞬时错误最多 sleep 3 次（约 `1s ±10%`、`2s ±10%`、`4s ±10%`），未知错误 sleep 2 次；side query 只 sleep 1 次，避免一次性辅助请求拖太久。`max_ms=10000` 是 caller 自定义更高预算时的安全 clamp。抖动用一个基于纳秒 + thread-local 计数器的轻量伪随机，避免引入外部 crate。
 
+### 服务端最短等待与总预算
+
+`effective_retry_delay_ms` 取本地退避与 `Retry-After` 的较大者，本地 10 秒上限不能裁短服务端 60 秒下限。整数秒使用饱和运算；HTTP 日期只在收到响应时读取一次墙上时钟，将剩余时长向上取整成毫秒，之后用单调计时等待。畸形日期不采纳，超大正整数不得绕回零。
+
+单次执行器的等待预算由 `retry_max_ms × 对应最大重试次数` 派生，已等待时长扣减后，服务端下限放不下即返回 `RetryDeferred`；有正下限但重试次数已用尽时同样结束，禁止先轮换密钥抢跑。默认主对话总等待额度为 30 秒，因此 60 秒提示会明确停止恢复。密钥轮换不会重置已消耗的等待额度。无服务端提示时继续沿用既有退避与轮换策略。
+
 ### 可控等待与 UI 恢复动作
 
 主对话每段可见退避会通过 [`recovery_control`](../../../crates/ha-core/src/recovery_control.rs) 注册一个进程内一次性等待，并把随机 `recovery_id` 放进 `model_retry` / `model_chain_retry` 事件；GUI 用同一段 `delay_ms` 显示真实倒计时和递减进度条。等待的四种归宿：`Elapsed`（正常退避到点）、`SkipWait`（用户跳过等待）、`SwitchModel`（用户立即换模型）、`Cancelled`（用户取消本轮）。
 
-- 同模型等待提供「跳过等待」；确有后续 fallback model 时才额外提供「立即换模型」
+- 同模型等待提供「跳过等待」，只能跳过本地退避，服务端剩余最短等待仍可取消但不能缩短；确有后续 fallback model 时才额外提供「立即换模型」
 - 整链恢复等待只提供「立即开始」，不会把「换模型」误用于重启链
 - 控制请求必须**同时**精确匹配 `session_id + recovery_id`，且只接受第一个动作（`compare_exchange` 抢占）；旧卡片、重复点击、已过期等待一律返回 `applied=false`
 - 控制状态不持久化，进程重启或等待结束即失效；它只缩短等待或沿既有 fallback 链前进，**不修改配置、不扩大重试预算**
@@ -243,7 +255,7 @@ return   max(delay + jitter, 0)
 
 `failover/mod.rs` 与 `failover/executor.rs` 的单测把以下不变量钉死，可当作行为规格来读：
 
-- **分类正确**：11 类 `FailoverReason` 的 typed/string 边界各自命中；裸 500 / 504 无 HTTP 上下文时归 Unknown，裸 overflow 文本只作 hint。
+- **分类正确**：14 类 `FailoverReason` 的类型化与文本边界各自命中；裸 500 / 504 无 HTTP 上下文时归 Unknown，裸溢出文本只作提示；错误文本不能冒充新增终态标记。
 - **决策矩阵**：`is_retryable` / `is_terminal` / `is_profile_rotatable` / `profile_cooldown_secs` 对每个 reason 的取值。
 - **退避**：`retry_delay_ms` 的 ±10% 抖动范围与 clamp。
 - **Cooldown / Sticky**：0 时长不入 map；LRU 驱逐保留近期、`get` 触发提升。

@@ -80,6 +80,9 @@ Hope Agent 通过「**服务商 + API Key**」接入各家大模型。内置**�
 
 每条 Key 配置包含:标签名(便于区分)、API Key、启用开关,以及可选的独立 Base URL。
 
+**Anthropic 多工作区密钥**：在对应密钥条目打开“多工作区密钥”，填写以 `wrkspc_` 开头的工作区 ID。开启后未填写有效 ID 将无法保存或发送。此功能用于 Anthropic 官方 HTTPS 端点；限定在单个工作区的旧密钥保持关闭。不同工作区请分开创建服务商，自动轮换仅在声明相同工作区的密钥之间进行。该绑定和 API Key 一样只能在设置界面修改。
+
+
 **它怎么工作**:遇到限流、过载、鉴权、计费类错误会自动换 Key,并给失败的 Key 一段冷却时间;网络超时这类「换了也没用」的错误则只重试同一把。同一个会话会尽量「黏」在同一把 Key 上,以便命中模型的 prompt 缓存、省成本。
 
 > 用 ChatGPT / Codex 账号登录的服务商不参与 Key 轮换(它没有可轮换的 Key),见 [2.4](#24-用-chatgpt--codex-账号登录)。
@@ -145,8 +148,12 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 
 **入口**:设置 → 全局模型。
 
-- **思考强度(Think)**:控制模型思考的深度,取值最多为 `none / minimal / low / medium / high / xhigh`(具体可选档位随模型 API 类型而定,如 Claude / OpenAI Chat 仅 `none / low / medium / high`),全局默认 `medium`。对话里可用 `/thinking high` 快速调整。
+- **思考强度(Think)**：最多支持 `none / minimal / low / medium / high / xhigh / max` 七档，全局默认 `medium`。请求发送时按模型、协议与端点映射到受支持档位，对话里可用 `/thinking high` 快速调整。
 - **温度**:控制回答的随机性,滑块 0.00–2.00,默认 1.00。带「重置」按钮回到继承状态。
+
+直连 **GPT-6 Astra** 时，有工具的对话请选择 OpenAI Responses。Astra 保留 `max`，`none` / `minimal` 映射为 `low`，不发送温度。新预设只影响新建连接；已有服务商需自行添加模型或调整协议。
+
+**Claude Fable 5.1** 的原始思考签名会随会话保存。若动态前缀、压缩或切换模型导致部分历史思考无法继续使用，回复中会出现提示；本地原始块仍保留，但不保证跨模型保留全部推理状态。
 
 **思考风格(Thinking Style)** 是服务商级(也可按模型覆盖)的设置,决定推理参数「怎么发送」,内置模板已预填,通常不用动。共 5 种:
 

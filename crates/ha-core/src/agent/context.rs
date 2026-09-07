@@ -104,10 +104,27 @@ pub struct CompactionRunOutcome {
     /// ordinary "no compaction needed" result. The streaming caller must stop
     /// before issuing another Provider request.
     pub fatal_error: Option<String>,
+    /// Recovery classification is local typed state, independent of provider text.
+    pub fatal_provider_reason: Option<crate::failover::FailoverReason>,
     pub compact_result: Option<crate::context_compact::CompactResult>,
 }
 
 impl CompactionRunOutcome {
+    pub fn ensure_recovery_succeeded(&self, context: &'static str) -> Result<()> {
+        let Some(detail) = &self.fatal_error else {
+            return Ok(());
+        };
+        let error = if let Some(last_reason) = self.fatal_provider_reason {
+            anyhow::Error::new(crate::failover::executor::ExecutorError::Exhausted {
+                last_reason,
+                last_error: detail.clone(),
+            })
+        } else {
+            anyhow::anyhow!(detail.clone())
+        };
+        Err(error.context(context))
+    }
+
     fn cancelled(tokens_after: u32, changed_history: bool) -> Self {
         Self {
             tokens_after,
@@ -959,6 +976,7 @@ impl AssistantAgent {
             tokens_after: compact_result.tokens_after,
             cancelled: false,
             fatal_error: None,
+            fatal_provider_reason: None,
             compact_result: None,
         };
 
@@ -1579,6 +1597,11 @@ impl AssistantAgent {
                                 *request_projection = summary_candidate;
                             }
                             Ok(Err(e)) => {
+                                let reason = crate::failover::classify_error_with_evidence(&e).0;
+                                if reason.is_terminal() {
+                                    run_outcome.fatal_error = Some(e.to_string());
+                                    run_outcome.fatal_provider_reason = Some(reason);
+                                }
                                 if let Some(logger) = crate::get_logger() {
                                     logger.log(
                                         "warn",
@@ -1861,6 +1884,8 @@ impl AssistantAgent {
             return Ok(outcome);
         }
 
+        outcome.ensure_recovery_succeeded("mid-loop context compaction failed closed")?;
+
         if outcome.summary_applied {
             let threshold_floor = (self.compact_config.summarization_threshold
                 - MID_LOOP_SUMMARY_HYSTERESIS_DELTA)
@@ -1932,9 +1957,7 @@ impl AssistantAgent {
                 },
             )
             .await;
-        if let Some(error) = outcome.fatal_error.as_deref() {
-            anyhow::bail!("required history recovery failed closed: {error}");
-        }
+        outcome.ensure_recovery_succeeded("required history recovery failed closed")?;
         Ok(outcome)
     }
 
@@ -2059,6 +2082,12 @@ impl AssistantAgent {
                     }
                 }
                 Err(e) => {
+                    if crate::failover::classify_error_with_evidence(&e)
+                        .0
+                        .is_terminal()
+                    {
+                        return Err(e);
+                    }
                     app_warn!(
                         "agent",
                         "summarize",
@@ -2145,6 +2174,7 @@ impl AssistantAgent {
                 api_key,
                 base_url,
                 model: model_id.to_string(),
+                workspace_id: profile.and_then(|profile| profile.anthropic_workspace_id.clone()),
             },
             ApiType::OpenaiChat => LlmProvider::OpenAIChat {
                 api_key,
@@ -2200,24 +2230,12 @@ impl AssistantAgent {
                     }
                 }
                 _ => {
-                    // Standard role-based messages — pass through, but strip reasoning_content
+                    // Foreign plain reasoning has no Anthropic signature. Do
+                    // not manufacture an invalid thinking block from it.
+                    // Normalize a copy; the caller owns the history snapshot.
                     let mut msg = item.clone();
-                    if msg.get("reasoning_content").is_some() {
-                        // Convert Chat API reasoning_content to Anthropic thinking block
-                        if let Some(reasoning) =
-                            msg.get("reasoning_content").and_then(|r| r.as_str())
-                        {
-                            if !reasoning.is_empty() {
-                                if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
-                                    // Convert string content + reasoning to content array with thinking block
-                                    msg["content"] = json!([
-                                        { "type": "thinking", "thinking": reasoning },
-                                        { "type": "text", "text": content }
-                                    ]);
-                                }
-                            }
-                        }
-                        msg.as_object_mut().map(|o| o.remove("reasoning_content"));
+                    if let Some(object) = msg.as_object_mut() {
+                        object.remove("reasoning_content");
                     }
                     Self::push_anthropic_normalized_message(&mut result, msg);
                 }
@@ -2671,7 +2689,10 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
             },
         )
         .await
-        .map_err(|e| anyhow::anyhow!("dedicated summarize: {}", e))
+        .map_err(|e| {
+            let message = format!("dedicated summarize: {e}");
+            anyhow::Error::new(e).context(message)
+        })
     }
 
     fn name(&self) -> &str {
@@ -2990,6 +3011,70 @@ mod mid_loop_compaction_tests {
         }
     }
 
+    struct TerminalSummaryProvider(crate::failover::FailoverReason);
+
+    #[async_trait::async_trait]
+    impl crate::context_compact::CompactionProvider for TerminalSummaryProvider {
+        async fn summarize(&self, _prompt: &str, _max_tokens: u32) -> anyhow::Result<String> {
+            Err(crate::failover::executor::ExecutorError::Exhausted {
+                last_reason: self.0,
+                last_error: "synthetic terminal without display markers".into(),
+            }
+            .into())
+        }
+
+        fn name(&self) -> &str {
+            "terminal-test-summary"
+        }
+    }
+
+    #[tokio::test]
+    async fn mid_loop_compaction_propagates_provider_terminals_without_continuing() {
+        use crate::failover::{classify_error_with_evidence, FailoverReason};
+        for reason in [
+            FailoverReason::ProviderBlocked,
+            FailoverReason::RequestContract,
+            FailoverReason::RetryDeferred,
+        ] {
+            let mut agent = AssistantAgent::new_anthropic("test-key");
+            agent.context_window = 12_000;
+            agent.set_context_engine(Arc::new(ForceTier3Engine));
+            agent.set_compaction_provider(Some(Arc::new(TerminalSummaryProvider(reason))));
+            agent.set_compact_config(CompactConfig {
+                preserve_recent_rounds: 1,
+                summarization_threshold: 0.71,
+                summary_max_tokens: 256,
+                ..Default::default()
+            });
+            let original = vec![
+                json!({"role":"user","content":"inspect"}),
+                json!({"role":"assistant","content":format!("found context: {}", "a".repeat(22_000))}),
+                json!({"role":"user","content":"continue"}),
+                json!({"role":"assistant","content":"continuing"}),
+            ];
+            let mut canonical = original.clone();
+            let mut projection = original.clone();
+            let error = agent
+                .maybe_compact_between_tool_rounds(
+                    &mut projection,
+                    &mut canonical,
+                    "system",
+                    &[],
+                    "test-model",
+                    1024,
+                    Arc::new(AtomicBool::new(false)),
+                    &mut MidLoopCompactionState::default(),
+                    1,
+                    &|_| {},
+                    None,
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(classify_error_with_evidence(&error).0, reason);
+            assert_eq!(canonical, original);
+        }
+    }
+
     #[tokio::test]
     async fn synchronous_compaction_changes_only_request_projection() {
         let mut agent = AssistantAgent::new_anthropic("test-key");
@@ -3287,6 +3372,28 @@ mod responses_history_tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn anthropic_projection_preserves_opaque_blocks_without_fabricating_signatures() {
+        let history = vec![
+            json!({"role": "user", "content": "hello"}),
+            json!({"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "", "signature": "opaque-signature"},
+                {"type": "redacted_thinking", "data": "opaque-data"},
+                {"type": "text", "text": "answer"}
+            ]}),
+            json!({"role": "user", "content": "continue"}),
+            json!({"role": "assistant", "reasoning_content": "foreign plain thought", "content": "foreign answer"}),
+        ];
+        let before = history.clone();
+        let projected = AssistantAgent::normalize_history_for_anthropic(&history);
+        assert_eq!(projected[1], history[1]);
+        assert_eq!(
+            projected[3],
+            json!({"role": "assistant", "content": "foreign answer"})
+        );
+        assert_eq!(history, before);
+    }
+
     // Hope Agent always calls Responses with `store: false`, where
     // any reasoning item — id-only OR with encrypted_content — is a
     // landmine for the next request. The invariant: normalize must drop
@@ -3442,6 +3549,7 @@ mod build_provider_tests {
                 api_key,
                 base_url,
                 model,
+                ..
             } => {
                 assert_eq!(api_key, "profile-key");
                 assert_eq!(base_url, "https://override.example/");
