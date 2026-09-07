@@ -545,6 +545,12 @@ fn resolve_probe_profile(config: &mut ProviderConfig) -> Result<Option<String>, 
         config.api_key = profile.api_key;
         return Ok(profile.anthropic_workspace_id);
     }
+    if config.api_type != ApiType::Codex && !config.auth_profiles.is_empty() {
+        return Err(
+            "No enabled authentication profile. Enable a key before testing this provider."
+                .to_string(),
+        );
+    }
     Ok(None)
 }
 
@@ -686,15 +692,13 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                 let resp2 = client
                     .post(&url)
                     .headers(
-                        super::anthropic_headers(
+                        super::anthropic_bearer_headers(
                             &config.base_url,
                             &config.api_key,
                             workspace_id.as_deref(),
                         )
                         .map_err(|error| error.to_string())?,
                     )
-                    .header("Authorization", format!("Bearer {}", config.api_key))
-                    .header("anthropic-version", "2023-06-01")
                     .header("content-type", "application/json")
                     .json(&body)
                     .send()
@@ -1166,15 +1170,13 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
                 Err(_) => client
                     .post(&url)
                     .headers(
-                        super::anthropic_headers(
+                        super::anthropic_bearer_headers(
                             &config.base_url,
                             &config.api_key,
                             workspace_id.as_deref(),
                         )
                         .map_err(|error| error.to_string())?,
                     )
-                    .header("Authorization", format!("Bearer {}", config.api_key))
-                    .header("anthropic-version", "2023-06-01")
                     .header("content-type", "application/json")
                     .json(&body)
                     .send()
@@ -1473,6 +1475,75 @@ mod tests {
         ok_or_empty_reply, should_skip_models_preflight,
     };
     use serde_json::{json, Value};
+
+    #[test]
+    fn probe_profiles_do_not_fall_back_to_legacy_keys_when_all_are_disabled() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        for api_type in [
+            ApiType::Anthropic,
+            ApiType::OpenaiChat,
+            ApiType::OpenaiResponses,
+        ] {
+            let mut config = ProviderConfig::new(
+                "synthetic".into(),
+                api_type,
+                "https://api.anthropic.com".into(),
+                "synthetic-legacy-key".into(),
+            );
+            let mut profile =
+                AuthProfile::new("profile".into(), "synthetic-profile-key".into(), None);
+            profile.enabled = false;
+            config.auth_profiles.push(profile);
+            assert!(super::resolve_probe_profile(&mut config).is_err());
+            assert_eq!(config.api_key, "synthetic-legacy-key");
+
+            config.auth_profiles[0].enabled = true;
+            assert_eq!(super::resolve_probe_profile(&mut config).unwrap(), None);
+            assert_eq!(config.api_key, "synthetic-profile-key");
+
+            config.auth_profiles.clear();
+            config.api_key.clear();
+            assert_eq!(super::resolve_probe_profile(&mut config).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn probe_profiles_use_the_first_enabled_keys_own_workspace() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        let mut config = ProviderConfig::new(
+            "synthetic".into(),
+            ApiType::Anthropic,
+            "https://api.anthropic.com".into(),
+            "synthetic-legacy-key".into(),
+        );
+        let mut disabled =
+            AuthProfile::new("disabled".into(), "synthetic-disabled-key".into(), None);
+        disabled.enabled = false;
+        disabled.anthropic_workspace_id = Some("wrkspc_A".into());
+        let mut active = AuthProfile::new("active".into(), "synthetic-active-key".into(), None);
+        active.anthropic_workspace_id = Some("wrkspc_B".into());
+        config.auth_profiles = vec![disabled, active];
+
+        assert_eq!(
+            super::resolve_probe_profile(&mut config)
+                .unwrap()
+                .as_deref(),
+            Some("wrkspc_B")
+        );
+        assert_eq!(config.api_key, "synthetic-active-key");
+    }
+
+    #[test]
+    fn probe_profiles_keep_codex_oauth_independent_of_api_key_profiles() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        let mut config =
+            ProviderConfig::new("Codex".into(), ApiType::Codex, String::new(), String::new());
+        let mut disabled = AuthProfile::new("unused".into(), "synthetic-key".into(), None);
+        disabled.enabled = false;
+        config.auth_profiles.push(disabled);
+        assert_eq!(super::resolve_probe_profile(&mut config).unwrap(), None);
+        assert!(config.api_key.is_empty());
+    }
 
     #[test]
     fn extract_anthropic_reply_joins_text_blocks_and_ignores_thinking() {

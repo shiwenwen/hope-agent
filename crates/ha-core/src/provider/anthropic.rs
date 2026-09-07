@@ -81,9 +81,50 @@ pub fn anthropic_headers(
     Ok(headers)
 }
 
+/// Some compatible gateways accept only Bearer authentication. Replace the
+/// authentication scheme while retaining the validated version/workspace headers.
+pub fn anthropic_bearer_headers(
+    base_url: &str,
+    api_key: &str,
+    workspace_id: Option<&str>,
+) -> Result<reqwest::header::HeaderMap> {
+    let mut headers = anthropic_headers(base_url, api_key, workspace_id)?;
+    headers.remove("x-api-key");
+    let mut authorization = reqwest::header::HeaderValue::from_str(&format!("Bearer {api_key}"))
+        .map_err(|_| {
+            crate::failover::ProviderRequestContractError(
+                "Invalid Anthropic request header.".to_string(),
+            )
+        })?;
+    authorization.set_sensitive(true);
+    headers.insert(reqwest::header::AUTHORIZATION, authorization);
+    Ok(headers)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bearer_fallback_replaces_the_api_key_header_and_preserves_binding() {
+        for (base_url, workspace) in [
+            ("https://relay.example", None),
+            ("https://api.anthropic.com", Some("wrkspc_A")),
+        ] {
+            let headers = anthropic_bearer_headers(base_url, "synthetic-key", workspace).unwrap();
+            assert!(!headers.contains_key("x-api-key"));
+            assert_eq!(headers["authorization"], "Bearer synthetic-key");
+            assert!(headers["authorization"].is_sensitive());
+            assert_eq!(headers["anthropic-version"], "2023-06-01");
+            assert_eq!(
+                headers
+                    .get("anthropic-workspace-id")
+                    .map(|id| id.to_str().unwrap()),
+                workspace
+            );
+            assert!(!format!("{headers:?}").contains("synthetic-key"));
+        }
+    }
 
     #[test]
     fn workspace_binding_is_explicit_sensitive_and_direct_only() {

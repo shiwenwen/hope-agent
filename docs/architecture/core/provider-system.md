@@ -158,6 +158,8 @@ DeepSeek 直连模板新增 `deepseek-v4-flash-vision-exp`，继续使用 `opena
 
 `provider::anthropic_headers` / `anthropic_header_pairs` 统一构造请求头；绑定只发送到 Anthropic 官方 HTTPS 主机，既有中转配置不自动加入工作区或绑定控制。主对话、令牌计数、一次性调用、连接与模型测试共用该契约。密钥与工作区请求头设为敏感值，不写日志；缓存租户分区包含工作区。会话优先沿用已选档案的绑定，首次按第一条启用档案的绑定选取，同一服务商内只轮换到绑定相同的档案；不同工作区应分开建服务商。全部候选禁用或冷却时，不能通过无档案构造路径取回第一把密钥。
 
+编辑页的连接测试、单模型测试与保存复用当前草稿，包括尚未保存的鉴权档案和工作区绑定。中转的备用 Bearer 探测通过 `anthropic_bearer_headers` 替换鉴权方式：只发 `Authorization`，不再同时带 `x-api-key`，其余版本和工作区头仍经统一校验。
+
 ### 1.6 Provider 写入契约
 
 所有对 `providers` 列表与 `active_model` 的写入，必须走 `crates/ha-core/src/provider/crud.rs` 的 helper——禁止在 Tauri / HTTP / onboarding / importer / local_llm 任何路径里直接 `providers.push` / `retain` 或手写 `active_model`。每个 helper 都带一个 `source: &'static str` 审计标签，并统一经 `mutate_config` 落盘（配置读写契约见 [config-system](../infra/config-system.md)）。
