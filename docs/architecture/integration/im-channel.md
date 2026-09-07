@@ -785,6 +785,8 @@ pub struct RoundTextAccumulator {
 
 事件处理走 `event.contains(...)` 的廉价短路（rarer-needle-first，规避全 JSON parse）：
 
+这里不能改成以 `{"type":...` 为前缀的 `starts_with`：`emit_tool_result` 的 `json!` 经 `BTreeMap` 按键名字母序输出，`call_id` 在 `type` 之前，前缀判断会漏掉工具结果。
+
 - `text_delta` → `current.text.push_str`；若 `in_tool_phase=true` 说明前 round 已闭、新 round 开始，先翻页再累加。
 - `tool_call`（round 边界） → `completed.push(take(current))`，`in_tool_phase=true`；**幂等**——一次 LLM round 多 tool 只关一次。
 - `tool_result` 携带 media → 挂到刚关闭的那 round。

@@ -41,7 +41,7 @@ pnpm install              # frontend deps + Husky pre-push hooks
 pnpm dev:desktop          # default desktop dev (frontend + Rust backend hot-reload)
 ```
 
-Full command list in [AGENTS.md "开发命令"](AGENTS.md#开发命令).
+Common commands and validation scope are in [AGENTS.md "开发与验证"](AGENTS.md#开发与验证).
 
 ### 3. Make changes
 
@@ -161,7 +161,7 @@ Pure chore / refactor / internal docs changes don't need a CHANGELOG entry.
 
 ## Documentation maintenance redlines
 
-If your PR matches any of these, you **must update the corresponding doc in the same PR** (full table in [AGENTS.md "文档维护"](AGENTS.md#文档维护)):
+If your PR matches any of these, you **must update the corresponding doc in the same PR** (see [AGENTS.md "文档维护"](AGENTS.md#文档维护)):
 
 - Add / remove features, commands, modules → `CHANGELOG.md`
 - Subsystem architecture change → `docs/architecture/<name>.md`
@@ -172,7 +172,7 @@ If your PR matches any of these, you **must update the corresponding doc in the 
 
 ## For experienced contributors / AI assistants
 
-If you plan to touch cross-PR contracts (Provider / Permission / Plan Mode / Channel streaming / context compaction / memory priority / ...), **read [AGENTS.md](AGENTS.md) end-to-end first**—it lists 30+ cross-PR redlines. Also read the corresponding [`docs/architecture/<name>.md`](docs/architecture/).
+Before changing contracts that apply across PRs, read the global constraints in [AGENTS.md](AGENTS.md), then follow its task links to the relevant architecture documents. For frontend changes, also read [src/AGENTS.md](src/AGENTS.md).
 
 ## Feedback & discussion
 

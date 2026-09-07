@@ -377,7 +377,7 @@ src/             React 19 + TypeScript frontend
 skills/          Bundled skills (ship with the app)
 ```
 
-For the full module map, architecture conventions, and coding guidelines, see [AGENTS.md](AGENTS.md).
+For constraints across modules and development entry points, see [AGENTS.md](AGENTS.md). Module designs are in the [technical documentation index](docs/README.md).
 
 ## Documentation
 
@@ -386,7 +386,7 @@ For the full module map, architecture conventions, and coding guidelines, see [A
 
 ## Contributing
 
-The main branch is under active development — issues and PRs are welcome. Please skim the **Architecture** and **Coding Conventions** sections of [AGENTS.md](AGENTS.md) before contributing.
+The main branch is under active development — issues and PRs are welcome. Before contributing, read the global constraints in [AGENTS.md](AGENTS.md), then follow the documents relevant to your changes. Frontend conventions are in [src/AGENTS.md](src/AGENTS.md).
 
 Common commands:
 

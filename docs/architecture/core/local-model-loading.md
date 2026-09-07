@@ -81,7 +81,7 @@ flowchart TD
   A -. "每 60s 巡检" .-> M
 ```
 
-装配契约：每个调 `ha_core::init_runtime` 的二进制都必须先调 `ha_local_llm::wire()`，它把默认模型自维护 watchdog 的启动任务注册为 **primary-only**（只在主进程跑，避免两个进程抢着预载同一模型）。
+装配契约：每个调用 `ha_core::init_runtime` 的二进制先调用共享的 `ha_server::wire_features()`，由该入口调用 `ha_local_llm::wire()`；壳层不另维护装配序列。默认模型自维护任务注册为 **primary-only**（只在主进程跑，避免两个进程抢着预载同一模型）。
 
 台账那组入口（`spawn_job` / `update_job` / `append_log` / `finish_job` / `ProgressThrottle` 等）是对 `ha-local-llm` 的**公开跨 crate 契约**：新执行器只能经它们记账，不得自开 `local_model_jobs.db` 连接、也不得绕过 `spawn_job` 自行 spawn——取消判定、进度节流与 `local_model_job:*` 事件面全挂在这条链上。
 

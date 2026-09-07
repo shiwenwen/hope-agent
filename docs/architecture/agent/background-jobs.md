@@ -392,7 +392,7 @@ camelCase、只读，与 model-facing 的 JSON 物理分离，不带任何引导
 
 ## 配置（`AsyncToolsConfig`）
 
-category `async_tools`，风险级 **MEDIUM**，GUI 走专用 `save_async_tools_config`（详见 [配置系统](../infra/config-system.md) / [设置约定](../../../AGENTS.md#设置约定)）。默认值的唯一来源是 `impl Default`（与各 `default_async_*()` 对齐，有单测断言）。
+category `async_tools`，风险级 **MEDIUM**，GUI 走专用 `save_async_tools_config`（详见 [配置系统](../infra/config-system.md) / [设置工具与界面同步](../infra/config-system.md#设置工具与界面同步)）。默认值的唯一来源是 `impl Default`（与各 `default_async_*()` 对齐，有单测断言）。
 
 | 字段（snake / JSON camel） | 默认 | 钳 / `0` 语义 |
 |---|---|---|

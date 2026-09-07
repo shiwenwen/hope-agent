@@ -377,7 +377,7 @@ src/             React 19 + TypeScript 前端
 skills/          内置技能（随应用发行）
 ```
 
-完整的模块拓扑、架构约定、编码规范见 [AGENTS.md](AGENTS.md)。
+跨模块约束与开发入口见 [AGENTS.md](AGENTS.md)，模块设计见 [技术文档索引](docs/README.md)。
 
 ## 文档
 
@@ -386,7 +386,7 @@ skills/          内置技能（随应用发行）
 
 ## 贡献
 
-主分支处于活跃开发阶段，欢迎 issue / PR。贡献前请先读一遍 [AGENTS.md](AGENTS.md) 的 "架构约定" 和 "编码规范" 两节。
+主分支处于活跃开发阶段，欢迎 issue / PR。贡献前请先读 [AGENTS.md](AGENTS.md) 的全局约束，再按改动范围读取对应文档；前端规范见 [src/AGENTS.md](src/AGENTS.md)。
 
 常用命令：
 

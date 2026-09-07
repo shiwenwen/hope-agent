@@ -493,8 +493,8 @@ export function MarkdownLink({
       </MarkdownWebLink>
     )
   }
-  // Native `title` 而非 shadcn Tooltip：Streamdown 流式消息可能渲染上百 anchor，
-  // 包 TooltipTrigger 会爆 DOM 并破坏 anchor 组件签名。
+  // 流式消息可能渲染上百个链接，不逐链接增加 TooltipTrigger。
+  // 需要补充提示时走 data-ha-title-tip 共享委托桥，不使用原生悬停 title。
   return (
     <a
       {...rest}

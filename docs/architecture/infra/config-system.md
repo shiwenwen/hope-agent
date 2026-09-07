@@ -206,6 +206,15 @@ flowchart TD
 - 后端绕过前端、直接发到 IM / webhook / 外部通道的文本，必须在 Rust 侧渲染；当前没有 per-recipient locale，统一用全局 `AppConfig.language`。
 - **明确不在 Rust 侧渲染**的内容：模型输出、用户输入、工具 / Provider 的原始错误详情、日志、工具 schema / system prompt、LLM 结果正文。这些要么是用户 / 模型自己的语言，要么应保持原样透传。
 
+## 设置工具与界面同步
+
+新增或修改 `AppConfig` / `UserConfig` 的用户可调字段时，同一 PR 同步以下入口：
+
+- `src/components/settings/` 的界面、`crates/ha-core/src/tools/settings.rs` 的读写分支与 `SETTINGS_CATEGORY_RISKS`、`core_tools.rs` 的 `category` 枚举，以及 `skills/ha-settings/SKILL.md` 的风险表。
+- `SETTINGS_CATEGORY_RISKS` 是风险级唯一登记处；HIGH 与只读集合由固定集合测试约束，未知类别触发 `risk_level()` 的 `debug_assert`，不得静默降为 medium。携密只读项须同时进入 `BLOCKED_UPDATE_CATEGORIES` 并在 `read_category` 脱敏，只增加读取分支不能阻断写入。
+- 凭据通过 `redact_*_value` 脱敏，且仅覆盖非空字符串，保留未设置与已清空的区别。
+- GUI-only 例外按凭据安全或运行时稳定性保留：`active_model` / `fallback_models` 不开放写入，Provider 列表与 API Key 不新增工具类别；记忆 / 知识嵌入、知识切块及 Hooks 等现有例外以设置工具和技能风险表为准。不得为满足界面与工具同步而解封。
+
 ## 设置分区恢复默认
 
 设置页的"一键恢复默认"统一调用 [`settings_reset`](../../../crates/ha-core/src/settings_reset.rs)。两条铁律：默认值只来自当前版本 Rust 类型的 `Default` 实现（前端不得复制默认常量），恢复只重置"设置字段"而绝不删除用户创建的资源。所有 reset scope 都不会改动 `providers`、`active_model`、`fallback_models`、`temperature`、`reasoning_effort` 或 `function_models`（视觉 / 自动化模型覆盖）。
