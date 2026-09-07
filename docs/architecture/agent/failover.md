@@ -85,6 +85,7 @@ flowchart TB
 
 - **`Timeout` 故意不算 `is_profile_rotatable`**：传输层错误换 key 也救不了，应当退避后重试同一把 key。否则一阵网络抽风会把所有 key 全打进 cooldown。
 - **终态必须立即对用户可见**：`ProviderBlocked`、`RequestContract`、`RetryDeferred`、`EvaluationBudget`、`CurrentToolGroupOverflow`、`DispatchUnknown` 均不能进入自动回退。主执行器和后台文本、视觉、流式一次性调用共用此规则，`side_query` 保留类型化错误，不因包装成字符串而丢失终态。
+- **诊断与延迟接管也保留分类**：独立自诊断在服务商调用链内传递类型化错误，只在最外层返回界面时转换成文字；运行内核兜底收尾保留这三类中断原因，IM 延迟接管从持久化原因恢复提示，不能根据错误正文重新认定终态。
 - **`ContextOverflow` 不是 terminal，但也不等于一定执行 Tier 4**：它只是携 evidence 的 `NeedsCompaction`。chat_engine 只有拿到与失败请求完全匹配的本地容量证书，且工具副作用可安全重放时才发布紧急 history；否则保持旧历史并走普通模型链或失败关闭。
 
 ## 单次调用的决策流程

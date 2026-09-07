@@ -50,6 +50,15 @@ fn late_handover_failure_reason(
     raw: Option<&str>,
 ) -> Option<ha_core::failover::FailoverReason> {
     match interrupt_reason {
+        Some(ChatTurnInterruptReason::ProviderBlocked) => {
+            Some(ha_core::failover::FailoverReason::ProviderBlocked)
+        }
+        Some(ChatTurnInterruptReason::RequestContract) => {
+            Some(ha_core::failover::FailoverReason::RequestContract)
+        }
+        Some(ChatTurnInterruptReason::RetryDeferred) => {
+            Some(ha_core::failover::FailoverReason::RetryDeferred)
+        }
         Some(ChatTurnInterruptReason::CurrentToolGroupOverflow) => {
             Some(ha_core::failover::FailoverReason::CurrentToolGroupOverflow)
         }
@@ -1634,6 +1643,43 @@ mod tests {
         );
         assert_eq!(injection_run(active.as_ref()), Some("run-a"));
         assert!(ended.is_none());
+    }
+
+    #[test]
+    fn late_handover_preserves_provider_terminals_over_absent_or_misleading_text() {
+        use ha_core::failover::FailoverReason;
+        for (interrupt, reason) in [
+            (
+                ChatTurnInterruptReason::ProviderBlocked,
+                FailoverReason::ProviderBlocked,
+            ),
+            (
+                ChatTurnInterruptReason::RequestContract,
+                FailoverReason::RequestContract,
+            ),
+            (
+                ChatTurnInterruptReason::RetryDeferred,
+                FailoverReason::RetryDeferred,
+            ),
+        ] {
+            for raw in [
+                None,
+                Some("opaque failure"),
+                Some("OpenAI API error (403): stopped"),
+            ] {
+                assert_eq!(
+                    late_handover_failure_reason(Some(interrupt), raw),
+                    Some(reason)
+                );
+            }
+        }
+        assert_eq!(
+            late_handover_failure_reason(
+                Some(ChatTurnInterruptReason::ProviderFailed),
+                Some("403 Forbidden")
+            ),
+            Some(FailoverReason::Auth)
+        );
     }
 
     #[test]
