@@ -648,7 +648,8 @@ Cron 调度器（[`ha-cron/src/cron/scheduler.rs`](../../../crates/ha-cron/src/c
 | 关掉 Guardian 后想再开 | `config.json` 加 `{"guardian": {"enabled": true}}`，或 GUI 切换 |
 | `server install` 后 `launchctl list \| grep hopeagent` 看不到 | macOS 13+ 需在「系统设置 → 登录项 → 在后台允许」勾选 |
 | systemd 服务跑了但很快自杀 | `Restart=on-failure` + systemd 默认重启限流（默认 10 秒内 5 次）会让它进 `failed`。`journalctl --user -u hope-agent.service` 看真实退出码 |
-| 诊断结果总是 `severity: "unknown"` | LLM 服务商均以非终态错误失败 → 走了 `basic_analysis`。看 `provider_used` 字段，空 = 兜底。常见原因：所有服务商都是 Codex（不参与）/ API Key 都失效 / 网络不通 |
+| 诊断结果总是 `severity: "unknown"` | 先看 `provider_used`：非空表示 LLM 已成功返回，响应无法解析时会以原始输出前 500 字符构造 `unknown` 结果，也可能是模型在有效 JSON 中直接返回该值。检查保存的 `cause` 和模型输出格式；`basic_analysis` 的等级为 `medium` / `high` / `critical`，不会自行给出 `unknown` |
+| 诊断结果的 `provider_used` 为空 | 表示进入离线 `basic_analysis`；检查是否没有可用候选（例如仅配置 Codex），或所有候选均以非终态错误失败，再核对凭据与网络。类型化终态不会生成这种离线结果 |
 | 已达诊断阈值但末条崩溃记录没有新诊断结果 | 检查 Guardian 标准错误流的 `Diagnosis failed`。`ProviderBlocked`、`RequestContract`、`RetryDeferred` 等终态会跳过剩余候选、离线分析及自动修复；已有备份和崩溃记录保留，不把缺少诊断解释为修复成功 |
 | auto_fix 没修我的问题 | 覆盖范围窄（[§7.1](#71-当前覆盖的修复场景)）。看 `recommendations`——`user_actionable=true` 就按建议手动操作；否则多半是原生库 / OOM，需更深入排查 |
 | 想验证 Guardian 工作正常 | 让 Child 主动 panic：临时加一处 `panic!("test")`，观察 `crash_journal.json` 累积；测完记得恢复 |

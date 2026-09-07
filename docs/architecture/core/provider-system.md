@@ -164,6 +164,8 @@ DeepSeek 直连模板新增 `deepseek-v4-flash-vision-exp`，继续使用 `opena
 
 所有对 `providers` 列表与 `active_model` 的写入，必须走 `crates/ha-core/src/provider/crud.rs` 的 helper——禁止在 Tauri / HTTP / onboarding / importer / local_llm 任何路径里直接 `providers.push` / `retain` 或手写 `active_model`。每个 helper 都带一个 `source: &'static str` 审计标签，并统一经 `mutate_config` 落盘（配置读写契约见 [config-system](../infra/config-system.md)）。
 
+新增、添加并启用、批量导入和更新均先调用 `ProviderConfig::sanitize`，再校验工作区绑定：粘贴地址的首尾空白会去除，纯空白的档案地址覆盖会恢复为继承服务商地址；仍不满足官方 HTTPS 端点与有效工作区 ID 的配置拒绝写入。批量导入先完整校验所有项，任一项无效则整批不写入。
+
 | Helper | 语义 |
 |---|---|
 | `add_provider(cfg, source)` | 生成新 ID 并追加到列表尾部；在同一次写入中补齐未配置或已硬失效的全局默认，保留仍存在的默认引用（包括已禁用渠道） |

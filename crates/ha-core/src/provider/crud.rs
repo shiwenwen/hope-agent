@@ -82,9 +82,10 @@ pub struct ProviderAddResult {
 /// Initialize a missing default in the same write without replacing an
 /// existing preference, including one whose Provider is temporarily disabled.
 pub fn add_provider(
-    config: ProviderConfig,
+    mut config: ProviderConfig,
     source: &'static str,
 ) -> ProviderWriteResult<ProviderAddResult> {
+    config.sanitize();
     super::validate_anthropic_profiles(&config).map_err(ProviderWriteError::Config)?;
     mutate_config(("providers.add", source), move |store| {
         let mut result = add_provider_to_config(store, config);
@@ -96,11 +97,13 @@ pub fn add_provider(
 
 /// Add an already-constructed provider and activate one of its models.
 pub fn add_and_activate_provider(
-    provider: ProviderConfig,
+    mut provider: ProviderConfig,
     model_id: String,
     source: &'static str,
 ) -> ProviderWriteResult<String> {
+    provider.sanitize();
     super::validate_anthropic_profiles(&provider).map_err(ProviderWriteError::Config)?;
+    let model_id = model_id.trim().to_string();
     mutate_config(("providers.add+activate", source), move |store| {
         add_and_activate_provider_in_config(store, provider, model_id).map_err(into_anyhow)
     })
@@ -109,10 +112,11 @@ pub fn add_and_activate_provider(
 
 /// Add several already-constructed providers, preserving their IDs.
 pub fn add_many_providers(
-    providers: Vec<ProviderConfig>,
+    mut providers: Vec<ProviderConfig>,
     source: &'static str,
 ) -> ProviderWriteResult<Vec<String>> {
-    for provider in &providers {
+    for provider in &mut providers {
+        provider.sanitize();
         super::validate_anthropic_profiles(provider).map_err(ProviderWriteError::Config)?;
     }
     if providers.is_empty() {
@@ -370,8 +374,8 @@ pub(crate) fn update_provider_in_config(
     store: &mut AppConfig,
     mut config: ProviderConfig,
 ) -> ProviderWriteResult<bool> {
-    super::validate_anthropic_profiles(&config).map_err(ProviderWriteError::Config)?;
     config.sanitize();
+    super::validate_anthropic_profiles(&config).map_err(ProviderWriteError::Config)?;
     let updated_active_provider = store
         .active_model
         .as_ref()
