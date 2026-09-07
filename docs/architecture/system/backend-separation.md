@@ -102,6 +102,8 @@ graph LR
 
 还有一条相关红线：**`sessions.db` 的可写连接不对特征 crate 开放**。`SessionDB::with_conn_internal` 是 `pub(crate)`，特征 crate 一律走类型化方法访问。最能体现这条的是大盘：它要跑七十多条只读聚合，既不能把 7k 行 SQL 搬回 kernel，也不能拿到能写的裸连接，于是自开一条 `SQLITE_OPEN_READ_ONLY` 连接——句柄在物理层面就写不了，把「大盘只读」从约定变成了强制。
 
+迁移时，先把使用可写连接的函数及其必须留核的调用链确定下来；不得开放通用 `with_conn` 作为过渡。对 `sessions` / `messages` 的每次写入都经内核类型化方法，包括建会话、写用户消息和开启对话轮次。测试夹具使用仅在测试构建中存在的 `with_conn_for_test`，不向生产特征 crate 暴露裸连接。相关迁移边界由 `scripts/check-agent-kernel-boundaries.mjs` 守卫。
+
 ### 反向依赖钩子：kernel 怎么调用它不认识的机器
 
 kernel 不 `use` 任何特征 crate，但它确实需要特征的行为（IM 撤窗、浏览器抓页、天气 prompt 段）。桥梁是各个 `*_hooks.rs` 模块里的**槽位**：一个 `OnceLock<fn(...)>` 或 `OnceLock<Arc<dyn Trait>>`，特征 crate 在装配期把自己的实现填进去，kernel 调用槽位而非具体类型。

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Markdown 链接提示样式统一**：修复带标题的链接仍显示原生悬浮提示的问题，网页、本地文件和其他链接均使用应用的统一提示样式。 (#708)
+
 ## [0.45.0] - 2026-09-07
 
 ### Added

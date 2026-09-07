@@ -43,7 +43,7 @@ pnpm install              # 装前端依赖 + Husky pre-push 钩子
 pnpm dev:desktop          # 启动默认桌面开发模式（前端 + Rust 后端 + 热重载）
 ```
 
-详细命令清单见 [AGENTS.md "开发命令"](AGENTS.md#开发命令)。
+常用命令与验证范围见 [AGENTS.md「开发与验证」](AGENTS.md#开发与验证)。
 
 ### 3. 改代码
 
@@ -163,7 +163,7 @@ node scripts/sync-i18n.mjs --apply   # 从模板补齐
 
 ## 文档维护红线
 
-如果你的 PR 涉及以下情况，**同一个 PR 内必须同步改对应文档**（详见 [AGENTS.md "文档维护"](AGENTS.md#文档维护) 表）：
+如果你的 PR 涉及以下情况，**同一个 PR 内必须同步改对应文档**（详见 [AGENTS.md「文档维护」](AGENTS.md#文档维护)）：
 
 - 新增 / 删除功能、命令、模块 → `CHANGELOG.md`
 - 子系统架构变化 → `docs/architecture/<name>.md`
@@ -174,7 +174,7 @@ node scripts/sync-i18n.mjs --apply   # 从模板补齐
 
 ## 给资深 contributor / AI 助手
 
-如果你打算改的是跨 PR 涉及契约的东西（Provider / Permission / Plan Mode / Channel 流式 / 上下文压缩 / Memory 优先级 ...），**先读 [AGENTS.md](AGENTS.md) 整篇**——它列出了 30+ 个跨 PR 必守的红线。同时读对应的 [`docs/architecture/<name>.md`](docs/architecture/)。
+修改跨 PR 的契约前，先读 [AGENTS.md](AGENTS.md) 的全局约束，再按其中的任务入口读取对应架构文档。修改前端时同时读取 [src/AGENTS.md](src/AGENTS.md)。
 
 ## 反馈与讨论
 

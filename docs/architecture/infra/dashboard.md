@@ -92,6 +92,8 @@ graph TB
 
 ## 两种排除策略
 
+新增推理、嵌入、语音转写、评判、搜索、图像 / 音频生成、连接测试或视觉调用，统一经内核 `model_usage.rs` 入账。增加 `KIND_*` 时同步前端 `src/components/dashboard/DashboardFilter.tsx` 的 `USAGE_KIND_VALUES` 和 `dashboard.usageKind.*` 全语言文案；不得用字符估算冒充实际 Token 用量，预测与实际值按 [Token 计量契约](../core/token-accounting.md) 区分。
+
 「哪些数据算进大盘」由两套不同的过滤规则决定，对应两类图表：
 
 | 图表类别 | 过滤器 | 自动排除 |

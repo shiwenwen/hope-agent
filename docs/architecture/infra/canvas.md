@@ -546,7 +546,7 @@ HTTP 模式下 iframe 不能直接读磁盘，必须走 server 转发。`serve_c
 - **读**：`ha_core::config::cached_config().canvas`（运行期全部点都走这条，零 IO）。
 - **写**：`save_canvas_config` 走 `mutate_config_async(("canvas", "design.tool_canvas"), …)`，与 [配置系统](config-system.md) 的读写红线一致——整个 load → mutate → persist 持全局 write lock、跑在 blocking pool 上，防 lost-update。
 
-按 [AGENTS.md 设置约定](../../../AGENTS.md) 的要求，可调配置字段必须**同时**有 GUI 入口、`ha-settings` 工具分支与 SKILL.md 风险登记。Canvas 的 GUI 在 [`CanvasSettingsPanel.tsx`](../../../src/components/settings/CanvasSettingsPanel.tsx)，六个字段齐全。
+按 [设置工具与界面同步](config-system.md#设置工具与界面同步) 的要求，可调配置字段必须**同时**有 GUI 入口、`ha-settings` 工具分支与 SKILL.md 风险登记。Canvas 的 GUI 在 [`CanvasSettingsPanel.tsx`](../../../src/components/settings/CanvasSettingsPanel.tsx)，六个字段齐全。
 
 ---
 

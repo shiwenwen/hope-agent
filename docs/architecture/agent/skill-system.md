@@ -67,6 +67,8 @@ graph LR
 
 两层之间只通过 `ha-core::skills_hooks` 一个回调面通信：kernel 声明九个函数槽（八个行为 + 一个装配循环），`ha-skills` 在启动装配时一次性注册整组。未装配时的语义逐槽定义——目录类返空、用户显式激活类返 `Err`。
 
+条件激活台账仍由内核的 `tools::execution`、`system_prompt` 与 `session::cleanup_watcher` 使用，不随技能执行逻辑外迁。内置技能通过 `ha-skills` 编译期嵌入，不能另拷贝到构建产物；`crates/ha-skills/build.rs` 的 `rerun-if-changed=../../skills` 必须与 `#[folder]` 保持在同一 crate，保证增删技能后增量构建更新嵌入集合。
+
 ### 系统架构总览
 
 ```mermaid
@@ -1438,7 +1440,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/office-skill-smoke-test.py
 - `update_settings(category, values)`：partial merge（递归深合并），只传要改的字段
 - `list_settings_backups()` / `restore_settings_backup(id)`：查看和回滚自动快照（高风险，须显式确认）
 
-安全限制：`active_model` / `fallback_models` 只读；不允许修改 Provider 列表 / API Key 等涉及凭据的设置；高风险分类（Channel / Dangerous Mode / remote install）必须二次确认。详见 [ha-settings 设置约定](../../../AGENTS.md)。
+安全限制：`active_model` / `fallback_models` 只读；不允许修改 Provider 列表 / API Key 等涉及凭据的设置；高风险分类（Channel / Dangerous Mode / remote install）必须二次确认。详见 [设置工具与界面同步](../infra/config-system.md#设置工具与界面同步)。
 
 ---
 

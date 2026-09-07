@@ -394,7 +394,7 @@ stateDiagram-v2
 **前端处理**（[ChatScreen.tsx](../../../src/components/chat/ChatScreen.tsx) `handleCommandAction`）：
 
 - `ShowProjectPicker`：渲染为 event 气泡 markdown 列表，附 `> /project <项目名>` 提示框
-- `EnterProject`：在该项目下**新建会话**（agent 走 7 级解析链，详见 AGENTS.md「Agent 解析链」），并关掉 `draftIncognito`（项目与无痕互斥）
+- `EnterProject`：在该项目下**新建会话**（agent 走 7 级解析链，详见 [默认 Agent 解析链](../core/agent-config.md#7-级默认-agent-解析链)），并关掉 `draftIncognito`（项目与无痕互斥）
 
 **IM 渠道**：`/project` 不在禁用清单里。handler 检测到 `session.channel_info.is_some()` 后切分支：发 `AssignProject`，channel 侧调 `SessionDB::set_session_project` **UPDATE 现有 `sessions.project_id`，不创建新 session**。IM 入站消息不再自动归项目（反向认领已删除），归属完全由 IM 内 `/project` 显式触发。
 

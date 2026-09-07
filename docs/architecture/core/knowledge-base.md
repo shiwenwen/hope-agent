@@ -262,6 +262,8 @@ IM 默认归零的红线可以按账号解除。IM 身份经 `ChannelKbContext{c
 
 ## 八、Agent 工具面
 
+新增知识工具须同时更新 `ha-knowledge` 的 `tools/note.rs` 处理器与 `tools/mod.rs::note_dispatch_entries` 分发条目，由 `wire()` 调用 `register_external_tools` 注册。工具名、`ToolDefinition` 与 `core_tools.rs` 中的定义属于纯契约，保留在内核；壳层只做适配。
+
 agent 在对话中直接调用的工具，覆盖 CRUD、链接图谱、检索、元数据、AI 高阶——共 24 个（22 个 `note_*` + `knowledge_recall` + `session_to_note`），在 [`tools/note.rs`](../../../crates/ha-knowledge/src/tools/note.rs)。它们都 `internal=false`（过权限引擎 + plan-mode），`kb` 参数过 `effective_kb_access`：**写**需要 write + 内部 root + 全链允许 + 非 incognito；**读** 时若省略 `kb` 就只搜可访问集合（跨 KB 同名返 disambiguation）。
 
 - **CRUD / 链接**：`note_create / read / update / patch / append / delete / search / link / backlinks / by_tag / tags`；`note_rename`（别名 `note_move`）移动 `.md` 并改写入站 `[[ ]]`；`note_set_frontmatter` 逐行非破坏性合并 YAML（只重写命中的顶层键，`null` 删键，全删则丢整个 frontmatter 围栏）。

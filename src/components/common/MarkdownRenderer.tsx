@@ -424,12 +424,15 @@ function MarkdownImage({
 
 export function MarkdownLink({
   href,
+  title,
   children,
   className,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   node: _node,
   ...rest
 }: MarkdownAnchorProps) {
+  // Markdown 标题统一转为共享提示属性，不能经 rest 透传原生 title。
+  // 流式消息可能渲染上百个链接，不逐链接增加 TooltipTrigger。
   const isIncomplete = href === "streamdown:incomplete-link"
   const typedMentionLinks = useContext(TypedMentionRenderContext)
   const typedMention = !isIncomplete && href ? typedMentionLinks?.get(href) : undefined
@@ -474,7 +477,13 @@ export function MarkdownLink({
   // hooks and Radix components remain isolated to local links.
   if (localPath) {
     return (
-      <MarkdownFileLink localPath={localPath} href={href} className={className} {...rest}>
+      <MarkdownFileLink
+        {...rest}
+        localPath={localPath}
+        href={href}
+        className={className}
+        data-ha-title-tip={title}
+      >
         {children}
       </MarkdownFileLink>
     )
@@ -484,6 +493,7 @@ export function MarkdownLink({
     return (
       <MarkdownWebLink
         {...rest}
+        data-ha-title-tip={title}
         href={href}
         className={className}
         linkIcon={linkIcon}
@@ -493,11 +503,10 @@ export function MarkdownLink({
       </MarkdownWebLink>
     )
   }
-  // Native `title` 而非 shadcn Tooltip：Streamdown 流式消息可能渲染上百 anchor，
-  // 包 TooltipTrigger 会爆 DOM 并破坏 anchor 组件签名。
   return (
     <a
       {...rest}
+      data-ha-title-tip={title}
       href={href}
       className={cn("wrap-anywhere markdown-link", className)}
       data-incomplete={isIncomplete || undefined}

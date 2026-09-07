@@ -525,7 +525,7 @@ iframe → 磁盘写是首个不可信写通道。**权威净化在后端 `patch
 - **CSS 值函数白名单** `SAFE_CSS_FUNCTIONS`——`calc` / `var` / `color` / `gradient` / `transform` / `filter` 等合法函数放行；`url()` / `image-set()` / `expression()` 等可加载远程资源或执行的向量**整值拒绝**（守自包含零网络；黑名单永远列不全故用白名单）。加结构性字符 `< > " ; { }` 过滤 + 属性名限 `[a-z0-9-]`。
 - **属性白名单** `ALLOWED_ATTRS = [href, src, alt]`——只放行这三个（绝不写 `onclick` / `onerror` / `style`）；`sanitize_attr_value` 拒 `javascript:` / `vbscript:` / `data:text/html`，`href` 拒任何 `data:`，`src` 仅放行 `data:image/*`，值经实体转义防击穿属性引号。
 - **oid 主机侧校验**：经 oidmap `find_entry`，不在图即 `OidNotFound` 拒。
-- **确定性命中 + stale-write 守卫**：`patch_element` 按字节范围唯一命中；命中 0 处或 `expected` hash 不符即拒绝，前端提示「源已更新，请重新选中」。
+- **确定性命中与陈旧写入守卫**：`patch_element` 按字节范围唯一命中；命中 0 处或 `expected_hash` 不符即拒绝，前端提示「源已更新，请重新选中」。落盘统一走 `platform::write_atomic`，禁止回退为普通文件写入。
 - **应用顺序**：text → re-annotate → attrs → re-annotate → styles。attrs 与 styles 同改一个 open tag，第一次改动后字节范围移位，必须 re-annotate 拿新 offset（值变结构不变，`annotate` 重赋同一 oid 序列，映射稳定）。
 
 ### 7.4 画框批注

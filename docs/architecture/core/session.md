@@ -406,7 +406,7 @@ flowchart LR
     C3 --> W["失败仅 app_warn!，不阻塞主删"]
 ```
 
-删除普通主会话时，会在同一 `Immediate` 事务中删除它拥有的活跃与已归档侧聊；普通 Fork 不受影响。每个被删侧聊仍单独执行文件、孤儿表、权限信任集清理并发出生命周期事件，保证其在途 turn、审批与后台状态都能被 `cleanup_watcher` 收敛。第 ③ 步在一个单独事务里按序清掉不随 `sessions` FK 级联的关联表：`session_skill_activation`、`session_tool_activation`、`learning_events`、`subagent_result_deliveries`、`subagent_dispatches`、`subagent_threads`、`subagent_runs`（`parent_session_id` 或 `child_session_id` 命中）、`acp_runs`。失败只 `app_warn!` 不向上抛——保证主删 `sessions` 行成功后即使关联清理失败也不阻塞用户。该 contract 在 [AGENTS.md](../../../AGENTS.md) 列为强制。删除后残留在内存里的引用由 `cleanup_watcher` 负责（见后文）。
+删除普通主会话时，会在同一 `Immediate` 事务中删除它拥有的活跃与已归档侧聊；普通 Fork 不受影响。每个被删侧聊仍单独执行文件、孤儿表、权限信任集清理并发出生命周期事件，保证其在途 turn、审批与后台状态都能被 `cleanup_watcher` 收敛。第 ③ 步在一个单独事务里按序清掉不随 `sessions` FK 级联的关联表：`session_skill_activation`、`session_tool_activation`、`learning_events`、`subagent_result_deliveries`、`subagent_dispatches`、`subagent_threads`、`subagent_runs`（`parent_session_id` 或 `child_session_id` 命中）、`acp_runs`。失败只 `app_warn!` 不向上抛——保证主删 `sessions` 行成功后即使关联清理失败也不阻塞用户。该清理顺序属于会话删除的必守契约。删除后残留在内存里的引用由 `cleanup_watcher` 负责（见后文）。
 
 ### 消息 CRUD
 
