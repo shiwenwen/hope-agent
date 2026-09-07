@@ -29,6 +29,27 @@ pub fn model_ref_is_available(providers: &[ProviderConfig], model: &ActiveModel)
     })
 }
 
+/// Whether a cached Agent built from `snapshot` still represents the current
+/// selection and its full Provider configuration, including credentials and
+/// enabled state. Call while holding the desktop Agent cache lock so a
+/// concurrent Provider write will either reject this build or invalidate it.
+pub fn active_model_configuration_matches(snapshot: &AppConfig, current: &AppConfig) -> bool {
+    if snapshot.active_model != current.active_model {
+        return false;
+    }
+    let Some(active) = snapshot.active_model.as_ref() else {
+        return true;
+    };
+    snapshot
+        .providers
+        .iter()
+        .find(|provider| provider.id == active.provider_id)
+        == current
+            .providers
+            .iter()
+            .find(|provider| provider.id == active.provider_id)
+}
+
 /// Return the first available model in persisted provider/model order.
 pub fn first_available_model(providers: &[ProviderConfig]) -> Option<ActiveModel> {
     providers
@@ -93,6 +114,8 @@ pub fn parse_model_ref(ref_str: &str) -> Option<ActiveModel> {
 /// 2. If the agent has custom fallbacks, use its available entries; otherwise
 ///    use available global fallback models
 /// 3. Deduplicate fallbacks against the selected primary while preserving order
+/// 4. If no configured candidate is available, use the first enabled model in
+///    persisted order without changing any configured preference
 pub fn resolve_model_chain(
     agent_model: &crate::agent_config::AgentModelConfig,
     config: &AppConfig,
@@ -109,6 +132,21 @@ pub fn resolve_model_chain(
 /// validated by callers before invoking this resolver because they are not
 /// allowed to fall back silently.
 pub fn resolve_model_chain_with_preferred(
+    preferred: Option<&str>,
+    agent_model: &crate::agent_config::AgentModelConfig,
+    config: &AppConfig,
+) -> (Option<ActiveModel>, Vec<ActiveModel>) {
+    let (primary, fallbacks) =
+        resolve_configured_model_chain_with_preferred(preferred, agent_model, config);
+    // Catalog recovery belongs to chat. Legacy automation Agent overrides must
+    // remain empty when unconfigured so the automation-default tier can run.
+    (
+        primary.or_else(|| first_available_model(&config.providers)),
+        fallbacks,
+    )
+}
+
+pub(crate) fn resolve_configured_model_chain_with_preferred(
     preferred: Option<&str>,
     agent_model: &crate::agent_config::AgentModelConfig,
     config: &AppConfig,
@@ -524,6 +562,70 @@ mod tests {
     }
 
     #[test]
+    fn active_model_cache_rejects_provider_changes_with_the_same_model_reference() {
+        let snapshot = AppConfig {
+            providers: vec![provider("active", true, &["model"])],
+            active_model: Some(active("active", "model")),
+            ..Default::default()
+        };
+        let updates: [fn(&mut ProviderConfig); 6] = [
+            |provider| provider.base_url = "https://changed.example.com".into(),
+            |provider| provider.api_key = "rotated-test-key".into(),
+            |provider| provider.enabled = false,
+            |provider| provider.api_type = ApiType::Anthropic,
+            |provider| provider.models.clear(),
+            |provider| {
+                provider.auth_profiles = vec![AuthProfile::new(
+                    "new profile".into(),
+                    "profile-test-key".into(),
+                    None,
+                )]
+            },
+        ];
+        for update in updates {
+            let mut current = snapshot.clone();
+            update(&mut current.providers[0]);
+            assert_eq!(snapshot.active_model, current.active_model);
+            assert!(!active_model_configuration_matches(&snapshot, &current));
+        }
+    }
+
+    #[test]
+    fn active_model_cache_rejects_changed_selection_or_removed_provider() {
+        let snapshot = AppConfig {
+            providers: vec![provider("active", true, &["first", "second"])],
+            active_model: Some(active("active", "first")),
+            ..Default::default()
+        };
+        let mut current = snapshot.clone();
+        current.active_model = Some(active("active", "second"));
+        assert!(!active_model_configuration_matches(&snapshot, &current));
+        current.active_model = None;
+        assert!(!active_model_configuration_matches(&snapshot, &current));
+        current = snapshot.clone();
+        current.providers.clear();
+        assert!(!active_model_configuration_matches(&snapshot, &current));
+    }
+
+    #[test]
+    fn active_model_cache_allows_unrelated_provider_and_fallback_updates() {
+        let snapshot = AppConfig {
+            providers: vec![
+                provider("active", true, &["model"]),
+                provider("other", true, &["fallback"]),
+            ],
+            active_model: Some(active("active", "model")),
+            ..Default::default()
+        };
+        assert!(active_model_configuration_matches(&snapshot, &snapshot));
+        let mut current = snapshot.clone();
+        current.providers[1].enabled = false;
+        current.fallback_models = vec![active("other", "fallback")];
+        current.providers.reverse();
+        assert!(active_model_configuration_matches(&snapshot, &current));
+    }
+
+    #[test]
     fn disabled_agent_primary_falls_back_to_available_global_active() {
         let config = AppConfig {
             providers: vec![
@@ -538,6 +640,65 @@ mod tests {
         let chain = resolve_model_chain_with_preferred(None, &agent_model, &config);
 
         assert_eq!(resolved_refs(chain.0, chain.1), ["global::active-model"]);
+    }
+
+    #[test]
+    fn disabled_default_uses_first_available_model_and_recovers_when_reenabled() {
+        let mut config = AppConfig {
+            providers: vec![
+                provider("empty", true, &[]),
+                provider("old", true, &["first", "second"]),
+                provider("latest", false, &["selected"]),
+            ],
+            active_model: Some(active("latest", "selected")),
+            ..Default::default()
+        };
+        let agent_model = agent_model(None, &[]);
+
+        // Repeated new Sessions resolve without changing the saved preference.
+        for _ in 0..2 {
+            let chain = resolve_model_chain(&agent_model, &config);
+            assert_eq!(resolved_refs(chain.0, chain.1), ["old::first"]);
+            assert_eq!(
+                config.active_model.as_ref().unwrap().to_string(),
+                "latest::selected"
+            );
+        }
+
+        config.providers[2].enabled = true;
+        let chain = resolve_model_chain(&agent_model, &config);
+        assert_eq!(resolved_refs(chain.0, chain.1), ["latest::selected"]);
+    }
+
+    #[test]
+    fn configured_fallbacks_take_priority_over_first_available_model() {
+        let config = AppConfig {
+            providers: vec![
+                provider("first", true, &["unconfigured"]),
+                provider("disabled", false, &["selected"]),
+                provider("global", true, &["fallback"]),
+                provider("agent", true, &["fallback"]),
+            ],
+            active_model: Some(active("disabled", "selected")),
+            fallback_models: vec![active("global", "fallback")],
+            ..Default::default()
+        };
+
+        for (fallbacks, expected) in [
+            (vec![], "global::fallback"),
+            (
+                vec!["missing::model", "disabled::selected", "agent::fallback"],
+                "agent::fallback",
+            ),
+        ] {
+            let agent_model = agent_model(Some("disabled::selected"), &fallbacks);
+            let chain = resolve_model_chain_with_preferred(
+                Some("missing::session-model"),
+                &agent_model,
+                &config,
+            );
+            assert_eq!(resolved_refs(chain.0, chain.1), [expected]);
+        }
     }
 
     #[test]

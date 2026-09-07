@@ -13,9 +13,15 @@ pub async fn get_providers(_state: State<'_, AppState>) -> Result<Vec<ProviderCo
 #[tauri::command]
 pub async fn add_provider(
     config: ProviderConfig,
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<ProviderConfig, CmdError> {
-    ha_core::provider::add_provider(config, "ui").map_err(Into::into)
+    let result =
+        ha_core::blocking::run_blocking(move || ha_core::provider::add_provider(config, "ui"))
+            .await?;
+    if result.active_model_changed {
+        super::models::rebuild_active_agent(&state).await?;
+    }
+    Ok(result.provider)
 }
 
 #[tauri::command]
