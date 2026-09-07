@@ -62,7 +62,8 @@ fn record_diagnosis_usage(
 
 /// Run self-diagnosis using available LLM providers.
 /// Reads crash logs, builds a diagnostic prompt, and calls the cheapest available LLM.
-/// Falls back to basic log analysis if all LLM calls fail.
+/// Falls back to basic log analysis when no candidates are available or all fail
+/// with non-terminal errors. A terminal error exits without offline analysis.
 pub fn diagnose(journal: &CrashJournal) -> Result<DiagnosisResult, String> {
     let log_excerpt = read_recent_logs();
     let crash_summary = build_crash_summary(journal);

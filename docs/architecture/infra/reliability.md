@@ -353,14 +353,24 @@ flowchart TD
     D1["read_recent_logs()：最新日志文件末 200 行"]
     D2["build_diagnosis_prompt(崩溃摘要, 日志)"]
     D3["load_candidate_providers()：按成本升序"]
-    D4["逐个 provider 调 LLM → 解析<br/>成功即返回，失败换下一个"]
-    D5["全部失败 → basic_analysis()（规则兜底）"]
+    D4["逐个服务商调 LLM → 解析"]
+    D5["basic_analysis()（规则兜底）"]
+    ERR["类型化终态 → diagnose() 返回错误"]
+    END["Guardian 输出诊断失败信息<br/>不自动修复、不写入诊断结果"]
 
-    RR --> BK --> DIAG --> FIX --> SET
-    DIAG --> D1 --> D2 --> D3 --> D4 --> D5
+    RR --> BK --> DIAG --> D1 --> D2 --> D3
+    D3 -->|有候选| D4
+    D3 -->|无候选| D5
+    D4 -->|成功| FIX
+    D4 -->|普通失败且仍有候选| D4
+    D4 -->|普通失败且候选耗尽| D5
+    D4 -->|终态错误| ERR --> END
+    D5 --> FIX --> SET
 ```
 
 整个 `run_recovery` **同步阻塞**：Guardian 在这段时间不重启 Child，等诊断出结果。每个 provider 的 HTTP 请求有 30 秒超时，逐个尝试——最坏情况下总耗时随候选 provider 数量线性增长，而不是固定 30 秒。诊断本身的 LLM 调用也会入用量总账（记为 `provider_test` 类、`source = self_diagnosis`），不会成为账外成本。
+
+**终态不进入离线兜底**：`try_diagnosis_providers` 保留并分类类型化错误，`ProviderBlocked`、`RequestContract`、`RetryDeferred` 等终态立即从 `diagnose` 返回错误，不再尝试剩余服务商，也不运行 `basic_analysis`。`guardian::run_recovery` 只向标准错误流输出诊断失败信息，不调用 `auto_fix` 或 `set_last_diagnosis`，因此末条崩溃记录不会获得新的诊断结果；诊断前已保存的备份时间与原崩溃记录仍保留。恢复调用返回后继续既有退避和重启流程。展示文本中的内部标记不作为这类终态的分类依据。
 
 ### 6.2 Prompt 模板
 
@@ -406,7 +416,7 @@ Respond ONLY with a JSON object:
 2. 过滤条件：`enabled && 有 api_key && api_type != Codex && 有模型`
 3. **Codex 不参与**：Codex 走 OAuth + token refresh，Guardian 的同步上下文里跑 OAuth 太复杂，且 refresh 失败会引入更多变量
 4. **按成本升序排，优先用最便宜的模型诊断**——但成本键有讲究：完全未标价的模型（`cost_input` / `cost_output` 都缺）排**最后**（记为最大值），不会因为"看起来是 0"被误当便宜货优先选中；跨币种比较先归一（¥2.4 实际远便宜于 $2.4，按汇率折算再比）
-5. 全部失败 → `basic_analysis()`（见 [§6.5](#65-basic_analysis-兜底)）
+5. 普通失败继续下一候选；所有候选均以非终态错误失败时进入 `basic_analysis()`（见 [§6.5](#65-basic_analysis-兜底)）。任一类型化终态立即返回错误，按 [§6.1](#61-调用链) 保留崩溃记录且不写入新的诊断结果。
 
 支持的 API 类型：
 
@@ -426,7 +436,7 @@ Respond ONLY with a JSON object:
 
 ### 6.5 basic_analysis 兜底
 
-所有 LLM provider 都失败 / 没配置 / 全是 Codex → `basic_analysis()` 走规则匹配，只看**最近 5 条**崩溃记录：
+所有 LLM 服务商均以非终态错误失败 / 没配置 / 全是 Codex → `basic_analysis()` 走规则匹配，只看**最近 5 条**崩溃记录。明确终态不进入此分支：
 
 | 模式 | 触发条件 | severity | recommendations 方向 |
 |------|----------|----------|---------------------|
@@ -635,7 +645,8 @@ Cron 调度器（[`ha-cron/src/cron/scheduler.rs`](../../../crates/ha-cron/src/c
 | 关掉 Guardian 后想再开 | `config.json` 加 `{"guardian": {"enabled": true}}`，或 GUI 切换 |
 | `server install` 后 `launchctl list \| grep hopeagent` 看不到 | macOS 13+ 需在「系统设置 → 登录项 → 在后台允许」勾选 |
 | systemd 服务跑了但很快自杀 | `Restart=on-failure` + systemd 默认重启限流（默认 10 秒内 5 次）会让它进 `failed`。`journalctl --user -u hope-agent.service` 看真实退出码 |
-| 诊断结果总是 `severity: "unknown"` | LLM provider 全失败 → 走了 `basic_analysis`。看 `provider_used` 字段，空 = 兜底。常见原因：所有 provider 都是 Codex（不参与）/ API key 都失效 / 网络不通 |
+| 诊断结果总是 `severity: "unknown"` | LLM 服务商均以非终态错误失败 → 走了 `basic_analysis`。看 `provider_used` 字段，空 = 兜底。常见原因：所有服务商都是 Codex（不参与）/ API Key 都失效 / 网络不通 |
+| 已达诊断阈值但末条崩溃记录没有新诊断结果 | 检查 Guardian 标准错误流的 `Diagnosis failed`。`ProviderBlocked`、`RequestContract`、`RetryDeferred` 等终态会跳过剩余候选、离线分析及自动修复；已有备份和崩溃记录保留，不把缺少诊断解释为修复成功 |
 | auto_fix 没修我的问题 | 覆盖范围窄（[§7.1](#71-当前覆盖的修复场景)）。看 `recommendations`——`user_actionable=true` 就按建议手动操作；否则多半是原生库 / OOM，需更深入排查 |
 | 想验证 Guardian 工作正常 | 让 Child 主动 panic：临时加一处 `panic!("test")`，观察 `crash_journal.json` 累积；测完记得恢复 |
 
