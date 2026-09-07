@@ -66,8 +66,8 @@ fn filter_live_candidates(config: &AppConfig, chain: Vec<ActiveModel>) -> Vec<Ac
 
 /// Resolve a deprecated `agent_id`-style config field to an equivalent
 /// [`ModelChain`] by reading that agent's own model config — the same
-/// resolution `crate::provider::resolve_model_chain` already does for
-/// regular chat, just materialized once instead of keeping an Agent
+/// configured-candidate resolution used by regular chat, without its catalog
+/// recovery, just materialized once instead of keeping an Agent
 /// indirection alive. Shared by every Phase 1 consumer that used to borrow
 /// an agent id (Recap, Knowledge Compile) so the "load agent → resolve its
 /// model chain" logic isn't duplicated per consumer.
@@ -82,8 +82,15 @@ pub fn resolve_legacy_agent_chain(config: &AppConfig, agent_id: &str) -> Option<
         return None;
     }
     let agent_def = crate::agent_loader::load_agent(agent_id).ok()?;
+    legacy_agent_model_chain(config, &agent_def.config.model)
+}
+
+fn legacy_agent_model_chain(
+    config: &AppConfig,
+    agent_model: &crate::agent_config::AgentModelConfig,
+) -> Option<ModelChain> {
     let (primary, fallbacks) =
-        crate::provider::resolve_model_chain(&agent_def.config.model, config);
+        crate::provider::resolve_configured_model_chain_with_preferred(None, agent_model, config);
     Some(ModelChain {
         primary: primary?,
         fallbacks,
@@ -620,4 +627,92 @@ pub async fn run_vision_streaming(
             spec.purpose
         )
     }))
+}
+
+#[cfg(test)]
+mod legacy_agent_tests {
+    use super::*;
+    use crate::agent_config::AgentModelConfig;
+    use crate::provider::{ApiType, ModelConfig, ProviderConfig};
+
+    fn model(provider_id: &str) -> ActiveModel {
+        ActiveModel {
+            provider_id: provider_id.into(),
+            model_id: "model".into(),
+        }
+    }
+
+    fn config() -> AppConfig {
+        let providers = ["catalog", "legacy", "automation"]
+            .into_iter()
+            .map(|id| {
+                let mut provider = ProviderConfig::new(
+                    id.into(),
+                    ApiType::OpenaiChat,
+                    "https://example.test".into(),
+                    "test-key".into(),
+                );
+                provider.id = id.into();
+                provider.enabled = id != "legacy";
+                provider.models = vec![ModelConfig {
+                    id: "model".into(),
+                    name: "Model".into(),
+                    input_types: vec!["text".into()],
+                    context_window: 128_000,
+                    max_tokens: 8192,
+                    reasoning: false,
+                    thinking_style: None,
+                    cost_input: None,
+                    cost_output: None,
+                }];
+                provider
+            })
+            .collect();
+        let mut config = AppConfig {
+            providers,
+            active_model: Some(model("legacy")),
+            ..Default::default()
+        };
+        config.function_models.automation = Some(ModelChain {
+            primary: model("automation"),
+            fallbacks: vec![],
+        });
+        config
+    }
+
+    #[test]
+    fn unavailable_legacy_agent_preserves_the_automation_default_tier() {
+        let config = config();
+        for primary in [
+            None,
+            Some("legacy::model".into()),
+            Some("missing::model".into()),
+        ] {
+            let agent_model = AgentModelConfig {
+                primary,
+                fallbacks: vec!["missing::model".into()],
+                ..Default::default()
+            };
+            let legacy = legacy_agent_model_chain(&config, &agent_model);
+            assert!(legacy.is_none());
+            assert_eq!(effective_chain(&config, legacy), vec![model("automation")]);
+            assert_eq!(
+                crate::provider::resolve_model_chain(&agent_model, &config).0,
+                Some(model("catalog")),
+            );
+        }
+    }
+
+    #[test]
+    fn available_legacy_agent_keeps_its_configured_override_priority() {
+        let mut config = config();
+        config.providers[1].enabled = true;
+        let agent_model = AgentModelConfig {
+            primary: Some("legacy::model".into()),
+            ..Default::default()
+        };
+
+        let legacy = legacy_agent_model_chain(&config, &agent_model);
+        assert_eq!(effective_chain(&config, legacy), vec![model("legacy")]);
+    }
 }

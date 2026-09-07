@@ -71,6 +71,12 @@ pub enum ActiveModelUpdate {
     Never,
 }
 
+pub struct ProviderAddResult {
+    pub provider: ProviderConfig,
+    /// The desktop shell must rebuild its cached Agent after initialization.
+    pub active_model_changed: bool,
+}
+
 /// Add a provider from the UI/API request shape. This intentionally generates
 /// a fresh ID and always appends; local-backend upsert uses a separate helper.
 /// Initialize a missing default in the same write without replacing an
@@ -78,10 +84,11 @@ pub enum ActiveModelUpdate {
 pub fn add_provider(
     config: ProviderConfig,
     source: &'static str,
-) -> ProviderWriteResult<ProviderConfig> {
+) -> ProviderWriteResult<ProviderAddResult> {
     mutate_config(("providers.add", source), move |store| {
-        let provider = add_provider_to_config(store, config);
-        Ok(provider.masked())
+        let mut result = add_provider_to_config(store, config);
+        result.provider = result.provider.masked();
+        Ok(result)
     })
     .map_err(map_config_error)
 }
@@ -312,11 +319,14 @@ fn new_provider_from_add_request(mut config: ProviderConfig) -> ProviderConfig {
 pub(crate) fn add_provider_to_config(
     store: &mut AppConfig,
     config: ProviderConfig,
-) -> ProviderConfig {
+) -> ProviderAddResult {
     let provider = new_provider_from_add_request(config);
     store.providers.push(provider.clone());
-    reconcile_model_references(store);
-    provider
+    let active_model_changed = reconcile_model_references(store).active_model_changed;
+    ProviderAddResult {
+        provider,
+        active_model_changed,
+    }
 }
 
 pub(crate) fn add_existing_provider_to_config(
@@ -691,11 +701,25 @@ mod tests {
     #[test]
     fn add_provider_appends_even_with_same_base_url() {
         let mut cfg = AppConfig::default();
-        let first = add_provider_to_config(&mut cfg, provider("A", "http://127.0.0.1:11434"));
-        let second = add_provider_to_config(&mut cfg, provider("B", "http://127.0.0.1:11434"));
+        let first =
+            add_provider_to_config(&mut cfg, provider("A", "http://127.0.0.1:11434")).provider;
+        let second =
+            add_provider_to_config(&mut cfg, provider("B", "http://127.0.0.1:11434")).provider;
 
         assert_ne!(first.id, second.id);
         assert_eq!(cfg.providers.len(), 2);
+    }
+
+    #[test]
+    fn adding_provider_reports_when_the_desktop_agent_needs_initialization() {
+        let mut cfg = AppConfig::default();
+        let first = add_provider_to_config(&mut cfg, provider("A", "https://a.example.com"));
+        assert!(first.active_model_changed);
+        assert_active_model(&cfg, &first.provider.id, "m1");
+
+        let second = add_provider_to_config(&mut cfg, provider("B", "https://b.example.com"));
+        assert!(!second.active_model_changed);
+        assert_active_model(&cfg, &first.provider.id, "m1");
     }
 
     #[test]
@@ -709,7 +733,8 @@ mod tests {
                 "https://a.example.com",
                 &["m1", "m2"],
             ),
-        );
+        )
+        .provider;
         assert_active_model(&cfg, &first.id, "m1");
         set_active_model_in_config(&mut cfg, &first.id, "m2").unwrap();
         cfg.fallback_models = vec![active(&first.id, "m1")];
@@ -737,7 +762,8 @@ mod tests {
         );
         assert!(cfg.active_model.is_none());
 
-        let available = add_provider_to_config(&mut cfg, provider("A", "https://a.example.com"));
+        let available =
+            add_provider_to_config(&mut cfg, provider("A", "https://a.example.com")).provider;
 
         assert_active_model(&cfg, &available.id, "m1");
     }
@@ -745,7 +771,8 @@ mod tests {
     #[test]
     fn adding_provider_preserves_a_temporarily_disabled_default() {
         let mut cfg = AppConfig::default();
-        let mut first = add_provider_to_config(&mut cfg, provider("A", "https://a.example.com"));
+        let mut first =
+            add_provider_to_config(&mut cfg, provider("A", "https://a.example.com")).provider;
         first.enabled = false;
         update_provider_in_config(&mut cfg, first.clone()).unwrap();
 
@@ -757,7 +784,8 @@ mod tests {
     #[test]
     fn adding_model_to_provider_preserves_the_selected_model() {
         let mut cfg = AppConfig::default();
-        let mut first = add_provider_to_config(&mut cfg, provider("A", "https://a.example.com"));
+        let mut first =
+            add_provider_to_config(&mut cfg, provider("A", "https://a.example.com")).provider;
         first.models.push(model("new-model"));
 
         update_provider_in_config(&mut cfg, first.clone()).unwrap();

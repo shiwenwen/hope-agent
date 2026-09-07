@@ -115,6 +115,21 @@ pub fn resolve_model_chain_with_preferred(
     agent_model: &crate::agent_config::AgentModelConfig,
     config: &AppConfig,
 ) -> (Option<ActiveModel>, Vec<ActiveModel>) {
+    let (primary, fallbacks) =
+        resolve_configured_model_chain_with_preferred(preferred, agent_model, config);
+    // Catalog recovery belongs to chat. Legacy automation Agent overrides must
+    // remain empty when unconfigured so the automation-default tier can run.
+    (
+        primary.or_else(|| first_available_model(&config.providers)),
+        fallbacks,
+    )
+}
+
+pub(crate) fn resolve_configured_model_chain_with_preferred(
+    preferred: Option<&str>,
+    agent_model: &crate::agent_config::AgentModelConfig,
+    config: &AppConfig,
+) -> (Option<ActiveModel>, Vec<ActiveModel>) {
     let primary = preferred
         .and_then(parse_model_ref)
         .filter(|model| model_ref_is_available(&config.providers, model))
@@ -141,13 +156,6 @@ pub fn resolve_model_chain_with_preferred(
         for fallback in &agent_model.fallbacks {
             push_model_ref_if_available(&mut chain, Some(fallback), &config.providers);
         }
-    }
-
-    // Disabling a Provider preserves its configured references. A usable
-    // catalog entry still lets new Sessions start when all configured choices
-    // are unavailable; it is not appended to an otherwise valid fallback chain.
-    if chain.is_empty() {
-        chain.extend(first_available_model(&config.providers));
     }
 
     let mut resolved = chain.into_iter();

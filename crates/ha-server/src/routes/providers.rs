@@ -49,10 +49,10 @@ pub async fn has_providers() -> Result<Json<bool>, AppError> {
 pub async fn add_provider(
     Json(config): Json<ProviderConfig>,
 ) -> Result<Json<ProviderConfig>, AppError> {
-    let masked = ha_core::blocking::run_blocking(move || provider::add_provider(config, "http"))
+    let result = ha_core::blocking::run_blocking(move || provider::add_provider(config, "http"))
         .await
         .map_err(provider_write_error)?;
-    Ok(Json(masked))
+    Ok(Json(result.provider))
 }
 
 /// `PUT /api/providers/{id}` — update an existing provider.

@@ -915,6 +915,8 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 
 ### Providers
 
+`add_provider` / `POST /api/providers` 在同一次配置写入中补齐缺失默认，保留已有默认；响应仍为服务商配置。桌面端在默认模型变化时同步重建 Agent 缓存。
+
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
 | `get_providers` | `GET /api/providers` | ✅ |

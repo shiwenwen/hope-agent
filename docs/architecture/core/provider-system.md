@@ -163,6 +163,8 @@ DeepSeek 直连模板新增 `deepseek-v4-flash-vision-exp`，继续使用 `opena
 
 删改 Provider 后 crud 会顺带跑 `repair_hard_deleted_model_references`：把因硬删除而悬空的 `active_model` / fallback 引用修好，避免下一轮 chat 指向不存在的模型。本地 LLM 安装路径另有专用入口 `upsert_known_local_provider_model`（在 `provider/local.rs`），按下节 catalog 的 host/port 去重。
 
+`add_provider` 的内部返回结果同时携带已脱敏的服务商配置与默认模型变更标记。桌面适配层据此同步重建 Agent 缓存，与显式切换模型复用同一重建入口，避免首次配置后 `/context` 仍提示没有可用 Agent；缓存重建不再次写入默认模型，较早的构建结果不得覆盖已变化的模型选择。HTTP 与 Tauri 对外仍只返回原有服务商配置形状。
+
 ### 1.7 本地后端目录（Local Backend Catalog）
 
 自托管后端的已知端点硬编码在 `crates/ha-core/src/provider/local.rs::known_local_backends()`：
@@ -606,7 +608,7 @@ flowchart TD
 - **Session 创建时就固定有效模型、温度与 Think**；Agent/全局默认之后再变，不反向影响已有 Session。
 - **fallback 只记录本轮实际用的模型和用量，绝不回写 Session 首选**——所以下一轮仍从原主模型重新开始。
 - **Provider 被禁用**时保留首选引用并临时跳过，重新启用即恢复；只有**永久删除**才清理全局 / Agent / Session 里的硬失效引用。
-- **全部首选与有效备用项都不可用**时，按已保存的渠道与模型顺序选择首个启用模型，仅用于本次解析，不改写全局或 Agent 默认，也不向仍可用的模型链追加其他模型。新会话界面通过 `get_chat_runtime_defaults` 使用同一解析结果；全部渠道禁用或无模型时仍返回空，显式单轮覆盖不可用时仍报错。
+- **主对话的全部首选与有效备用项都不可用**时，按已保存的渠道与模型顺序选择首个启用模型，仅用于本次解析，不改写全局或 Agent 默认，也不向仍可用的模型链追加其他模型。新会话界面通过 `get_chat_runtime_defaults` 使用同一解析结果；全部渠道禁用或无模型时仍返回空，显式单轮覆盖不可用时仍报错。自动化旧 Agent 字段仅解析已配置候选，不使用此目录兜底，以保留自动化专用模型的优先级。
 - **GUI 草稿**通过 `sessionDefaults` 携带模型/温度/Think，仅在首次创建 Session 时消费；`modelOverride` / `temperatureOverride` / `reasoningEffort` 是单轮 API 覆盖，不作为 GUI 的会话持久化通道。
 - **Agent 字段独立继承全局**：`primary=None` 跟随全局主模型，`fallbacks=[]` 跟随全局 fallback 链，`temperature=None` / `reasoning_effort=None` 各自跟随全局值；一旦配了 Agent fallbacks 就**完全替代**全局 fallbacks。
 

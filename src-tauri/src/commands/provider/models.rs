@@ -30,21 +30,38 @@ pub(crate) async fn set_active_model_core(
 ) -> Result<(), CmdError> {
     let provider_id_owned = provider_id.to_string();
     let model_id_owned = model_id.to_string();
-    let provider = run_blocking(move || {
+    run_blocking(move || {
         ha_core::provider::set_active_model(provider_id_owned, model_id_owned, "ui")
     })
     .await?;
 
+    rebuild_active_agent(state).await
+}
+
+/// Refresh the desktop cache after a config write without writing the default
+/// again. A concurrent model change must not be overwritten by an older build.
+pub(super) async fn rebuild_active_agent(state: &AppState) -> Result<(), CmdError> {
+    let config = ha_core::config::cached_config();
     // For Codex, use stored token info; otherwise build agent from provider.
-    if provider.api_type == ApiType::Codex {
-        let token_info = state.codex_token.lock().await.clone();
-        if let Some((access_token, account_id)) = token_info {
-            let agent = AssistantAgent::new_openai(&access_token, &account_id, model_id);
-            *state.agent.lock().await = Some(agent);
+    let selected = config.active_model.as_ref().and_then(|active| {
+        provider::find_provider(&config.providers, &active.provider_id)
+            .map(|provider| (active, provider))
+    });
+    let agent = if let Some((active, provider)) = selected {
+        if provider.api_type == ApiType::Codex {
+            let token_info = state.codex_token.lock().await.clone();
+            token_info.map(|(access_token, account_id)| {
+                AssistantAgent::new_openai(&access_token, &account_id, &active.model_id)
+            })
+        } else {
+            Some(AssistantAgent::try_new_from_provider(provider, &active.model_id).await?)
         }
     } else {
-        let agent = AssistantAgent::try_new_from_provider(&provider, model_id).await?;
-        *state.agent.lock().await = Some(agent);
+        None
+    };
+    let mut cached = state.agent.lock().await;
+    if ha_core::config::cached_config().active_model == config.active_model {
+        *cached = agent;
     }
     Ok(())
 }
