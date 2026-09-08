@@ -152,6 +152,14 @@ DeepSeek 直连模板新增 `deepseek-v4-flash-vision-exp`，继续使用 `opena
 - Anthropic 流式解析完整保存原始 `thinking`、`signature_delta` 拼接结果、`redacted_thinking.data`、文本和工具块顺序，包括最终轮。禁止用界面思考文本重建无签名块；其他协议的 `reasoning_content` 不转换成 Claude 思考。原始块进入会话历史，界面提示独立投影。
 - 官方端点启用 `thinking-binding-controls-2026-08-01`，思考配置加 `block_binding.prefix_mismatch_behavior=drop_block`；Fable 5.1 即使未选档位也显式用自适应思考。动态系统前缀、工具表、压缩后缀或切旧模型仍可能使已有块失效，由服务端裁决；`input_transformations` 的前缀或模型失配会显示提示并记录稳定诊断原因，重复流事件去重，本地原块保留。无法验证的签名拒绝属于请求契约终态，不自动删块重试。这是一条明确可观察的兼容路径，不保证跨模型完整思考连续性。[官方绑定控制](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)
 
+#### 2026-09-08 Gemini 3.8 Flash 补齐
+
+Google 直连模板提供 `gemini-3.8-flash`，OpenRouter 模板提供独立核验的 `google/gemini-3.8-flash`；跨服务商模型补全可检索两个 ID。沿现有 Chat Completions 通道声明文本、图片输入，窗口 1,048,576、输出上限 65,536；原生音视频、PDF、托管智能体与持久思考签名不据此宣称已支持。[Google 模型规格](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash)、[兼容接口](https://ai.google.dev/gemini-api/docs/openai)、[OpenRouter 模型目录](https://openrouter.ai/google/gemini-3.8-flash)
+
+Google 官方 HTTPS 端点的精确 ID 将 `minimal` 调整为 `low`、`xhigh/max` 调整为 `high`，保留 `low/medium/high`。未指定档位或关闭参数发送时继续省略字段，由模型采用默认思考；这不等于关闭 Gemini 服务端推理。中转不套用官方档位特例，已有配置与用户价格不自动覆盖。
+
+两个模板及大盘兜底估价补齐当前标准输入/输出价 0.75/3.75 美元每百万令牌。Google 此价格有效至 2026-12-31，2027-01-01 起为 1.5/7.5；到期前需重新核验并更新模板和估价表。OpenRouter 以其渠道当期报价为准。缓存、Batch/Flex/Priority 及用户账户的实际账单不由基础单价表达；本次仅离线契约验证，没有真实模型质量、延迟或费用实测。[Google 定价](https://ai.google.dev/gemini-api/docs/pricing)
+
 #### Anthropic 工作区鉴权
 
 `AuthProfile.anthropic_workspace_id` 的线上字段为 `anthropicWorkspaceId`：缺失或 `null` 表示限定工作区旧密钥；`Some` 表示用户已选择显式绑定，空串和非法 ID 必须在保存或发送前拒绝。该字段只在设置页每把密钥的“多工作区密钥”入口编辑，不增加 `ha-settings` 的服务商读写类别。不能根据密钥内容猜测其权限范围。[官方鉴权规则](https://platform.claude.com/docs/en/manage-claude/authentication)
@@ -474,7 +482,7 @@ flowchart TD
 
 | 官方主机 / 模型 | 请求档位修正 |
 | --- | --- |
-| `generativelanguage.googleapis.com` / `gemini-3.7-flash` | `minimal → low`，`xhigh/max → high` |
+| `generativelanguage.googleapis.com` / `gemini-3.7-flash`、`gemini-3.8-flash` | `minimal → low`，`xhigh/max → high` |
 | `api.x.ai` / `grok-4.6` | `minimal → low`，保留 `xhigh`，`max → xhigh` |
 | `api.openai.com` / `gpt-5.6`、`gpt-5.6-sol/terra/luna` | `minimal → low`，保留 `xhigh/max` |
 

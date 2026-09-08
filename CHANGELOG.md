@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Gemini 3.8 Flash**：Google 直连与 OpenRouter 预设及模型补全新增 Gemini 3.8 Flash，同步官方推理档位适配和基础成本估算。
+
 ## [0.46.0] - 2026-09-08
 
 ### Added
