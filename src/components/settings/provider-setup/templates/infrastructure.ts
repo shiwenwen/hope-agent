@@ -43,6 +43,18 @@ export const infrastructureTemplates: ProviderTemplate[] = [
         costOutput: 30.0,
       },
       {
+        // OpenRouter 2026-09-08 标准目录报价，独立于 Google 直连模板核验。
+        // https://openrouter.ai/google/gemini-3.8-flash
+        id: "google/gemini-3.8-flash",
+        name: "Gemini 3.8 Flash",
+        inputTypes: ["text", "image"],
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 0.75,
+        costOutput: 3.75,
+      },
+      {
         id: "google/gemini-3.7-flash",
         name: "Gemini 3.7 Flash",
         inputTypes: ["text", "image"],

@@ -267,8 +267,16 @@ fn apply_official_chat_effort(
         return;
     }
     let mapped = match (url.host_str(), model, effort) {
-        (Some("generativelanguage.googleapis.com"), "gemini-3.7-flash", "minimal") => "low",
-        (Some("generativelanguage.googleapis.com"), "gemini-3.7-flash", "xhigh" | "max") => "high",
+        (
+            Some("generativelanguage.googleapis.com"),
+            "gemini-3.7-flash" | "gemini-3.8-flash",
+            "minimal",
+        ) => "low",
+        (
+            Some("generativelanguage.googleapis.com"),
+            "gemini-3.7-flash" | "gemini-3.8-flash",
+            "xhigh" | "max",
+        ) => "high",
         (Some("api.x.ai"), "grok-4.6", "minimal") => "low",
         (Some("api.x.ai"), "grok-4.6", "xhigh" | "max") => "xhigh",
         (
@@ -1349,6 +1357,56 @@ mod tests {
     use std::sync::{atomic::AtomicBool, Arc};
 
     #[test]
+    fn gemini_38_chat_body_uses_supported_efforts_and_keeps_image_tool_history() {
+        let history = vec![serde_json::json!({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe this image and call inspect."},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,synthetic"}}
+            ]
+        })];
+        let tools = vec![serde_json::json!({
+            "name": "inspect", "parameters": {"type": "object", "properties": {}}
+        })];
+        let mut req = super::super::test_support::round_request(&history);
+        req.tool_schemas = &tools;
+        for (effort, expected) in [
+            (Some("minimal"), Some("low")),
+            (Some("low"), Some("low")),
+            (Some("medium"), Some("medium")),
+            (Some("high"), Some("high")),
+            (Some("xhigh"), Some("high")),
+            (Some("max"), Some("high")),
+            (Some("none"), None),
+            (None, None),
+        ] {
+            req.reasoning_effort = effort;
+            let (body, _, _) = build_chat_body(
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "gemini-3.8-flash",
+                &ThinkingStyle::Openai,
+                true,
+                &req,
+            );
+            assert_eq!(body["reasoning_effort"].as_str(), expected, "{effort:?}");
+            assert_eq!(req.reasoning_effort, effort);
+            assert_eq!(body["model"], "gemini-3.8-flash");
+            assert_eq!(body["messages"][1], history[0]);
+            assert_eq!(body["tools"][0]["function"], tools[0]);
+            assert_eq!(body["stream_options"]["include_usage"], true);
+        }
+        req.reasoning_effort = Some("minimal");
+        let (body, _, _) = build_chat_body(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-3.8-flash",
+            &ThinkingStyle::None,
+            true,
+            &req,
+        );
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
     fn official_chat_effort_is_scoped_to_endpoint_model_and_style() {
         for (base_url, model, effort, expected) in [
             (
@@ -1356,6 +1414,48 @@ mod tests {
                 "gemini-3.7-flash",
                 "minimal",
                 "low",
+            ),
+            (
+                "https://generativelanguage.googleapis.com:443/v1beta/openai",
+                "gemini-3.8-flash",
+                "minimal",
+                "low",
+            ),
+            (
+                "https://relay.example/v1",
+                "gemini-3.8-flash",
+                "minimal",
+                "minimal",
+            ),
+            (
+                "https://generativelanguage.googleapis.com.example/v1",
+                "gemini-3.8-flash",
+                "minimal",
+                "minimal",
+            ),
+            (
+                "http://generativelanguage.googleapis.com/v1",
+                "gemini-3.8-flash",
+                "minimal",
+                "minimal",
+            ),
+            (
+                "https://generativelanguage.googleapis.com:444/v1",
+                "gemini-3.8-flash",
+                "minimal",
+                "minimal",
+            ),
+            (
+                "https://generativelanguage.googleapis.com/v1",
+                "custom-gemini-3.8-flash",
+                "minimal",
+                "minimal",
+            ),
+            (
+                "https://generativelanguage.googleapis.com/v1",
+                "gemini-3.6-flash",
+                "minimal",
+                "minimal",
             ),
             ("https://api.x.ai/v1", "grok-4.6", "xhigh", "xhigh"),
             ("https://api.x.ai/v1", "grok-4.6", "max", "xhigh"),

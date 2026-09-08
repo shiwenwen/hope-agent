@@ -127,8 +127,14 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         {
             (0.10, 0.40)
         }
-        // 3.7 / 3.6 Flash 现为促销价（3.6 促销至 2026-12-31，之后回 $1.5/$7.5）。
-        m if m.contains("gemini-3.7-flash") || m.contains("gemini-3.6-flash") => (0.75, 3.75),
+        // 3.8 / 3.7 / 3.6 Flash 标准付费层促销至 2026-12-31，之后回 $1.5/$7.5。
+        // https://ai.google.dev/gemini-api/docs/pricing （2026-09-08 核验）
+        m if m.contains("gemini-3.8-flash")
+            || m.contains("gemini-3.7-flash")
+            || m.contains("gemini-3.6-flash") =>
+        {
+            (0.75, 3.75)
+        }
         m if m.contains("gemini-3.5-flash")
             || m.contains("gemini-3.1-flash")
             || m.contains("gemini-3-flash") =>
@@ -617,6 +623,8 @@ mod tests {
     /// 这几项对应 templates/*.ts 里直连厂商的价格，改模板时一并改这里。
     #[test]
     fn estimator_matches_direct_provider_template_prices() {
+        assert_eq!(prices("gemini-3.8-flash"), (0.75, 3.75));
+        assert_eq!(prices("google/gemini-3.8-flash"), (0.75, 3.75));
         assert_eq!(prices("deepseek-reasoner"), (0.44, 1.32));
         assert_eq!(prices("deepseek-chat"), (0.44, 1.32));
         assert_eq!(prices("deepseek-v4-pro"), (1.32, 3.96));
@@ -651,6 +659,7 @@ mod tests {
             "gpt-5.5",
             "gpt-5.4",
             "gemini-3.1-pro-preview",
+            "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",

@@ -1,5 +1,17 @@
 # 行动卡统一迭代台账
 
+## 2026-09-08：Gemini 3.8 Flash 适配补齐
+
+依据专项 01 的 `reports/2026/2026-09-07-1031.md` 中 N06 / A07，以及本次用户明确补齐 Gemini 新模型的要求，将目录与离线请求适配单独落实，对应 [PR #713](https://github.com/shiwenwen/hope-agent/pull/713)。上一轮 #710 未实现此型号；本次不将整个 A07 记为完成，也不改写原雷达归档。
+
+| 范围 | 本次实现 | 验证边界 |
+| --- | --- | --- |
+| Gemini 3.8 Flash 目录 | Google 直连 `gemini-3.8-flash` 与 OpenRouter `google/gemini-3.8-flash` 预设；文本/图片、1,048,576 上下文、65,536 输出及标准报价 | 两个渠道分别核验官方目录；跨服务商补全可发现模型，用户价格仍需确认后覆盖 |
+| 官方请求档位 | 精确 Google HTTPS 端点与型号限定 `minimal → low`、`xhigh/max → high`；正常档位与省略参数行为保留 | 合成请求覆盖文本/图片、工具表、档位、伪域名、端口、同名中转和旧型号；没有真实服务调用 |
+| 成本估算 | 直连及带渠道前缀 ID 不再落入通用默认价，按 0.75/3.75 美元每百万令牌兜底 | 用户报价优先；Google 促销到 2026-12-31，之后需核验更新；不代表缓存或实际账单 |
+
+A07 的真实模型质量/性能对比、地区和套餐资格、原生音视频/PDF、持久思考签名及其他 Flash / Max 渠道实验继续待验证或授权。官方依据：[Google 模型](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash)、[兼容接口](https://ai.google.dev/gemini-api/docs/openai)、[Google 价格](https://ai.google.dev/gemini-api/docs/pricing)、[OpenRouter 目录](https://openrouter.ai/google/gemini-3.8-flash)。
+
 ## 2026-09-07：模型适配更新
 
 依据专项 01 的 `reports/2026/2026-09-07-1031.md`（上海时间 10:31），在 `main@77cd06cf33dfe7a0e7ca325b9de196a6d7c21e5d` 上落实 A01–A06。对应 [PR #710](https://github.com/shiwenwen/hope-agent/pull/710)，下表记录本轮实现范围；历史雷达文件与原账户配置保持不变。真实模型、账户权限及计费表现尚未验证。

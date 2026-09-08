@@ -584,8 +584,19 @@ export const internationalTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "AIza...",
     requiresApiKey: true,
     models: [
-      // 3.7 / 3.6 Flash 现价均为促销价（3.7 为发布促销，3.6 促销至 2026-12-31 后回到
-      // $1.5/$7.5）。这里录当期实付价，促销结束需回来改。
+      // 3.8 / 3.7 / 3.6 Flash 标准付费层促销至 2026-12-31，之后回到 $1.5/$7.5。
+      // 2026-09-08 核验：https://ai.google.dev/gemini-api/docs/pricing
+      // 这里只记录当期标准输入/输出价；缓存、Batch、Flex、Priority 另计。
+      {
+        id: "gemini-3.8-flash",
+        name: "Gemini 3.8 Flash",
+        inputTypes: ["text", "image"],
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 0.75,
+        costOutput: 3.75,
+      },
       {
         id: "gemini-3.7-flash",
         name: "Gemini 3.7 Flash",

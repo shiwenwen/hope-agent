@@ -4,6 +4,7 @@ import {
   applyModelCatalogPricing,
   buildModelCatalog,
   getModelCatalogPricing,
+  MODEL_CATALOG,
   searchModelCatalog,
 } from "./model-catalog"
 import type { ModelConfig, ProviderTemplate } from "./types"
@@ -43,6 +44,30 @@ function template(
 }
 
 describe("model catalog", () => {
+  it("finds Gemini 3.8 Flash in direct and OpenRouter catalogs without overwriting custom prices", () => {
+    for (const [id, source] of [
+      ["gemini-3.8-flash", "Google Gemini"],
+      ["google/gemini-3.8-flash", "OpenRouter"],
+    ]) {
+      const entry = searchModelCatalog(MODEL_CATALOG, id)[0]
+      expect(entry).toMatchObject({
+        id,
+        sourceNames: [source],
+        inputTypes: ["text", "image"],
+        contextWindow: 1_048_576,
+        maxTokens: 65_536,
+        reasoning: true,
+      })
+      const current = model("custom", { costInput: 2, costOutput: 8 })
+      const selected = applyModelCatalogMetadata(current, entry)
+      expect(selected).toMatchObject({ id, costInput: 2, costOutput: 8 })
+      expect(getModelCatalogPricing(entry, "USD")).toMatchObject({
+        costInput: 0.75,
+        costOutput: 3.75,
+      })
+    }
+  })
+
   it("keeps provider-specific capability variants and ignores placeholders", () => {
     const catalog = buildModelCatalog([
       template("direct", "Direct", [
