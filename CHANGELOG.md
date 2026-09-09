@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **macOS 全屏关闭**：主窗口退出原生全屏后再隐藏，快速重开会取消待隐藏请求，避免残留黑色桌面空间。 (#719)
+
 ## [0.47.0] - 2026-09-09
 
 ### Added

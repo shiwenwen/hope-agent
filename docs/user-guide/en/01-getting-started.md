@@ -117,6 +117,8 @@ Hope Agent's three run modes **share the same core logic**; configuration, sessi
 - **Browser Web GUI**: with the desktop app open, visit <http://127.0.0.1:8420>; you can also run only `hope-agent server start` to start the service without opening the desktop window.
 - **ACP**: `hope-agent acp`.
 
+Closing the desktop main window hides it to the tray while background services keep running. On macOS, closing a full-screen window or pressing `Cmd+Q` first exits full screen, then hides the window after the transition completes. Reopening it through the Dock, tray, or a shortcut during the transition cancels the pending hide. If the transition times out, the window stays visible and you can retry later.
+
 ### Common Server-mode subcommands
 
 ```bash

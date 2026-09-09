@@ -164,17 +164,12 @@ pub(crate) fn handle_shortcut(
 /// Execute a shortcut action by its id (shared by single-combo and chord paths).
 fn execute_shortcut_action(app_handle: &tauri::AppHandle, action_id: &str, _shortcut_str: &str) {
     use tauri::Emitter;
-    use tauri::Manager;
     match action_id {
         "quickChat" => {
             toggle_quickchat_window(app_handle);
         }
         "openSettings" => {
-            if let Some(window) = app_handle.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            crate::window_visibility::show_main_window(app_handle);
             let _ = app_handle.emit("open-settings", ());
         }
         other => {
