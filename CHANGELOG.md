@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **外部知识空间写权限**：开启外部写入后，会话和项目挂载控件可显式选择读写，继续保留只读限制与项目继承权限。 (#720)
+
 ## [0.47.0] - 2026-09-09
 
 ### Added
