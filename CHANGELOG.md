@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **远程 MCP 首次授权**：仅填写 URL 的服务器也能进入授权流程，动态注册、令牌交换和刷新统一使用协商后的认证方式。
+- **远程 MCP 首次授权**：仅填写 URL 的服务器也能进入授权流程，动态注册、令牌交换和刷新统一使用协商后的认证方式。 (#718)
 
 ## [0.47.0] - 2026-09-09
 

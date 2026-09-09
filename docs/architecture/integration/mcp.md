@@ -485,6 +485,7 @@ Windows：继承 `~/.hope-agent/` 的 DACL，依赖用户 profile 目录默认�
 struct McpCredentials {
     client_id: String,               // DCR 分配或用户预配置
     client_secret: Option<String>,   // 公共 PKCE 客户端为 None
+    token_endpoint_auth_method: Option<TokenEndpointAuthMethod>, // 缺失时兼容旧凭据
     access_token: String,
     refresh_token: Option<String>,
     expires_at: i64,                 // unix 秒；0 = 不主动刷新
