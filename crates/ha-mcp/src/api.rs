@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
-use ha_core::config::{cached_config, mutate_config};
+use ha_core::config::{cached_config, mutate_config, mutate_config_async};
 
 use super::client;
 use super::config::{
@@ -469,6 +469,20 @@ pub async fn reconnect_server(id: &str) -> Result<ServerStatusSnapshot> {
 
 // ── OAuth ────────────────────────────────────────────────────────
 
+fn bootstrap_oauth_config(cfg: &mut McpServerConfig) -> Result<()> {
+    if matches!(cfg.transport, McpTransportSpec::Stdio { .. }) {
+        return Err(anyhow!("OAuth is only supported on networked transports"));
+    }
+    if !cfg.enabled {
+        return Err(anyhow!("Enable the MCP server before authorizing it"));
+    }
+    if cfg.oauth.is_none() {
+        cfg.oauth = Some(McpOAuthConfig::default());
+        cfg.updated_at = now_secs();
+    }
+    Ok(())
+}
+
 /// Kick off the OAuth 2.1 + PKCE authorization flow for a networked MCP
 /// server. Returns immediately — the heavy work (discovery, browser
 /// callback, token exchange) happens on a spawned task and progress is
@@ -478,15 +492,29 @@ pub async fn reconnect_server(id: &str) -> Result<ServerStatusSnapshot> {
 /// without polling.
 pub async fn start_oauth(id: &str) -> Result<()> {
     let mgr = McpManager::global().ok_or_else(|| anyhow!("MCP subsystem not initialized"))?;
+    // Explicit owner action is the only bootstrap point. Persist the empty
+    // discovery configuration so subsequent connections and restarts can use
+    // the credentials. Mutate the live slot without replacing other settings.
+    let server_id = id.to_string();
+    let cfg = mutate_config_async(("mcp.oauth", "settings_panel"), move |store| {
+        let slot = store
+            .mcp_servers
+            .iter_mut()
+            .find(|s| s.id == server_id)
+            .ok_or_else(|| anyhow!("MCP server '{server_id}' not found"))?;
+        bootstrap_oauth_config(slot)?;
+        Ok(slot.clone())
+    })
+    .await?;
+    reconcile_from_cache().await?;
     let handle = mgr
         .get_by_id(id)
         .await
         .ok_or_else(|| anyhow!("MCP server '{id}' not found"))?;
-    let cfg = handle.config.read().await.clone();
     let oauth_cfg = cfg
         .oauth
         .clone()
-        .ok_or_else(|| anyhow!("MCP server '{}' has no OAuth configuration", cfg.name))?;
+        .expect("bootstrap installs OAuth configuration");
     let server_url = match &cfg.transport {
         McpTransportSpec::StreamableHttp { url }
         | McpTransportSpec::Sse { url }
@@ -822,6 +850,31 @@ fn normalize_name_for_import(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oauth_bootstrap_requires_enabled_network_transport_and_preserves_options() {
+        let draft: McpServerDraft = serde_json::from_value(serde_json::json!({
+            "name": "oauth-fixture", "transport": {"kind": "streamableHttp", "url": "https://example.com/mcp"}
+        })).unwrap();
+        let mut cfg = draft.into_config(100, None);
+        assert!(cfg.oauth.is_none());
+        bootstrap_oauth_config(&mut cfg).unwrap();
+        cfg.oauth.as_mut().unwrap().scopes = vec!["chosen-scope".into()];
+        let before = cfg.oauth.clone();
+        bootstrap_oauth_config(&mut cfg).unwrap();
+        assert_eq!(cfg.oauth, before);
+        cfg.enabled = false;
+        assert!(bootstrap_oauth_config(&mut cfg).is_err());
+        cfg.enabled = true;
+        cfg.oauth = None;
+        cfg.transport = McpTransportSpec::Stdio {
+            command: "unused".into(),
+            args: vec![],
+            cwd: None,
+        };
+        assert!(bootstrap_oauth_config(&mut cfg).is_err());
+        assert!(cfg.oauth.is_none());
+    }
 
     #[test]
     fn normalize_name_for_import_cases() {

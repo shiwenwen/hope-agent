@@ -21,7 +21,7 @@ MCP (Model Context Protocol) is an open standard that lets AI assistants connect
 **How to add one** (Settings → MCP Servers):
 
 - The left column is the server list (with status, connection method, and tool count); the right column is the editor. You can configure the name, enabled state, trust level, connection method, tool allow/deny lists, timeout, and auto-approval (which can only be enabled for servers whose trust level is "Trusted").
-- Click "Test Connection" to see the result and tool count in real time; servers that require authorization show an "Authorize" button that triggers OAuth.
+- Click "Test Connection" to see the result and tool count in real time. When a network server requires authorization, an "Authorize" button appears even if you only entered its URL. Clicking it attempts authorization discovery and opens a browser for you to log in and grant access; unsupported registration or authentication methods produce a visible error.
 - Supports one-click import from `claude_desktop_config.json`.
 - The server list has a summary bar at the top showing the current global Tool schema loading policy (Recommended / Custom / Built-ins eager), with a one-click jump to Settings → Tools to adjust it globally; each server row also shows the connection mode actually in effect (Connect eagerly at startup / Connect on demand), its tool schema loading mode, and its connect timeout—click anywhere on the row to open the editor and review or change it.
 

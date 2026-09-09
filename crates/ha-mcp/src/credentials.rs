@@ -20,6 +20,34 @@ use serde::{Deserialize, Serialize};
 use ha_core::paths::{mcp_credential_path, mcp_credentials_dir};
 use ha_core::platform::write_secure_file;
 
+/// Token endpoint authentication selected during client registration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenEndpointAuthMethod {
+    None,
+    ClientSecretBasic,
+    ClientSecretPost,
+}
+
+impl TokenEndpointAuthMethod {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::ClientSecretBasic => "client_secret_basic",
+            Self::ClientSecretPost => "client_secret_post",
+        }
+    }
+
+    // Existing credentials used form authentication when a secret was present.
+    pub fn legacy(client_secret: Option<&str>) -> Self {
+        if client_secret.is_some() {
+            Self::ClientSecretPost
+        } else {
+            Self::None
+        }
+    }
+}
+
 /// Persisted OAuth credentials for a single MCP server. Populated at the
 /// end of the PKCE flow and rewritten on each refresh.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +60,9 @@ pub struct McpCredentials {
     /// without a secret and will leave this `None`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
+    /// Absent only in credentials written before method negotiation existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_endpoint_auth_method: Option<TokenEndpointAuthMethod>,
     /// Active bearer token.
     pub access_token: String,
     /// Refresh token, if the server issued one. Long-running MCP sessions
@@ -125,6 +156,7 @@ mod tests {
         let c = McpCredentials {
             client_id: "cid".into(),
             client_secret: None,
+            token_endpoint_auth_method: None,
             access_token: "tok".into(),
             refresh_token: None,
             expires_at: 0,
@@ -141,6 +173,7 @@ mod tests {
         let mut c = McpCredentials {
             client_id: "cid".into(),
             client_secret: None,
+            token_endpoint_auth_method: None,
             access_token: "tok".into(),
             refresh_token: Some("r".into()),
             expires_at: chrono::Utc::now().timestamp() + 30,

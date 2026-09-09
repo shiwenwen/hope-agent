@@ -45,7 +45,7 @@ use tokio::sync::oneshot;
 use tokio::time::timeout;
 
 use super::config::McpOAuthConfig;
-use super::credentials::{self, McpCredentials};
+use super::credentials::{self, McpCredentials, TokenEndpointAuthMethod};
 use super::errors::{McpError, McpResult};
 use super::events::{emit_auth_completed, emit_auth_required};
 use ha_core::logging::redact_sensitive;
@@ -98,6 +98,10 @@ pub struct DiscoveredMetadata {
     pub scopes_supported: Vec<String>,
     #[serde(default)]
     pub code_challenge_methods_supported: Vec<String>,
+    // RFC 8414 defaults an omitted list to client_secret_basic; an explicitly
+    // empty or unsupported list must fail closed.
+    #[serde(default = "default_token_auth_methods")]
+    pub token_endpoint_auth_methods_supported: Vec<String>,
 }
 
 /// Response of a successful Dynamic Client Registration (RFC 7591).
@@ -106,6 +110,54 @@ pub struct ClientRegistration {
     pub client_id: String,
     #[serde(default)]
     pub client_secret: Option<String>,
+    #[serde(default)]
+    pub token_endpoint_auth_method: Option<TokenEndpointAuthMethod>,
+}
+
+fn default_token_auth_methods() -> Vec<String> {
+    vec!["client_secret_basic".into()]
+}
+
+fn select_token_auth_method(
+    server_name: &str,
+    supported: &[String],
+) -> McpResult<TokenEndpointAuthMethod> {
+    // Native clients prefer PKCE without a secret when the server supports it.
+    [
+        TokenEndpointAuthMethod::None,
+        TokenEndpointAuthMethod::ClientSecretBasic,
+        TokenEndpointAuthMethod::ClientSecretPost,
+    ]
+    .into_iter()
+    .find(|method| supported.iter().any(|s| s == method.as_str()))
+    .ok_or_else(|| McpError::Auth {
+        server: server_name.into(),
+        message: "authorization server has no supported token endpoint authentication method"
+            .into(),
+    })
+}
+
+fn registration_auth_method(
+    server_name: &str,
+    reg: &ClientRegistration,
+    supported: &[String],
+) -> McpResult<TokenEndpointAuthMethod> {
+    // RFC 7591 defines Basic as the default if registration omits the method.
+    let method = reg
+        .token_endpoint_auth_method
+        .unwrap_or(TokenEndpointAuthMethod::ClientSecretBasic);
+    if reg.client_id.is_empty()
+        || !supported.iter().any(|s| s == method.as_str())
+        || (method != TokenEndpointAuthMethod::None
+            && reg.client_secret.as_deref().is_none_or(str::is_empty))
+    {
+        return Err(McpError::Auth {
+            server: server_name.into(),
+            message: "registration returned an unsupported method or incomplete client credentials"
+                .into(),
+        });
+    }
+    Ok(method)
 }
 
 /// Normalized token endpoint response. The spec allows `expires_in` to be
@@ -202,7 +254,7 @@ fn build_authorize_url(
 fn http_client() -> McpResult<reqwest::Client> {
     let builder = reqwest::Client::builder()
         .timeout(HTTP_REQUEST_TIMEOUT)
-        .redirect(reqwest::redirect::Policy::limited(5));
+        .redirect(reqwest::redirect::Policy::none());
     ha_core::provider::apply_proxy(builder)
         .build()
         .map_err(|e| McpError::Transport {
@@ -299,7 +351,9 @@ pub async fn register_dynamic_client(
     registration_endpoint: &str,
     redirect_uri: &str,
     scopes: &[String],
+    supported_auth_methods: &[String],
 ) -> McpResult<ClientRegistration> {
+    let auth_method = select_token_auth_method(server_name, supported_auth_methods)?;
     guard_url(server_name, registration_endpoint).await?;
     let client = http_client()?;
     let mut body = serde_json::json!({
@@ -307,7 +361,7 @@ pub async fn register_dynamic_client(
         "redirect_uris": [redirect_uri],
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
-        "token_endpoint_auth_method": "none",
+        "token_endpoint_auth_method": auth_method.as_str(),
         "application_type": "native",
     });
     if !scopes.is_empty() {
@@ -336,6 +390,7 @@ pub async fn register_dynamic_client(
         server: server_name.to_string(),
         message: format!("DCR response parse: {e}"),
     })?;
+    registration_auth_method(server_name, &reg, supported_auth_methods)?;
     ha_core::app_info!(
         "mcp",
         &format!("{server_name}:oauth"),
@@ -357,25 +412,32 @@ pub async fn exchange_code_for_tokens(
     token_endpoint: &str,
     client_id: &str,
     client_secret: Option<&str>,
+    auth_method: TokenEndpointAuthMethod,
     code: &str,
     redirect_uri: &str,
     code_verifier: &str,
 ) -> McpResult<McpCredentials> {
     guard_url(server_name, token_endpoint).await?;
-    let mut form: Vec<(&str, &str)> = vec![
+    let form: Vec<(&str, &str)> = vec![
         ("grant_type", "authorization_code"),
         ("code", code),
         ("redirect_uri", redirect_uri),
         ("client_id", client_id),
         ("code_verifier", code_verifier),
     ];
-    if let Some(secret) = client_secret {
-        form.push(("client_secret", secret));
-    }
-    let token = post_token_form(server_name, token_endpoint, &form).await?;
+    let token = post_token_form(
+        server_name,
+        token_endpoint,
+        &form,
+        client_id,
+        client_secret,
+        auth_method,
+    )
+    .await?;
     Ok(creds_from_token(
         client_id,
         client_secret,
+        auth_method,
         token_endpoint,
         authorization_endpoint,
         &token,
@@ -398,18 +460,27 @@ pub async fn refresh_access_token(
             message: "no refresh_token on record; re-authorize required".into(),
         })?;
     guard_url(server_name, &prior.token_endpoint).await?;
-    let mut form: Vec<(&str, &str)> = vec![
+    let form: Vec<(&str, &str)> = vec![
         ("grant_type", "refresh_token"),
         ("refresh_token", refresh),
         ("client_id", &prior.client_id),
     ];
-    if let Some(secret) = prior.client_secret.as_deref() {
-        form.push(("client_secret", secret));
-    }
-    let token = post_token_form(server_name, &prior.token_endpoint, &form).await?;
+    let auth_method = prior
+        .token_endpoint_auth_method
+        .unwrap_or_else(|| TokenEndpointAuthMethod::legacy(prior.client_secret.as_deref()));
+    let token = post_token_form(
+        server_name,
+        &prior.token_endpoint,
+        &form,
+        &prior.client_id,
+        prior.client_secret.as_deref(),
+        auth_method,
+    )
+    .await?;
     let mut creds = creds_from_token(
         &prior.client_id,
         prior.client_secret.as_deref(),
+        auth_method,
         &prior.token_endpoint,
         &prior.authorization_endpoint,
         &token,
@@ -421,6 +492,48 @@ pub async fn refresh_access_token(
     Ok(creds)
 }
 
+fn token_request(
+    client: &reqwest::Client,
+    server_name: &str,
+    endpoint: &str,
+    form: &[(&str, &str)],
+    client_id: &str,
+    client_secret: Option<&str>,
+    method: TokenEndpointAuthMethod,
+) -> McpResult<reqwest::RequestBuilder> {
+    let request = client.post(endpoint).header("accept", "application/json");
+    if method == TokenEndpointAuthMethod::None {
+        return Ok(request.form(form));
+    }
+    let secret = client_secret
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| McpError::Auth {
+            server: server_name.into(),
+            message: "client authentication requires a stored secret; re-authorize required".into(),
+        })?;
+    match method {
+        TokenEndpointAuthMethod::ClientSecretBasic => {
+            // RFC 6749 section 2.3.1: form-encode both components BEFORE Basic.
+            let encode = |v: &str| {
+                url::form_urlencoded::Serializer::new(String::new())
+                    .append_pair("", v)
+                    .finish()
+                    .trim_start_matches('=')
+                    .to_string()
+            };
+            Ok(request
+                .basic_auth(encode(client_id), Some(encode(secret)))
+                .form(form))
+        }
+        TokenEndpointAuthMethod::ClientSecretPost => {
+            let mut authenticated_form = form.to_vec();
+            authenticated_form.push(("client_secret", secret));
+            Ok(request.form(&authenticated_form))
+        }
+        TokenEndpointAuthMethod::None => unreachable!(),
+    }
+}
+
 /// Common POST-form-with-JSON-response helper shared by authorize and
 /// refresh grants. Body + error text go through `redact_sensitive` before
 /// landing in logs.
@@ -428,18 +541,24 @@ async fn post_token_form(
     server_name: &str,
     token_endpoint: &str,
     form: &[(&str, &str)],
+    client_id: &str,
+    client_secret: Option<&str>,
+    auth_method: TokenEndpointAuthMethod,
 ) -> McpResult<TokenFields> {
     let client = http_client()?;
-    let resp = client
-        .post(token_endpoint)
-        .header("accept", "application/json")
-        .form(form)
-        .send()
-        .await
-        .map_err(|e| McpError::Transport {
-            server: server_name.to_string(),
-            source: format!("token POST: {e}"),
-        })?;
+    let request = token_request(
+        &client,
+        server_name,
+        token_endpoint,
+        form,
+        client_id,
+        client_secret,
+        auth_method,
+    )?;
+    let resp = request.send().await.map_err(|e| McpError::Transport {
+        server: server_name.to_string(),
+        source: format!("token POST: {e}"),
+    })?;
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
@@ -477,6 +596,7 @@ pub struct TokenFields {
 fn creds_from_token(
     client_id: &str,
     client_secret: Option<&str>,
+    auth_method: TokenEndpointAuthMethod,
     token_endpoint: &str,
     authorization_endpoint: &str,
     token: &TokenFields,
@@ -495,6 +615,7 @@ fn creds_from_token(
     McpCredentials {
         client_id: client_id.to_string(),
         client_secret: client_secret.map(|s| s.to_string()),
+        token_endpoint_auth_method: Some(auth_method),
         access_token: token.access_token.clone(),
         refresh_token: token.refresh_token.clone(),
         expires_at,
@@ -735,12 +856,24 @@ pub async fn authorize_server(
     server_url: &str,
     oauth_cfg: &McpOAuthConfig,
 ) -> McpResult<McpCredentials> {
+    let result = authorize_server_inner(server_id, server_name, server_url, oauth_cfg).await;
+    if let Err(error) = &result {
+        emit_auth_completed(server_id, server_name, false, Some(&error.to_string()));
+    }
+    result
+}
+
+async fn authorize_server_inner(
+    server_id: &str,
+    server_name: &str,
+    server_url: &str,
+    oauth_cfg: &McpOAuthConfig,
+) -> McpResult<McpCredentials> {
     ha_core::app_info!(
         "mcp",
         &format!("{server_name}:oauth"),
         "Starting OAuth authorization for MCP server"
     );
-    credentials::ensure_dir().map_err(|e| McpError::Config(e.to_string()))?;
 
     // 1. Bind callback listener first so the redirect_uri is concrete
     //    before discovery / DCR.
@@ -760,13 +893,18 @@ pub async fn authorize_server(
             registration_endpoint: None,
             scopes_supported: vec![],
             code_challenge_methods_supported: vec!["S256".into()],
+            token_endpoint_auth_methods_supported: default_token_auth_methods(),
         },
         _ => discover_metadata(server_name, server_url).await?,
     };
 
     // 3. Resolve the client id — DCR when config didn't provide one.
-    let (client_id, client_secret) = match &oauth_cfg.client_id {
-        Some(id) => (id.clone(), oauth_cfg.client_secret.clone()),
+    let (client_id, client_secret, auth_method) = match &oauth_cfg.client_id {
+        Some(id) => (
+            id.clone(),
+            oauth_cfg.client_secret.clone(),
+            TokenEndpointAuthMethod::legacy(oauth_cfg.client_secret.as_deref()),
+        ),
         None => {
             let reg_ep = meta
                 .registration_endpoint
@@ -776,10 +914,20 @@ pub async fn authorize_server(
                     message: "no client_id configured and server has no registration_endpoint"
                         .into(),
                 })?;
-            let reg =
-                register_dynamic_client(server_name, reg_ep, &redirect_uri, &oauth_cfg.scopes)
-                    .await?;
-            (reg.client_id, reg.client_secret)
+            let reg = register_dynamic_client(
+                server_name,
+                reg_ep,
+                &redirect_uri,
+                &oauth_cfg.scopes,
+                &meta.token_endpoint_auth_methods_supported,
+            )
+            .await?;
+            let method = registration_auth_method(
+                server_name,
+                &reg,
+                &meta.token_endpoint_auth_methods_supported,
+            )?;
+            (reg.client_id, reg.client_secret, method)
         }
     };
 
@@ -797,8 +945,7 @@ pub async fn authorize_server(
     ha_core::app_info!(
         "mcp",
         &format!("{server_name}:oauth"),
-        "Awaiting user authorization at {}",
-        auth_url
+        "Awaiting user authorization in browser"
     );
     // Open the default browser directly from the backend so the flow
     // works identically in the Tauri shell and the HTTP server (whose
@@ -833,9 +980,7 @@ pub async fn authorize_server(
             ),
         }),
     };
-    let cb_result = cb_result.inspect_err(|e| {
-        emit_auth_completed(server_id, server_name, false, Some(&e.to_string()));
-    })?;
+    let cb_result = cb_result?;
 
     // 6. Exchange the code for tokens.
     let creds = exchange_code_for_tokens(
@@ -844,24 +989,22 @@ pub async fn authorize_server(
         &meta.token_endpoint,
         &client_id,
         client_secret.as_deref(),
+        auth_method,
         &cb_result.code,
         &redirect_uri,
         &pkce.verifier,
     )
-    .await
-    .inspect_err(|e| {
-        emit_auth_completed(server_id, server_name, false, Some(&e.to_string()));
-    })?;
+    .await?;
 
     // 7. Persist under the secure-file path + emit success.
-    credentials::save(server_id, &creds).map_err(|e| {
-        let err = McpError::Auth {
+    let credential_id = server_id.to_string();
+    let stored_creds = creds.clone();
+    ha_core::blocking::run_blocking(move || credentials::save(&credential_id, &stored_creds))
+        .await
+        .map_err(|e| McpError::Auth {
             server: server_name.to_string(),
             message: format!("persist credentials: {e}"),
-        };
-        emit_auth_completed(server_id, server_name, false, Some(&err.to_string()));
-        err
-    })?;
+        })?;
     emit_auth_completed(server_id, server_name, true, None);
     ha_core::app_info!(
         "mcp",
@@ -894,10 +1037,14 @@ pub async fn refresh_if_stale(
             );
             e
         })?;
-    credentials::save(server_id, &refreshed).map_err(|e| McpError::Auth {
-        server: server_name.to_string(),
-        message: format!("persist refreshed credentials: {e}"),
-    })?;
+    let credential_id = server_id.to_string();
+    let stored_creds = refreshed.clone();
+    ha_core::blocking::run_blocking(move || credentials::save(&credential_id, &stored_creds))
+        .await
+        .map_err(|e| McpError::Auth {
+            server: server_name.to_string(),
+            message: format!("persist refreshed credentials: {e}"),
+        })?;
     ha_core::app_info!(
         "mcp",
         &format!("{server_name}:oauth"),
@@ -965,5 +1112,155 @@ mod pure_tests {
         assert!(out.contains("state=state-xyz"));
         assert!(out.contains("scope=read+write"));
         assert!(out.contains("audience=mcp"));
+    }
+}
+
+#[cfg(test)]
+mod auth_method_tests {
+    use super::*;
+
+    #[test]
+    fn registration_negotiates_only_supported_methods() {
+        let figma = vec!["client_secret_basic".into(), "client_secret_post".into()];
+        assert_eq!(
+            select_token_auth_method("fixture", &figma).unwrap(),
+            TokenEndpointAuthMethod::ClientSecretBasic
+        );
+        assert_eq!(
+            select_token_auth_method("fixture", &["none".into(), "client_secret_post".into()])
+                .unwrap(),
+            TokenEndpointAuthMethod::None
+        );
+        assert!(select_token_auth_method("fixture", &[]).is_err());
+        assert!(select_token_auth_method("fixture", &["private_key_jwt".into()]).is_err());
+        let mut reg = ClientRegistration {
+            client_id: "synthetic-client".into(),
+            client_secret: Some("synthetic-secret".into()),
+            token_endpoint_auth_method: None,
+        };
+        assert_eq!(
+            registration_auth_method("fixture", &reg, &figma).unwrap(),
+            TokenEndpointAuthMethod::ClientSecretBasic
+        );
+        reg.client_secret = None;
+        assert!(registration_auth_method("fixture", &reg, &figma).is_err());
+        reg.token_endpoint_auth_method = Some(TokenEndpointAuthMethod::None);
+        assert!(registration_auth_method("fixture", &reg, &figma).is_err());
+    }
+
+    #[test]
+    fn omitted_metadata_uses_basic_but_empty_list_does_not() {
+        let mut value = serde_json::json!({"authorization_endpoint":"https://example.com/authorize", "token_endpoint":"https://example.com/token"});
+        let meta: DiscoveredMetadata = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(
+            meta.token_endpoint_auth_methods_supported,
+            default_token_auth_methods()
+        );
+        value["token_endpoint_auth_methods_supported"] = serde_json::json!([]);
+        let meta: DiscoveredMetadata = serde_json::from_value(value).unwrap();
+        assert!(
+            select_token_auth_method("fixture", &meta.token_endpoint_auth_methods_supported)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn code_and_refresh_requests_use_exactly_one_authentication_method() {
+        use base64::engine::general_purpose::STANDARD;
+        let client = reqwest::Client::new();
+        for grant in ["authorization_code", "refresh_token"] {
+            let form = [("grant_type", grant), ("client_id", "id:+ space")];
+            for method in [
+                TokenEndpointAuthMethod::None,
+                TokenEndpointAuthMethod::ClientSecretBasic,
+                TokenEndpointAuthMethod::ClientSecretPost,
+            ] {
+                let req = token_request(
+                    &client,
+                    "fixture",
+                    "https://example.com/token",
+                    &form,
+                    "id:+ space",
+                    Some("secret:+ space"),
+                    method,
+                )
+                .unwrap()
+                .build()
+                .unwrap();
+                let body = std::str::from_utf8(req.body().unwrap().as_bytes().unwrap()).unwrap();
+                let pairs: HashMap<String, String> = url::form_urlencoded::parse(body.as_bytes())
+                    .into_owned()
+                    .collect();
+                assert_eq!(pairs.get("grant_type").unwrap(), grant);
+                match method {
+                    TokenEndpointAuthMethod::None => {
+                        assert!(!req.headers().contains_key("authorization"));
+                        assert!(!pairs.contains_key("client_secret"));
+                    }
+                    TokenEndpointAuthMethod::ClientSecretBasic => {
+                        let expected = format!(
+                            "Basic {}",
+                            STANDARD.encode("id%3A%2B+space:secret%3A%2B+space")
+                        );
+                        assert_eq!(
+                            req.headers().get("authorization").unwrap(),
+                            expected.as_str()
+                        );
+                        assert!(!pairs.contains_key("client_secret"));
+                    }
+                    TokenEndpointAuthMethod::ClientSecretPost => {
+                        assert!(!req.headers().contains_key("authorization"));
+                        assert_eq!(pairs.get("client_secret").unwrap(), "secret:+ space");
+                    }
+                }
+            }
+        }
+        assert!(token_request(
+            &client,
+            "fixture",
+            "https://example.com/token",
+            &[],
+            "id",
+            None,
+            TokenEndpointAuthMethod::ClientSecretBasic
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn authentication_method_survives_credentials_round_trip_and_legacy_load() {
+        let fields = TokenFields {
+            access_token: "synthetic-token".into(),
+            refresh_token: Some("synthetic-refresh".into()),
+            expires_in: Some(3600),
+            scope: None,
+        };
+        let creds = creds_from_token(
+            "id",
+            Some("synthetic-secret"),
+            TokenEndpointAuthMethod::ClientSecretBasic,
+            "https://example.com/token",
+            "https://example.com/authorize",
+            &fields,
+        );
+        let mut json = serde_json::to_value(&creds).unwrap();
+        let restored: McpCredentials = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(
+            restored.token_endpoint_auth_method,
+            Some(TokenEndpointAuthMethod::ClientSecretBasic)
+        );
+        json.as_object_mut()
+            .unwrap()
+            .remove("tokenEndpointAuthMethod");
+        let old: McpCredentials = serde_json::from_value(json).unwrap();
+        assert_eq!(old.token_endpoint_auth_method, None);
+        assert_eq!(
+            TokenEndpointAuthMethod::legacy(old.client_secret.as_deref()),
+            TokenEndpointAuthMethod::ClientSecretPost
+        );
+        assert_eq!(
+            TokenEndpointAuthMethod::legacy(None),
+            TokenEndpointAuthMethod::None
+        );
     }
 }

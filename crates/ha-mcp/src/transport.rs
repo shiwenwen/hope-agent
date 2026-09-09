@@ -270,7 +270,8 @@ async fn authorized_headers(cfg: &McpServerConfig) -> McpResult<HashMap<HeaderNa
     // pre-bake a long-lived PAT / service token that our OAuth flow
     // shouldn't overwrite.
     if cfg.oauth.is_some() && !user_set_authorization {
-        match credentials::load(&cfg.id) {
+        let credential_id = cfg.id.clone();
+        match ha_core::blocking::run_blocking(move || credentials::load(&credential_id)).await {
             Ok(Some(creds)) => {
                 let fresh = oauth::refresh_if_stale(&cfg.id, &cfg.name, &creds).await?;
                 let bearer = format!("Bearer {}", fresh.access_token);
@@ -419,6 +420,8 @@ fn is_auth_challenge(msg: &str) -> bool {
         || lower.contains("forbidden")
         || lower.contains("invalid_token")
         || lower.contains("invalid_grant")
+        || lower.contains("auth required")
+        || lower.contains("authentication required")
 }
 
 /// Build a WebSocket MCP client. Bridges `tokio-tungstenite`'s
@@ -834,6 +837,25 @@ pub async fn build_transport_for(cfg: &McpServerConfig) -> McpResult<ConnectedCl
 mod tests {
     use super::*;
     use crate::config::{McpServerConfig, McpTransportSpec, McpTrustLevel};
+
+    #[test]
+    fn rmcp_auth_required_is_an_auth_challenge() {
+        for message in [
+            "Auth required, when send initialize request",
+            "Authentication required",
+            "HTTP 401 Unauthorized",
+            "invalid_token",
+        ] {
+            assert!(matches!(
+                classify_network_error("fixture", "handshake", message),
+                McpError::Auth { .. }
+            ));
+        }
+        assert!(matches!(
+            classify_network_error("fixture", "handshake", "connection reset"),
+            McpError::Transport { .. }
+        ));
+    }
 
     fn stdio_cfg(command: &str) -> McpServerConfig {
         McpServerConfig {

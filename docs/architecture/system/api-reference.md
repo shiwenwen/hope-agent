@@ -1643,7 +1643,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `mcp_get_server_status` | `GET /api/mcp/servers/{id}/status` | ✅ |
 | `mcp_test_connection` | `POST /api/mcp/servers/{id}/test` | ✅ |
 | `mcp_reconnect_server` | `POST /api/mcp/servers/{id}/reconnect` | ✅ |
-| `mcp_start_oauth` | `POST /api/mcp/servers/{id}/oauth/start` | ✅ |
+| `mcp_start_oauth` | `POST /api/mcp/servers/{id}/oauth/start` | ✅（用户显式发起；已启用的网络服务器缺少 `oauth` 时原子补充发现配置，拒绝 stdio） |
 | `mcp_sign_out` | `POST /api/mcp/servers/{id}/oauth/sign-out` | ✅ |
 | `mcp_list_tools` | `GET /api/mcp/servers/{id}/tools` | ✅ |
 | `mcp_get_recent_logs` | `GET /api/mcp/servers/{id}/logs` | ✅ |
