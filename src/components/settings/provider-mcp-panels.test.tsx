@@ -203,3 +203,42 @@ describe("settings provider and MCP panels", () => {
     expect(screen.queryByText("settings.mcp.directToolsLabel")).toBeNull()
   })
 })
+
+test.each(["streamableHttp", "sse", "webSocket"])(
+  "MCP %s challenge exposes authorization before OAuth configuration exists",
+  async (kind) => {
+    transportMock.call.mockResolvedValue({ enabled: true, mode: "recommended", toolNames: [] })
+    mcpMock.startOauth.mockResolvedValue(undefined)
+    mcpMock.listServers.mockResolvedValue([
+      {
+        id: "needs-auth",
+        name: "oauth-fixture",
+        enabled: true,
+        transport: { kind, url: "https://example.com/mcp" },
+        state: "needsAuth",
+      },
+    ])
+    render(<McpServersPanel onOpenToolSettings={vi.fn()} />)
+    fireEvent.click(await screen.findByRole("button", { name: "settings.mcp.authorize" }))
+    expect(mcpMock.startOauth).toHaveBeenCalledWith("needs-auth")
+  },
+)
+
+test.each(["failed", "needsAuth"])(
+  "MCP stdio %s never exposes OAuth authorization",
+  async (state) => {
+    transportMock.call.mockResolvedValue({ enabled: true, mode: "recommended", toolNames: [] })
+    mcpMock.listServers.mockResolvedValue([
+      {
+        id: "stdio-fixture",
+        name: "stdio-fixture",
+        enabled: true,
+        transport: { kind: "stdio", command: "unused", args: [] },
+        state,
+      },
+    ])
+    render(<McpServersPanel onOpenToolSettings={vi.fn()} />)
+    await screen.findByRole("button", { name: /stdio-fixture/ })
+    expect(screen.queryByRole("button", { name: "settings.mcp.authorize" })).toBeNull()
+  },
+)

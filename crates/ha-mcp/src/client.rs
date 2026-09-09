@@ -767,6 +767,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn recorded_auth_failure_blocks_automatic_reconnect() {
+        let handle = sample_handle();
+        record_failure(
+            &handle,
+            "auth",
+            &McpError::Auth {
+                server: "auth".into(),
+                message: "Auth required, when send initialize request".into(),
+            },
+        )
+        .await;
+        assert_eq!(handle.snapshot().await.state, "needsAuth");
+        assert!(connect_needed_or_error(&handle).await.is_err());
+    }
+
+    #[tokio::test]
     async fn generic_lazy_connect_does_not_retry_needs_auth() {
         let handle = sample_handle();
         *handle.state.lock().await = ServerState::NeedsAuth {

@@ -442,10 +442,10 @@ function ServerRow({
   const isReady = state === "ready"
   const isNeedsAuth = state === "needsAuth"
   const actionDisabled = busy || !server.enabled
-  // `server.oauth` is only ever set on networked transports (backend +
-  // edit dialog reject it on stdio), so a simple presence check is
-  // sufficient here.
   const hasOauth = Boolean(server.oauth)
+  // A challenge can arrive before the owner has configured OAuth. Clicking
+  // Authorize enables discovery through the existing owner-only API.
+  const canAuthorize = transport !== "stdio" && (hasOauth || isNeedsAuth)
   const effectiveDeferredTools =
     deferredToolsMode === null
       ? null
@@ -534,7 +534,7 @@ function ServerRow({
               {t("settings.mcp.reconnect")}
             </Button>
           )}
-          {hasOauth && (isNeedsAuth || isFailed) && (
+          {canAuthorize && (isNeedsAuth || isFailed) && (
             <Button
               variant="outline"
               size="sm"
