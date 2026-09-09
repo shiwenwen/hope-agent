@@ -205,12 +205,12 @@ export default function KnowledgePicker({
                   </span>
                 </div>
 
-                {/* Always-visible 关闭/只读/读写 segmented control. External
-                    vaults hide the write segment (read-capped, D11); project
+                {/* Always-visible 关闭/只读/读写 segmented control. Read-only
+                    external vaults hide the write segment (D11); project
                     attaches are managed at the project level (rendered read-only). */}
                 <KbAccessControl
                   value={!att ? "off" : att.access}
-                  allowWrite={!kb.external && !viaProject}
+                  allowWrite={(!kb.external || kb.allowExternalWrites) && !viaProject}
                   disabled={viaProject}
                   busy={busy}
                   onChange={(next) => setAttach(kb, next === "off" ? null : next)}

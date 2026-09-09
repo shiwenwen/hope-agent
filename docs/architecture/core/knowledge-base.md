@@ -232,6 +232,8 @@ flowchart TB
 
 裁决顺序有意如此：incognito 最先短路（无痕会话一切归零），IM 血缘 cap 其次（IM 默认零访问），随后才是 `max(session, project)` 取并集、滤 archived、把没开外部写的外部 root 钳到只读。注意最后两步是双 owner 闸——即便外部 root 已 opt-in，`Write` 仍需一次 owner 授予的 write attach，且文件系统作用域在真正写盘时还会再查一次 `read_only`。
 
+会话和项目的挂载控件按 `!external || allowExternalWrites` 提供新的读写授权选项；未开启外部写入的库只能新授予只读。开启外部写入不会自动新增挂载或提升已有挂载权限。会话中的项目继承挂载只能在项目设置修改；已有写挂载仍显示原授权状态，实际访问继续经过上述只读限制与写盘检查。
+
 ### source-aware：调用来源怎么透传
 
 每个 typed turn 的 `ChatSource`（在 `chat_engine/stream_seq.rs`，变体 `Desktop` / `Http` / `Channel` / `Subagent` / `ParentInjection` / `SessionTool` / `Cron` / `Eval` / `Acp`）由 TurnKernel 封印，再经 kernel `kb_access_source` capability 映射成 `KbAccessSource`（`Gui` / `Http` / `Im` / `Subagent` / `Cron` / `Other`），一路透传到 `ToolExecContext`：

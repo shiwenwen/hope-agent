@@ -120,6 +120,7 @@ The Knowledge Space can let the AI **automatically organize** your internal know
 Unlike memory, the Knowledge Space is not globally visible—different vaults are isolated from one another, and **access is denied by default and requires an explicit mount**:
 
 - **Denied by default + explicit mount**: to let a session or project read or write a knowledge space, you must explicitly mount it in the knowledge selector of the input box or in the project settings (with optional read / write permission). Without a mount, the AI cannot even see the note tools.
+- **Writing to an external vault requires two grants**: first enable "Allow writing to the external vault" in its settings, then explicitly select Read+Write in the session knowledge selector or project settings. The switch alone does not mount the vault or upgrade permissions. Turning it off limits effective access to read-only even for an existing write mount. Change inherited project permissions in the project settings.
 - **Zero access in incognito sessions**—no knowledge space can be accessed at all.
 - **IM must be enabled**—IM channels have zero access by default; to open it up, you must enable knowledge-space access for that account in the desktop settings, and in group chats also confirm each one with `/kb on`.
 - **Your own admin interface is the exception**—the desktop / web owner interface can see all of your knowledge spaces, no mount required.

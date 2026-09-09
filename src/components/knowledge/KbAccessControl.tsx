@@ -16,8 +16,9 @@ export type KbAccessValue = "off" | KbAccess
  * settings KB section so both surfaces read/write the same way.
  *
  * `allowWrite=false` hides the write segment (external read-only vaults are
- * capped to read, D11). `disabled` renders the current state read-only (e.g. a
- * project-managed attach that must be changed at the project level).
+ * capped to read until the owner enables external writes, D11). An existing
+ * write grant remains visible. `disabled` renders the current state read-only
+ * (e.g. a project-managed attach that must be changed at the project level).
  */
 export function KbAccessControl({
   value,

@@ -121,11 +121,11 @@ export default function ProjectKnowledgeSection({ projectId }: { projectId: stri
                   </span>
                 </div>
 
-                {/* Always-visible 关闭/只读/读写 control. External vaults hide the
-                    write segment (read-capped, D11). */}
+                {/* Always-visible 关闭/只读/读写 control. Read-only external vaults
+                    hide the write segment (D11). */}
                 <KbAccessControl
                   value={!att ? "off" : att.access}
-                  allowWrite={!kb.external}
+                  allowWrite={!kb.external || kb.allowExternalWrites}
                   busy={busy}
                   onChange={(next) => void setAttach(kb, next === "off" ? null : next)}
                 />
