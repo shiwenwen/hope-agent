@@ -97,6 +97,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
 
     crate::macos_control::register();
     crate::window_state::restore_main_window_state(app);
+    crate::window_visibility::initialize(app.handle())?;
 
     // macOS: custom app menu — Cmd+Q hides window instead of quitting
     #[cfg(target_os = "macos")]
@@ -174,28 +175,16 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             use tauri::{Emitter, Manager};
             match event.id().as_ref() {
                 "open_about" => {
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
-                    }
+                    crate::window_visibility::show_main_window(app_handle);
                     let _ =
                         app_handle.emit("open-settings", serde_json::json!({ "section": "about" }));
                 }
                 "open_settings" => {
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
-                    }
+                    crate::window_visibility::show_main_window(app_handle);
                     let _ = app_handle.emit("open-settings", ());
                 }
                 "check_for_updates" => {
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
-                    }
+                    crate::window_visibility::show_main_window(app_handle);
                     // Open the About panel and signal it to run a manual check.
                     // AboutPanel listens for `desktop-update-check` and triggers
                     // the same flow as its in-panel "Check for Updates" button.
@@ -210,16 +199,12 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                     let _ = app_handle.emit("open-help", ());
                 }
                 "hide_quit" => {
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.hide();
-                    }
+                    crate::window_visibility::hide_main_window(app_handle);
                 }
                 #[cfg(debug_assertions)]
                 "dev_reload_webview" => {
                     if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
+                        crate::window_visibility::show_main_window(window.app_handle());
                         if let Err(e) = window.reload() {
                             app_warn!("window", "dev_reload_webview", "reload failed: {}", e);
                         }
@@ -228,9 +213,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                 #[cfg(debug_assertions)]
                 "dev_force_reload_webview" => {
                     if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
+                        crate::window_visibility::show_main_window(window.app_handle());
                         match window.url() {
                             Ok(mut url) => {
                                 let nonce = std::time::SystemTime::now()
@@ -263,9 +246,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                 #[cfg(debug_assertions)]
                 "dev_open_web_inspector" => {
                     if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
+                        crate::window_visibility::show_main_window(window.app_handle());
                         window.open_devtools();
                     }
                 }

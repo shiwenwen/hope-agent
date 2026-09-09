@@ -78,11 +78,7 @@ pub fn tray_icon_image(
 
 /// Show and focus the main window if it already exists.
 fn show_main_window(app_handle: &AppHandle) {
-    if let Some(window) = app_handle.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
+    crate::window_visibility::show_main_window(app_handle);
 }
 
 fn now_millis() -> u64 {

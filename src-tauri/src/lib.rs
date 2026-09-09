@@ -13,6 +13,7 @@ mod shortcuts;
 mod tauri_wrappers;
 mod tray;
 mod window_state;
+mod window_visibility;
 
 // ── Re-export all business logic from ha-core ────────────────────
 // This makes `crate::agent`, `crate::session`, etc. resolve to ha-core's modules,
@@ -145,12 +146,7 @@ pub fn run() {
         // Keep single-instance first: with its `deep-link` feature, Windows and
         // Linux forward protocol launches into the running process.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            use tauri::Manager;
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            crate::window_visibility::show_main_window(app);
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
@@ -166,13 +162,17 @@ pub fn run() {
                 .build(),
         )
         .on_window_event(move |window, event| {
+            use tauri::Manager;
             window_state::handle_main_window_event(window, event, &main_window_resize_save_token);
             pet_window::handle_window_event(window, event);
 
             // Intercept window close → hide instead of quit (app stays resident in tray)
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let label = window.label();
-                if label == "main" || label == "quickchat" {
+                if label == "main" {
+                    api.prevent_close();
+                    window_visibility::hide_main_window(window.app_handle());
+                } else if label == "quickchat" {
                     api.prevent_close();
                     let _ = window.hide();
                 }
@@ -1426,12 +1426,7 @@ pub fn run() {
             // RunEvent::Reopen only exists on macOS, so the variant must be cfg-gated.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
-                use tauri::Manager;
-                if let Some(window) = _app_handle.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                }
+                crate::window_visibility::show_main_window(_app_handle);
             }
             // App is exiting → SessionEnd(other) observation hook (app-global,
             // one representative event). Best-effort: at hard exit the process
