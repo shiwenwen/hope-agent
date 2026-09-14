@@ -481,12 +481,10 @@ GUI 默认不显示层级和诊断清单；排障时可通过日志、调试详�
 | 常量 | 值 | 说明 |
 |---|---|---|
 | `CHARS_PER_TOKEN` | `4` | 由词元预算反推字符截断量时使用的旧版估算回退；不是请求计数器 |
-| `TOOL_RESULT_CHARS_PER_TOKEN` | `2` | 工具结果词元估算比率（结构化内容更密） |
 | `IMAGE_CHAR_ESTIMATE` | `8000` | 图片内容固定字符估算 |
 | `HARD_MAX_TOOL_RESULT_CHARS` | `400_000` | 第 1 层单结果绝对字符上限 |
 | `MIN_KEEP_CHARS` | `2000` | 第 1 层截断后最少保留字符 |
 | `MAX_RECOVERY_TOTAL_BYTES` | `100_000` | 文件恢复总字节上限（约 25K 词元） |
-| `MAX_COMPACTION_SUMMARY_CHARS` | `16_000` | 摘要字符数回退值（运行时读取配置） |
 | `SAFETY_MARGIN` | `1.2` | 词元估算安全系数 |
 | `SUMMARIZATION_OVERHEAD_TOKENS` | `4096` | 摘要请求预留额外开销 |
 | `BASE_CHUNK_RATIO` / `MIN_CHUNK_RATIO` | `0.4` / `0.15` | 摘要分块基础/最小比率 |

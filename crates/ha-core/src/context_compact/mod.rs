@@ -37,16 +37,9 @@ mod types;
 
 /// General text chars-per-token estimate
 pub const CHARS_PER_TOKEN: usize = 4;
-/// Tool results are more compact (openclaw: TOOL_RESULT_CHARS_PER_TOKEN_ESTIMATE = 2)
-#[allow(dead_code)]
-const TOOL_RESULT_CHARS_PER_TOKEN: usize = 2;
 /// Image content char estimate (openclaw: IMAGE_CHAR_ESTIMATE = 8_000)
 const IMAGE_CHAR_ESTIMATE: usize = 8_000;
 
-/// Single tool result max share of context window — now configurable via CompactConfig.max_tool_result_context_share
-/// Kept as fallback constant for reference; runtime value is read from config (default 0.3, range 0.1–0.6).
-#[allow(dead_code)]
-const MAX_TOOL_RESULT_CONTEXT_SHARE: f64 = 0.3;
 /// Hard char limit per tool result (openclaw: HARD_MAX_TOOL_RESULT_CHARS = 400_000)
 const HARD_MAX_TOOL_RESULT_CHARS: usize = 400_000;
 /// Minimum chars to keep when truncating (openclaw: MIN_KEEP_CHARS = 2_000)
@@ -64,10 +57,6 @@ const BASE_CHUNK_RATIO: f64 = 0.4;
 /// Minimum chunk ratio for very large messages
 #[allow(dead_code)]
 const MIN_CHUNK_RATIO: f64 = 0.15;
-/// Max chars for compaction summary — now configurable via CompactConfig.max_compaction_summary_chars
-/// Kept as fallback constant for reference; runtime value is read from config (default 16000, range 4000–64000).
-#[allow(dead_code)]
-const MAX_COMPACTION_SUMMARY_CHARS: usize = 16_000;
 
 /// Truncation suffix appended to truncated content
 const TRUNCATION_SUFFIX: &str =
@@ -76,9 +65,6 @@ const TRUNCATION_SUFFIX: &str =
 /// Marker inserted between head and tail in head+tail truncation
 const MIDDLE_OMISSION_MARKER: &str =
     "\n\n\u{26a0}\u{fe0f} [... middle content omitted \u{2014} showing head and tail ...]\n\n";
-/// Placeholder for removed images during pruning
-#[allow(dead_code)]
-const PRUNED_IMAGE_MARKER: &str = "[image removed during context pruning]";
 // ── Summarization prompts ──
 
 /// Identifier preservation instructions (strict policy)
