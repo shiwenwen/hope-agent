@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OpenAI Responses 工具可选参数**：保持 Hope function tool schema 的可选字段省略语义，避免 Responses strict normalization 自动物化 `timeout_secs` 等条件字段并导致合法工具调用失败。 (#732)
 - **Intel Mac 安装包构建**：修复已退役构建环境和安装包上传路径不匹配导致 Intel 版本无法交付的问题，恢复独立 x64 安装包构建与上传。 (#731)
 
 ## [0.50.0] - 2026-09-19
