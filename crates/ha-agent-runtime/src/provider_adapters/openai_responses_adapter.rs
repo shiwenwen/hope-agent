@@ -93,17 +93,25 @@ fn responses_internal_tool_name(name: &str) -> &str {
     }
 }
 
-fn alias_responses_tool_schema(mut tool: Value) -> Value {
-    if tool.get("type").and_then(Value::as_str) == Some("function")
-        && tool.get("name").and_then(Value::as_str) == Some("browser")
-    {
-        tool["name"] = json!(RESPONSES_BROWSER_TOOL_ALIAS);
+fn normalize_responses_tool_schema(mut tool: Value) -> Value {
+    if tool.get("type").and_then(Value::as_str) == Some("function") {
+        // Hope tool schemas model optional arguments by omission. Explicitly
+        // disable Responses strict normalization so those fields remain
+        // genuinely omittable at model-call time.
+        tool["strict"] = json!(false);
+
+        if tool.get("name").and_then(Value::as_str) == Some("browser") {
+            tool["name"] = json!(RESPONSES_BROWSER_TOOL_ALIAS);
+        }
     }
     tool
 }
 
-fn alias_responses_tool_schemas(tools: Vec<Value>) -> Vec<Value> {
-    tools.into_iter().map(alias_responses_tool_schema).collect()
+fn normalize_responses_tool_schemas(tools: Vec<Value>) -> Vec<Value> {
+    tools
+        .into_iter()
+        .map(normalize_responses_tool_schema)
+        .collect()
 }
 
 fn native_tool_search_tools_from(
@@ -943,7 +951,7 @@ fn build_responses_request(
     } else {
         Some(req.tool_schemas.to_vec())
     };
-    let tools = tools.map(alias_responses_tool_schemas);
+    let tools = tools.map(normalize_responses_tool_schemas);
 
     let request = ResponsesRequest {
         model: model.to_string(),
@@ -1026,7 +1034,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         } else {
             tool_schemas.to_vec()
         };
-        alias_responses_tool_schemas(tools)
+        normalize_responses_tool_schemas(tools)
     }
 
     fn token_count_history_for(&self, history: &[Value]) -> Vec<Value> {
@@ -1702,6 +1710,49 @@ mod tests {
             "https://api.openai.com",
             "gpt-5.5"
         ));
+    }
+
+    #[test]
+    fn openai_responses_ask_user_question_preserves_optional_timeout_contract() {
+        let tools = vec![ha_core::tool_defs::get_ask_user_question_tool().to_openai_schema()];
+        let history = vec![serde_json::json!({"role": "user", "content": "question"})];
+        let mut req = super::super::test_support::round_request(&history);
+        req.tool_schemas = &tools;
+        req.deferred_tool_schemas = &[];
+
+        let (request, _, _, _) =
+            build_responses_request("https://api.openai.com", "gpt-5.6", None, &req);
+        let body = serde_json::to_value(request).unwrap();
+        let tool = body["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "ask_user_question")
+            .expect("ask_user_question should be sent to OpenAI Responses");
+
+        assert_eq!(
+            tool.get("strict"),
+            Some(&serde_json::Value::Bool(false)),
+            "Hope schemas use omission for optional fields, so Responses must not implicitly strict-normalize them"
+        );
+
+        let root_required = tool["parameters"]["required"].as_array().unwrap();
+        assert!(
+            !root_required
+                .iter()
+                .any(|value| value.as_str() == Some("timeout_secs")),
+            "request-level timeout_secs must remain omittable"
+        );
+
+        let question_required = tool["parameters"]["properties"]["questions"]["items"]["required"]
+            .as_array()
+            .unwrap();
+        assert!(
+            !question_required
+                .iter()
+                .any(|value| value.as_str() == Some("timeout_secs")),
+            "question-level timeout_secs must remain omittable"
+        );
     }
 
     #[test]
