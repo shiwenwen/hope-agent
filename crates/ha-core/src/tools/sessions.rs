@@ -377,7 +377,10 @@ pub(crate) async fn tool_session_status(args: &Value) -> Result<String> {
 }
 
 /// Tool: sessions_history — get paginated chat history from a session.
-pub(crate) async fn tool_sessions_history(args: &Value) -> Result<String> {
+pub(crate) async fn tool_sessions_history(
+    args: &Value,
+    ctx: &super::execution::ToolExecContext,
+) -> Result<String> {
     let session_id = args
         .get("session_id")
         .and_then(|v| v.as_str())
@@ -396,13 +399,31 @@ pub(crate) async fn tool_sessions_history(args: &Value) -> Result<String> {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let db = crate::get_session_db()
+    let db = ctx
+        .session_db
+        .as_ref()
+        .map(|handle| handle.0.clone())
+        .or_else(|| crate::get_session_db().cloned())
         .ok_or_else(|| anyhow::anyhow!("Session database not initialized"))?;
 
-    // Verify session exists
+    let is_cross_session = ctx.session_id.as_deref() != Some(session_id);
+    if is_cross_session
+        && (ctx.incognito || live_source_is_incognito(&db, ctx.session_id.as_deref())?)
+    {
+        return Ok("Refusing to read another session from an incognito session.".to_string());
+    }
+
+    // Re-read the target at the point where history is consumed. A mention
+    // snapshot must not keep granting access after the target enters incognito.
     let session = db
         .get_session(session_id)?
         .ok_or_else(|| anyhow::anyhow!("Session '{}' not found", session_id))?;
+    if is_cross_session && session.incognito {
+        return Ok(format!(
+            "Refusing to read incognito session '{}' from another session.",
+            session_id
+        ));
+    }
 
     let (messages, total) = if let Some(bid) = before_id {
         let (msgs, _has_more) = db.load_session_messages_before(session_id, bid, limit)?;
@@ -1641,6 +1662,33 @@ mod tests {
             durable_session_count, 1,
             "incognito source validation must not leave a target session row"
         );
+    }
+
+    #[tokio::test]
+    async fn history_rechecks_target_incognito_state_at_consumption() {
+        let (_dir, db) = test_db("history-live-incognito-target");
+        let source = db.create_session("ha-main").expect("source");
+        let target = db.create_session("ha-main").expect("target");
+        let ctx = super::super::execution::ToolExecContext {
+            session_id: Some(source.id),
+            session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
+            incognito: false,
+            ..Default::default()
+        };
+
+        db.with_conn_for_test(|conn| {
+            conn.execute(
+                "UPDATE sessions SET incognito = 1 WHERE id = ?1",
+                rusqlite::params![target.id],
+            )?;
+            Ok(())
+        })
+        .expect("switch target to incognito after the caller snapshot");
+
+        let history = tool_sessions_history(&serde_json::json!({"session_id": target.id}), &ctx)
+            .await
+            .expect("history refusal");
+        assert!(history.contains("Refusing to read incognito session"));
     }
 
     #[tokio::test]
