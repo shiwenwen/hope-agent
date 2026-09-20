@@ -350,6 +350,7 @@ export default function QuickChatDialog({
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}
             enableAgentMention
+            enableSessionMention={!incognitoEnabled}
             agents={session.agents}
             onCommandAction={handleCommandAction}
             permissionMode={stream.permissionMode}

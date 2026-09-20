@@ -46,7 +46,7 @@
 
 2. **行为红线编译进二进制，用户删不掉**。人格模板 `agent.md` 允许用户自定义甚至彻底重写。如果把「什么时候该问用户」「沙箱不是权限绕过」这类硬约束写进模板，用户一改就可能整段删掉，约束随之丢失。所以这些指引以编译期常量的形式由组装器直接注入，不经过任何用户可编辑的文件。
 
-3. **Prompt 引导与执行授权分离**。每个 Agent 的工具、技能、子 Agent、KB 与 MCP 能力仍按 live policy 过滤；Skill 的 `allowed-tools` 对普通工具只会单调收窄，permission / sandbox / Tool Scope / KB access / subagent queue 才是执行边界。唯一 intrinsic continuation 例外 `read_context_resource` 不被 Skill / Plan ceiling 意外裁掉，但仍受 Agent `denied-tools`、`ToolScope`、turn / session / principal 绑定，并且只有统一 permission engine 验证的有效 bound ref 才确定性 allow。`@agent`、`@plugin`、`@connector` 只提供引用与能力数据，是否调用由主模型结合完整请求决定。
+3. **Prompt 引导与执行授权分离**。每个 Agent 的工具、技能、子 Agent、KB 与 MCP 能力仍按 live policy 过滤；Skill 的 `allowed-tools` 对普通工具只会单调收窄，permission / sandbox / Tool Scope / KB access / subagent queue 才是执行边界。唯一 intrinsic continuation 例外 `read_context_resource` 不被 Skill / Plan ceiling 意外裁掉，但仍受 Agent `denied-tools`、`ToolScope`、turn / session / principal 绑定，并且只有统一 permission engine 验证的有效 bound ref 才确定性 allow。`@agent`、`@plugin`、`@connector` 只提供引用与能力数据；`@session` 只绑定一个经后端复核的普通非无痕会话 id。是否读取或向目标会话发送消息，仍由主模型结合完整请求决定并走正常 session 工具与权限策略。
 
 `ContextEngine` 的扩展口同样遵守这条边界：`stable_system_prompt_addition()` 只允许返回稳定、受信的引擎行为合同；召回结果、用户/项目正文与任何可变状态不得通过该接口进入 system，必须走动态 Data lane。
 
@@ -110,7 +110,7 @@ anchor 覆盖的原文 token 还必须与 `kind + targetId` 确定性匹配；`s
 
 ### Typed Mention 历史 Receipt
 
-历史消息中的 `@` chip 也不从正文猜测。后端完成 typed wire 校验以及 File/Plan/Note/Skill/Agent/Plugin/Connector 解析后，先把最终 `PromptContextReceipt` 随 `initial_context_committed` 写入 turn journal；`flush(RoleSwitch)` 返回正数 durable sequence 后，才把可删除的 UI 投影幂等 merge 到该 `chat_turn.user_message_id` 对应的 `messages.attachments_meta.typed_mention_receipt`：
+历史消息中的 `@` chip 也不从正文猜测。后端完成 typed wire 校验以及 File/Plan/Note/Skill/Agent/Session/Plugin/Connector 解析后，先把最终 `PromptContextReceipt` 随 `initial_context_committed` 写入 turn journal；`flush(RoleSwitch)` 返回正数 durable sequence 后，才把可删除的 UI 投影幂等 merge 到该 `chat_turn.user_message_id` 对应的 `messages.attachments_meta.typed_mention_receipt`：
 
 ```json
 {
@@ -747,7 +747,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 | 变化 | 应用 routing key | Provider 可见变化 / 当前行为 |
 | --- | --- | --- |
 | 普通用户消息、History、Tool result | 不变 | History/Turn 后缀变化；不污染稳定 system 断点 |
-| `@file` / `@plan` / `@note` / `@agent` / `@connector` 的选择、内容或 receipt | 选择/data 本身不变；若同时改变最终 tool schema 才变化 | User instruction / untrusted data 变化；mention 不直接执行 |
+| `@file` / `@plan` / `@note` / `@agent` / `@session` / `@connector` 的选择、内容或 receipt | 选择/data 本身不变；若同时改变最终 tool schema 才变化 | User instruction / untrusted data 变化；mention 不直接执行 |
 | `@skill` / `/skill` 或模型调用 `skill()` | Skill 正文与选择事实本身不变；`allowed-tools` 收窄或 deferred activation 改变最终 schema 时变化 | Skill 正文留在 user authority；工具集合变化有意切换 tools prefix |
 | Hook / IM、Profile、Recall / Awareness、环境、LSP、日期、天气、目录清单 | 不变 | 只改变 Run/Data/History 后缀 |
 | Permission、Sandbox、Execution、Workflow、Plan、Goal / Task 状态 | 单纯运行 frame 变化时不变；若 Plan/Workflow/ToolScope 等改变最终 schema 则变化 | 执行仍做 live policy 检查，prompt 不是授权缓存 |

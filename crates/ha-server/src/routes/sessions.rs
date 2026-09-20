@@ -61,6 +61,14 @@ pub struct SearchSessionsQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionMentionCandidatesQuery {
+    pub query: Option<String>,
+    pub exclude_session_id: Option<String>,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MessagesAroundQuery {
     pub target_message_id: i64,
     pub before: Option<u32>,
@@ -1111,6 +1119,28 @@ pub async fn search_sessions(
             .await?
     };
     Ok(Json(results))
+}
+
+/// `GET /api/sessions/mention-candidates` — regular existing conversations
+/// for the typed `@session` picker. Results are filtered and deduplicated
+/// before LIMIT so hidden session kinds and repeated message hits cannot
+/// crowd out eligible conversations.
+pub async fn list_session_mention_candidates(
+    State(ctx): State<Arc<AppContext>>,
+    Query(q): Query<SessionMentionCandidatesQuery>,
+) -> Result<Json<Vec<ha_core::session::SessionMeta>>, AppError> {
+    let limit = q.limit.unwrap_or(30).clamp(1, 100);
+    let candidates = ctx
+        .session_db
+        .run(move |db| {
+            db.list_session_mention_candidates(
+                q.query.as_deref().unwrap_or_default(),
+                q.exclude_session_id.as_deref(),
+                limit,
+            )
+        })
+        .await?;
+    Ok(Json(candidates))
 }
 
 /// `GET /api/sessions/:id/messages/search?query=...&limit=...` — FTS5

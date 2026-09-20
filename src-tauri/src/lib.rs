@@ -748,6 +748,7 @@ pub fn run() {
             commands::git_control::get_git_operation_run_cmd,
             commands::session::get_session_stream_state,
             commands::session::get_session_stream_snapshot,
+            commands::session::list_session_mention_candidates_cmd,
             commands::session::search_sessions_cmd,
             commands::session::search_session_messages_cmd,
             commands::session::get_session_cmd,

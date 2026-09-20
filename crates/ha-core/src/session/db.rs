@@ -3952,6 +3952,136 @@ impl SessionDB {
         Ok((sessions, total))
     }
 
+    /// Existing-conversation candidates for the typed `@session` picker.
+    /// Eligibility and distinctness are applied before LIMIT so channel rows
+    /// or repeated message hits cannot crowd out user-facing conversations.
+    pub fn list_session_mention_candidates(
+        &self,
+        query: &str,
+        exclude_session_id: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<SessionMeta>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let candidate_limit = limit.saturating_add(u32::from(exclude_session_id.is_some()));
+        let mut candidates = if query.trim().is_empty() {
+            self.list_recent_regular_chats(candidate_limit)?.0
+        } else {
+            let matches =
+                self.search_distinct_regular_session_ids(query, candidate_limit as usize)?;
+            let mut sessions = Vec::with_capacity(matches.len());
+            for session_id in matches {
+                if let Some(session) = self.get_session(&session_id)? {
+                    sessions.push(session);
+                }
+            }
+            sessions
+        };
+
+        candidates.retain(|session| {
+            session.is_regular_chat() && exclude_session_id != Some(session.id.as_str())
+        });
+        candidates.truncate(limit as usize);
+        Ok(candidates)
+    }
+
+    fn search_distinct_regular_session_ids(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<String>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let fts_query = sanitize_fts_query(query);
+        let trigram_query = sanitize_trigram_query(query);
+        let like_pattern = build_search_like_pattern(query);
+        if fts_query.is_empty() && trigram_query.is_empty() && like_pattern.is_none() {
+            return Ok(Vec::new());
+        }
+
+        let conn = self.read_conn()?;
+        let session_scope = regular_session_scope_sql("s");
+        let mut results = Vec::new();
+        let mut seen = HashSet::new();
+
+        if let Some(pattern) = like_pattern.as_deref() {
+            let sql = format!(
+                "SELECT s.id
+                 FROM sessions s
+                 WHERE {session_scope}
+                   AND COALESCE(s.title, '') LIKE ?1 ESCAPE '\\'
+                 ORDER BY s.updated_at DESC
+                 LIMIT {}",
+                limit
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![pattern], |row| row.get::<_, String>(0))?;
+            for session_id in rows.flatten() {
+                if seen.insert(session_id.clone()) {
+                    results.push(session_id);
+                }
+            }
+        }
+
+        if !fts_query.is_empty() && results.len() < limit {
+            let sql = format!(
+                "SELECT m.session_id, MIN(fts.rank) AS best_rank
+                 FROM messages_fts fts
+                 JOIN messages m ON m.id = fts.rowid
+                 JOIN sessions s ON s.id = m.session_id
+                 WHERE messages_fts MATCH ?1
+                   AND m.role IN ('user', 'assistant')
+                   AND {session_scope}
+                 GROUP BY m.session_id
+                 ORDER BY best_rank
+                 LIMIT {}",
+                limit
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![fts_query], |row| row.get::<_, String>(0))?;
+            for session_id in rows.flatten() {
+                if results.len() >= limit {
+                    break;
+                }
+                if seen.insert(session_id.clone()) {
+                    results.push(session_id);
+                }
+            }
+        }
+
+        if !trigram_query.is_empty() && results.len() < limit {
+            let sql = format!(
+                "SELECT m.session_id, MIN(tri.rank) AS best_rank
+                 FROM messages_trigram_fts tri
+                 JOIN messages m ON m.id = tri.rowid
+                 JOIN sessions s ON s.id = m.session_id
+                 WHERE messages_trigram_fts MATCH ?1
+                   AND m.role IN ('user', 'assistant')
+                   AND {session_scope}
+                 GROUP BY m.session_id
+                 ORDER BY best_rank
+                 LIMIT {}",
+                limit
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![trigram_query], |row| row.get::<_, String>(0))?;
+            for session_id in rows.flatten() {
+                if results.len() >= limit {
+                    break;
+                }
+                if seen.insert(session_id.clone()) {
+                    results.push(session_id);
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
     /// Recent top-level, user-facing chats for one project. Internal session
     /// kinds are filtered before LIMIT so overview cards and rows share a
     /// stable, user-understandable count.
@@ -8399,6 +8529,72 @@ mod tests {
             sessions.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             vec![regular_new.id.as_str(), regular_old.id.as_str()]
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn session_mention_candidates_filter_and_dedupe_before_limit() {
+        let db_path = temp_db_path("session-mention-candidates");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let chatty = db.create_session("ha-main").expect("chatty regular");
+        db.update_session_title(&chatty.id, "Chatty deployment")
+            .expect("set chatty title");
+        for idx in 0..40 {
+            let message = format!("alpha repeated {idx}");
+            db.append_message(&chatty.id, &NewMessage::user(&message))
+                .expect("append repeated match");
+        }
+
+        let other = db.create_session("ha-main").expect("other regular");
+        db.update_session_title(&other.id, "Other deployment")
+            .expect("set other title");
+        db.append_message(&other.id, &NewMessage::user("alpha once"))
+            .expect("append other match");
+
+        let channel = db.create_session("ha-main").expect("channel session");
+        db.append_message(&channel.id, &NewMessage::user("alpha channel"))
+            .expect("append channel match");
+        {
+            let conn = db.conn.lock().expect("lock connection");
+            let now = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "INSERT INTO channel_conversations
+                    (channel_id, account_id, chat_id, session_id, chat_type, source, created_at, updated_at)
+                 VALUES
+                    ('slack', 'acct', 'chat', ?1, 'dm', 'inbound', ?2, ?2)",
+                rusqlite::params![channel.id, now],
+            )
+            .expect("insert channel conversation");
+        }
+        set_session_updated_at(&db, &chatty.id, "2026-05-01T00:00:00Z");
+        set_session_updated_at(&db, &other.id, "2026-05-02T00:00:00Z");
+        set_session_updated_at(&db, &channel.id, "2026-05-03T00:00:00Z");
+
+        let recent = db
+            .list_session_mention_candidates("", Some(&other.id), 1)
+            .expect("list recent mention candidates");
+        assert_eq!(
+            recent
+                .iter()
+                .map(|session| session.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![chatty.id.as_str()]
+        );
+
+        let searched = db
+            .list_session_mention_candidates("alpha", None, 2)
+            .expect("search mention candidates");
+        let searched_ids = searched
+            .iter()
+            .map(|session| session.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(searched_ids.len(), 2, "got {searched_ids:?}");
+        assert!(searched_ids.contains(chatty.id.as_str()));
+        assert!(searched_ids.contains(other.id.as_str()));
+        assert!(!searched_ids.contains(channel.id.as_str()));
 
         let _ = std::fs::remove_file(&db_path);
     }

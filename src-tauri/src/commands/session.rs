@@ -604,6 +604,31 @@ pub async fn search_sessions_cmd(
         .map_err(Into::into)
 }
 
+/// List regular existing conversations for the typed `@session` picker.
+/// Empty queries return recent chats; non-empty queries return distinct title
+/// or message matches. The current conversation can be excluded atomically
+/// before the result limit is applied.
+#[tauri::command]
+pub async fn list_session_mention_candidates_cmd(
+    query: Option<String>,
+    exclude_session_id: Option<String>,
+    limit: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<Vec<session::SessionMeta>, CmdError> {
+    let limit = limit.unwrap_or(30).clamp(1, 100);
+    state
+        .session_db
+        .run(move |db| {
+            db.list_session_mention_candidates(
+                query.as_deref().unwrap_or_default(),
+                exclude_session_id.as_deref(),
+                limit,
+            )
+        })
+        .await
+        .map_err(Into::into)
+}
+
 /// Search message history within a single session (FTS5). Used by the
 /// in-chat "find in page" search bar.
 #[tauri::command]

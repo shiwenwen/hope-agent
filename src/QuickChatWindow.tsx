@@ -295,6 +295,8 @@ export default function QuickChatWindow() {
             onStop={stream.handleStop}
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}
+            enableSessionMention={!incognitoEnabled}
+            agents={session.agents}
             onCommandAction={handleCommandAction}
             permissionMode={stream.permissionMode}
             onPermissionModeChange={stream.setPermissionModeByUser}

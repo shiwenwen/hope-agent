@@ -1,6 +1,15 @@
 import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
-import { Cable, CircleAlert, File, FileText, Folder, Loader2, Puzzle } from "lucide-react"
+import {
+  Cable,
+  CircleAlert,
+  File,
+  FileText,
+  Folder,
+  Loader2,
+  MessageCircle,
+  Puzzle,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
@@ -9,7 +18,7 @@ import { skillMentionMeta, type MentionableSkill } from "../skill-mention/skillT
 import type { MentionEntry, MentionMode } from "./types"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import type { ReferenceableNote } from "@/types/knowledge"
-import type { MentionCapabilityCandidate } from "../mentions/typedMentions"
+import type { MentionCapabilityCandidate, MentionSessionCandidate } from "../mentions/typedMentions"
 
 interface FileMentionMenuProps {
   isOpen: boolean
@@ -29,11 +38,14 @@ interface FileMentionMenuProps {
   capabilityEntries: MentionCapabilityCandidate[]
   capabilitiesLoading: boolean
   capabilityCapable: boolean
+  sessionEntries: MentionSessionCandidate[]
+  sessionsLoading: boolean
+  sessionCapable: boolean
   /** Agent section rows (already filtered). */
   agentEntries: AgentSummaryForSidebar[]
   /** Whether the agent section is enabled (drives its header). */
   agentCapable: boolean
-  /** Flat cursor over `[...entries, ...noteEntries, ...skillEntries, ...agentEntries]`. */
+  /** Flat cursor over conversations, files, notes, skills, capabilities, then Agents. */
   selectedIndex: number
   mode: MentionMode
   /** Absolute path of the directory being shown (list mode) — surfaced as breadcrumb. */
@@ -48,6 +60,7 @@ interface FileMentionMenuProps {
   onSelectNote: (note: ReferenceableNote) => void
   onSelectSkill: (skill: MentionableSkill) => void
   onSelectCapability: (candidate: MentionCapabilityCandidate) => void
+  onSelectSession: (candidate: MentionSessionCandidate) => void
   onSelectAgent: (agent: AgentSummaryForSidebar) => void
   /** Hover handler; receives the FLAT index across all sections. */
   onHover: (index: number) => void
@@ -65,6 +78,9 @@ export default function FileMentionMenu({
   capabilityEntries,
   capabilitiesLoading,
   capabilityCapable,
+  sessionEntries,
+  sessionsLoading,
+  sessionCapable,
   agentEntries,
   agentCapable,
   selectedIndex,
@@ -79,6 +95,7 @@ export default function FileMentionMenu({
   onSelectNote,
   onSelectSkill,
   onSelectCapability,
+  onSelectSession,
   onSelectAgent,
   onHover,
 }: FileMentionMenuProps) {
@@ -94,9 +111,10 @@ export default function FileMentionMenu({
   const hasAgents = agentEntries.length > 0
   const hasSkills = skillEntries.length > 0
   const hasCapabilities = capabilityEntries.length > 0
+  const hasSessions = sessionEntries.length > 0
   const showFileSection = !!workingDir && hasFileQuery
-  // Nothing to paint: no file section (working dir / its loading+empty/error),
-  // no note rows or in-flight note load, and no skill rows. Avoids an empty
+  // Nothing to paint: no conversation/file section, note rows or in-flight
+  // note load, skill/Agent rows, or capability discovery. Avoid an empty
   // floating box when `@` opens with nothing to show.
   const hasRenderableContent = !(
     !showFileSection &&
@@ -107,7 +125,10 @@ export default function FileMentionMenu({
     !hasAgents &&
     !hasSkills &&
     !hasCapabilities &&
-    !capabilitiesLoading
+    !capabilitiesLoading &&
+    !hasSessions &&
+    !sessionsLoading &&
+    !sessionCapable
   )
 
   // Compute breadcrumb relative to workingDir for list mode; search mode shows
@@ -117,6 +138,7 @@ export default function FileMentionMenu({
   const showAgentSection = agentCapable && hasAgents
   const showSkillSection = skillCapable && hasSkills
   const showCapabilitySection = capabilityCapable && (hasCapabilities || capabilitiesLoading)
+  const showSessionSection = sessionCapable
   const sectionHeaderClass =
     "flex items-center gap-2 px-2.5 py-1 text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider"
   const rowClass = (selected: boolean) =>
@@ -134,9 +156,53 @@ export default function FileMentionMenu({
       className="max-h-[320px] overflow-y-auto overscroll-contain p-1.5"
       role="listbox"
     >
+      {/* ── Existing conversations section (`@session`) ── */}
+      {showSessionSection && (
+        <div className={sectionHeaderClass}>
+          <span className="truncate normal-case tracking-normal">
+            {t("chat.conversations", "Conversations")}
+          </span>
+          {sessionsLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+        </div>
+      )}
+
+      {sessionEntries.map((session, index) => {
+        const isSelected = index === selectedIndex
+        return (
+          <button
+            key={`session-${session.id}`}
+            ref={isSelected ? selectedRef : undefined}
+            type="button"
+            role="option"
+            aria-selected={isSelected}
+            className={rowClass(isSelected)}
+            onClick={() => onSelectSession(session)}
+            onMouseEnter={() => onHover(index)}
+            data-ha-title-tip={session.title}
+          >
+            <MessageCircle className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" />
+            <span className="min-w-0 truncate text-[13px] text-foreground">{session.title}</span>
+            <span className="ml-auto max-w-[36%] shrink-0 truncate text-[11px] text-muted-foreground/60">
+              {session.agentName || session.agentId}
+            </span>
+          </button>
+        )
+      })}
+
+      {showSessionSection && !sessionsLoading && !hasSessions && (
+        <div className="px-2.5 py-2 text-[12px] text-muted-foreground/70">
+          {t("chat.fileMention.empty")}
+        </div>
+      )}
+
       {/* ── Files section (only when a working dir is set) ── */}
       {showFileSection && (
-        <div className={sectionHeaderClass}>
+        <div
+          className={cn(
+            sectionHeaderClass,
+            showSessionSection && "mt-1 border-t border-border/40 pt-1.5",
+          )}
+        >
           <span className="truncate">
             {mode === "search"
               ? t("chat.fileMention.searchHeader")
@@ -161,7 +227,8 @@ export default function FileMentionMenu({
 
       {showFileSection &&
         entries.map((entry, idx) => {
-          const isSelected = idx === selectedIndex
+          const flatIdx = sessionEntries.length + idx
+          const isSelected = flatIdx === selectedIndex
           return (
             <button
               key={`file-${entry.path}-${idx}`}
@@ -171,7 +238,7 @@ export default function FileMentionMenu({
               aria-selected={isSelected}
               className={rowClass(isSelected)}
               onClick={() => onSelect(entry)}
-              onMouseEnter={() => onHover(idx)}
+              onMouseEnter={() => onHover(flatIdx)}
             >
               {entry.isDir ? (
                 <Folder className="h-3.5 w-3.5 shrink-0 text-primary/70" />
@@ -196,7 +263,8 @@ export default function FileMentionMenu({
         <div
           className={cn(
             sectionHeaderClass,
-            showFileSection && hasFiles && "mt-1 border-t border-border/40 pt-1.5",
+            (showSessionSection || (showFileSection && hasFiles)) &&
+              "mt-1 border-t border-border/40 pt-1.5",
           )}
         >
           <span className="truncate normal-case tracking-normal">
@@ -223,7 +291,7 @@ export default function FileMentionMenu({
       )}
 
       {noteEntries.map((note, j) => {
-        const flatIdx = entries.length + j
+        const flatIdx = sessionEntries.length + entries.length + j
         const isSelected = flatIdx === selectedIndex
         return (
           <button
@@ -254,7 +322,9 @@ export default function FileMentionMenu({
         <div
           className={cn(
             sectionHeaderClass,
-            ((showFileSection && hasFiles) || showNoteSection) &&
+            (showSessionSection ||
+              (showFileSection && hasFiles) ||
+              showNoteSection) &&
               "mt-1 border-t border-border/40 pt-1.5",
           )}
         >
@@ -265,7 +335,7 @@ export default function FileMentionMenu({
       )}
 
       {skillEntries.map((skill, k) => {
-        const flatIdx = entries.length + noteEntries.length + k
+        const flatIdx = sessionEntries.length + entries.length + noteEntries.length + k
         const isSelected = flatIdx === selectedIndex
         const meta = skillMentionMeta(skill.name)
         const label = meta ? t(meta.labelKey) : skill.name
@@ -297,7 +367,10 @@ export default function FileMentionMenu({
         <div
           className={cn(
             sectionHeaderClass,
-            ((showFileSection && hasFiles) || showNoteSection || showSkillSection) &&
+            (showSessionSection ||
+              (showFileSection && hasFiles) ||
+              showNoteSection ||
+              showSkillSection) &&
               "mt-1 border-t border-border/40 pt-1.5",
           )}
         >
@@ -309,7 +382,8 @@ export default function FileMentionMenu({
       )}
 
       {capabilityEntries.map((candidate, c) => {
-        const flatIdx = entries.length + noteEntries.length + skillEntries.length + c
+        const flatIdx =
+          sessionEntries.length + entries.length + noteEntries.length + skillEntries.length + c
         const isSelected = flatIdx === selectedIndex
         const Icon = candidate.kind === "connector" ? Cable : Puzzle
         return (
@@ -338,7 +412,8 @@ export default function FileMentionMenu({
         <div
           className={cn(
             sectionHeaderClass,
-            ((showFileSection && hasFiles) ||
+            (showSessionSection ||
+              (showFileSection && hasFiles) ||
               showNoteSection ||
               showSkillSection ||
               showCapabilitySection) &&
@@ -353,7 +428,12 @@ export default function FileMentionMenu({
 
       {agentEntries.map((agent, a) => {
         const flatIdx =
-          entries.length + noteEntries.length + skillEntries.length + capabilityEntries.length + a
+          sessionEntries.length +
+          entries.length +
+          noteEntries.length +
+          skillEntries.length +
+          capabilityEntries.length +
+          a
         const isSelected = flatIdx === selectedIndex
         return (
           <button

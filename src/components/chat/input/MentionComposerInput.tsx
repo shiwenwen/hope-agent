@@ -22,7 +22,7 @@ import {
   useState,
 } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { Cable, ClipboardList, FileText, Folder, Puzzle } from "lucide-react"
+import { Cable, ClipboardList, FileText, Folder, MessageCircle, Puzzle } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -55,6 +55,10 @@ import { parseAgentMentions } from "../agent-mention/agentTokens"
 import { parseMentions, parseNoteRefs } from "../file-mention/mentionTokens"
 import { joinAbs } from "../file-mention/types"
 import { SkillMentionIcon } from "../skill-mention/SkillMentionIcon"
+import {
+  SESSION_MENTION_ICON_CLASS,
+  SESSION_MENTION_INLINE_CLASS,
+} from "../session-mention/SessionMentionChip"
 import { skillMentionToneClass } from "../skill-mention/skillMentionStyles"
 import {
   isSkillMentionName,
@@ -79,6 +83,7 @@ type MentionSpan =
       end: number
     }
   | { kind: "agent"; raw: string; agentId: string; start: number; end: number }
+  | { kind: "session"; raw: string; sessionId: string; label: string; start: number; end: number }
 
 export interface ComposerPasteEvent {
   clipboardData: DataTransfer | null
@@ -97,6 +102,8 @@ interface MentionComposerInputProps {
   skillEnabled?: boolean
   /** Render typed Plugin/Connector link tokens as capability chips. */
   capabilityEnabled?: boolean
+  /** Render typed existing-conversation references as blue chips. */
+  sessionMentionEnabled?: boolean
   /** Render `@agent` delegation mentions as teal chips. */
   agentMentionEnabled?: boolean
   agents?: AgentSummaryForSidebar[]
@@ -115,6 +122,7 @@ interface MentionConfig {
   noteEnabled: boolean
   skillEnabled: boolean
   capabilityEnabled: boolean
+  sessionMentionEnabled: boolean
   agentMentionEnabled: boolean
   /** Resolve a skill id → localized chip label (threaded from `t`). */
   skillLabel: (name: string) => string
@@ -129,6 +137,7 @@ const SKILL_CHIP_CLASS =
 const AGENT_CHIP_CLASS = `cm-mention-chip cm-mention-agent ${AGENT_MENTION_INLINE_CLASS} text-sm`
 const CAPABILITY_CHIP_CLASS = `cm-mention-chip cm-mention-capability ${CAPABILITY_MENTION_INLINE_CLASS} text-sm`
 const PLAN_CHIP_CLASS = `cm-mention-chip cm-mention-plan ${PLAN_MENTION_INLINE_CLASS} text-sm`
+const SESSION_CHIP_CLASS = `cm-mention-chip cm-mention-session ${SESSION_MENTION_INLINE_CLASS} text-sm`
 const SKILL_ICON_CLASS = "h-[1em] w-[1em] shrink-0 self-center"
 const CHIP_LABEL_CLASS = "truncate"
 const widgetIconRoots = new WeakMap<HTMLElement, Root>()
@@ -171,6 +180,20 @@ function mentionSpans(input: string, config: MentionConfig): MentionSpan[] {
       spans.push({
         kind: "plan",
         raw: mention.raw,
+        label: mention.displayLabel,
+        start: mention.start,
+        end: mention.end,
+      })
+    }
+    if (
+      config.sessionMentionEnabled &&
+      mention.kind === "session" &&
+      input.slice(mention.start, mention.end) === mention.raw
+    ) {
+      spans.push({
+        kind: "session",
+        raw: mention.raw,
+        sessionId: mention.targetId,
         label: mention.displayLabel,
         start: mention.start,
         end: mention.end,
@@ -287,6 +310,10 @@ class MentionWidget extends WidgetType {
         (this.span.kind === "plan" && other.span.label === this.span.label)) &&
       (other.span.kind !== "agent" ||
         (this.span.kind === "agent" && other.span.agentId === this.span.agentId)) &&
+      (other.span.kind !== "session" ||
+        (this.span.kind === "session" &&
+          other.span.sessionId === this.span.sessionId &&
+          other.span.label === this.span.label)) &&
       (other.span.kind !== "capability" ||
         (this.span.kind === "capability" &&
           other.span.capabilityKind === this.span.capabilityKind &&
@@ -360,6 +387,18 @@ class MentionWidget extends WidgetType {
         "self-center",
       )
       appendText(root, CHIP_LABEL_CLASS, label)
+      return root
+    }
+
+    if (this.span.kind === "session") {
+      root.className = SESSION_CHIP_CLASS
+      root.setAttribute("aria-label", this.span.label)
+      appendIcon(
+        root,
+        createElement(MessageCircle, { className: SESSION_MENTION_ICON_CLASS }),
+        "self-center",
+      )
+      appendText(root, CHIP_LABEL_CLASS, this.span.label || this.span.sessionId)
       return root
     }
 
@@ -650,6 +689,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
       noteEnabled,
       skillEnabled = false,
       capabilityEnabled = false,
+      sessionMentionEnabled = false,
       agentMentionEnabled = false,
       agents = [],
       hero = false,
@@ -685,6 +725,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
       noteEnabled,
       skillEnabled,
       capabilityEnabled,
+      sessionMentionEnabled,
       agentMentionEnabled,
       skillLabel,
       agentById,
@@ -711,6 +752,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
       noteEnabled,
       skillEnabled,
       capabilityEnabled,
+      sessionMentionEnabled,
       agentMentionEnabled,
       skillLabel,
       agentById,
@@ -838,6 +880,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
       agentById,
       agentMentionEnabled,
       capabilityEnabled,
+      sessionMentionEnabled,
       fileEnabled,
       noteEnabled,
       skillEnabled,

@@ -419,6 +419,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
     method: "POST",
     path: "/api/sessions/{sessionId}/purge-if-incognito",
   },
+  list_session_mention_candidates_cmd: {
+    method: "GET",
+    path: "/api/sessions/mention-candidates",
+  },
   search_sessions_cmd: { method: "GET", path: "/api/sessions/search" },
   search_session_messages_cmd: { method: "GET", path: "/api/sessions/{sessionId}/messages/search" },
   load_session_artifacts_cmd: { method: "GET", path: "/api/sessions/{sessionId}/artifacts" },

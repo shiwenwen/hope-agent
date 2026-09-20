@@ -7,20 +7,19 @@
  * the event. Slash menu owns `Enter` while it is open, so mention popper
  * only sees `Enter` when slash is closed.
  *
- * The `@` popper is the unified entry point (design: `@` = files + knowledge
- * notes + built-in skills + plugin/connector capabilities + Agent mentions).
- * working dir **files**, reachable knowledge **notes**, curated **skills**
- * (office trio + browser + mac control), and configured **Agents** — over a single
+ * The `@` popper is the unified entry point for existing conversations,
+ * working-dir files, reachable knowledge notes, curated built-in skills,
+ * Plugin/Connector capabilities, and configured Agents — all over one
  * flattened keyboard cursor. Files insert `@path`; notes insert `[[name]]`;
- * agents and skills insert stable markdown-link tokens. The backend resolves
- * notes / agent delegation hints / skills at send time; only files become
- * attachments client-side.
+ * conversations, agents, capabilities, and skills insert stable markdown-link
+ * tokens. The backend validates and resolves typed bindings at send time; only
+ * files become attachments client-side.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
-import type { AgentSummaryForSidebar } from "@/types/chat"
+import type { AgentSummaryForSidebar, SessionMeta } from "@/types/chat"
 import {
   agentMatchesQuery,
   agentQueryFromToken,
@@ -45,12 +44,35 @@ import {
   type ComposerMentionBinding,
   type ComposerMentionTextChange,
   type MentionCapabilityCandidate,
+  type MentionSessionCandidate,
 } from "../mentions/typedMentions"
+import { formatSessionInsertion, sessionDisplayLabel } from "../session-mention/sessionTokens"
 
 const SEARCH_DEBOUNCE_MS = 180
 const MAX_NOTE_ROWS = 50
 const MAX_AGENT_ROWS = 30
 const MAX_CAPABILITY_ROWS = 40
+const MAX_SESSION_ROWS = 30
+
+function sessionQuery(token: string | undefined): { explicit: boolean; query: string } {
+  const value = (token ?? "").trim()
+  const lower = value.toLowerCase()
+  return lower.startsWith("session:")
+    ? { explicit: true, query: value.slice(8).trim() }
+    : { explicit: false, query: value }
+}
+
+function isMentionableSession(session: SessionMeta, currentSessionId: string | null): boolean {
+  return (
+    session.id !== currentSessionId &&
+    !session.isCron &&
+    !session.parentSessionId &&
+    !session.channelInfo &&
+    !session.incognito &&
+    !session.archivedAt &&
+    (session.kind ?? "regular") === "regular"
+  )
+}
 
 function isAgentQueryToken(token: string | undefined): boolean {
   const t = (token ?? "").trim().toLowerCase()
@@ -113,11 +135,15 @@ export interface UseFileMentionReturn {
   capabilityEntries: MentionCapabilityCandidate[]
   capabilitiesLoading: boolean
   capabilityCapable: boolean
+  /** Existing regular conversations (recent for bare `@`, searched otherwise). */
+  sessionEntries: MentionSessionCandidate[]
+  sessionsLoading: boolean
+  sessionCapable: boolean
   /** Agent section rows (already filtered by the `@` token). */
   agentEntries: AgentSummaryForSidebar[]
   /** Whether the agent section is enabled. */
   agentCapable: boolean
-  /** Flat cursor over `[...entries, ...noteEntries, ...skillEntries, ...agentEntries]`. */
+  /** Flat cursor over conversations, files, notes, skills, capabilities, then Agents. */
   selectedIndex: number
   mode: MentionMode
   /** Absolute path of the directory currently being listed (list mode). */
@@ -138,6 +164,7 @@ export interface UseFileMentionReturn {
   /** Pick a built-in skill from the `@` menu — inserts `@skill:<name>`. */
   applySkill: (skill: MentionableSkill) => void
   applyCapability: (candidate: MentionCapabilityCandidate) => void
+  applySession: (candidate: MentionSessionCandidate) => void
   /** Pick an Agent from the `@` menu — inserts `[@Agent](#agent:<id>)`. */
   applyAgent: (agent: AgentSummaryForSidebar) => void
   /** Remove a mention by its raw `@...` substring (chip X-button click). */
@@ -161,6 +188,8 @@ export function useFileMention(
     mention: ComposerMentionBinding,
     change: ComposerMentionTextChange,
   ) => void,
+  sessionMentionEnabled = false,
+  mentionSessionId: string | null = noteCtx?.sessionId ?? null,
 ): UseFileMentionReturn {
   const { t } = useTranslation()
   const [mode, setMode] = useState<MentionMode>("list")
@@ -178,12 +207,16 @@ export function useFileMention(
   const [allSkills, setAllSkills] = useState<MentionableSkill[]>([])
   const [allCapabilities, setAllCapabilities] = useState<MentionCapabilityCandidate[]>([])
   const [capabilitiesLoading, setCapabilitiesLoading] = useState(false)
+  const [sessionEntries, setSessionEntries] = useState<MentionSessionCandidate[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
 
   const [active, setActive] = useState<ActiveMention | null>(null)
   const isOpen = active !== null
 
   const requestSeqRef = useRef(0)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sessionRequestSeqRef = useRef(0)
+  const sessionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef(input)
   inputRef.current = input
   const workingDirRef = useRef(workingDir)
@@ -195,15 +228,17 @@ export function useFileMention(
   const agentMentionAgentsRef = useRef(agentMentionAgents)
   agentMentionAgentsRef.current = agentMentionAgents
 
-  const sessionId = noteCtx?.sessionId ?? null
+  const noteSessionId = noteCtx?.sessionId ?? null
   const projectId = noteCtx?.projectId ?? null
   const draftKbIds = (noteCtx?.draftKbAttachments ?? []).map((a) => a.kbId)
   const draftKey = draftKbIds.join(",")
-  const noteCapable = !!noteCtx && (sessionId != null || draftKbIds.length > 0)
+  const noteCapable = !!noteCtx && (noteSessionId != null || draftKbIds.length > 0)
 
   const reset = useCallback(() => {
     setEntries([])
     setAllNotes([])
+    setSessionEntries([])
+    setSessionsLoading(false)
     setSelectedIndex(0)
     setActive(null)
     setError(null)
@@ -213,6 +248,10 @@ export function useFileMention(
     if (debounceRef.current) {
       clearTimeout(debounceRef.current)
       debounceRef.current = null
+    }
+    if (sessionDebounceRef.current) {
+      clearTimeout(sessionDebounceRef.current)
+      sessionDebounceRef.current = null
     }
   }, [])
 
@@ -230,10 +269,11 @@ export function useFileMention(
     const canNote = !!ctx && (ctx.sessionId != null || ctx.draftKbAttachments.length > 0)
     const canSkill = skillEnabledRef.current
     const canAgent = agentMentionAgentsRef.current.length > 0
+    const canSession = sessionMentionEnabled
     // Capability discovery is a local registered-provider query and is always
     // available as a composer surface, even when it currently returns no rows.
     const canCapability = true
-    if (!canFile && !canNote && !canSkill && !canAgent && !canCapability) {
+    if (!canFile && !canNote && !canSkill && !canAgent && !canSession && !canCapability) {
       setActive((prev) => (prev ? null : prev))
       return
     }
@@ -253,7 +293,7 @@ export function useFileMention(
         ? prev
         : { anchor: result.anchor, caret: result.caret, token: result.token },
     )
-  }, [inputHandleRef])
+  }, [inputHandleRef, sessionMentionEnabled])
 
   useEffect(() => {
     recheckTrigger()
@@ -267,13 +307,15 @@ export function useFileMention(
     const tokenIsSkill = active?.token.trim().toLowerCase().startsWith("skill:") ?? false
     const tokenIsAgent = isAgentQueryToken(active?.token)
     const tokenIsCapability = capabilityQuery(active?.token).kind !== null
+    const tokenIsSession = sessionQuery(active?.token).explicit
     if (
       !active ||
       !workingDir ||
       active.token.trim().length === 0 ||
       tokenIsSkill ||
       tokenIsAgent ||
-      tokenIsCapability
+      tokenIsCapability ||
+      tokenIsSession
     ) {
       requestSeqRef.current++
       setEntries([])
@@ -345,6 +387,90 @@ export function useFileMention(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.token, workingDir])
 
+  // ── Session section: bare `@` lists recent regular conversations; typing
+  // searches the durable session index so older title/message matches remain
+  // reachable. Incognito/current/non-regular rows are never picker targets. ──
+  useEffect(() => {
+    const tokenIsSkill = active?.token.trim().toLowerCase().startsWith("skill:") ?? false
+    const tokenIsAgent = isAgentQueryToken(active?.token)
+    const tokenIsCapability = capabilityQuery(active?.token).kind !== null
+    if (!isOpen || !sessionMentionEnabled || tokenIsSkill || tokenIsAgent || tokenIsCapability) {
+      sessionRequestSeqRef.current++
+      setSessionEntries([])
+      setSessionsLoading(false)
+      return
+    }
+    const filter = sessionQuery(active?.token)
+    const seq = ++sessionRequestSeqRef.current
+    let cancelled = false
+
+    if (sessionDebounceRef.current) {
+      clearTimeout(sessionDebounceRef.current)
+      sessionDebounceRef.current = null
+    }
+
+    const agentNames = new Map(
+      agentMentionAgentsRef.current.map((agent) => [agent.id, agent.name || agent.id] as const),
+    )
+    setSessionEntries([])
+    setSelectedIndex(0)
+    setSessionsLoading(true)
+    const run = async () => {
+      try {
+        const sessions = await getTransport().call<SessionMeta[]>(
+          "list_session_mention_candidates_cmd",
+          {
+            query: filter.query || undefined,
+            excludeSessionId: mentionSessionId ?? undefined,
+            limit: MAX_SESSION_ROWS,
+          },
+        )
+        if (cancelled || seq !== sessionRequestSeqRef.current) return
+        setSessionEntries(
+          (sessions ?? [])
+            .filter((session) => isMentionableSession(session, mentionSessionId))
+            .slice(0, MAX_SESSION_ROWS)
+            .map((session) => ({
+              id: session.id,
+              title: session.title?.trim() || session.id.slice(0, 8),
+              agentId: session.agentId,
+              agentName: agentNames.get(session.agentId),
+              projectId: session.projectId,
+              updatedAt: session.updatedAt,
+            })),
+        )
+        // Conversation rows are the first flat section. Reset the numeric
+        // cursor when this async prefix materializes so an index that formerly
+        // pointed at a file/skill cannot silently retarget another session.
+        setSelectedIndex(0)
+      } catch (error) {
+        if (cancelled || seq !== sessionRequestSeqRef.current) return
+        logger.warn(
+          "chat",
+          "useFileMention::loadSessions",
+          "load mentionable sessions failed",
+          error,
+        )
+        setSessionEntries([])
+      } finally {
+        if (!cancelled && seq === sessionRequestSeqRef.current) setSessionsLoading(false)
+      }
+    }
+
+    if (filter.query) {
+      sessionDebounceRef.current = setTimeout(() => void run(), SEARCH_DEBOUNCE_MS)
+    } else {
+      void run()
+    }
+    return () => {
+      cancelled = true
+      if (sessionDebounceRef.current) {
+        clearTimeout(sessionDebounceRef.current)
+        sessionDebounceRef.current = null
+      }
+    }
+  }, [active?.token, isOpen, mentionSessionId, sessionMentionEnabled])
+
   // ── Note section: load the reachable set once per open, filter client-side. ──
   useEffect(() => {
     if (!isOpen || !noteCapable) {
@@ -358,9 +484,9 @@ export function useFileMention(
     setNoteLoadErrorDetail(null)
     getTransport()
       .call<ReferenceableNote[]>("list_referenceable_notes_cmd", {
-        sessionId: sessionId ?? undefined,
-        projectId: sessionId ? (projectId ?? undefined) : undefined,
-        draftKbIds: sessionId ? undefined : draftKbIds,
+        sessionId: noteSessionId ?? undefined,
+        projectId: noteSessionId ? (projectId ?? undefined) : undefined,
+        draftKbIds: noteSessionId ? undefined : draftKbIds,
       })
       .then((notes) => {
         if (!cancelled) {
@@ -382,7 +508,7 @@ export function useFileMention(
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, noteCapable, sessionId, projectId, draftKey])
+  }, [isOpen, noteCapable, noteSessionId, projectId, draftKey])
 
   // ── Skill section: fetch the curated built-in catalog once when enabled. ──
   useEffect(() => {
@@ -443,9 +569,17 @@ export function useFileMention(
   const tokenIsAgentQuery = isAgentQueryToken(active?.token)
   const capabilityFilter = capabilityQuery(active?.token)
   const tokenIsCapabilityQuery = capabilityFilter.kind !== null
+  const tokenIsSessionQuery = sessionQuery(active?.token).explicit
 
   const noteEntries = useMemo(() => {
-    if (!noteCapable || tokenIsSkillQuery || tokenIsAgentQuery || tokenIsCapabilityQuery) return []
+    if (
+      !noteCapable ||
+      tokenIsSkillQuery ||
+      tokenIsAgentQuery ||
+      tokenIsCapabilityQuery ||
+      tokenIsSessionQuery
+    )
+      return []
     const q = active?.token.trim().toLowerCase() ?? ""
     const matched = q
       ? allNotes.filter(
@@ -453,24 +587,46 @@ export function useFileMention(
         )
       : allNotes
     return matched.slice(0, MAX_NOTE_ROWS)
-  }, [allNotes, active, noteCapable, tokenIsAgentQuery, tokenIsCapabilityQuery, tokenIsSkillQuery])
+  }, [
+    allNotes,
+    active,
+    noteCapable,
+    tokenIsAgentQuery,
+    tokenIsCapabilityQuery,
+    tokenIsSessionQuery,
+    tokenIsSkillQuery,
+  ])
 
   const agentEntries = useMemo(() => {
-    if (agentMentionAgents.length === 0 || tokenIsSkillQuery || tokenIsCapabilityQuery) return []
+    if (
+      agentMentionAgents.length === 0 ||
+      tokenIsSkillQuery ||
+      tokenIsCapabilityQuery ||
+      tokenIsSessionQuery
+    )
+      return []
     const q = agentQueryFromToken(active?.token ?? "")
     return agentMentionAgents
       .filter((agent) => agentMatchesQuery(agent, q))
       .slice(0, MAX_AGENT_ROWS)
-  }, [active, agentMentionAgents, tokenIsCapabilityQuery, tokenIsSkillQuery])
+  }, [active, agentMentionAgents, tokenIsCapabilityQuery, tokenIsSessionQuery, tokenIsSkillQuery])
 
   const skillEntries = useMemo(() => {
-    if (!skillEnabled || tokenIsAgentQuery || tokenIsCapabilityQuery) return []
+    if (!skillEnabled || tokenIsAgentQuery || tokenIsCapabilityQuery || tokenIsSessionQuery)
+      return []
     const q = skillQueryFromToken(active?.token ?? "")
     return allSkills.filter((s) => skillMatchesQuery(s.name, q))
-  }, [allSkills, active, skillEnabled, tokenIsAgentQuery, tokenIsCapabilityQuery])
+  }, [
+    allSkills,
+    active,
+    skillEnabled,
+    tokenIsAgentQuery,
+    tokenIsCapabilityQuery,
+    tokenIsSessionQuery,
+  ])
 
   const capabilityEntries = useMemo(() => {
-    if (tokenIsSkillQuery || tokenIsAgentQuery) return []
+    if (tokenIsSkillQuery || tokenIsAgentQuery || tokenIsSessionQuery) return []
     const q = capabilityFilter.query.toLowerCase()
     return allCapabilities
       .filter((row) => capabilityFilter.kind == null || row.kind === capabilityFilter.kind)
@@ -487,10 +643,12 @@ export function useFileMention(
     capabilityFilter.kind,
     capabilityFilter.query,
     tokenIsAgentQuery,
+    tokenIsSessionQuery,
     tokenIsSkillQuery,
   ])
 
   const total =
+    sessionEntries.length +
     entries.length +
     noteEntries.length +
     skillEntries.length +
@@ -500,11 +658,17 @@ export function useFileMention(
     (active?.token.trim().length ?? 0) > 0 &&
     !tokenIsSkillQuery &&
     !tokenIsAgentQuery &&
-    !tokenIsCapabilityQuery
+    !tokenIsCapabilityQuery &&
+    !tokenIsSessionQuery
   const fileSectionVisible = !!workingDir && hasFileQuery
+  const sessionCapable =
+    sessionMentionEnabled && !tokenIsSkillQuery && !tokenIsAgentQuery && !tokenIsCapabilityQuery
   const emptyMenuVisible =
     fileSectionVisible ||
     !!error ||
+    sessionCapable ||
+    sessionEntries.length > 0 ||
+    sessionsLoading ||
     notesLoading ||
     !!noteLoadErrorDetail ||
     agentEntries.length > 0 ||
@@ -747,33 +911,94 @@ export function useFileMention(
     [active, inputHandleRef, reset, setInput, setInputWithMention],
   )
 
+  const applySession = useCallback(
+    (candidate: MentionSessionCandidate) => {
+      if (!active) return
+      const insertion = `${formatSessionInsertion(candidate)} `
+      const before = inputRef.current.slice(0, active.anchor)
+      const after = inputRef.current.slice(active.caret)
+      const newCaret = (before + insertion).length
+      const next = before + insertion + after
+      const raw = insertion.trimEnd()
+      if (setInputWithMention) {
+        setInputWithMention(
+          next,
+          {
+            id: newMentionId(),
+            kind: "session",
+            targetId: candidate.id,
+            displayLabel: sessionDisplayLabel(candidate),
+            raw,
+            start: before.length,
+            end: before.length + raw.length,
+          },
+          {
+            oldStart: active.anchor,
+            oldEnd: active.caret,
+            newEnd: before.length + insertion.length,
+          },
+        )
+      } else {
+        setInput(next)
+      }
+      requestAnimationFrame(() => {
+        const inputHandle = inputHandleRef.current
+        if (inputHandle) {
+          inputHandle.focus()
+          inputHandle.setSelectionRange(newCaret, newCaret)
+        }
+      })
+      reset()
+    },
+    [active, inputHandleRef, reset, setInput, setInputWithMention],
+  )
+
   const applyAtIndex = useCallback(
     (i: number) => {
-      if (i < entries.length) {
-        applyEntry(entries[i])
-      } else if (i < entries.length + noteEntries.length) {
-        const note = noteEntries[i - entries.length]
+      if (i < sessionEntries.length) {
+        const candidate = sessionEntries[i]
+        if (candidate) applySession(candidate)
+      } else if (i < sessionEntries.length + entries.length) {
+        const entry = entries[i - sessionEntries.length]
+        if (entry) applyEntry(entry)
+      } else if (i < sessionEntries.length + entries.length + noteEntries.length) {
+        const note = noteEntries[i - sessionEntries.length - entries.length]
         if (note) applyNote(note)
-      } else if (i < entries.length + noteEntries.length + skillEntries.length) {
-        const skill = skillEntries[i - entries.length - noteEntries.length]
+      } else if (
+        i <
+        sessionEntries.length + entries.length + noteEntries.length + skillEntries.length
+      ) {
+        const skill = skillEntries[i - sessionEntries.length - entries.length - noteEntries.length]
         if (skill) applySkill(skill)
       } else if (
         i <
-        entries.length + noteEntries.length + skillEntries.length + capabilityEntries.length
+        sessionEntries.length +
+          entries.length +
+          noteEntries.length +
+          skillEntries.length +
+          capabilityEntries.length
       ) {
         const capability =
-          capabilityEntries[i - entries.length - noteEntries.length - skillEntries.length]
+          capabilityEntries[
+            i - sessionEntries.length - entries.length - noteEntries.length - skillEntries.length
+          ]
         if (capability) applyCapability(capability)
       } else {
         const agent =
           agentEntries[
-            i - entries.length - noteEntries.length - skillEntries.length - capabilityEntries.length
+            i -
+              sessionEntries.length -
+              entries.length -
+              noteEntries.length -
+              skillEntries.length -
+              capabilityEntries.length
           ]
         if (agent) applyAgent(agent)
       }
     },
     [
       entries,
+      sessionEntries,
       noteEntries,
       agentEntries,
       skillEntries,
@@ -783,6 +1008,7 @@ export function useFileMention(
       applyAgent,
       applySkill,
       applyCapability,
+      applySession,
     ],
   )
 
@@ -862,6 +1088,9 @@ export function useFileMention(
     capabilityEntries,
     capabilitiesLoading,
     capabilityCapable: capabilitiesLoading || allCapabilities.length > 0,
+    sessionEntries,
+    sessionsLoading,
+    sessionCapable,
     agentEntries,
     agentCapable: agentMentionAgents.length > 0,
     selectedIndex,
@@ -877,6 +1106,7 @@ export function useFileMention(
     applyNote,
     applySkill,
     applyCapability,
+    applySession,
     applyAgent,
     removeMention,
     recheckTrigger,

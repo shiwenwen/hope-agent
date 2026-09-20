@@ -8,7 +8,7 @@
 use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub const PROMPT_CONTRACT_VERSION: u32 = 3;
 pub const MENTION_WIRE_VERSION: u32 = 1;
@@ -129,6 +129,7 @@ pub enum MentionKind {
     Plugin,
     Connector,
     Agent,
+    Session,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -357,6 +358,48 @@ pub struct ResolvedTurnContext {
     pub receipt: PromptContextReceipt,
 }
 
+/// Blocking-I/O-free lookup frozen before typed session bindings are resolved.
+/// The runtime builds this snapshot in its blocking lane after validating the
+/// incoming wire, then every provider attempt reuses the same result.
+#[derive(Debug, Default)]
+#[doc(hidden)]
+pub struct SessionMentionScope {
+    parent_incognito: Option<bool>,
+    targets: HashMap<String, crate::session::SessionMeta>,
+}
+
+#[doc(hidden)]
+pub fn snapshot_session_mention_scope(
+    db: &crate::session::SessionDB,
+    parent_session_id: &str,
+    target_ids: &[String],
+) -> SessionMentionScope {
+    let parent_incognito = db
+        .get_session(parent_session_id)
+        .ok()
+        .flatten()
+        .map(|session| session.incognito);
+    let mut targets = HashMap::new();
+    if parent_incognito != Some(false) {
+        return SessionMentionScope {
+            parent_incognito,
+            targets,
+        };
+    }
+    for target_id in target_ids {
+        if target_id == parent_session_id || targets.contains_key(target_id) {
+            continue;
+        }
+        if let Ok(Some(session)) = db.get_session(target_id) {
+            targets.insert(target_id.clone(), session);
+        }
+    }
+    SessionMentionScope {
+        parent_incognito,
+        targets,
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 #[doc(hidden)]
 pub enum UserInstructionSource {
@@ -364,6 +407,7 @@ pub enum UserInstructionSource {
     ExplicitSlashSkill,
     SelectedAgent,
     SelectedCapability,
+    SelectedSession,
     TypedMentionResolution,
 }
 
@@ -375,6 +419,7 @@ pub enum UntrustedDataSource {
     HookContext,
     AgentMetadata,
     RemoteCapabilityMetadata,
+    SessionMetadata,
 }
 
 #[derive(Debug, Clone)]
@@ -458,6 +503,7 @@ fn user_source_label(source: UserInstructionSource) -> &'static str {
         UserInstructionSource::ExplicitSlashSkill => "explicit_slash_skill",
         UserInstructionSource::SelectedAgent => "selected_agent",
         UserInstructionSource::SelectedCapability => "selected_capability",
+        UserInstructionSource::SelectedSession => "selected_session",
         UserInstructionSource::TypedMentionResolution => "typed_mention_resolution",
     }
 }
@@ -469,6 +515,7 @@ fn data_source_label(source: UntrustedDataSource) -> &'static str {
         UntrustedDataSource::HookContext => "hook_context",
         UntrustedDataSource::AgentMetadata => "agent_metadata",
         UntrustedDataSource::RemoteCapabilityMetadata => "remote_capability_metadata",
+        UntrustedDataSource::SessionMetadata => "session_metadata",
     }
 }
 
@@ -614,6 +661,7 @@ fn validate_inline_token(raw: &str, mention: &MentionBindingWire) -> Result<()> 
         MentionKind::Agent => markdown_mention_matches(raw, "agent", &mention.target_id),
         MentionKind::Plugin => markdown_mention_matches(raw, "plugin", &mention.target_id),
         MentionKind::Connector => markdown_mention_matches(raw, "connector", &mention.target_id),
+        MentionKind::Session => markdown_mention_matches(raw, "session", &mention.target_id),
     };
     if !valid {
         bail!("typed mention token does not match its kind and target");
@@ -727,6 +775,7 @@ pub fn resolve_typed_turn_context(
     parent_session_id: &str,
     parent_turn_id: Option<&str>,
     principal_agent_id: &str,
+    session_scope: Option<&SessionMentionScope>,
 ) -> Result<(
     TurnContextBuilder,
     Vec<AgentBindingRef>,
@@ -747,6 +796,9 @@ pub fn resolve_typed_turn_context(
                 &mut builder,
                 &mut agent_bindings,
             ),
+            MentionKind::Session => {
+                resolve_session_binding(mention, parent_session_id, session_scope, &mut builder)
+            }
             MentionKind::File => {
                 builder.untrusted_data(
                     UntrustedDataSource::FileAttachment,
@@ -822,6 +874,53 @@ pub fn resolve_typed_turn_context(
         });
     }
     Ok((builder, agent_bindings, receipts))
+}
+
+fn resolve_session_binding(
+    mention: &MentionBindingWire,
+    parent_session_id: &str,
+    session_scope: Option<&SessionMentionScope>,
+    builder: &mut TurnContextBuilder,
+) -> MentionResolutionStatus {
+    if mention.target_id == parent_session_id {
+        return MentionResolutionStatus::Rejected;
+    }
+    let Some(scope) = session_scope else {
+        return MentionResolutionStatus::Unavailable;
+    };
+    match scope.parent_incognito {
+        Some(true) => return MentionResolutionStatus::Rejected,
+        Some(false) => {}
+        None => return MentionResolutionStatus::Unavailable,
+    }
+    let Some(target) = scope.targets.get(&mention.target_id) else {
+        return MentionResolutionStatus::Unavailable;
+    };
+    if !target.is_regular_chat() {
+        return MentionResolutionStatus::Rejected;
+    }
+
+    builder.user_instruction(
+        UserInstructionSource::SelectedSession,
+        format!(
+            "The user selected session_id={} (mention_id={}) as an exact existing-conversation reference. Interpret the complete request before using session_status, sessions_history, sessions_search, or sessions_send. Selection alone is not a request to read or send, and does not grant approval or bypass live tool policy.",
+            target.id, mention.id,
+        ),
+    );
+    builder.untrusted_data(
+        UntrustedDataSource::SessionMetadata,
+        serde_json::json!({
+            "mentionId": mention.id,
+            "sessionId": target.id,
+            "title": target.title.as_deref().map(|title| crate::truncate_utf8(title, MAX_LABEL_BYTES)),
+            "agentId": target.agent_id,
+            "projectId": target.project_id,
+            "updatedAt": target.updated_at,
+            "sourceAnchor": anchor_summary(&mention.source_anchor),
+        })
+        .to_string(),
+    );
+    MentionResolutionStatus::Resolved
 }
 
 #[doc(hidden)]
@@ -1251,6 +1350,76 @@ mod tests {
     }
 
     #[test]
+    fn resolves_exact_regular_session_reference_without_implying_action() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = std::sync::Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(
+                &dir.path().join("typed-session.db"),
+            )
+            .unwrap(),
+        );
+        crate::channel::ChannelDB::new(db.clone())
+            .migrate()
+            .unwrap();
+        let parent = db.create_session("ha-main").unwrap();
+        let target = db.create_session("ha-main").unwrap();
+        db.update_session_title(&target.id, "Cloudflare setup")
+            .unwrap();
+        let text = format!("[@Cloudflare setup](#session:{})", target.id);
+        let wire = wire_for(
+            &text,
+            MentionBindingWire {
+                id: "session1".into(),
+                kind: MentionKind::Session,
+                target_id: target.id.clone(),
+                display_label: "Cloudflare setup".into(),
+                origin: StructuredMentionOrigin::FirstPartyComposerGesture,
+                source_anchor: SourceAnchor::AdjacentContentPart {
+                    input_item_id: String::new(),
+                    part_id: String::new(),
+                    ordinal: 0,
+                },
+            },
+        );
+        let scope = snapshot_session_mention_scope(
+            db.as_ref(),
+            &parent.id,
+            std::slice::from_ref(&target.id),
+        );
+
+        let (builder, bindings, receipts) = resolve_typed_turn_context(
+            &text,
+            &wire,
+            &parent.id,
+            Some("turn"),
+            "ha-main",
+            Some(&scope),
+        )
+        .unwrap();
+        let resolved = finalize_turn_context(
+            &text,
+            builder,
+            bindings,
+            Some(MENTION_WIRE_VERSION),
+            false,
+            receipts,
+        );
+
+        assert_eq!(
+            resolved.receipt.mentions[0].status,
+            MentionResolutionStatus::Resolved
+        );
+        assert!(resolved
+            .model_message
+            .contains("source=\"selected_session\""));
+        assert!(resolved.model_message.contains(&target.id));
+        assert!(resolved
+            .model_message
+            .contains("Selection alone is not a request"));
+        assert!(resolved.model_message.contains("Cloudflare setup"));
+    }
+
+    #[test]
     fn typed_note_wikilink_anchor_and_alias_bind_the_whole_note() {
         for text in [
             "[[folder/Note#Heading]]",
@@ -1424,7 +1593,8 @@ mod tests {
             }],
         };
         let (builder, bindings, receipts) =
-            resolve_typed_turn_context(text, &wire, "session", Some("turn"), "ha-main").unwrap();
+            resolve_typed_turn_context(text, &wire, "session", Some("turn"), "ha-main", None)
+                .unwrap();
         let resolved = finalize_turn_context(
             text,
             builder,
@@ -1470,7 +1640,7 @@ mod tests {
             },
         );
         let (builder, bindings, mut receipts) =
-            resolve_typed_turn_context(text, &wire, "session", None, "ha-main").unwrap();
+            resolve_typed_turn_context(text, &wire, "session", None, "ha-main", None).unwrap();
         receipts[0].status = MentionResolutionStatus::Unavailable;
         let resolved = finalize_turn_context(
             text,

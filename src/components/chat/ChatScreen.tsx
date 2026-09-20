@@ -5554,6 +5554,7 @@ export default function ChatScreen({
                         enableNoteMention
                         enableSkillMention
                         enableAgentMention
+                        enableSessionMention={!incognitoEnabled}
                         agents={session.agents}
                         workingDir={
                           session.currentSessionId

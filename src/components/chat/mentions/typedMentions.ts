@@ -6,6 +6,7 @@ export type ComposerMentionKind =
   | "plugin"
   | "connector"
   | "agent"
+  | "session"
 
 export interface ComposerMentionBinding {
   id: string
@@ -57,6 +58,17 @@ export interface MentionCapabilityCandidate {
   displayLabel: string
   namespace: string
   summary: string
+}
+
+/** A regular, non-incognito conversation exposed by the first-party session
+ * picker. The id is the stable tool target; title/Agent are display metadata. */
+export interface MentionSessionCandidate {
+  id: string
+  title: string
+  agentId: string
+  agentName?: string
+  projectId?: string | null
+  updatedAt?: string
 }
 
 export interface ParsedCapabilityMention {
@@ -429,7 +441,7 @@ export function mergeTypedMentionDrafts(
 }
 
 export interface TypedMentionRenderLink {
-  kind: "file" | "plan" | "note" | "skill" | "agent" | "plugin" | "connector"
+  kind: "file" | "plan" | "note" | "skill" | "agent" | "session" | "plugin" | "connector"
   targetId: string
   displayLabel: string
 }
@@ -453,6 +465,7 @@ export function prepareTypedMentionLinks(
         mention.kind === "plan" ||
         mention.kind === "note" ||
         mention.kind === "agent" ||
+        mention.kind === "session" ||
         mention.kind === "plugin" ||
         mention.kind === "connector",
     )

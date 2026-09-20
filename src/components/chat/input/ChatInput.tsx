@@ -348,6 +348,8 @@ interface ChatInputProps {
   enableSkillMention?: boolean
   /** Enable the `@` menu's Agent delegation section (`@agent:<id>`). */
   enableAgentMention?: boolean
+  /** Enable the `@` menu's existing-conversation section (`@session`). */
+  enableSessionMention?: boolean
   agents?: AgentSummaryForSidebar[]
   // Working directory
   workingDir?: string | null
@@ -570,6 +572,7 @@ export default function ChatInput({
   enableNoteMention = false,
   enableSkillMention = false,
   enableAgentMention = false,
+  enableSessionMention = false,
   agents = [],
   workingDir,
   workingDirInherited = false,
@@ -964,6 +967,8 @@ export default function ChatInput({
     enableAgentMention ? agents : [],
     currentAgentId,
     onInputChangeWithMention,
+    enableSessionMention,
+    currentSessionId ?? null,
   )
   // `[[note]]` picker — knowledge-space notes reachable from this chat.
   const noteMention = useNoteMention(
@@ -2094,6 +2099,9 @@ export default function ChatInput({
           capabilityEntries={mention.capabilityEntries}
           capabilitiesLoading={mention.capabilitiesLoading}
           capabilityCapable={mention.capabilityCapable}
+          sessionEntries={mention.sessionEntries}
+          sessionsLoading={mention.sessionsLoading}
+          sessionCapable={mention.sessionCapable}
           agentEntries={mention.agentEntries}
           agentCapable={mention.agentCapable}
           selectedIndex={mention.selectedIndex}
@@ -2108,6 +2116,7 @@ export default function ChatInput({
           onSelectNote={mention.applyNote}
           onSelectSkill={mention.applySkill}
           onSelectCapability={mention.applyCapability}
+          onSelectSession={mention.applySession}
           onSelectAgent={mention.applyAgent}
           onHover={mention.setSelectedIndex}
         />
@@ -3052,6 +3061,7 @@ export default function ChatInput({
             noteEnabled={enableNoteMention}
             skillEnabled={enableSkillMention}
             capabilityEnabled
+            sessionMentionEnabled={enableSessionMention}
             agentMentionEnabled={enableAgentMention}
             agents={agents}
             hero={hero}

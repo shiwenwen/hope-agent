@@ -64,4 +64,38 @@ describe("MentionComposerInput", () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith("\nfirst line"))
     expect(onOuterKeyDown).not.toHaveBeenCalled()
   })
+
+  it("renders a picker-bound session reference as an atomic chip", async () => {
+    const raw = "[@配置 Cloudflare](#session:session-2)"
+    const view = render(
+      <MentionComposerInput
+        value={`${raw} `}
+        typedMentions={[
+          {
+            id: "mention-session-1",
+            kind: "session",
+            targetId: "session-2",
+            displayLabel: "配置 Cloudflare",
+            raw,
+            start: 0,
+            end: raw.length,
+          },
+        ]}
+        placeholder="Ask anything"
+        workingDir={null}
+        fileEnabled={false}
+        noteEnabled={false}
+        sessionMentionEnabled
+        onChange={vi.fn()}
+        onKeyDown={vi.fn()}
+        onPaste={vi.fn()}
+        onSelectionChange={vi.fn()}
+      />,
+    )
+
+    await waitFor(() => {
+      const chip = view.container.querySelector('[data-mention-kind="session"]')
+      expect(chip?.textContent).toContain("配置 Cloudflare")
+    })
+  })
 })

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, render, screen } from "@testing-library/react"
 import FileMentionMenu from "./FileMentionMenu"
 
@@ -22,6 +22,10 @@ vi.mock("react-i18next", () => ({
   }),
 }))
 
+beforeEach(() => {
+  HTMLElement.prototype.scrollIntoView = vi.fn()
+})
+
 afterEach(cleanup)
 
 describe("FileMentionMenu", () => {
@@ -39,6 +43,9 @@ describe("FileMentionMenu", () => {
         capabilityEntries={[]}
         capabilitiesLoading={false}
         capabilityCapable={false}
+        sessionEntries={[]}
+        sessionsLoading={false}
+        sessionCapable={false}
         agentEntries={[]}
         agentCapable={false}
         selectedIndex={0}
@@ -53,6 +60,7 @@ describe("FileMentionMenu", () => {
         onSelectNote={() => {}}
         onSelectSkill={() => {}}
         onSelectCapability={() => {}}
+        onSelectSession={() => {}}
         onSelectAgent={() => {}}
         onHover={() => {}}
       />,
@@ -61,5 +69,97 @@ describe("FileMentionMenu", () => {
     expect(screen.getByText("知识空间笔记")).toBeTruthy()
     expect(screen.getByText("无法加载知识笔记候选")).toBeTruthy()
     expect(screen.getByText("详细信息：token=[redacted]")).toBeTruthy()
+  })
+
+  it("shows existing conversations first and exposes the exact selected row", () => {
+    const onSelectSession = vi.fn()
+    render(
+      <FileMentionMenu
+        isOpen
+        entries={[]}
+        noteEntries={[]}
+        notesLoading={false}
+        noteLoadErrorDetail={null}
+        noteCapable={false}
+        skillEntries={[]}
+        skillCapable={false}
+        capabilityEntries={[]}
+        capabilitiesLoading={false}
+        capabilityCapable={false}
+        sessionEntries={[
+          {
+            id: "session-2",
+            title: "配置 Cloudflare 域名和 HTTPS",
+            agentId: "ha-main",
+            agentName: "Hope",
+          },
+        ]}
+        sessionsLoading={false}
+        sessionCapable
+        agentEntries={[]}
+        agentCapable={false}
+        selectedIndex={0}
+        mode="search"
+        dirPath={null}
+        workingDir={null}
+        loading={false}
+        error={null}
+        truncated={false}
+        hasFileQuery={false}
+        onSelect={() => {}}
+        onSelectNote={() => {}}
+        onSelectSkill={() => {}}
+        onSelectCapability={() => {}}
+        onSelectSession={onSelectSession}
+        onSelectAgent={() => {}}
+        onHover={() => {}}
+      />,
+    )
+
+    screen.getByRole("option", { name: /配置 Cloudflare 域名和 HTTPS/ }).click()
+    expect(onSelectSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "session-2", title: "配置 Cloudflare 域名和 HTTPS" }),
+    )
+  })
+
+  it("keeps the conversation section open when a search has no matches", () => {
+    render(
+      <FileMentionMenu
+        isOpen
+        entries={[]}
+        noteEntries={[]}
+        notesLoading={false}
+        noteLoadErrorDetail={null}
+        noteCapable={false}
+        skillEntries={[]}
+        skillCapable={false}
+        capabilityEntries={[]}
+        capabilitiesLoading={false}
+        capabilityCapable={false}
+        sessionEntries={[]}
+        sessionsLoading={false}
+        sessionCapable
+        agentEntries={[]}
+        agentCapable={false}
+        selectedIndex={0}
+        mode="search"
+        dirPath={null}
+        workingDir={null}
+        loading={false}
+        error={null}
+        truncated={false}
+        hasFileQuery={false}
+        onSelect={() => {}}
+        onSelectNote={() => {}}
+        onSelectSkill={() => {}}
+        onSelectCapability={() => {}}
+        onSelectSession={() => {}}
+        onSelectAgent={() => {}}
+        onHover={() => {}}
+      />,
+    )
+
+    expect(screen.getByText("Conversations")).toBeTruthy()
+    expect(screen.getByText("chat.fileMention.empty")).toBeTruthy()
   })
 })

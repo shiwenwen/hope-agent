@@ -123,6 +123,32 @@ pub async fn execute_admitted_params(
         incoming_turn.as_ref(),
         &attachments,
     )?;
+    let session_mention_scope = if let Some(wire) = incoming_turn.as_ref().filter(|wire| {
+        wire.mentions
+            .iter()
+            .any(|mention| mention.kind == ha_core::prompt_context::MentionKind::Session)
+    }) {
+        let snapshot_db = db.clone();
+        let snapshot_parent_session_id = session_id.clone();
+        let target_ids = wire
+            .mentions
+            .iter()
+            .filter(|mention| mention.kind == ha_core::prompt_context::MentionKind::Session)
+            .map(|mention| mention.target_id.clone())
+            .collect::<Vec<_>>();
+        Some(
+            ha_core::blocking::run_blocking(move || {
+                ha_core::prompt_context::snapshot_session_mention_scope(
+                    snapshot_db.as_ref(),
+                    &snapshot_parent_session_id,
+                    &target_ids,
+                )
+            })
+            .await,
+        )
+    } else {
+        None
+    };
     let (
         mut turn_context_builder,
         agent_binding_refs,
@@ -136,6 +162,7 @@ pub async fn execute_admitted_params(
             &session_id,
             turn_id.as_deref(),
             &agent_id,
+            session_mention_scope.as_ref(),
         )
         .map_err(|error| format!("Invalid typed mention context: {error}"))?;
         (

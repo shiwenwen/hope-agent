@@ -206,6 +206,28 @@ describe("typed mention provenance", () => {
     expect(prepared.text).toBe(`[@Google Drive](${opaqueHref})`)
   })
 
+  it("maps a provenance-bearing session reference to an opaque render token", () => {
+    const raw = "[@配置 Cloudflare](#session:session-2)"
+    const prepared = prepareTypedMentionLinks(raw, [
+      binding({
+        kind: "session",
+        targetId: "session-2",
+        displayLabel: "配置 Cloudflare",
+        raw,
+        start: 0,
+        end: raw.length,
+      }),
+    ])
+
+    const [[opaqueHref, target]] = [...prepared.links.entries()]
+    expect(target).toEqual({
+      kind: "session",
+      targetId: "session-2",
+      displayLabel: "配置 Cloudflare",
+    })
+    expect(prepared.text).toBe(`[@配置 Cloudflare](${opaqueHref})`)
+  })
+
   it("maps a provenance-bearing file token to an opaque render token", () => {
     const raw = "@AGENTS.md"
     const prepared = prepareTypedMentionLinks(`${raw} 中有哪些红线`, [

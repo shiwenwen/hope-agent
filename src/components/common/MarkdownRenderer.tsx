@@ -55,6 +55,7 @@ import { FileMentionChip } from "@/components/chat/file-mention/FileMentionChip"
 import { NoteMentionChip } from "@/components/chat/note-mention/NoteMentionChip"
 import { PlanMentionChip } from "@/components/chat/plan-mention/PlanMentionChip"
 import { SkillMentionChip } from "@/components/chat/skill-mention/SkillMentionChip"
+import { SessionMentionChip } from "@/components/chat/session-mention/SessionMentionChip"
 import { isSkillMentionName } from "@/components/chat/skill-mention/skillTokens"
 import { observeMarkdownFaviconVisibility } from "./markdownFaviconVisibility"
 import {
@@ -457,6 +458,10 @@ export function MarkdownLink({
   if (typedMention?.kind === "agent") {
     const fallbackName = typeof children === "string" ? children.replace(/^@/, "") : undefined
     return <AgentMentionChip agentId={typedMention.targetId} fallbackName={fallbackName} />
+  }
+  if (typedMention?.kind === "session") {
+    const fallbackName = typeof children === "string" ? children.replace(/^@/, "") : undefined
+    return <SessionMentionChip sessionId={typedMention.targetId} fallbackName={fallbackName} />
   }
   if (typedMention?.kind === "plugin" || typedMention?.kind === "connector") {
     const fallbackName = typeof children === "string" ? children.replace(/^@/, "") : undefined

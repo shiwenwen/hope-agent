@@ -477,6 +477,10 @@ fn build_router_with_cors(
             post(routes::git_control::handoff),
         )
         .route("/git-runs/{id}", get(routes::git_control::operation_run))
+        .route(
+            "/sessions/mention-candidates",
+            get(routes::sessions::list_session_mention_candidates),
+        )
         .route("/sessions/search", get(routes::sessions::search_sessions))
         // Projects
         .route("/projects", get(routes::projects::list_projects))

@@ -539,6 +539,53 @@ describe("parseSessionMessages user attachments", () => {
     ])
   })
 
+  test("hydrates a persisted session mention receipt after restart", () => {
+    const raw = "[@配置 Cloudflare](#session:session-2)"
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 6,
+        role: "user",
+        content: raw,
+        attachmentsMeta: JSON.stringify({
+          typed_mention_receipt: {
+            receiptVersion: 1,
+            sourceJournalSeq: 8,
+            promptContractVersion: 3,
+            mentionWireVersion: 1,
+            canonicalTextFingerprint: "c".repeat(24),
+            contextFingerprint: "d".repeat(24),
+            mentions: [
+              {
+                mentionId: "mention-session-1",
+                kind: "session",
+                targetId: "session-2",
+                displayLabel: "配置 Cloudflare",
+                origin: "first_party_composer_gesture",
+                status: "resolved",
+                raw,
+                startUtf8: 0,
+                endUtf8: new TextEncoder().encode(raw).length,
+              },
+            ],
+          },
+        }),
+      }),
+    ])
+
+    expect(parsed[0]?.typedMentions).toEqual([
+      {
+        id: "mention-session-1",
+        kind: "session",
+        targetId: "session-2",
+        displayLabel: "配置 Cloudflare",
+        origin: "first_party_composer_gesture",
+        raw,
+        start: 0,
+        end: raw.length,
+      },
+    ])
+  })
+
   test("rejects a forged receipt whose raw UTF-8 span does not match message content", () => {
     const raw = "[@Google Drive](#connector:google-drive)"
     const content = `请使用 ${raw}`

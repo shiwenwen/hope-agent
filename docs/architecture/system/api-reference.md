@@ -532,6 +532,7 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 | `get_execution_mode` | `GET /api/sessions/{sessionId}/execution-mode` | ✅ |
 | `set_execution_mode` | `POST /api/sessions/{sessionId}/execution-mode` | ✅ |
 | `purge_session_if_incognito` | `POST /api/sessions/{sessionId}/purge-if-incognito` | ✅ |
+| `list_session_mention_candidates_cmd` | `GET /api/sessions/mention-candidates?query=&excludeSessionId=&limit=` | ✅（`@session` 候选；普通会话过滤与搜索去重均在 `LIMIT` 前完成） |
 | `search_sessions_cmd` | `GET /api/sessions/search` | ✅ |
 | `search_session_messages_cmd` | `GET /api/sessions/{sessionId}/messages/search` | ✅ |
 | `load_session_messages_latest_cmd` | `GET /api/sessions/{sessionId}/messages` | ✅ |

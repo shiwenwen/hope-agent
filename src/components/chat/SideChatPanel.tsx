@@ -420,6 +420,7 @@ export default function SideChatPanel({
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}
             enableAgentMention
+            enableSessionMention={!currentSessionMeta?.incognito}
             agents={session.agents}
             onCommandAction={handleCommandAction}
             enableGoalAndPlanModes={false}

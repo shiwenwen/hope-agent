@@ -43,6 +43,7 @@ const TYPED_MENTION_KINDS = new Set<ComposerMentionKind>([
   "plugin",
   "connector",
   "agent",
+  "session",
 ])
 const TYPED_MENTION_ORIGINS = new Set<NonNullable<ComposerMentionBinding["origin"]>>([
   "first_party_composer_gesture",

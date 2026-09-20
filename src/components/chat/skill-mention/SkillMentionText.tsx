@@ -13,6 +13,7 @@ import { CapabilityMentionChip } from "../capability-mention/CapabilityMentionCh
 import { FileMentionChip } from "../file-mention/FileMentionChip"
 import { NoteMentionChip } from "../note-mention/NoteMentionChip"
 import { PlanMentionChip } from "../plan-mention/PlanMentionChip"
+import { SessionMentionChip } from "../session-mention/SessionMentionChip"
 import { SkillMentionChip } from "./SkillMentionChip"
 import { isSkillMentionName, parseSkillMentions } from "./skillTokens"
 import { parseCapabilityMentions, type ComposerMentionBinding } from "../mentions/typedMentions"
@@ -31,8 +32,13 @@ export function SkillMentionText({
   const spans = [
     ...typedMentions
       .filter(
-        (mention): mention is ComposerMentionBinding & { kind: "file" | "plan" | "note" } =>
-          mention.kind === "file" || mention.kind === "plan" || mention.kind === "note",
+        (
+          mention,
+        ): mention is ComposerMentionBinding & { kind: "file" | "plan" | "note" | "session" } =>
+          mention.kind === "file" ||
+          mention.kind === "plan" ||
+          mention.kind === "note" ||
+          mention.kind === "session",
       )
       .map((mention) => ({
         kind: mention.kind,
@@ -87,6 +93,14 @@ export function SkillMentionText({
     } else if (span.kind === "plan") {
       out.push(
         <PlanMentionChip key={`p-${i}`} targetId={span.targetId} displayLabel={span.label} />,
+      )
+    } else if (span.kind === "session") {
+      out.push(
+        <SessionMentionChip
+          key={`session-${i}`}
+          sessionId={span.targetId}
+          fallbackName={span.label}
+        />,
       )
     } else if (span.kind === "skill" && isSkillMentionName(span.name)) {
       out.push(<SkillMentionChip key={`s-${i}`} name={span.name} />)
