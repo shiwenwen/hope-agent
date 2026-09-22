@@ -61,6 +61,7 @@ jobs:
     runs-on: macos-15-intel
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       # Publishing checks out the source at the release tag, not the default
       # branch. The release was built off this commit; doing the
