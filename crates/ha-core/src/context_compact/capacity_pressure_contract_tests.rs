@@ -90,6 +90,32 @@ fn deterministic_tier0_then_tier2_strictly_reduce_one_exact_request_counter() {
 }
 
 #[test]
+fn same_turn_old_result_is_reclaimable_before_latest_group() {
+    let mut history = vec![
+        json!({"role":"user","content":"finish the current task"}),
+        json!({"role":"assistant","tool_calls":[{"id":"old","function":{"name":"grep"}}]}),
+        json!({"role":"tool","tool_call_id":"old","content":"x".repeat(12_000)}),
+        json!({"role":"assistant","tool_calls":[{"id":"current","function":{"name":"read"}}]}),
+        json!({"role":"tool","tool_call_id":"current","content":"current C0"}),
+    ];
+    let user = history[0].clone();
+    let current_group = history[3..].to_vec();
+    let result = apply_capacity_pressure_tier(
+        &mut history,
+        3,
+        &CompactConfig::default(),
+        CapacityPressureTier::Tier0,
+        0,
+        exact_json_upper,
+    )
+    .unwrap();
+    assert_eq!(result.edits.len(), 1);
+    assert!(result.input_upper_after < result.input_upper_before);
+    assert_eq!(history[0], user);
+    assert_eq!(history[3..], current_group);
+}
+
+#[test]
 fn pressure_edits_replay_by_ordinal_and_call_identity_without_touching_current_group() {
     let canonical = vec![
         json!({"role":"user","content":"older request"}),

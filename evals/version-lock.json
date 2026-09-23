@@ -4,6 +4,7 @@
     "coding-control-plane@1.0.0": "3746017b69f49455cee83fadf8c411d2d8bca720afc919f8ba3f6fb323955f0c",
     "coding-gold@1.0.0": "8a3dc40168bf68d3364384c86cbf006c02c0eeb3ad69171349a57bf798cc8cf8",
     "context-compaction-safety@1.0.0": "dcbd56f140a7925118084cc98e0fe4c3adafe2c5ba8819642cbd9ad104d2747d",
+    "context-compaction-safety@1.1.0": "9f5fc6f81f384a0479244e0632ccd00a6f7ec0e9799fa98be238494179172b37",
     "domain-trace@1.0.0": "4300435986765211c0c6ebf880116e6c961535bf2b7b02c180a3b9dd646c4ccc",
     "domain-trace@1.1.0": "aab1de39ede8fdb5d85660c78711fe4d851f18f24562f8100df79d8a14dd5dbb",
     "knowledge-retrieval-evidence@1.0.0": "1a14690ad2a9854cef38eea26796865258895982b3425ec7a75e8f4370d1e7ce",

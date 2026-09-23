@@ -529,10 +529,11 @@ struct ToolResultPatchTarget {
 #[derive(Debug)]
 struct PendingToolGroupAdmission {
     captures: Vec<CapturedToolAdmission>,
-    /// Earliest canonical message that must remain byte-identical while older
-    /// history is reclaimed. It is the genuine user-turn start owning this
-    /// complete call/result group, not merely the first result block.
+    /// Start of the latest complete call/result group. Older completed groups
+    /// in the same user turn may be reclaimed, while the owning user item is
+    /// separately preserved by Tier 3.
     hard_protected_start: usize,
+    user_anchor_index: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -837,10 +838,10 @@ fn locate_latest_tool_result_targets(
     select_latest_tool_result_targets(found, captures)
 }
 
-fn current_group_hard_protected_start(
+fn current_group_protection(
     history: &[Value],
     captures: &[CapturedToolAdmission],
-) -> Result<usize> {
+) -> Result<(usize, usize)> {
     let targets = locate_latest_tool_result_targets(history, captures)?;
     let first_message = targets
         .first()
@@ -860,21 +861,26 @@ fn current_group_hard_protected_start(
                 && round.has_tool_result
         })
         .context("Tier 1 current group is not one complete protocol round")?;
-    crate::context_compact::user_turn_start_for_message(history, owning_round.start)
-        .context("Tier 1 current group has no genuine owning user turn")
+    let user_anchor =
+        crate::context_compact::user_turn_start_for_message(history, owning_round.start)
+            .context("Tier 1 current group has no genuine owning user turn")?;
+    if user_anchor >= owning_round.start {
+        anyhow::bail!("Tier 1 current group has no earlier genuine user item");
+    }
+    Ok((user_anchor, owning_round.start))
 }
 
-/// Recover the current user-turn boundary from a provider accounting
+/// Recover the latest complete tool group's start from a provider accounting
 /// projection.
 ///
 /// Internal `_oc_round` stamps are intentionally stripped before Provider IO.
 /// Responses/Codex also represent one multi-call group as several adjacent
 /// `function_call`/`function_call_output` pairs, so requiring every projected
 /// result to belong to one reconstructed `MessageRound` is invalid. The
-/// canonical history already proved the complete group and froze its hard
-/// boundary. In the derived provider shape we only locate the same latest
-/// ordered result sequence and recover the genuine user turn owning its first
-/// result; later media items cannot move that boundary forward.
+/// canonical history already proved the complete group. In the derived shape,
+/// match the selected latest results to the latest ordered call occurrences
+/// after the preceding result. This still works if older rounds reused IDs;
+/// a missing current call fails closed instead of pairing with old history.
 fn provider_projection_current_group_hard_protected_start(
     history: &[Value],
     captures: &[CapturedToolAdmission],
@@ -884,18 +890,58 @@ fn provider_projection_current_group_hard_protected_start(
         .first()
         .map(|target| target.message_index)
         .context("Tier 1 provider projection has no current result target")?;
-    crate::context_compact::user_turn_start_for_message(history, first_message)
-        .context("Tier 1 provider projection has no genuine owning user turn")
+    let lower_bound = history[..first_message]
+        .iter()
+        .rposition(|message| !tool_result_units(message).is_empty())
+        .map_or(0, |index| index + 1);
+    let calls = history
+        .iter()
+        .enumerate()
+        .skip(lower_bound)
+        .flat_map(|(message_index, message)| {
+            crate::context_compact::tool_call_ids(message)
+                .into_iter()
+                .map(move |call_id| (message_index, call_id))
+        })
+        .collect::<Vec<_>>();
+    let mut before_call_ordinal = calls.len();
+    let mut first_call = None;
+    for (capture, target) in captures.iter().zip(targets.iter()).rev() {
+        let call_ordinal = (0..before_call_ordinal)
+            .rev()
+            .find(|&index| {
+                let (message_index, call_id) = calls[index];
+                message_index < target.message_index && call_id == capture.call_id.as_str()
+            })
+            .context("Tier 1 provider projection has no matching current tool call")?;
+        first_call = Some(calls[call_ordinal].0);
+        before_call_ordinal = call_ordinal;
+    }
+    first_call.context("Tier 1 provider projection has no current tool group")
 }
 
 fn validate_tier3_current_group_installation(
     request_projection: &[Value],
     canonical_history: &[Value],
     protected_tail: &[Value],
+    user_anchor: &Value,
     captures: &[CapturedToolAdmission],
 ) -> Result<()> {
     if !canonical_history.ends_with(protected_tail) || request_projection != canonical_history {
-        anyhow::bail!("Tier 3 changed the protected current user/tool suffix");
+        anyhow::bail!("Tier 3 changed the protected current tool group");
+    }
+    let anchor_index = canonical_history
+        .len()
+        .checked_sub(protected_tail.len() + 1)
+        .context("Tier 3 dropped the protected current user item")?;
+    if canonical_history.get(anchor_index) != Some(user_anchor)
+        || canonical_history
+            .iter()
+            .filter(|message| *message == user_anchor)
+            .count()
+            != 1
+    {
+        anyhow::bail!("Tier 3 changed the protected current user item");
     }
     // Re-resolve the exact group after the prefix was replaced. Failure is
     // protocol corruption and must stop before the summary is published.
@@ -3314,6 +3360,10 @@ impl RuntimeAgentExt for AssistantAgent {
                     if recovery.take_tier3(self.runtime_compact_config().enabled) {
                         let hard_start = group.hard_protected_start.min(canonical_history.len());
                         let protected_tail = canonical_history[hard_start..].to_vec();
+                        let user_anchor = canonical_history
+                            .get(group.user_anchor_index)
+                            .context("Tier 3 current user anchor disappeared")?
+                            .clone();
                         let recovery_snapshot =
                             Tier3RecoverySnapshot::capture(self, &messages, &canonical_history);
                         let summary_request = request_template.with_history(&api_messages);
@@ -3332,6 +3382,7 @@ impl RuntimeAgentExt for AssistantAgent {
                                 model,
                                 eval_max_tokens,
                                 hard_start,
+                                group.user_anchor_index,
                                 cancel.clone(),
                                 on_delta,
                             )
@@ -3362,6 +3413,7 @@ impl RuntimeAgentExt for AssistantAgent {
                                 &messages,
                                 &canonical_history,
                                 &protected_tail,
+                                &user_anchor,
                                 &group.captures,
                             ) {
                                 let publication = recovery_snapshot
@@ -4500,11 +4552,12 @@ impl RuntimeAgentExt for AssistantAgent {
             // remains C0 in both histories; all richer candidates stay local
             // until the next complete request passes final preflight.
             if post_batch_stop.is_none() && !captured_admissions.is_empty() {
-                let hard_protected_start =
-                    current_group_hard_protected_start(&canonical_history, &captured_admissions)?;
+                let (user_anchor_index, hard_protected_start) =
+                    current_group_protection(&canonical_history, &captured_admissions)?;
                 pending_tool_group_admission = Some(PendingToolGroupAdmission {
                     captures: captured_admissions,
                     hard_protected_start,
+                    user_anchor_index,
                 });
             }
             let current_group_hard_start = pending_tool_group_admission
@@ -4685,8 +4738,9 @@ impl RuntimeAgentExt for AssistantAgent {
 mod tests {
     use super::{
         apply_tool_result_candidates, build_tool_result_candidates, can_bootstrap_mcp_catalog,
-        collect_tool_schema_updates, extract_started_job_id, has_checkpointed_subagent_dispatch,
-        local_tool_search_survived, locate_latest_tool_result_targets, merge_retry_hook_context,
+        collect_tool_schema_updates, current_group_protection, extract_started_job_id,
+        has_checkpointed_subagent_dispatch, local_tool_search_survived,
+        locate_latest_tool_result_targets, merge_retry_hook_context,
         provider_projection_current_group_hard_protected_start,
         provider_reasoning_is_hard_disabled, queued_message_for_provider,
         reasoning_output_is_disabled, requires_local_mcp_tool_search, resolve_empty_round_outcome,
@@ -5178,7 +5232,81 @@ mod tests {
 
         assert_eq!(
             provider_projection_current_group_hard_protected_start(&history, &captures).unwrap(),
-            0
+            1
+        );
+    }
+
+    #[test]
+    fn current_group_protects_user_and_latest_group_separately() {
+        let history = vec![
+            serde_json::json!({"role":"user","content":"finish the issue"}),
+            serde_json::json!({"role":"assistant","tool_calls":[{"id":"old","type":"function","function":{"name":"read","arguments":"{}"}}],"_oc_round":"r0"}),
+            serde_json::json!({"role":"tool","tool_call_id":"old","content":"large old result","_oc_round":"r0"}),
+            serde_json::json!({"role":"assistant","tool_calls":[{"id":"current","type":"function","function":{"name":"read","arguments":"{}"}}],"_oc_round":"r1"}),
+            serde_json::json!({"role":"tool","tool_call_id":"current","content":"current C0","_oc_round":"r1"}),
+        ];
+        let captures = vec![capture(0, "current", "current C0")];
+        assert_eq!(
+            current_group_protection(&history, &captures).unwrap(),
+            (0, 3)
+        );
+        let projected = crate::context_compact::prepare_messages_for_api(&history);
+        assert_eq!(
+            provider_projection_current_group_hard_protected_start(&projected, &captures).unwrap(),
+            3
+        );
+
+        let installed = vec![
+            serde_json::json!({"role":"user","content":"[Previous conversation summary] old work"}),
+            history[0].clone(),
+            history[3].clone(),
+            history[4].clone(),
+        ];
+        validate_tier3_current_group_installation(
+            &installed,
+            &installed,
+            &history[3..],
+            &history[0],
+            &captures,
+        )
+        .unwrap();
+        let mut altered = installed.clone();
+        altered[1]["content"] = serde_json::json!("different task");
+        assert!(validate_tier3_current_group_installation(
+            &altered,
+            &altered,
+            &history[3..],
+            &history[0],
+            &captures,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn provider_projection_matches_current_calls_when_older_round_reused_ids() {
+        let history = vec![
+            serde_json::json!({"role":"user","content":"one continuing request"}),
+            serde_json::json!({"type":"function_call","call_id":"call-a","name":"read","arguments":"{}"}),
+            serde_json::json!({"type":"function_call_output","call_id":"call-a","output":"old result"}),
+            serde_json::json!({"type":"function_call","call_id":"call-a","name":"read","arguments":"{}"}),
+            serde_json::json!({"type":"function_call","call_id":"call-b","name":"read","arguments":"{}"}),
+            serde_json::json!({"type":"function_call_output","call_id":"call-a","output":"current A"}),
+            serde_json::json!({"type":"function_call_output","call_id":"call-b","output":"current B"}),
+        ];
+        let captures = vec![
+            capture(0, "call-a", "current A"),
+            capture(1, "call-b", "current B"),
+        ];
+        assert_eq!(
+            provider_projection_current_group_hard_protected_start(&history, &captures).unwrap(),
+            3
+        );
+
+        let mut missing_call = history.clone();
+        missing_call.remove(3);
+        assert!(
+            provider_projection_current_group_hard_protected_start(&missing_call, &captures)
+                .is_err()
         );
     }
 
@@ -5207,12 +5335,11 @@ mod tests {
             &request,
             &canonical,
             &protected_tail,
+            &original_request[0],
             &captures,
         )
         .expect_err("a summary which dropped the protected result must fail closed");
-        assert!(error
-            .to_string()
-            .contains("protected current user/tool suffix"));
+        assert!(error.to_string().contains("protected current tool group"));
 
         let publication = snapshot.restore_histories(&mut request, &mut canonical);
         assert_eq!(request, original_request);

@@ -464,10 +464,10 @@ comparison        control/faulted、solo/team、baseline/candidate 配对
 
 | 证据轨道 | 套件 / 场景 | 覆盖范围 | 不证明什么 |
 | --- | --- | --- | --- |
-| 确定性安全轨道 | `context-compaction-safety@1.0.0`，10 个用例 | 第 0～4 层请求投影、结果组接纳、保护后缀、摘要协议、恢复事务、完整请求容量证书、溢出证据闸、发送歧义终态和跨层边界 | 不评价某个真实模型写出的摘要是否语义充分 |
+| 确定性安全轨道 | `context-compaction-safety@1.1.0`，11 个用例 | 第 0～4 层请求投影、结果组接纳、同轮用户与最新结果组双锚点、摘要协议、恢复事务、完整请求容量证书、溢出证据闸、发送歧义终态和跨层边界 | 不评价某个真实模型写出的摘要是否语义充分 |
 | 真实模型语义轨道 | `HA-CTX-001..002` | 第 3 层摘要后的事实保真，以及模型只用 `read` 连续遍历 UTF-8 文件的能力 | 不模拟崩溃、发送状态未知或证明恰好一次副作用 |
 
-Evaluation Center 的“上下文压缩专项”画像一次调度两条轨道：先执行 10 个零网络安全用例，全部通过后再执行 2 个付费真实模型场景。结果页按轨道分开展示，并分别保存确定性 `eval-app-deterministic-evidence.v1` 与真实模型 `eval-model-campaign.v1`；两份结果不可合并成同一个通过位，也不能互相豁免失败。确定性轨道失败时，付费轨道不会启动。
+Evaluation Center 的“上下文压缩专项”画像一次调度两条轨道：先执行 11 个零网络安全用例，全部通过后再执行 2 个付费真实模型场景。结果页按轨道分开展示，并分别保存确定性 `eval-app-deterministic-evidence.v1` 与真实模型 `eval-model-campaign.v1`；两份结果不可合并成同一个通过位，也不能互相豁免失败。确定性轨道失败时，付费轨道不会启动。
 
 case、版本、标签、arm、重复次数和 tier 一律以 suite manifest 为准。业务域扩展沿用 Coding、Research、Knowledge、File、Browser、Terminal 六类终态契约；Pre-release 档位的 Research 使用**冻结语料**，实时 Web 必须单列 exploratory 基线并记录 URL、抓取时间和内容 hash。
 
@@ -507,7 +507,7 @@ case、版本、标签、arm、重复次数和 tier 一律以 suite manifest 为
 | Pre-release | 本地手动，可选精确 SHA | 发版关键 case                    | 默认 `k=3`，critical `k=5` | 人工发版判断，不阻断 release workflow |
 | Monthly     | 本地手动               | 全部 28 场景 + 重型 / chaos 扩展 | `k=1`，选中 case 多 seed   | 能力发现和长周期趋势                  |
 
-具体 case / trial 数量由当前主编排 suite `1.8.0`、上下文压缩真实模型 suite `1.0.0` 与各档 policy 展开的不可变计划决定；Nightly policy 当前为 `1.0.9`——**以 `model plan` 输出为准，文档数字不是执行器输入**。零网络的 `context-compaction-safety@1.0.0` 既可由确定性 CLI 独立执行，也会被 GUI 的“上下文压缩专项”画像作为付费前置门禁纳入同一不可变 App 计划；它计入 GUI 总 trial 数，但模型调用与费用恒为零。当前没有自动矩阵，用户在 App / CLI 中显式选择模型；Product Default、Challenger、Economical 和锁定权重的 Local 模型可作本地比较角色，须记录精确版本、避免相同模型重复花费。普通模型横比默认关闭 failover，只有 failover 专项才显式开启并逐跳归因。
+具体 case / trial 数量由当前主编排 suite `1.8.0`、上下文压缩真实模型 suite `1.0.0` 与各档 policy 展开的不可变计划决定；Nightly policy 当前为 `1.0.9`——**以 `model plan` 输出为准，文档数字不是执行器输入**。零网络的 `context-compaction-safety@1.1.0` 既可由确定性 CLI 独立执行，也会被 GUI 的“上下文压缩专项”画像作为付费前置门禁纳入同一不可变 App 计划；它计入 GUI 总 trial 数，但模型调用与费用恒为零。当前没有自动矩阵，用户在 App / CLI 中显式选择模型；Product Default、Challenger、Economical 和锁定权重的 Local 模型可作本地比较角色，须记录精确版本、避免相同模型重复花费。普通模型横比默认关闭 failover，只有 failover 专项才显式开启并逐跳归因。
 
 ### 10.3 Quarantine 与基线治理
 

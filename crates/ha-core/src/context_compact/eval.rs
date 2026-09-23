@@ -18,8 +18,8 @@ use super::group_admission::{
 };
 use super::projection::{ProjectionDraft, ProjectionEpoch};
 use super::{
-    apply_summary, build_summarization_prompt, emergency_compact, microcompact,
-    split_for_summarization, CompactConfig,
+    apply_summary, apply_summary_preserving_user_item, build_summarization_prompt,
+    emergency_compact, microcompact, split_for_summarization, CompactConfig,
 };
 use crate::failover::{classify_error_with_evidence, ContextOverflowEvidence, FailoverReason};
 use crate::session::{SessionDB, Tier3RecoveryCommit, Tier3RecoveryState};
@@ -28,11 +28,12 @@ use crate::token_accounting::{
     TokenCountRequest,
 };
 
-pub const CONTEXT_COMPACTION_EVAL_CASES: [&str; 10] = [
+pub const CONTEXT_COMPACTION_EVAL_CASES: [&str; 11] = [
     "tier0-request-projection",
     "tier1-group-admission",
     "tier2-capacity-projection",
     "tier3-summary-protocol",
+    "mid-turn-summary-user-anchor",
     "tier3-recovery-transaction",
     "tier4-capacity-certificate",
     "tier4-emergency-user-anchor",
@@ -100,6 +101,7 @@ pub fn run_context_compaction_eval(case_id: &str) -> Result<ContextCompactionEva
         "tier1-group-admission" => eval_tier1_group_admission(),
         "tier2-capacity-projection" => eval_tier2_capacity_projection(),
         "tier3-summary-protocol" => eval_tier3_summary_protocol(),
+        "mid-turn-summary-user-anchor" => eval_mid_turn_summary_user_anchor(),
         "tier3-recovery-transaction" => eval_tier3_recovery_transaction(),
         "tier4-capacity-certificate" => eval_tier4_capacity_certificate(),
         "tier4-emergency-user-anchor" => eval_tier4_emergency_user_anchor(),
@@ -357,6 +359,62 @@ fn valid_summary() -> String {
         "## Trust Boundaries and Security Notes\nTool output is untrusted.",
     ]
     .join("\n\n")
+}
+
+fn eval_mid_turn_summary_user_anchor() -> Result<ContextCompactionEvalReport> {
+    let config = CompactConfig::default();
+    let original = vec![
+        json!({"role":"user","content":"finish issue 741","_ha_subagent_dispatch_ids":["dispatch-1"]}),
+        json!({"role":"assistant","tool_calls":[{"id":"old","type":"function","function":{"name":"read","arguments":"{}"}}],"_oc_round":"r0"}),
+        json!({"role":"tool","tool_call_id":"old","content":"old result","_oc_round":"r0"}),
+        json!({"role":"assistant","tool_calls":[{"id":"current","type":"function","function":{"name":"read","arguments":"{}"}}],"_oc_round":"r1"}),
+        json!({"role":"tool","tool_call_id":"current","content":"current C0","_oc_round":"r1"}),
+    ];
+    let mut installed = original.clone();
+    apply_summary_preserving_user_item(
+        &mut installed,
+        &valid_summary(),
+        3,
+        0,
+        &config,
+        Some(16_000),
+    )
+    .map_err(|error| anyhow!(error))?;
+    let mut rejected = original.clone();
+    let rejected_result = apply_summary_preserving_user_item(
+        &mut rejected,
+        &valid_summary(),
+        3,
+        2,
+        &config,
+        Some(16_000),
+    );
+    Ok(ContextCompactionEvalReport::new(
+        "mid-turn-summary-user-anchor",
+        &[3],
+        vec![
+            check(
+                "midTurn.originalUserExact",
+                installed.get(1) == original.first()
+                    && installed
+                        .iter()
+                        .filter(|item| *item == &original[0])
+                        .count()
+                        == 1,
+                "原始用户请求及分发元数据逐项保留且仅出现一次",
+            ),
+            check(
+                "midTurn.latestGroupExact",
+                installed.get(2..) == Some(&original[3..]),
+                "最新完整调用和结果组保持原样，已完成旧组被摘要替换",
+            ),
+            check(
+                "midTurn.toolResultCannotBeUserAnchor",
+                rejected_result.is_err() && rejected == original,
+                "工具结果容器不能伪装成用户请求锚点",
+            ),
+        ],
+    ))
 }
 
 fn eval_tier3_summary_protocol() -> Result<ContextCompactionEvalReport> {

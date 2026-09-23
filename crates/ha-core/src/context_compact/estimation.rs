@@ -146,7 +146,9 @@ pub(super) fn is_tool_call(msg: &Value) -> bool {
         || message_type(msg) == Some("function_call")
 }
 
-pub(super) fn tool_call_ids(msg: &Value) -> Vec<&str> {
+/// Enumerate native call IDs in provider order for protocol-safe group bounds.
+#[doc(hidden)]
+pub fn tool_call_ids(msg: &Value) -> Vec<&str> {
     let mut ids = Vec::new();
     if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
         ids.extend(content.iter().filter_map(|b| {

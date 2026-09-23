@@ -44,10 +44,11 @@ pub(super) struct CompactionRunOptions {
     pub force_summary: bool,
     pub summary_reason: crate::context_compact::CompactionSummaryReason,
     /// Capacity recovery is a summary-only operation. The index names the
-    /// earliest canonical message that must remain verbatim (the user turn
-    /// owning the pending current tool group). Ordinary ratio-driven Tier 0/2
-    /// must not run again in this mode.
+    /// start of the latest complete tool group. Earlier completed groups may
+    /// be summarized, while `summary_user_anchor_index` retains the exact
+    /// owning user item. Ordinary ratio-driven Tier 0/2 must not run again.
     pub summary_hard_protected_start: Option<usize>,
+    pub summary_user_anchor_index: Option<usize>,
     pub cancel: Option<Arc<AtomicBool>>,
     pub tool_schemas: Vec<serde_json::Value>,
 }
@@ -63,6 +64,7 @@ impl CompactionRunOptions {
             force_summary: false,
             summary_reason: crate::context_compact::CompactionSummaryReason::HighWatermark,
             summary_hard_protected_start: None,
+            summary_user_anchor_index: None,
             cancel,
             tool_schemas: Vec::new(),
         }
@@ -78,6 +80,7 @@ impl CompactionRunOptions {
             force_summary: true,
             summary_reason: crate::context_compact::CompactionSummaryReason::Manual,
             summary_hard_protected_start: None,
+            summary_user_anchor_index: None,
             cancel: None,
             tool_schemas: Vec::new(),
         }
@@ -1031,10 +1034,9 @@ impl AssistantAgent {
                         context_compact::BoundaryMode::SummarizeUnderPressure,
                     );
                     // Capacity recovery has already exhausted deterministic
-                    // old-history tiers. Only the current user/tool suffix is
-                    // a hard boundary now; ordinary recent-round preferences
-                    // must not keep an otherwise reclaimable old prefix and
-                    // turn a recoverable request into a terminal C0 overflow.
+                    // old-history tiers. Keep the latest complete group as a
+                    // suffix and reinsert the exact owning user item below;
+                    // earlier completed groups in this turn are reclaimable.
                     boundary.protected_start_index = hard_start.min(canonical_history.len());
                     boundary
                         .warnings
@@ -1047,6 +1049,23 @@ impl AssistantAgent {
                     context_compact::split_for_summarization(canonical_history, compact_config)
                 };
                 if let Some(mut split) = split {
+                    let user_anchor = options.summary_user_anchor_index.and_then(|index| {
+                        (index < split.preserved_start_index)
+                            .then(|| canonical_history.get(index).cloned())
+                            .flatten()
+                    });
+                    if options.summary_user_anchor_index.is_some() && user_anchor.is_none() {
+                        run_outcome.fatal_error =
+                            Some("current user anchor is outside the summarizable prefix".into());
+                        return run_outcome;
+                    }
+                    // Summarizing only the user item would add a summary with
+                    // no old work reclaimed. Let the typed C0 overflow stand.
+                    if options.summary_user_anchor_index == Some(0)
+                        && split.preserved_start_index == 1
+                    {
+                        return run_outcome;
+                    }
                     // Tier 0/1/2 operate on `request_projection`. Tier 3 is a
                     // semantic history rewrite and therefore must summarize the
                     // full canonical effective history, not the already-trimmed
@@ -1371,13 +1390,26 @@ impl AssistantAgent {
                                     .round()
                                     as usize)
                                     .saturating_mul(context_compact::CHARS_PER_TOKEN);
-                                if let Err(error) = context_compact::apply_summary(
-                                    &mut summary_candidate,
-                                    &summary,
-                                    split.preserved_start_index,
-                                    compact_config,
-                                    Some(injection_budget_chars),
-                                ) {
+                                let installation =
+                                    if let Some(user_index) = options.summary_user_anchor_index {
+                                        context_compact::apply_summary_preserving_user_item(
+                                            &mut summary_candidate,
+                                            &summary,
+                                            split.preserved_start_index,
+                                            user_index,
+                                            compact_config,
+                                            Some(injection_budget_chars),
+                                        )
+                                    } else {
+                                        context_compact::apply_summary(
+                                            &mut summary_candidate,
+                                            &summary,
+                                            split.preserved_start_index,
+                                            compact_config,
+                                            Some(injection_budget_chars),
+                                        )
+                                    };
+                                if let Err(error) = installation {
                                     app_warn!(
                                 "context",
                                 "compact",
@@ -1872,6 +1904,7 @@ impl AssistantAgent {
                     force_summary: false,
                     summary_reason: crate::context_compact::CompactionSummaryReason::HighWatermark,
                     summary_hard_protected_start: None,
+                    summary_user_anchor_index: None,
                     cancel: Some(cancel),
                     tool_schemas: request_tool_schemas.to_vec(),
                 },
@@ -1914,7 +1947,7 @@ impl AssistantAgent {
     /// not make the current result group's C0 request fit.
     ///
     /// It deliberately does not checkpoint internally. The caller validates
-    /// that the protected current user/tool suffix survived byte-for-byte and
+    /// that the protected user item and latest tool group survived exactly and
     /// then publishes the summary immediately, before any fallible rebuild or
     /// replan step. This keeps a generated summary from becoming an
     /// uncommitted in-memory side effect.
@@ -1928,6 +1961,7 @@ impl AssistantAgent {
         model: &str,
         max_tokens: u32,
         hard_protected_start: usize,
+        user_anchor_index: usize,
         cancel: Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<CompactionRunOutcome> {
@@ -1952,6 +1986,7 @@ impl AssistantAgent {
                     summary_reason:
                         crate::context_compact::CompactionSummaryReason::RequiredAfterRecovery,
                     summary_hard_protected_start: Some(hard_protected_start),
+                    summary_user_anchor_index: Some(user_anchor_index),
                     cancel: Some(cancel),
                     tool_schemas: provider_tool_schemas.to_vec(),
                 },

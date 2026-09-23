@@ -119,7 +119,7 @@ pub use estimation::{
     estimate_request_tokens, estimate_request_tokens_with_tools, estimate_tokens,
 };
 #[doc(hidden)]
-pub use estimation::{set_tool_result_unit_text, tool_result_units};
+pub use estimation::{set_tool_result_unit_text, tool_call_ids, tool_result_units};
 pub use ledger::{
     build_runtime_ledger_message, render_runtime_ledger, JobLedgerItem, RuntimeLedgerSnapshot,
     SubagentLedgerItem,
@@ -146,8 +146,8 @@ pub use round_grouping::{
 pub(crate) use summarization::validate_summarization_output;
 pub(crate) use summarization::SUMMARIZATION_SYSTEM_PROMPT;
 pub use summarization::{
-    apply_summary, build_summarization_prompt, peel_previous_summary, split_for_summarization,
-    split_for_summarization_with_boundary,
+    apply_summary, apply_summary_preserving_user_item, build_summarization_prompt,
+    peel_previous_summary, split_for_summarization, split_for_summarization_with_boundary,
 };
 pub use truncation::truncate_tool_results;
 pub use types::{CompactDetails, CompactResult};

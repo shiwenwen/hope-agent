@@ -1,7 +1,7 @@
 {
   "schemaVersion": "eval-suite.v1",
   "id": "context-compaction-safety",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "capability": "context_compaction",
   "adapter": "context_compaction_contract",
   "tiers": ["weekly", "release"],
@@ -15,6 +15,7 @@
     { "id": "tier1-group-admission", "tags": ["tier1", "protocol"] },
     { "id": "tier2-capacity-projection", "tags": ["tier2", "projection"] },
     { "id": "tier3-summary-protocol", "tags": ["tier3", "provider-shape"] },
+    { "id": "mid-turn-summary-user-anchor", "tags": ["tier3", "protocol", "same-turn"] },
     { "id": "tier3-recovery-transaction", "tags": ["tier3", "durability"] },
     { "id": "tier4-capacity-certificate", "tags": ["tier4", "capacity-proof"] },
     { "id": "tier4-emergency-user-anchor", "tags": ["tier4", "exactly-once"] },

@@ -627,6 +627,36 @@ pub fn apply_summary(
     Ok(())
 }
 
+/// Install a capacity-recovery summary while retaining the exact current user
+/// item immediately before the latest complete tool group. Earlier completed
+/// rounds from that same turn remain eligible for summarization.
+pub fn apply_summary_preserving_user_item(
+    messages: &mut Vec<Value>,
+    summary: &str,
+    protected_group_start: usize,
+    user_anchor_index: usize,
+    config: &CompactConfig,
+    summary_content_budget_chars: Option<usize>,
+) -> Result<(), String> {
+    if user_anchor_index >= protected_group_start {
+        return Err("current user item is not before the protected tool group".into());
+    }
+    let user_item = messages
+        .get(user_anchor_index)
+        .filter(|message| super::estimation::is_user_message(message))
+        .cloned()
+        .ok_or("current user anchor is not a genuine user item")?;
+    apply_summary(
+        messages,
+        summary,
+        protected_group_start,
+        config,
+        summary_content_budget_chars,
+    )?;
+    messages.insert(1, user_item);
+    Ok(())
+}
+
 /// Check if a single message is too large to safely include in a summarization call.
 #[allow(dead_code)]
 pub fn is_oversized_for_summary(msg: &Value, context_window: u32) -> bool {
@@ -907,6 +937,38 @@ mod tests {
             .join("\n\n");
 
         validate_summarization_output(&summary).expect("all required sections are present");
+    }
+
+    #[test]
+    fn same_turn_summary_retains_exact_user_item_and_latest_tool_round() {
+        let anchor =
+            json!({"role":"user","content":"finish 741","_ha_subagent_dispatch_ids":["d1"]});
+        let current_call =
+            json!({"role":"assistant","tool_calls":[{"id":"current"}],"_oc_round":"r1"});
+        let current_result =
+            json!({"role":"tool","tool_call_id":"current","content":"C0","_oc_round":"r1"});
+        let mut messages = vec![
+            anchor.clone(),
+            json!({"role":"assistant","tool_calls":[{"id":"old"}],"_oc_round":"r0"}),
+            json!({"role":"tool","tool_call_id":"old","content":"old output","_oc_round":"r0"}),
+            current_call.clone(),
+            current_result.clone(),
+        ];
+        let summary = REQUIRED_SUMMARY_SECTIONS
+            .iter()
+            .map(|heading| format!("{heading}\nNone."))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        apply_summary_preserving_user_item(
+            &mut messages,
+            &summary,
+            3,
+            0,
+            &CompactConfig::default(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(messages[1..], [anchor, current_call, current_result]);
     }
 
     #[test]
