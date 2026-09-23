@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-09-23
+
+### Fixed
+
+- **OpenAI Responses 工具可选参数**：保持 Hope function tool schema 的可选字段省略语义，避免 Responses strict normalization 自动物化 `timeout_secs` 等条件字段并导致合法工具调用失败。 (#732)
+
+## [0.52.0] - 2026-09-22
+
 ### Added
 
 - **输入框可引用已有会话**：输入 `@` 可搜索并选择普通会话，发送后模型获得经过后端复核的精确会话引用，可按请求读取上下文或向目标会话发送任务。 (#736)

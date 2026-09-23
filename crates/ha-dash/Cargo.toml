@@ -1,6 +1,6 @@
 [package]
 name = "ha-dash"
-version = "0.51.0"
+version = "0.53.0"
 description = "Hope Agent dashboard feature — usage insights, control-plane aggregates, /recap reports"
 license.workspace = true
 authors.workspace = true

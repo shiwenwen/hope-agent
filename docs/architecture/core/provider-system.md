@@ -410,6 +410,8 @@ assistant 历史格式：
 }
 ```
 
+Function tool schema 在 Responses 边界保持 Hope 的可选字段语义：Hope 用“字段可省略”表达 optional 参数，因此所有 `type: "function"` 工具在实际请求与 token-count schema 中都显式携带 `strict: false`。不能让 Responses 隐式 strict 化这类 schema，否则像 `ask_user_question.timeout_secs` 这类只在特定模式下有效的可选字段可能被物化，从而改变工具调用语义。`browser` 的 Responses 别名也走同一 normalization 路径。
+
 #### reasoning item 从不回传（`store: false` 的硬约束）
 
 Hope Agent 始终用 `store: false` 调 Responses API。这个模式的语义是**服务端不持久化 reasoning item**，`rs_*` id 只是一次性引用。于是产生一个尖锐的坑：下一轮请求只要带上历史里的 reasoning item，无论是否附 `encrypted_content`，服务端都会按 id 去查持久化记录，查不到就 404（`Item with id 'rs_xxx' not found. Items are not persisted when store is set to false.`）。
