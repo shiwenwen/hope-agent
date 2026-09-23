@@ -35,8 +35,8 @@ export default defineConfig({
     },
   },
   build: {
-    // Tauri WebView / 现代浏览器都支持 esnext，不必降级转译，省体积与转译开销。
-    target: "esnext",
+    // 适配旧款 macOS (Safari 14/15/16) 的系统 WebKit，转译 static block 与 lookbehind 规避黑屏
+    target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : ["es2021", "safari14"],
     // 拆 vendor 后单 chunk 远低于此；调高以消除噪音警告。
     chunkSizeWarningLimit: 2000,
     rolldownOptions: {
