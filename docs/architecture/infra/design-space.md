@@ -601,6 +601,8 @@ iframe → 磁盘写是首个不可信写通道。**权威净化在后端 `patch
 
 设计对话与知识空间侧边栏对话**同架构**：一个内嵌 chat 架在主对话栈上，scoped 到容器（知识空间 → KB + 锚笔记；设计空间 → 设计项目）。前端 `useDesignChat`（镜像 `useKnowledgeChat`）只管会话生命周期 + model/agent 状态，流式/发送交给面板里的 `useChatStream`。
 
+模型选择与实际派发使用同一会话状态：草稿首条消息将手动选择或有效的项目默认模型传给 `useChatStream`；已有设计会话的选择通过 `set_session_model` 持久化，重新打开时由 `get_chat_runtime_defaults` 恢复实际可用模型。不可用的旧模型按后端路由规则显示回落结果，不把全局激活模型误显示为会话钉选。
+
 - **会话身份 `SessionKind::Design`**（`session/types.rs`，字符串 `"design"`）——持久化但从主侧栏 / `/sessions` / 全局 FTS 隐藏（隐藏谓词 `kind NOT IN ('knowledge','design','eval_fixture')`，与 knowledge 同源）。**不是安全边界**。
 - **锚定表 `design_chat_threads`**（sessions.db）：`session_id`（PK，FK sessions ON DELETE CASCADE）+ `project_id`（纯列，无跨库 FK——设计项目行在 design.db）+ `created_at`。方法在 `design/threads.rs`。设计项目删除时 `service::delete_project` 先收集并删这些隐藏会话（显式级联）。
 - **提升分支**：`chat` 命令新会话且 `tool_scope == "design"` 时，`mark_session_as_design_thread`（先建 thread 行再翻 `kind`，best-effort）锚到项目。

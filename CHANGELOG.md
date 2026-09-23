@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **设计对话与技能子任务模型选择**：设计空间所选模型会用于实际对话并保存到会话，未指定专用模型的子任务继承父会话模型；上游繁忙提示不再暗示一定存在备用模型。 (#746)
+
+## [0.53.0] - 2026-09-23
+
+### Fixed
+
+- **OpenAI Responses 工具可选参数**：保持 Hope function tool schema 的可选字段省略语义，避免 Responses strict normalization 自动物化 `timeout_secs` 等条件字段并导致合法工具调用失败。 (#732)
+
 ## [0.52.0] - 2026-09-22
 
 ### Added
@@ -19,7 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **OpenAI Responses 工具可选参数**：保持 Hope function tool schema 的可选字段省略语义，避免 Responses strict normalization 自动物化 `timeout_secs` 等条件字段并导致合法工具调用失败。 (#732)
 - **关闭思考后不再保留推理内容**：OpenAI Chat 兼容端即使继续返回原生推理字段或 `<think>` 标签也会在接收边界丢弃；工具结果磁盘持久化阈值同时明确标示为当前不可用，界面、会话设置、桌面命令和 HTTP 均拒绝写入。 (#738)
 - **外部工具连接更可靠**：MCP 按请求选择新版协议并防止并发刷新覆盖登出；ACP 子进程按分发声明选择认证环境，反向权限请求明确取消，工具名称仅用于展示。 (#737)
 - **搜索与附件边界**：SearXNG 每次重定向前检查目标地址；Discord 默认附件上限调整为 20 MiB，超限继续使用既有链接兜底。 (#737)

@@ -191,10 +191,8 @@ fn user_notice_provider_failed(kind: FailoverReason, raw: &str) -> String {
         FailoverReason::EvaluationBudget => "本次评测已达到预算上限，已停止继续调用".to_string(),
         FailoverReason::Auth => "所有模型认证失败。请检查 API Key 或 OAuth 登录".to_string(),
         FailoverReason::Billing => "所有模型计费/配额问题。请检查订阅或余额".to_string(),
-        FailoverReason::RateLimit => "所有模型被上游限流。可稍后重试或切换备用模型".to_string(),
-        FailoverReason::Overloaded => {
-            "所有模型上游服务暂时繁忙。可稍后重试或切换备用模型".to_string()
-        }
+        FailoverReason::RateLimit => "模型请求被上游限流。可稍后重试或选择其他模型".to_string(),
+        FailoverReason::Overloaded => "模型上游服务暂时繁忙。可稍后重试或选择其他模型".to_string(),
         FailoverReason::Timeout => "所有模型网络不可达。请检查网络/代理/DNS,或稍后重试".to_string(),
         FailoverReason::ContextOverflow => "对话超出所有模型上下文窗口".to_string(),
         FailoverReason::CurrentToolGroupOverflow => {

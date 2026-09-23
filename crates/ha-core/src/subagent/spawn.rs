@@ -197,6 +197,44 @@ async fn prepare_subagent_with_run_id(
             .await?
     };
     let child_session_id = child_session.id.clone();
+    // An implicit child should start with the parent's durable model choice.
+    // Keep explicit spawn and Agent subagent preferences ahead of this value.
+    if params.model_override.is_none()
+        && crate::agent_loader::load_agent(&params.agent_id)
+            .ok()
+            .and_then(|agent| agent.config.subagents.model)
+            .is_none()
+    {
+        let db = session_db.clone();
+        let parent_session_id = params.parent_session_id.clone();
+        let child_id = child_session_id.clone();
+        db.run(move |db| -> Result<()> {
+            if let Some((provider_id, model_id)) =
+                db.get_session_model_preference(&parent_session_id)?
+            {
+                let config = crate::config::cached_config();
+                let selected = crate::provider::ActiveModel {
+                    provider_id: provider_id.clone(),
+                    model_id: model_id.clone(),
+                };
+                if crate::provider::model_ref_is_available(&config.providers, &selected) {
+                    let provider_name = config
+                        .providers
+                        .iter()
+                        .find(|provider| provider.id == provider_id)
+                        .map(|provider| provider.name.as_str());
+                    db.update_session_model(
+                        &child_id,
+                        Some(&provider_id),
+                        provider_name,
+                        Some(&model_id),
+                    )?;
+                }
+            }
+            Ok(())
+        })
+        .await?;
+    }
     let eval_child_guard = match crate::eval_context::context_for_session(&params.parent_session_id)
     {
         Some(context) => Some(crate::eval_context::register_child_session_from_parent(
@@ -1589,9 +1627,20 @@ fn execute_subagent(
         // Spawn overrides and Agent subagent preferences are routing intent,
         // not a pre-resolved chain. Admission applies them softly against the
         // same immutable config snapshot as Provider credentials.
+        let child_model_preference = {
+            let db = session_db.clone();
+            let child_id = child_session_id.clone();
+            db.run(move |db| -> Result<Option<String>> {
+                Ok(db
+                    .get_session_model_preference(&child_id)?
+                    .map(|(provider_id, model_id)| format!("{provider_id}::{model_id}")))
+            })
+            .await?
+        };
         let model_preference = model_override
             .clone()
-            .or_else(|| agent_def.config.subagents.model.clone());
+            .or_else(|| agent_def.config.subagents.model.clone())
+            .or(child_model_preference);
 
         // Build the trusted, platform-owned sub-agent run frame.
         let effective_max = super::max_depth_for_agent(&agent_id);

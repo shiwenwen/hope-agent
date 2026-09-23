@@ -302,7 +302,7 @@ flowchart TD
 
 ### execute_subagent 内部逻辑
 
-1. 加载子 Agent 配置，只形成模型路由意图，优先级：`model_override` > `agent.config.subagents.model` > Agent / 全局默认。producer 不解析模型链；`TurnKernel` 在同一份 admitted config/provider snapshot 内展开 primary + fallbacks 并冻结 provider lease。
+1. 加载子 Agent 配置，只形成模型路由意图，优先级：`model_override` > `agent.config.subagents.model` > 子会话持久化模型（新建时继承父会话可用模型）> Agent / 全局默认。producer 不解析模型链；`TurnKernel` 在同一份 admitted config/provider snapshot 内展开 primary + fallbacks 并冻结 provider lease。
 2. 构建执行上下文注入子会话：任务描述、当前 / 最大嵌套深度、「你是子 Agent、无父对话历史、这是隔离会话」声明；有 worktree 时叠加隔离路径声明。
 3. 组合工具限制：读子 Agent 配置的 `subagents.denied_tools`；若**父会话**此刻处于 Plan 的 Planning / Review 状态，追加 `PLAN_MODE_DENIED_TOOLS`，防止子 Agent 绕过 Plan 安全边界。
 4. Plan helper（`lock_plan_agent_mode`）把显式 `plan_agent_mode` + `allow_paths` 翻译成 `PlanResolvedContext` override，绕过 child session 的后端 probe（否则新建子会话的 `plan_mode = Off` 会覆盖显式 PlanAgent 模式）。
@@ -491,7 +491,7 @@ sequenceDiagram
 - `announce_timeout_secs` → 注入空闲门等待上限，默认 120s。
 - `model` → 子 Agent 专用模型；`denied_tools` → 子 Agent 工具黑名单；`enabled` / 允许列表 → 委派能力门。
 
-**模型选择优先级**：`model_override` 参数 > `subagents.model` > `model.primary`。
+**模型选择优先级**：`model_override` 参数 > `subagents.model` > 子会话模型（初次创建时继承父会话钉选，续跑沿用）> `model.primary` > 全局激活模型。父会话模型已不可用时跳过继承，按后续层级选取。
 
 ## 全局静态量（进程内加速通道）
 

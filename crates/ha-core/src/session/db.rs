@@ -5498,6 +5498,26 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Read only the persisted model pair. Sub-agent routing must not depend on
+    /// the full SessionMeta projection (which joins optional feature tables).
+    pub fn get_session_model_preference(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<(String, String)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let model: Option<(Option<String>, Option<String>)> = conn
+            .query_row(
+                "SELECT provider_id, model_id FROM sessions WHERE id = ?1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        Ok(model.and_then(|(provider_id, model_id)| Some((provider_id?, model_id?))))
+    }
+
     /// Return every persisted Session model preference, including hidden,
     /// cron, channel and sub-agent rows. Provider hard-delete repair must not
     /// leave any execution surface pointing at a removed model.
@@ -8047,6 +8067,37 @@ mod tests {
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
         );
         std::env::temp_dir().join(unique)
+    }
+
+    #[test]
+    fn model_preference_read_does_not_require_optional_channel_tables() {
+        let db_path = temp_db_path("session-model-preference");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let parent = db.create_session("ha-main").expect("create parent");
+        let child = db
+            .create_session_with_parent("ha-main", Some(&parent.id))
+            .expect("create child");
+        db.update_session_model(&parent.id, Some("provider"), None, Some("selected"))
+            .expect("select parent model");
+        db.update_session_model(&child.id, None, None, None)
+            .expect("clear child model");
+
+        assert_eq!(
+            db.get_session_model_preference(&parent.id)
+                .expect("read parent model"),
+            Some(("provider".into(), "selected".into()))
+        );
+        assert!(db
+            .get_session_model_preference(&child.id)
+            .expect("read child model")
+            .is_none());
+        assert!(db
+            .get_session_model_preference("missing")
+            .expect("read missing session")
+            .is_none());
+
+        drop(db);
+        let _ = std::fs::remove_file(db_path);
     }
 
     #[test]
