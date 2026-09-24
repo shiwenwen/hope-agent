@@ -4123,6 +4123,10 @@
       "description": "Alibaba Cloud DashScope modelleri",
       "name": "Qwen"
     },
+    "requesty": {
+      "description": "Çok modelli yönlendirme ağ geçidi, tek key ile yüzlerce model",
+      "name": "Requesty"
+    },
     "together": {
       "description": "Açık kaynak model bulut çıkarım platformu",
       "name": "Together AI"

@@ -4123,6 +4123,10 @@
       "description": "Alibaba Cloud DashScope モデル",
       "name": "Qwen"
     },
+    "requesty": {
+      "description": "マルチモデルルーティングゲートウェイ、1 つの Key で数百のモデル",
+      "name": "Requesty"
+    },
     "together": {
       "description": "オープンソースモデルクラウド推論プラットフォーム",
       "name": "Together AI"

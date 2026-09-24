@@ -4123,6 +4123,10 @@
       "description": "Модели Alibaba Cloud DashScope",
       "name": "Qwen"
     },
+    "requesty": {
+      "description": "Мульти-модельный шлюз маршрутизации, сотни моделей по одному ключу",
+      "name": "Requesty"
+    },
     "together": {
       "description": "Облачная платформа инференса open-source моделей",
       "name": "Together AI"

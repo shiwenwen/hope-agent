@@ -170,4 +170,14 @@ describe("provider template lifecycle hygiene", () => {
       })
     }
   })
+
+  it("offers Requesty as an OpenAI Chat compatible gateway", () => {
+    const provider = PROVIDER_TEMPLATES.find((template) => template.key === "requesty")
+    expect(provider).toMatchObject({
+      apiType: "openai-chat",
+      baseUrl: "https://router.requesty.ai/v1",
+      requiresApiKey: true,
+    })
+    expect(provider?.models.length).toBeGreaterThan(0)
+  })
 })

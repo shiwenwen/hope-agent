@@ -4123,6 +4123,10 @@
       "description": "阿里云 DashScope 大模型",
       "name": "通义千问（Qwen）"
     },
+    "requesty": {
+      "description": "多模型路由网关，一个 Key 用数百个模型",
+      "name": "Requesty"
+    },
     "together": {
       "description": "开源模型云推理平台",
       "name": "Together AI"

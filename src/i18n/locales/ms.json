@@ -4123,6 +4123,10 @@
       "description": "Model Alibaba Cloud DashScope",
       "name": "Qwen"
     },
+    "requesty": {
+      "description": "Get laluan penghalaan multi-model, ratusan model dengan satu key",
+      "name": "Requesty"
+    },
     "together": {
       "description": "Platform inferens awan untuk model sumber terbuka",
       "name": "Together AI"

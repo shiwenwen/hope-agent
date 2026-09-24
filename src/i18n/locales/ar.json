@@ -4123,6 +4123,10 @@
       "description": "نماذج Alibaba Cloud DashScope",
       "name": "Qwen"
     },
+    "requesty": {
+      "description": "بوابة توجيه متعددة النماذج، مئات النماذج بمفتاح واحد",
+      "name": "Requesty"
+    },
     "together": {
       "description": "منصة استدلال سحابية للنماذج مفتوحة المصدر",
       "name": "Together AI"

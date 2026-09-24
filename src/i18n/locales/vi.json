@@ -4123,6 +4123,10 @@
       "description": "Các mô hình Alibaba Cloud DashScope",
       "name": "Qwen"
     },
+    "requesty": {
+      "description": "Cổng định tuyến đa mô hình, hàng trăm mô hình với một key duy nhất",
+      "name": "Requesty"
+    },
     "together": {
       "description": "Nền tảng suy luận đám mây cho các mô hình mã nguồn mở",
       "name": "Together AI"

@@ -4123,6 +4123,10 @@
       "description": "Modelos Alibaba Cloud DashScope",
       "name": "Qwen"
     },
+    "requesty": {
+      "description": "Gateway de roteamento multi-modelo, centenas de modelos com uma única key",
+      "name": "Requesty"
+    },
     "together": {
       "description": "Plataforma de inferência em nuvem para modelos open source",
       "name": "Together AI"
