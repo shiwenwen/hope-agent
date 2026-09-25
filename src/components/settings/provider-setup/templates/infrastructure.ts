@@ -13,14 +13,15 @@ export const infrastructureTemplates: ProviderTemplate[] = [
     requiresApiKey: true,
     models: [
       {
-        id: "gpt-5.4-mini",
-        name: "GPT-5.4 Mini",
-        inputTypes: ["text", "image"],
-        contextWindow: 400000,
-        maxTokens: 128000,
+        id: "gpt-5.5",
+        name: "GPT-5.5",
+        inputTypes: ["text"],
+        contextWindow: 128000,
+        maxTokens: 8192,
         reasoning: true,
-        costInput: null,
-        costOutput: null,
+        // gpt standard group, within the first 272k-token pricing tier.
+        costInput: 0.3,
+        costOutput: 1.8,
       },
     ],
   },

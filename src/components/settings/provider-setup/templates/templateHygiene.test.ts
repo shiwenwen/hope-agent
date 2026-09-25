@@ -224,7 +224,13 @@ describe("provider template lifecycle hygiene", () => {
       requiresApiKey: true,
     })
     expect(provider?.models).toContainEqual(
-      expect.objectContaining({ id: "gpt-5.4-mini", costInput: null, costOutput: null }),
+      expect.objectContaining({
+        id: "gpt-5.5",
+        contextWindow: 128000,
+        maxTokens: 8192,
+        costInput: 0.3,
+        costOutput: 1.8,
+      }),
     )
   })
 })
