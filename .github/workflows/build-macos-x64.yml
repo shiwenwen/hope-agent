@@ -61,6 +61,9 @@ jobs:
     runs-on: macos-15-intel
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+      # Match release.yml: the Tauri beforeBuildCommand needs more than
+      # Node's default heap when building the frontend on macOS.
+      NODE_OPTIONS: "--max-old-space-size=4096"
     steps:
       # Publishing checks out the source at the release tag, not the default
       # branch. The release was built off this commit; doing the
