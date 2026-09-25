@@ -3077,7 +3077,7 @@ dependencies = [
 
 [[package]]
 name = "ha-acp"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3097,7 +3097,7 @@ dependencies = [
 
 [[package]]
 name = "ha-agent-loop"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -3106,7 +3106,7 @@ dependencies = [
 
 [[package]]
 name = "ha-agent-runtime"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3125,7 +3125,7 @@ dependencies = [
 
 [[package]]
 name = "ha-base"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3156,7 +3156,7 @@ dependencies = [
 
 [[package]]
 name = "ha-browser"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3189,7 +3189,7 @@ dependencies = [
 
 [[package]]
 name = "ha-browser-host"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -3200,7 +3200,7 @@ dependencies = [
 
 [[package]]
 name = "ha-channel"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -3245,7 +3245,7 @@ dependencies = [
 
 [[package]]
 name = "ha-config-schema"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3259,7 +3259,7 @@ dependencies = [
 
 [[package]]
 name = "ha-core"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -3341,7 +3341,7 @@ dependencies = [
 
 [[package]]
 name = "ha-cron"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3358,7 +3358,7 @@ dependencies = [
 
 [[package]]
 name = "ha-dash"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3377,7 +3377,7 @@ dependencies = [
 
 [[package]]
 name = "ha-design"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3420,7 +3420,7 @@ dependencies = [
 
 [[package]]
 name = "ha-eval"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3462,7 +3462,7 @@ dependencies = [
 
 [[package]]
 name = "ha-eval-runtime"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3499,7 +3499,7 @@ dependencies = [
 
 [[package]]
 name = "ha-goal"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3513,7 +3513,7 @@ dependencies = [
 
 [[package]]
 name = "ha-improve"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3531,7 +3531,7 @@ dependencies = [
 
 [[package]]
 name = "ha-knowledge"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3566,7 +3566,7 @@ dependencies = [
 
 [[package]]
 name = "ha-local-llm"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3591,7 +3591,7 @@ dependencies = [
 
 [[package]]
 name = "ha-mac"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3608,7 +3608,7 @@ dependencies = [
 
 [[package]]
 name = "ha-mcp"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3636,7 +3636,7 @@ dependencies = [
 
 [[package]]
 name = "ha-media"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3666,7 +3666,7 @@ dependencies = [
 
 [[package]]
 name = "ha-memory"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3690,7 +3690,7 @@ dependencies = [
 
 [[package]]
 name = "ha-pet"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3714,7 +3714,7 @@ dependencies = [
 
 [[package]]
 name = "ha-server"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3761,7 +3761,7 @@ dependencies = [
 
 [[package]]
 name = "ha-skills"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3784,7 +3784,7 @@ dependencies = [
 
 [[package]]
 name = "ha-updater"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3810,7 +3810,7 @@ dependencies = [
 
 [[package]]
 name = "ha-vcs"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3834,7 +3834,7 @@ dependencies = [
 
 [[package]]
 name = "ha-weather"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "ha-base",
@@ -3848,7 +3848,7 @@ dependencies = [
 
 [[package]]
 name = "ha-workflow"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3966,7 +3966,7 @@ checksum = "b0b3ba31f6dc772cc8221ce81dbbbd64fa1e668255a6737d95eeace59b5a8823"
 
 [[package]]
 name = "hope-agent"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "anyhow",
  "arboard",

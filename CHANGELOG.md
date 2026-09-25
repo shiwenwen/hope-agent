@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-09-26
+
 ### Added
 
 - **Requesty 服务商模板**：新增 Requesty 多模型路由网关预设（OpenAI Chat 兼容），内置常用托管路由策略模型。 (#751)
