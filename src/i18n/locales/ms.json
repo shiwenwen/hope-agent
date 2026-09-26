@@ -4035,6 +4035,10 @@
     "waitingBrowserLogin": "Menunggu log masuk pelayar..."
   },
   "provider_templates": {
+    "api-route": {
+      "description": "Gerbang API berbilang model yang serasi dengan OpenAI",
+      "name": "API Route"
+    },
     "anthropic": {
       "description": "Model siri Claude",
       "name": "Anthropic"

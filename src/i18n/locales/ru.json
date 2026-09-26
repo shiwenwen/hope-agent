@@ -4035,6 +4035,10 @@
     "waitingBrowserLogin": "Ожидание входа в браузере..."
   },
   "provider_templates": {
+    "api-route": {
+      "description": "Совместимый с OpenAI шлюз API для разных моделей",
+      "name": "API Route"
+    },
     "anthropic": {
       "description": "Модели серии Claude",
       "name": "Anthropic"

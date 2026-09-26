@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **API Route 服务商模板**：新增兼容 OpenAI Chat 的多模型网关预设，填写 API Key 即可使用。 (#752)
 - **Requesty 服务商模板**：新增 Requesty 多模型路由网关预设（OpenAI Chat 兼容），内置常用托管路由策略模型。 (#751)
 - **一键导入本机 Codex 对话**：在会话侧栏导入 Codex 本地记录，按来源去重更新并以只读方式搜索、查看和导出。 (#748)
 

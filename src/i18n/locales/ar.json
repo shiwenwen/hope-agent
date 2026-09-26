@@ -4035,6 +4035,10 @@
     "waitingBrowserLogin": "بانتظار تسجيل الدخول عبر المتصفح..."
   },
   "provider_templates": {
+    "api-route": {
+      "description": "بوابة API متعددة النماذج متوافقة مع OpenAI",
+      "name": "API Route"
+    },
     "anthropic": {
       "description": "نماذج سلسلة Claude",
       "name": "Anthropic"

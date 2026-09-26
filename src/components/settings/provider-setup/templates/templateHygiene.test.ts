@@ -180,4 +180,16 @@ describe("provider template lifecycle hygiene", () => {
     })
     expect(provider?.models.length).toBeGreaterThan(0)
   })
+
+  it("offers API Route with its public OpenAI-compatible endpoint", () => {
+    const provider = PROVIDER_TEMPLATES.find((template) => template.key === "api-route")
+    expect(provider).toMatchObject({
+      apiType: "openai-chat",
+      baseUrl: "https://global.api-route.com/v1",
+      requiresApiKey: true,
+    })
+    expect(provider?.models).toContainEqual(
+      expect.objectContaining({ id: "gpt-5.4-mini", costInput: null, costOutput: null }),
+    )
+  })
 })

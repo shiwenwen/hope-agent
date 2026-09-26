@@ -3,6 +3,28 @@ import type { ProviderTemplate } from "../types"
 export const infrastructureTemplates: ProviderTemplate[] = [
   // ── 基础设施 / 聚合 Provider ──
   {
+    key: "api-route",
+    name: "API Route",
+    description: "兼容 OpenAI 的多模型 API 网关",
+    icon: "🔀",
+    apiType: "openai-chat",
+    baseUrl: "https://global.api-route.com/v1",
+    apiKeyPlaceholder: "sk-...",
+    requiresApiKey: true,
+    models: [
+      {
+        id: "gpt-5.4-mini",
+        name: "GPT-5.4 Mini",
+        inputTypes: ["text", "image"],
+        contextWindow: 400000,
+        maxTokens: 128000,
+        reasoning: true,
+        costInput: null,
+        costOutput: null,
+      },
+    ],
+  },
+  {
     key: "openrouter",
     name: "OpenRouter",
     description: "多模型聚合网关，一个 Key 用数百个模型",
