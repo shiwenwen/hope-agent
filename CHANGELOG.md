@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-09-27
+
+### Fixed
+
+- **Intel Mac 安装包交付稳定性**：提高前端构建可用内存，减少独立 Intel 安装包因构建内存不足而缺席的风险。 (#754)
+
 ## [0.55.0] - 2026-09-26
 
 ### Added
