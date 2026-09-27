@@ -1,13 +1,15 @@
 //! Persist / load the [`OnboardingState`] sub-object on `AppConfig`.
 //!
-//! These helpers intentionally go through [`crate::config::save_config`] so
-//! every change produces an autosave snapshot. Callers can pair each call
-//! with [`crate::backup::scope_save_reason`] for a more descriptive label.
+//! These helpers intentionally go through [`crate::config::mutate_config`] so
+//! every change takes the cross-process file lock, reads the authoritative
+//! disk snapshot, produces an autosave snapshot, and fires `config:changed`.
+//! Callers can pair each call with [`crate::backup::scope_save_reason`] for a
+//! more descriptive snapshot label.
 
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::config::{load_config, save_config, OnboardingState, CURRENT_ONBOARDING_VERSION};
+use crate::config::{load_config, mutate_config, OnboardingState, CURRENT_ONBOARDING_VERSION};
 
 /// Return the current onboarding state, patching in a "legacy completed"
 /// signal for users who pre-date the wizard.
@@ -54,32 +56,35 @@ pub fn infer_legacy_completed(raw: &OnboardingState, has_providers: bool) -> Onb
 /// Persist the draft blob for a wizard that was exited mid-way.
 pub fn save_draft(step: u32, draft: Value) -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "draft");
-    let mut cfg = load_config()?;
-    cfg.onboarding.draft = Some(draft);
-    cfg.onboarding.draft_step = step;
-    save_config(&cfg)
+    mutate_config(("onboarding", "draft"), move |cfg| {
+        cfg.onboarding.draft = Some(draft);
+        cfg.onboarding.draft_step = step;
+        Ok(())
+    })
 }
 
 /// Mark the wizard as completed at the current version. Clears draft state.
 pub fn mark_completed() -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "complete");
-    let mut cfg = load_config()?;
-    cfg.onboarding.completed_version = CURRENT_ONBOARDING_VERSION;
-    cfg.onboarding.completed_at = Some(chrono::Utc::now().to_rfc3339());
-    cfg.onboarding.draft = None;
-    cfg.onboarding.draft_step = 0;
-    cfg.onboarding.ever_completed = true;
-    save_config(&cfg)
+    mutate_config(("onboarding", "complete"), |cfg| {
+        cfg.onboarding.completed_version = CURRENT_ONBOARDING_VERSION;
+        cfg.onboarding.completed_at = Some(chrono::Utc::now().to_rfc3339());
+        cfg.onboarding.draft = None;
+        cfg.onboarding.draft_step = 0;
+        cfg.onboarding.ever_completed = true;
+        Ok(())
+    })
 }
 
 /// Record that the user skipped a named step. Duplicate keys are ignored.
 pub fn mark_skipped(step_key: &str) -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "skip");
-    let mut cfg = load_config()?;
-    if !cfg.onboarding.skipped_steps.iter().any(|s| s == step_key) {
-        cfg.onboarding.skipped_steps.push(step_key.to_string());
-    }
-    save_config(&cfg)
+    mutate_config(("onboarding", "skip"), |cfg| {
+        if !cfg.onboarding.skipped_steps.iter().any(|s| s == step_key) {
+            cfg.onboarding.skipped_steps.push(step_key.to_string());
+        }
+        Ok(())
+    })
 }
 
 /// Reset onboarding to "never completed" so the wizard shows again on next
@@ -90,10 +95,11 @@ pub fn mark_skipped(step_key: &str) -> Result<()> {
 /// legacy-upgrade heuristic can't short-circuit it.
 pub fn reset() -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "reset");
-    let mut cfg = load_config()?;
-    cfg.onboarding = OnboardingState {
-        ever_completed: true,
-        ..OnboardingState::default()
-    };
-    save_config(&cfg)
+    mutate_config(("onboarding", "reset"), |cfg| {
+        cfg.onboarding = OnboardingState {
+            ever_completed: true,
+            ..OnboardingState::default()
+        };
+        Ok(())
+    })
 }
