@@ -7,6 +7,7 @@
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
+use ha_base::util::truncate_utf8;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -5012,17 +5013,6 @@ fn loop_job_name(goal_id: Option<&str>, prompt: &str) -> String {
 
 fn short_id(id: &str) -> String {
     id.chars().take(8).collect()
-}
-
-fn truncate_utf8(input: &str, max: usize) -> &str {
-    if input.len() <= max {
-        return input;
-    }
-    let mut end = max;
-    while !input.is_char_boundary(end) {
-        end -= 1;
-    }
-    &input[..end]
 }
 
 pub fn build_loop_trigger_message(
