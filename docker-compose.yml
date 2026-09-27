@@ -20,7 +20,14 @@
 
 services:
   hope-agent:
-    image: ghcr.io/shiwenwen/hope-agent:latest
+    # Pin a release version tag (not `latest`) so `docker compose pull`
+    # never auto-drifts to a newer release; bump alongside CHANGELOG
+    # releases. A registry tag is still re-pointable — this repo's release
+    # workflow re-publishes `:vX.Y.Z` multi-arch tags via `imagetools
+    # create` — so a tag pin guards against accidental drift, not
+    # tampering. For tamper-evident pinning, resolve and pin by digest:
+    #   docker buildx imagetools inspect ghcr.io/shiwenwen/hope-agent:v0.57.0
+    image: ghcr.io/shiwenwen/hope-agent:v0.57.0
     container_name: hope-agent
     restart: unless-stopped
     ports:
@@ -47,7 +54,9 @@ services:
     #  - "${DOCKER_GID}"
 
   ollama:
-    image: ollama/ollama:latest
+    # Digest-pinned; to bump, resolve the new multi-arch digest via
+    # `docker buildx imagetools inspect ollama/ollama:latest`.
+    image: ollama/ollama@sha256:8262851b2846b87c649eddf3e76beb270c52f4d1bc94559f47efde16b0841551
     container_name: hope-agent-ollama
     restart: unless-stopped
     profiles: [with-ollama]

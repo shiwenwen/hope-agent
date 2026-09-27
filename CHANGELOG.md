@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **停止回复后继续对话**：OpenAI Chat 兼容模型的请求历史不再包含空的 assistant 消息，已有会话可继续发送消息。 (#783)
 
+### Changed
+
+- **Docker 镜像供应链加固**：三个构建 / 运行时基础镜像改为 manifest digest 固定（上游 tag 被替换不再影响重建）；compose 示例改用固定版本 tag 并 digest 固定 Ollama 镜像——`docker compose pull` 不再随 `:latest` 自动漂移（版本 tag 仍可被发布流程重指，防篡改需按 digest 固定）。 (#771)
+
 ## [0.58.0] - 2026-09-30
 
 ### Fixed
