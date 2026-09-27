@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **搜索结果不可信信封**：`web_search` 结果（标题 / 摘要 / 来源，均为第三方可控文本）现与 `web_fetch` 一致套 `<untrusted_external_data>` 信封并转义 `&` / `<`，搜索摘要中的提示注入文本不再以无标记形式进入模型上下文。
 - **新建项目按钮**：扩大侧栏项目区新建按钮的点击区域，并与滚动条保持间距，便于点击。 (#761)
 
 ## [0.56.0] - 2026-09-27
