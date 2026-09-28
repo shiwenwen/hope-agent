@@ -49,6 +49,7 @@ In the account editor you can configure:
 - **Group policy and user allowlist** — control who can use it.
 - **Auto-approve tools**, **takeover notifications**, **startup online alerts**, **automatic voice transcription**, **Knowledge Space access**, **reply mode**, **thinking display**, and more.
 - Telegram/Slack can disable native streaming per account. iMessage, Google Chat, and Discord expose protocol or rollout switches and fall back to their compatibility paths when disabled.
+- iMessage health checks show the reported imsg version. Versions below 0.15.8 prompt a manual update; older builds without a version show “unverified” and are neither upgraded nor blocked automatically.
 - Signal and WhatsApp account cards show detected sidecar/Bridge versions. Unknown versions are warning-only; a known-vulnerable Baileys Bridge is blocked at startup and before sends.
 
 ---

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **模型预设与开发服务安全**：移除 Together 已下线或即将退役的新建预设，并将 Vite 开发依赖更新至已修复的 8.3.0。 (#775)
+- **iMessage 版本诊断**：健康探测提示低于 imsg 0.15.8 的本机版本，未知版本标为未核验，不自动升级或阻断连接。 (#775)
+
 ## [0.57.0] - 2026-09-28
 
 ### Fixed

@@ -8,6 +8,25 @@ use tokio_util::sync::CancellationToken;
 use super::traits::ChannelPlugin;
 use super::types::*;
 
+fn should_probe_in_health_list(channel_id: &ChannelId, is_running: bool) -> bool {
+    matches!(channel_id, ChannelId::Signal | ChannelId::WhatsApp)
+        || (is_running && matches!(channel_id, ChannelId::IMessage))
+}
+
+fn should_probe_account(
+    channel_id: &ChannelId,
+    is_running: bool,
+    include_stopped_imessage: bool,
+) -> bool {
+    if matches!(channel_id, ChannelId::IMessage) && !is_running && !include_stopped_imessage {
+        return false;
+    }
+    matches!(
+        channel_id,
+        ChannelId::Signal | ChannelId::WhatsApp | ChannelId::IMessage
+    ) || !is_running
+}
+
 pub(crate) const DELIVERY_SURFACE_STATE_CHANGED_EVENT: &str =
     "channel:delivery_surface_state_changed";
 
@@ -201,10 +220,18 @@ impl ChannelRegistry {
     }
 
     /// Merge worker liveness with bounded adapter-owned runtime discovery.
-    /// Signal and WhatsApp are the only current external sidecars in this
-    /// account snapshot contract; probing every network adapter on the
-    /// settings poll would create unrelated traffic and latency.
+    /// Signal and WhatsApp need bounded external discovery. A running
+    /// iMessage account serves its already negotiated in-process status;
+    /// other network adapters stay out of the Settings poll.
     pub async fn health_with_probe(&self, account_id: &str) -> ChannelHealth {
+        self.health_with_probe_mode(account_id, true).await
+    }
+
+    async fn health_with_probe_mode(
+        &self,
+        account_id: &str,
+        include_stopped_imessage: bool,
+    ) -> ChannelHealth {
         let mut health = self.health(account_id).await;
         let account = crate::config::cached_config()
             .channels
@@ -213,22 +240,40 @@ impl ChannelRegistry {
         let Some(account) = account else {
             return health;
         };
-        let should_probe = matches!(account.channel_id, ChannelId::Signal | ChannelId::WhatsApp)
-            || !health.is_running;
-        if !should_probe {
+        if !should_probe_account(
+            &account.channel_id,
+            health.is_running,
+            include_stopped_imessage,
+        ) {
             return health;
         }
         let Some(plugin) = self.get_plugin(&account.channel_id) else {
             return health;
         };
-        if let Ok(Ok(probe)) =
-            tokio::time::timeout(std::time::Duration::from_secs(4), plugin.probe(&account)).await
-        {
+        let cached_imessage = health.is_running && account.channel_id == ChannelId::IMessage;
+        let probe_result = tokio::time::timeout(std::time::Duration::from_secs(4), async {
+            if cached_imessage {
+                plugin.probe_running_cached(&account).await
+            } else {
+                plugin.probe(&account).await.map(Some)
+            }
+        })
+        .await;
+        if let Ok(Ok(Some(probe))) = probe_result {
+            if cached_imessage {
+                let current = self.health(account_id).await;
+                if !current.is_running {
+                    return current;
+                }
+            }
             health.probe_ok = probe.probe_ok;
             health.bot_name = probe.bot_name;
             health.error = probe.error;
             health.last_probe = probe.last_probe;
             health.capability_snapshot = probe.capability_snapshot;
+        } else if cached_imessage {
+            // Stop may have removed the cached client after our worker read.
+            return self.health(account_id).await;
         }
         health
     }
@@ -239,25 +284,19 @@ impl ChannelRegistry {
             .accounts
             .iter()
             .enumerate()
-            .map(|(index, account)| {
-                (
-                    index,
-                    account.id.clone(),
-                    matches!(account.channel_id, ChannelId::Signal | ChannelId::WhatsApp),
-                )
-            })
+            .map(|(index, account)| (index, account.id.clone(), account.channel_id.clone()))
             .collect::<Vec<_>>();
         // The Settings UI polls this aggregate endpoint every 10 seconds.
-        // Only external sidecars need runtime discovery; regular adapters use
-        // worker liveness and must not emit network probes merely because they
-        // are stopped. Bound sidecar fan-out so one slow account cannot turn
-        // the aggregate into N serial four-second waits.
+        // Sidecars need bounded discovery; iMessage is polled only while its
+        // worker runs, when probe reads cached status without a new process.
+        // Stopped iMessage accounts retain worker-only aggregate health.
         let mut health = stream::iter(accounts.into_iter().map(
-            |(index, account_id, should_probe)| async move {
-                let snapshot = if should_probe {
-                    self.health_with_probe(&account_id).await
+            |(index, account_id, channel_id)| async move {
+                let worker = self.health(&account_id).await;
+                let snapshot = if should_probe_in_health_list(&channel_id, worker.is_running) {
+                    self.health_with_probe_mode(&account_id, false).await
                 } else {
-                    self.health(&account_id).await
+                    worker
                 };
                 (index, account_id, snapshot)
             },
@@ -395,5 +434,20 @@ impl ChannelRegistry {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod health_list_tests {
+    use super::*;
+
+    #[test]
+    fn running_imessage_uses_cached_probe_but_stopped_account_is_not_polled() {
+        assert!(should_probe_in_health_list(&ChannelId::IMessage, true));
+        assert!(!should_probe_in_health_list(&ChannelId::IMessage, false));
+        assert!(should_probe_in_health_list(&ChannelId::Signal, false));
+        assert!(!should_probe_in_health_list(&ChannelId::Telegram, true));
+        assert!(!should_probe_account(&ChannelId::IMessage, false, false));
+        assert!(should_probe_account(&ChannelId::IMessage, false, true));
     }
 }

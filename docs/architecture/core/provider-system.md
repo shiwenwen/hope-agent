@@ -152,7 +152,7 @@ Fireworks 新建模板移除公告精确命中的 `accounts/fireworks/models/kim
 #### 2026-09-07 模型与会话兼容边界
 
 - 新建 OpenAI Responses 模板提供 `gpt-6-astra`（1,050,000 上下文、128,000 最大输出）；仅 `https://api.openai.com` 的精确模型 ID 采用 `low / medium / high / xhigh / max`，`none`、`minimal` 及未设置值映射为 `low`，省略温度等不支持的采样字段。直连 Chat 仅允许无工具请求；工具循环提示改用 Responses。中转端点沿其原有策略，不自动改用户模型、协议、报价。[官方请求规则](https://developers.openai.com/api/docs/guides/latest-model)
-- Cerebras 的四项公共退役型号从新建列表移除；Together 的旧 DeepSeek V4 Pro 替换为 `deepseek-ai/DeepSeek-V4-Pro-0813`。用户已存配置与专属部署不迁移、不全局禁用同名 ID。Astra 与 Fable 5.1 的模板基础价均为每百万令牌输入 10 / 输出 50 美元；Astra 超过 272,000 输入令牌的阶梯及缓存、地区费用不由这两个字段表达，不能据大盘估算做完整账单核对。
+- Cerebras 的四项公共退役型号从新建列表移除；Together 曾用 `deepseek-ai/DeepSeek-V4-Pro-0813` 替换更早的 V4 Pro，但 2026-09-28 的新建目录已按[官方弃用公告](https://docs.together.ai/docs/deprecations)移除已下线的 `moonshotai/Kimi-K2.6` 和将在 09-29 退役的 `deepseek-ai/DeepSeek-V4-Pro-0813`。用户已存配置与专属部署不迁移、不全局禁用同名 ID。Astra 与 Fable 5.1 的模板基础价均为每百万令牌输入 10 / 输出 50 美元；Astra 超过 272,000 输入令牌的阶梯及缓存、地区费用不由这两个字段表达，不能据大盘估算做完整账单核对。
 - Anthropic 流式解析完整保存原始 `thinking`、`signature_delta` 拼接结果、`redacted_thinking.data`、文本和工具块顺序，包括最终轮。禁止用界面思考文本重建无签名块；其他协议的 `reasoning_content` 不转换成 Claude 思考。原始块进入会话历史，界面提示独立投影。
 - 官方端点启用 `thinking-binding-controls-2026-08-01`，思考配置加 `block_binding.prefix_mismatch_behavior=drop_block`；Fable 5.1 即使未选档位也显式用自适应思考。动态系统前缀、工具表、压缩后缀或切旧模型仍可能使已有块失效，由服务端裁决；`input_transformations` 的前缀或模型失配会显示提示并记录稳定诊断原因，重复流事件去重，本地原块保留。无法验证的签名拒绝属于请求契约终态，不自动删块重试。这是一条明确可观察的兼容路径，不保证跨模型完整思考连续性。[官方绑定控制](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)
 

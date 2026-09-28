@@ -244,6 +244,16 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     /// Probe the channel account to check health/connectivity.
     async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth>;
 
+    /// Read an already running account's cached health without starting a
+    /// replacement process or making a new external connection. A missing
+    /// runtime snapshot returns `None` (for example, after Stop races a poll).
+    async fn probe_running_cached(
+        &self,
+        _account: &ChannelAccountConfig,
+    ) -> Result<Option<ChannelHealth>> {
+        Ok(None)
+    }
+
     // ── Security ──────────────────────────────────────────────────
 
     /// Check whether the sender in `msg` is allowed based on `account` security rules.

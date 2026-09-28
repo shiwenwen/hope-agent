@@ -14,6 +14,7 @@ pub mod media;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 
@@ -22,7 +23,7 @@ use ha_core::channel::types::*;
 
 /// Running account state for an iMessage account.
 struct RunningAccount {
-    client: client::IMessageClient,
+    client: Arc<client::IMessageClient>,
 }
 
 /// iMessage channel plugin implementation.
@@ -129,7 +130,10 @@ impl ChannelPlugin for IMessagePlugin {
         );
 
         // Start the RPC client
-        let imsg_client = client::IMessageClient::start(&imsg_path, db_path.as_deref())?;
+        let imsg_client = Arc::new(client::IMessageClient::start(
+            &imsg_path,
+            db_path.as_deref(),
+        )?);
 
         // 顺序至关重要：先启动 stdout 读取 loop（spawn 内 ready_tx 就绪），
         // 再调 watch_subscribe。否则 watch_subscribe 的 RPC response 在 read
@@ -167,7 +171,21 @@ impl ChannelPlugin for IMessagePlugin {
                     status.protocol_version.unwrap_or_default(),
                     version,
                     status.methods.len()
-                )
+                );
+                match imsg_version_below_security_floor(&version) {
+                    Some(true) => app_warn!(
+                        "channel",
+                        "imessage",
+                        "imsg {} is below the reviewed security floor 0.15.8; update the local binary",
+                        version
+                    ),
+                    None => app_warn!(
+                        "channel",
+                        "imessage",
+                        "imsg security version could not be verified from protocol status"
+                    ),
+                    Some(false) => {}
+                }
             }
             Ok(None) if protocol_v1 => app_warn!(
                 "channel",
@@ -361,6 +379,10 @@ impl ChannelPlugin for IMessagePlugin {
 
     #[cfg(target_os = "macos")]
     async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth> {
+        if let Some(health) = self.probe_running_cached(account).await? {
+            return Ok(health);
+        }
+
         let imsg_path = Self::extract_imsg_path(&account.credentials);
         let db_path = Self::extract_db_path(&account.credentials);
 
@@ -417,6 +439,29 @@ impl ChannelPlugin for IMessagePlugin {
                 capability_snapshot: None,
             }),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn probe_running_cached(
+        &self,
+        account: &ChannelAccountConfig,
+    ) -> Result<Option<ChannelHealth>> {
+        // A concurrent Stop may remove this client between registry liveness
+        // checks. Never fall back to launching a temporary imsg here.
+        let running_client = self
+            .accounts
+            .lock()
+            .await
+            .get(&account.id)
+            .map(|running| Arc::clone(&running.client));
+        if let Some(client) = running_client {
+            let (status, degraded_error) = client.status_snapshot().await;
+            return Ok(Some(imessage_running_health(
+                status.as_ref(),
+                degraded_error.as_deref(),
+            )));
+        }
+        Ok(None)
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -503,13 +548,123 @@ fn safe_version_token(value: &str) -> Option<String> {
     .then(|| trimmed.to_string())
 }
 
+/// A missing or nonstandard version is unknown, never treated as patched.
+/// Pre-release builds above the floor also remain unknown without a reviewed tag.
+#[cfg(target_os = "macos")]
+fn imsg_version_below_security_floor(value: &str) -> Option<bool> {
+    let token = safe_version_token(value)?;
+    let version = token.strip_prefix('v').unwrap_or(&token);
+    let version = version.split_once('+').map_or(version, |(core, _)| core);
+    let (core, prerelease) = version
+        .split_once('-')
+        .map_or((version, false), |(core, _)| (core, true));
+    let parts: Vec<_> = core.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let numbers: Vec<u64> = parts
+        .iter()
+        .map(|part| part.parse::<u64>())
+        .collect::<std::result::Result<_, _>>()
+        .ok()?;
+    let version = (numbers[0], numbers[1], numbers[2]);
+    let floor = (0, 15, 8);
+    if prerelease && version > floor {
+        return None;
+    }
+    Some(version < floor || (prerelease && version == floor))
+}
+
 #[cfg(target_os = "macos")]
 fn imessage_probe_label(status: Option<&client::IMessageStatus>) -> String {
     status
         .and_then(|value| value.version.as_deref())
         .and_then(safe_version_token)
-        .map(|version| format!("iMessage · imsg {version} · protocol 1"))
-        .unwrap_or_else(|| "iMessage · imsg legacy/undisclosed".to_string())
+        .map(|version| {
+            let notice = match imsg_version_below_security_floor(&version) {
+                Some(true) => " · update imsg to 0.15.8+",
+                Some(false) => "",
+                None => " · security version unverified",
+            };
+            format!("iMessage · imsg {version} · protocol 1{notice}")
+        })
+        .unwrap_or_else(|| {
+            "iMessage · imsg legacy/undisclosed · security version unverified".to_string()
+        })
+}
+
+#[cfg(target_os = "macos")]
+fn imessage_running_health(
+    status: Option<&client::IMessageStatus>,
+    degraded_error: Option<&str>,
+) -> ChannelHealth {
+    ChannelHealth {
+        is_running: true,
+        last_probe: Some(chrono::Utc::now().to_rfc3339()),
+        probe_ok: Some(degraded_error.is_none()),
+        error: degraded_error.map(ha_core::logging::redact_sensitive),
+        uptime_secs: None,
+        // A stale status from before a failed restart cannot prove the current
+        // child binary is patched. The registry supplies worker uptime.
+        bot_name: Some(imessage_probe_label(if degraded_error.is_some() {
+            None
+        } else {
+            status
+        })),
+        capability_snapshot: None,
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod version_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cached_probe_after_stop_never_starts_temporary_imsg() {
+        let plugin = IMessagePlugin::new();
+        let account: ChannelAccountConfig = serde_json::from_value(serde_json::json!({
+            "id": "stopped-imsg",
+            "channelId": "imessage",
+            "label": "Stopped iMessage",
+            "credentials": { "imsgPath": "/nonexistent/imsg" }
+        }))
+        .unwrap();
+        assert!(plugin
+            .probe_running_cached(&account)
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn imsg_security_floor_is_diagnostic_only_and_conservative() {
+        for version in ["0.15.5", "v0.15.5", "0.15.7", "0.15.8-beta.1"] {
+            assert_eq!(imsg_version_below_security_floor(version), Some(true));
+        }
+        for version in ["0.15.8", "v0.15.9", "1.0.0"] {
+            assert_eq!(imsg_version_below_security_floor(version), Some(false));
+        }
+        for version in ["", "0.15", "0.15.9-beta.1", "invalid", "0.15.8 secret"] {
+            assert_eq!(imsg_version_below_security_floor(version), None);
+        }
+        assert!(imessage_probe_label(Some(&client::IMessageStatus {
+            version: Some("0.15.5".to_string()),
+            ..Default::default()
+        }))
+        .contains("update imsg to 0.15.8+"));
+        assert!(imessage_probe_label(None).contains("unverified"));
+        let vulnerable = client::IMessageStatus {
+            version: Some("0.15.5".to_string()),
+            ..Default::default()
+        };
+        assert!(imessage_running_health(Some(&vulnerable), None)
+            .bot_name
+            .unwrap()
+            .contains("update imsg to 0.15.8+"));
+        let degraded = imessage_running_health(Some(&vulnerable), Some("restart failed"));
+        assert_eq!(degraded.probe_ok, Some(false));
+        assert!(degraded.bot_name.unwrap().contains("unverified"));
+    }
 }
 
 #[cfg(target_os = "macos")]

@@ -3,6 +3,10 @@
 > 状态：确定性评测轨道随包提供 CLI、桌面 Evaluation Center、本地历史与诊断证据，供本机显式运行。当前不在 GitHub Actions、PR、pre-push 或发布 workflow 中运行，也不上传、查询或校验评测证据——所有产物都是本地诊断，不构成自动发布门禁。
 > 真实模型 Campaign 轨道：[`live-model-evaluation.md`](live-model-evaluation.md)
 
+## 隔离研究脚本边界
+
+`FTR-004` 的 `scripts/experiments/workflow_cohort.py` 和 `FTR-005` 的 `scripts/experiments/claim_evidence_consistency.py` 只使用内存合成 fixture，须由开发者本地显式运行。后者固定四组多文件结构化样本，比较单件证据完整性与跨产物 `claim-evidence-version` 检查；三个重复结果只能证明小样本判定稳定，不能证明自然语言结论、真实模型或用户价值。两者均不属于 `evals/suites`、`version-lock.json`、默认 Cargo test、PR/CI 或发布门禁，不读取生产数据库、用户文件或调用 Provider。
+
 ## 核心思想
 
 Hope Agent 的功能横跨 Coding 控制平面、领域工作流、记忆 Dreaming、记忆检索等多个子系统。这些能力的正确性无法靠单元测试完全兜住：它们的行为依赖真实的会话数据库、检索排序、图谱推理等一整套运行时。但把这类整包回放塞进 `cargo test` 会带来两个问题——单测会变慢、变脆，而且一旦引入模型调用就失去确定性。
