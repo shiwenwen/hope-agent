@@ -8,7 +8,6 @@
 
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -55,8 +54,6 @@ pub struct IndexDb {
     /// Active embedding provider (installed at startup + on config change),
     /// shared with — but independent of — the memory backend's embedder.
     embedder: RwLock<Option<Arc<dyn EmbeddingProvider>>>,
-    #[allow(dead_code)]
-    db_path: PathBuf,
 }
 
 impl IndexDb {
@@ -96,7 +93,6 @@ impl IndexDb {
             reader_idx: AtomicUsize::new(0),
             embedding_dims: AtomicU32::new(0),
             embedder: RwLock::new(None),
-            db_path: db_path.to_path_buf(),
         })
     }
 
