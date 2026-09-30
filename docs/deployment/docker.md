@@ -173,12 +173,15 @@ docker compose exec ollama nvidia-smi
 
 容器化部署的升级路径与桌面端不同 —— `app_update` 工具检测到 `HA_DEPLOYMENT=docker` 后会跳过 binary swap，引导用户拉新镜像：
 
+`docker-compose.yml` 示例默认固定到具体版本 tag（如 `:v0.57.0`），`docker compose pull` 只拉取当前固定的版本、不会自动跟随新发布；升级时先在 compose 文件里把 `hope-agent` 的 `image:` tag 改成目标版本，再拉取重启：
+
 ```bash
-# 用 docker compose
+# 用 docker compose：先编辑 docker-compose.yml 里的 image tag，
+# 例如 image: ghcr.io/shiwenwen/hope-agent:v0.58.0，然后：
 docker compose pull hope-agent
 docker compose up -d hope-agent
 
-# 或用 docker run
+# 或用 docker run（跟随 latest）
 docker pull ghcr.io/shiwenwen/hope-agent:latest
 docker rm -f hope-agent
 docker run -d --name hope-agent ... ghcr.io/shiwenwen/hope-agent:latest
@@ -186,7 +189,7 @@ docker run -d --name hope-agent ... ghcr.io/shiwenwen/hope-agent:latest
 
 数据卷会自动复用，配置 / 历史 / 凭据保留。
 
-要锁版本生产环境，推荐固定到具体 tag：`ghcr.io/shiwenwen/hope-agent:v0.2.1`，而非 `latest`。
+compose 用户若偏好跟随 `latest`，把 `image:` 改回 `ghcr.io/shiwenwen/hope-agent:latest` 即可；要防篡改可按 digest 固定（`docker buildx imagetools inspect ghcr.io/shiwenwen/hope-agent:v0.57.0` 解析多架构 digest）。
 
 ## 反向代理
 
