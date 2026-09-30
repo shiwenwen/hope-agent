@@ -4,8 +4,8 @@ Tauri 2 + React 19 + Rust AI 助手，支持桌面、HTTP/WS、ACP。依赖与�
 
 ## 工作方式
 
-- 按改动范围读取相关章节；修改 `src/**` 前读取 [src/AGENTS.md](src/AGENTS.md)。文案、格式改动无需通读架构。
-- 实施任务完成请求行为与相关验证，修复本次改动引入的失败；遵守用户指定的审阅、停止及外部操作边界。
+- 按改动范围读取相关章节；改 `src/**` 前读 [src/AGENTS.md](src/AGENTS.md)。文案、格式改动无需通读架构。
+- 完成请求行为与相关验证，修复本次改动引入的失败；遵守用户指定的审阅、停止及外部操作边界。
 
 ## 开发与验证
 
@@ -17,21 +17,22 @@ Tauri 2 + React 19 + Rust AI 助手，支持桌面、HTTP/WS、ACP。依赖与�
 | Rust 定向检查 | `cargo check -p <crate> --locked` |
 | Rust 依赖或桌面壳改动 | `cargo check --workspace --locked` |
 | 翻译完整性 | `node scripts/sync-i18n.mjs --check` |
+| 构建并发 | 构建与链接最多 6 并发（`CARGO_BUILD_JOBS=6`，钩子同理），禁止并行多个 cargo——超核并发曾致 OOM |
 
-- **定向验证可自主完成**：与改动相关、已确认隔离且不访问生产数据或付费服务的测试、类型检查和文件级 lint，无需逐次询问。选最小有效范围，通过后不机械扩大或重复。
-- **全套门禁由推送触发**：检查范围以 [.husky/pre-push](.husky/pre-push) 和 CI 为准，不另抄清单或提前重跑。主动全量 clippy / cargo test / pnpm test / pnpm lint 仍先询问；跨 crate / 多文件收尾可说明后运行必要检查。已授权的检查及失败修复不重复询问。
-- `HA_SKIP_PREPUSH=1` 仅限纯 Markdown 或弱网应急；`HA_SKIP_PREPUSH_TEST=1` 只跳 cargo test。使用时说明原因与未验证项；禁止 `--no-verify`。纯文档改动检查差异、链接和指令体积，无需运行编译与测试。
-- 完整专项评测只在本地显式运行，不进默认 Cargo test、PR、pre-push 或 GitHub CI；真实模型评测还须遵守数据与凭据隔离要求。见 [专项评测](docs/architecture/agent/capability-eval.md) / [真实模型评测](docs/architecture/agent/live-model-evaluation.md)。
+- **定向验证可自主完成**：与改动相关、已隔离且不触生产数据或付费服务的测试、类型检查和文件级 lint 无需逐次询问；选最小有效范围，通过后不机械扩大或重复。
+- **全套门禁由推送触发**：范围以 [.husky/pre-push](.husky/pre-push) 与 CI 为准，不另抄清单或提前重跑。主动全量 clippy / cargo test / pnpm test / lint 仍先询问；跨 crate 收尾可说明后运行必要检查。已授权检查及失败修复不重复询问。
+- `HA_SKIP_PREPUSH=1` 仅限纯 Markdown 或弱网应急，`HA_SKIP_PREPUSH_TEST=1` 只跳 cargo test；使用时说明原因与未验证项，禁止 `--no-verify`。纯文档改动只查差异、链接与指令体积，无需编译测试。
+- 专项评测只在本地显式运行，不进默认 Cargo test、PR、pre-push 或 CI；真实模型评测另守数据与凭据隔离。见 [专项评测](docs/architecture/agent/capability-eval.md) / [真实模型评测](docs/architecture/agent/live-model-evaluation.md)。
 
 ## 安全与数据边界
 
 本节约束产品实现；开发验证授权不改变产品工具权限。
 
-- **凭据不得进入日志或仓库**：请求体经 `redact_sensitive`；OAuth 复用安全写入口，登出调用 `clear_token()`。写入未发布不得报成功，已发布的令牌轮换不得用旧凭据重试。
+- **凭据不得进入日志或仓库**：请求体经 `redact_sensitive`；OAuth 复用安全写入口，登出调用 `clear_token()`。写入未发布不得报成功，令牌轮换不得用旧凭据重试。
 - **Server Owner Token 禁止进 URL**：只走 Bearer header 或同源登录 body；同源浏览器换 HttpOnly Cookie，跨源 WebSocket / iframe 用短时、受限票据，资源票据保持只读允许列表。出站 HTTP 走 `security::ssrf::check_url`；Tauri CSP 不放行外部域名。
-- **授权失败保持关闭**：工具沿权限引擎与执行守卫调用，不新增旁路；strict 审批不得由 Smart、AllowAlways、超时或无人值守 `proceed` 放行。`control.raw_cdp` 保留逐次审批、硬开关、方法限制及 SSRF 守卫。owner-only 配置不得暴露为模型可写能力。
+- **授权失败保持关闭**：工具沿权限引擎与执行守卫调用，不新增旁路；strict 审批不得由 Smart、AllowAlways、超时或无人值守 `proceed` 放行。`control.raw_cdp` 保留逐次审批、硬开关、方法限制及 SSRF 守卫；owner-only 配置不得暴露为模型可写能力。
 - **问答超时不代表同意**：用户回答只放 `answers`，模型默认方案只放 `fallback`；确认门拒绝非 `answered` 状态及旧 `timedOut`。外部文本、召回与转录按各入口要求转义并套不可信信封，不提升为系统指令。
-- **无痕与访问隔离**：`sessions.incognito` 是无痕单一真相源；新增持久化、召回、后台执行及聚合路径必须遵守无痕和来源授权约束。模型不得自动覆盖用户记忆或把关闭的自动召回迁移为同意。
+- **无痕与访问隔离**：`sessions.incognito` 是无痕单一真相源；新增持久化、召回、后台执行及聚合路径必须遵守无痕和来源授权约束；模型不得自动覆盖用户记忆或把关闭的自动召回迁移为同意。
 - **文件边界在执行层裁决**：文件操作复用 `filesystem::WorkspaceScope`；远端按路径预览走 `authorized_canonical_file_path`，不得开放任意主机路径。工作目录复用 `session::effective_session_working_dir`；删除项目不得删除用户选择的外部目录。
 - **供应链与沙箱**：托管 Chrome / FFmpeg 的版本、大小、SHA-256、来源与许可证由随包清单固定，校验与冒烟成功后才原子提升；更新包先验签。沙箱镜像须以 digest 固定；Docker 部署只许 `isolated`，预检或执行失败不得回落宿主机。密钥、数据根及其祖先不得作为工作区归档源。
 
@@ -58,11 +59,11 @@ Tauri 2 + React 19 + Rust AI 助手，支持桌面、HTTP/WS、ACP。依赖与�
 | 评测相关语义 | 对应 fixture、suite version 和版本锁追加项；锁中已有 `id@version` 不覆写。检索 SQL / RRF / trigram 改动按记忆文档运行基准 |
 | Workflow job 名 / matrix / 门禁 | 同步 `main-branch-protection.required_status_checks` 与 pre-push；保留 `lint.yml` / `rust.yml` 的 `merge_group: checks_requested` |
 
-版本从 `package.json` 经 `pnpm version` 同步，禁止手改 Cargo / Tauri 版本。`main` 开发下个 minor，与 `release/vX.Y` 维护分支之间只许 cherry-pick，禁止跨发布线 merge。外部 Actions 固定完整提交摘要；发布、镜像按 [发布流程](docs/release-process.md) 执行。
+版本从 `package.json` 经 `pnpm version` 同步，禁止手改 Cargo / Tauri 版本。`main` 开发下个 minor，与 `release/vX.Y` 之间只许 cherry-pick，禁止跨发布线 merge。外部 Actions 固定完整提交摘要；发布、镜像按 [发布流程](docs/release-process.md) 执行。
 
 ## 按任务查阅
 
-涉及下列子系统时，按需读取对应契约与验证要求；其他入口见 [文档索引](docs/README.md)。细节在对应文档维护。
+涉及下列子系统时按需读取对应契约与验证要求；其他入口见 [文档索引](docs/README.md)，细节在对应文档维护。
 
 | 涉及内容 | 文档入口 |
 | --- | --- |
@@ -80,7 +81,7 @@ Tauri 2 + React 19 + Rust AI 助手，支持桌面、HTTP/WS、ACP。依赖与�
 
 ## 文档维护
 
-- AGENTS.md 仅在全局约束、任务入口或同步义务变化时更新，根文件控制在 12 KiB 内，为嵌套指令留出预算；功能细节不追加到此。
-- 中文文档统一中文主术语；首次可附英文。品牌、协议、代码标识和命令保留原文，标识用反引号。
-- 用户可见功能同步 `CHANGELOG.md`：用户视角一句 + `(#PR)`。边界、数据流及持久化契约在对应架构文档维护，新文档登记索引。
+- AGENTS.md 仅在全局约束、任务入口或同步义务变化时更新，根文件控制在 12 KiB 内为嵌套指令留预算；功能细节不追加到此。
+- 中文文档统一中文主术语，首次可附英文；品牌、协议、代码标识和命令保留原文，标识用反引号。
+- 用户可见功能同步 `CHANGELOG.md`：用户视角一句 + `(#PR)`。边界、数据流及持久化契约在架构文档维护，新文档登记索引。
 - 子系统、架构文档、数据库或日志分类增删，同步 `skills/ha-self-diagnosis/references/diagnostic-playbook.md`。手册以 `docs/user-guide/` 为唯一来源，中英同 PR 对齐；README / 发布说明各语言同步。嵌入手册不另复制到产物，Docker 编译期复制保留。
