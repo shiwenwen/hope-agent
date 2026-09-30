@@ -1098,6 +1098,9 @@ impl SessionDB {
             job_timeout_secs: input.max_runtime_secs.map(|v| v.max(30) as u64),
             permission_mode_override: None,
             sandbox_mode_override: None,
+            // SessionLoop runs inside the caller's live session; no model
+            // snapshot needed (session defaults rule there).
+            model_override: None,
             workspace_policy: Default::default(),
         })?;
         if input.trigger_kind == LoopTriggerKind::Event {

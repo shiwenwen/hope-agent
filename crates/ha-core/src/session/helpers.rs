@@ -21,6 +21,19 @@ pub struct ChatRuntimeDefaults {
     pub reasoning_effort: String,
 }
 
+/// The session's own model pin read off a session row. Empty strings are
+/// treated like absence so a half-written pin never masks the global model.
+/// Single source for every reader of the pin (runtime defaults, `/model`
+/// checkmark, `/status`, cron job snapshotting).
+pub fn session_model_pin(meta: &SessionMeta) -> Option<ActiveModel> {
+    let provider_id = meta.provider_id.as_deref().filter(|id| !id.is_empty())?;
+    let model_id = meta.model_id.as_deref().filter(|id| !id.is_empty())?;
+    Some(ActiveModel {
+        provider_id: provider_id.to_string(),
+        model_id: model_id.to_string(),
+    })
+}
+
 pub fn resolve_chat_runtime_defaults(
     session: Option<&SessionMeta>,
     agent_id: &str,
@@ -30,15 +43,7 @@ pub fn resolve_chat_runtime_defaults(
         .ok()
         .map(|definition| definition.config.model)
         .unwrap_or_default();
-    let preferred_model = session.and_then(|meta| match (&meta.provider_id, &meta.model_id) {
-        (Some(provider_id), Some(model_id)) if !provider_id.is_empty() && !model_id.is_empty() => {
-            Some(ActiveModel {
-                provider_id: provider_id.clone(),
-                model_id: model_id.clone(),
-            })
-        }
-        _ => None,
-    });
+    let preferred_model = session.and_then(session_model_pin);
     let preferred_ref = preferred_model
         .as_ref()
         .map(|model| format!("{}::{}", model.provider_id, model.model_id));
