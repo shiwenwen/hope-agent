@@ -24,6 +24,30 @@ fn session_db() -> Result<&'static std::sync::Arc<crate::session::SessionDB>, St
     require_session_db().map_err(|e| e.to_string())
 }
 
+/// The model pinned on the calling session, if any. `/model` and `/status`
+/// must reflect what this session actually runs with (#786) instead of the
+/// global `active_model`, which only applies while no session pin exists.
+pub(super) fn session_pinned_model(
+    db: &crate::session::SessionDB,
+    session_id: Option<&str>,
+) -> Option<crate::provider::ActiveModel> {
+    let meta = db.get_session(session_id?).ok().flatten()?;
+    pinned_model_from_meta(&meta)
+}
+
+/// The session's own model pin read off a session row. Empty strings are
+/// treated like absence so a half-written pin never masks the global model.
+pub(super) fn pinned_model_from_meta(
+    meta: &crate::session::SessionMeta,
+) -> Option<crate::provider::ActiveModel> {
+    let provider_id = meta.provider_id.as_deref().filter(|id| !id.is_empty())?;
+    let model_id = meta.model_id.as_deref().filter(|id| !id.is_empty())?;
+    Some(crate::provider::ActiveModel {
+        provider_id: provider_id.to_string(),
+        model_id: model_id.to_string(),
+    })
+}
+
 /// Format the (sole, with 1:1 attach) IM-attach row as a markdown
 /// bullet line. Used by `/status` and `/session` (info form) so both
 /// surfaces stay consistent.
@@ -72,11 +96,13 @@ pub async fn dispatch(
         // ── Model ──
         "model" => {
             let store = crate::config::cached_config();
-            model::handle_model(&store, args)
+            let session_model = session_pinned_model(session_db()?, session_id);
+            model::handle_model(&store, args, session_model.as_ref())
         }
         "models" => {
             let store = crate::config::cached_config();
-            model::handle_model(&store, "")
+            let session_model = session_pinned_model(session_db()?, session_id);
+            model::handle_model(&store, "", session_model.as_ref())
         }
         // `think` is a silent alias for `thinking` (only `thinking` is in the
         // registry / slash menu).
@@ -443,5 +469,60 @@ mod tests {
 
         assert!(error.contains("stopped before model dispatch"));
         assert!(!error.contains("SKILL.md disappeared"));
+    }
+
+    #[test]
+    fn session_pinned_model_reads_the_pin_and_treats_empty_strings_as_absent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = crate::session::SessionDB::open_ephemeral_for_test(&path).expect("open");
+        // The session projection LEFT JOINs channel_conversations; create the
+        // minimal channel fixture table so get_session can run.
+        db.with_conn_for_test(|conn| {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    thread_id TEXT,
+                    session_id TEXT NOT NULL,
+                    sender_id TEXT,
+                    sender_name TEXT,
+                    chat_type TEXT NOT NULL DEFAULT 'dm',
+                    is_primary INTEGER NOT NULL DEFAULT 1,
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    attached_at TEXT,
+                    created_at TEXT NOT NULL
+                )",
+            )?;
+            Ok(())
+        })
+        .expect("channel table");
+        let meta = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create");
+        let sid = meta.id.clone();
+
+        // Fresh sessions snapshot the agent chain's model at creation, so the
+        // hermetic assertion is about explicit writes: pin one model, read it
+        // back, then clear it and read absence.
+        db.update_session_model(&sid, Some("p1"), Some("Provider One"), Some("m2"))
+            .expect("pin model");
+        let pinned = session_pinned_model(&db, Some(&sid)).expect("pinned");
+        assert_eq!(pinned.provider_id, "p1");
+        assert_eq!(pinned.model_id, "m2");
+
+        // An explicit un-pin (NULLs) must not yield a phantom model.
+        db.update_session_model(&sid, None, None, None)
+            .expect("unpin model");
+        assert!(session_pinned_model(&db, Some(&sid)).is_none());
+
+        // A half-written pin (empty strings) must not mask the global model.
+        db.update_session_model(&sid, Some(""), Some(""), Some(""))
+            .expect("clear pin");
+        assert!(session_pinned_model(&db, Some(&sid)).is_none());
+
+        assert!(session_pinned_model(&db, None).is_none());
     }
 }

@@ -190,13 +190,22 @@ pub async fn handle_status(
 
     lines.push(format!("- **Hope Agent**: v{}", env!("CARGO_PKG_VERSION")));
 
-    let active_model_full = store.active_model.as_ref().and_then(|active| {
+    // The session section below reuses this row; fetch it once.
+    let meta = session_id.and_then(|sid| session_db.get_session(sid).ok().flatten());
+    // Effective model for this conversation (#786): a session-pinned model
+    // wins over the global active model, which only applies while the
+    // session has no pin of its own.
+    let effective_model = meta
+        .as_ref()
+        .and_then(|m| super::pinned_model_from_meta(m))
+        .or_else(|| store.active_model.clone());
+    let active_model_full = effective_model.as_ref().and_then(|active| {
         provider::build_available_models(&store.providers)
             .into_iter()
             .find(|m| m.provider_id == active.provider_id && m.model_id == active.model_id)
     });
 
-    if let Some(ref active) = store.active_model {
+    if let Some(ref active) = effective_model {
         let (name, auth_label) = if let Some(model) = active_model_full.as_ref() {
             (
                 format!("{} / {}", model.provider_name, model.model_name),
@@ -216,8 +225,6 @@ pub async fn handle_status(
     lines.push(format!("- **Agent**: `{}`", agent_id));
 
     if let Some(sid) = session_id {
-        let meta = session_db.get_session(sid).ok().flatten();
-
         if let Some(title) = meta
             .as_ref()
             .and_then(|m| m.title.as_deref())
@@ -1204,5 +1211,136 @@ mod tests {
                 err
             );
         }
+    }
+
+    #[tokio::test]
+    async fn handle_status_model_line_prefers_the_session_pin() {
+        use crate::provider::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
+
+        let mut provider = ProviderConfig::new(
+            "Provider One".into(),
+            ApiType::OpenaiChat,
+            "https://example.test".into(),
+            "test-key".into(),
+        );
+        provider.id = "p1".into();
+        provider.enabled = true;
+        provider.models = vec![
+            ModelConfig {
+                id: "m1".into(),
+                name: "Model One".into(),
+                input_types: vec!["text".into()],
+                context_window: 128_000,
+                max_tokens: 8192,
+                reasoning: false,
+                thinking_style: None,
+                cost_input: None,
+                cost_output: None,
+            },
+            ModelConfig {
+                id: "m2".into(),
+                name: "Model Two".into(),
+                input_types: vec!["text".into()],
+                context_window: 64_000,
+                max_tokens: 8192,
+                reasoning: false,
+                thinking_style: None,
+                cost_input: None,
+                cost_output: None,
+            },
+        ];
+        let store = AppConfig {
+            providers: vec![provider],
+            active_model: Some(ActiveModel {
+                provider_id: "p1".into(),
+                model_id: "m1".into(),
+            }),
+            ..Default::default()
+        };
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        ensure_channel_conversations_table(&db);
+        let meta = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create");
+        let sid = meta.id.clone();
+        db.update_session_model(&sid, Some("p1"), Some("Provider One"), Some("m2"))
+            .expect("pin model");
+
+        let result = handle_status(
+            &db,
+            &store,
+            Some(&sid),
+            crate::agent_loader::DEFAULT_AGENT_ID,
+        )
+        .await
+        .expect("ok");
+        // The session pin (m2) is what the session runs with — not the global
+        // active model (m1).
+        assert!(result
+            .content
+            .contains("**Model**: Provider One / Model Two"));
+        assert!(!result.content.contains("Model One"));
+    }
+
+    #[tokio::test]
+    async fn handle_status_model_line_falls_back_to_global_without_session_pin() {
+        use crate::provider::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
+
+        let mut provider = ProviderConfig::new(
+            "Provider One".into(),
+            ApiType::OpenaiChat,
+            "https://example.test".into(),
+            "test-key".into(),
+        );
+        provider.id = "p1".into();
+        provider.enabled = true;
+        provider.models = vec![ModelConfig {
+            id: "m1".into(),
+            name: "Model One".into(),
+            input_types: vec!["text".into()],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input: None,
+            cost_output: None,
+        }];
+        let store = AppConfig {
+            providers: vec![provider],
+            active_model: Some(ActiveModel {
+                provider_id: "p1".into(),
+                model_id: "m1".into(),
+            }),
+            ..Default::default()
+        };
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        ensure_channel_conversations_table(&db);
+        let meta = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create");
+        let sid = meta.id.clone();
+        // Fresh sessions snapshot the agent chain's model (host-config
+        // dependent); un-pin explicitly so the global model is what /status
+        // must show.
+        db.update_session_model(&sid, None, None, None)
+            .expect("unpin model");
+
+        let result = handle_status(
+            &db,
+            &store,
+            Some(&sid),
+            crate::agent_loader::DEFAULT_AGENT_ID,
+        )
+        .await
+        .expect("ok");
+        assert!(result
+            .content
+            .contains("**Model**: Provider One / Model One"));
     }
 }
