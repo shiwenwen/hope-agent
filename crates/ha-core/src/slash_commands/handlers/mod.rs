@@ -48,6 +48,29 @@ pub(super) fn pinned_model_from_meta(
     })
 }
 
+/// The model this conversation's next turn would run with, for display
+/// surfaces (`/model` ✓ and the `/status` Model line): session pin, then
+/// the Agent's configured primary, then the global `active_model` — the
+/// same configured-chain order `resolve_model_chain` applies before a turn
+/// (provider-system.md §7.2). Unavailable references are skipped exactly
+/// as at runtime; the chat-only catalog-recovery tier is not displayed.
+pub(super) fn effective_session_model(
+    agent_id: &str,
+    session_pin: Option<crate::provider::ActiveModel>,
+    store: &crate::config::AppConfig,
+) -> Option<crate::provider::ActiveModel> {
+    let agent_model = crate::agent_loader::load_agent(agent_id)
+        .map(|definition| definition.config.model)
+        .unwrap_or_default();
+    let preferred = session_pin.map(|m| format!("{}::{}", m.provider_id, m.model_id));
+    crate::provider::resolve_configured_model_chain_with_preferred(
+        preferred.as_deref(),
+        &agent_model,
+        store,
+    )
+    .0
+}
+
 /// Format the (sole, with 1:1 attach) IM-attach row as a markdown
 /// bullet line. Used by `/status` and `/session` (info form) so both
 /// surfaces stay consistent.
@@ -97,12 +120,14 @@ pub async fn dispatch(
         "model" => {
             let store = crate::config::cached_config();
             let session_model = session_pinned_model(session_db()?, session_id);
-            model::handle_model(&store, args, session_model.as_ref())
+            let effective = effective_session_model(agent_id, session_model, &store);
+            model::handle_model(&store, args, effective.as_ref())
         }
         "models" => {
             let store = crate::config::cached_config();
             let session_model = session_pinned_model(session_db()?, session_id);
-            model::handle_model(&store, "", session_model.as_ref())
+            let effective = effective_session_model(agent_id, session_model, &store);
+            model::handle_model(&store, "", effective.as_ref())
         }
         // `think` is a silent alias for `thinking` (only `thinking` is in the
         // registry / slash menu).
@@ -146,7 +171,9 @@ pub async fn dispatch(
         "help" => Ok(utility::handle_help(session_id)),
         "status" => {
             let store = crate::config::cached_config();
-            utility::handle_status(session_db()?, &store, session_id, agent_id).await
+            let session_model = session_pinned_model(session_db()?, session_id);
+            let effective = effective_session_model(agent_id, session_model, &store);
+            utility::handle_status(session_db()?, &store, session_id, agent_id, effective).await
         }
         "export" => utility::handle_export(session_db()?, session_id, args),
         "usage" => utility::handle_usage(session_db()?, session_id),
@@ -524,5 +551,117 @@ mod tests {
         assert!(session_pinned_model(&db, Some(&sid)).is_none());
 
         assert!(session_pinned_model(&db, None).is_none());
+    }
+
+    fn display_store_with_models(active: Option<(&str, &str)>) -> crate::config::AppConfig {
+        use crate::provider::{ApiType, ModelConfig, ProviderConfig};
+
+        let mut provider = ProviderConfig::new(
+            "Provider One".into(),
+            ApiType::OpenaiChat,
+            "https://example.test".into(),
+            "test-key".into(),
+        );
+        provider.id = "p1".into();
+        provider.enabled = true;
+        provider.models = ["m1", "m2", "m3"]
+            .iter()
+            .map(|id| ModelConfig {
+                id: (*id).into(),
+                name: format!("Model {}", id.to_uppercase()),
+                input_types: vec!["text".into()],
+                context_window: 128_000,
+                max_tokens: 8192,
+                reasoning: false,
+                thinking_style: None,
+                cost_input: None,
+                cost_output: None,
+            })
+            .collect();
+        crate::config::AppConfig {
+            providers: vec![provider],
+            active_model: active.map(|(provider_id, model_id)| crate::provider::ActiveModel {
+                provider_id: provider_id.into(),
+                model_id: model_id.into(),
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// Materialize `agents/{default}/agent.json` under a temp `HA_DATA_DIR`
+    /// so `load_agent` resolves the fixture instead of the host config.
+    fn write_agent_fixture(root: &std::path::Path, primary: &str) {
+        let agent_dir = root
+            .join("agents")
+            .join(crate::agent_loader::DEFAULT_AGENT_ID);
+        std::fs::create_dir_all(&agent_dir).expect("agent dir");
+        std::fs::write(
+            agent_dir.join("agent.json"),
+            serde_json::json!({ "model": { "primary": primary } }).to_string(),
+        )
+        .expect("agent.json");
+    }
+
+    #[test]
+    fn effective_session_model_prefers_the_session_pin_over_agent_and_global() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_agent_fixture(temp.path(), "p1::m1");
+        let store = display_store_with_models(Some(("p1", "m2")));
+        let pin = crate::provider::ActiveModel {
+            provider_id: "p1".into(),
+            model_id: "m3".into(),
+        };
+
+        let effective = crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            super::effective_session_model(crate::agent_loader::DEFAULT_AGENT_ID, Some(pin), &store)
+        })
+        .expect("effective");
+        assert_eq!(effective.provider_id, "p1");
+        assert_eq!(effective.model_id, "m3");
+    }
+
+    #[test]
+    fn effective_session_model_falls_back_to_the_agent_primary_without_a_pin() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_agent_fixture(temp.path(), "p1::m1");
+        let store = display_store_with_models(Some(("p1", "m2")));
+
+        let effective = crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            super::effective_session_model(crate::agent_loader::DEFAULT_AGENT_ID, None, &store)
+        })
+        .expect("effective");
+        // The Agent primary is what the session would run with — not the
+        // global active model.
+        assert_eq!(effective.provider_id, "p1");
+        assert_eq!(effective.model_id, "m1");
+    }
+
+    #[test]
+    fn effective_session_model_falls_back_to_global_without_pin_or_agent_primary() {
+        // No agents/ fixture at all: `load_agent` fails closed to the default
+        // (no primary), so the global model is the remaining configured tier.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = display_store_with_models(Some(("p1", "m2")));
+
+        let effective = crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            super::effective_session_model(crate::agent_loader::DEFAULT_AGENT_ID, None, &store)
+        })
+        .expect("effective");
+        assert_eq!(effective.provider_id, "p1");
+        assert_eq!(effective.model_id, "m2");
+    }
+
+    #[test]
+    fn effective_session_model_skips_an_unavailable_agent_primary() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_agent_fixture(temp.path(), "p1::gone");
+        let store = display_store_with_models(Some(("p1", "m2")));
+
+        let effective = crate::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            super::effective_session_model(crate::agent_loader::DEFAULT_AGENT_ID, None, &store)
+        })
+        .expect("effective");
+        assert_eq!(effective.provider_id, "p1");
+        assert_eq!(effective.model_id, "m2");
     }
 }

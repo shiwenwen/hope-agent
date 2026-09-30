@@ -1,5 +1,5 @@
 use crate::config::AppConfig;
-use crate::provider;
+use crate::provider::{self, ActiveModel};
 use crate::session::SessionDB;
 use crate::slash_commands::registry;
 use crate::slash_commands::truncate_description;
@@ -180,11 +180,17 @@ fn format_help_row(c: &SlashCommandDef) -> String {
 /// (see `ChatTitleBar.tsx`): version, model + auth type, context window usage,
 /// last-round cache stats, agent, session title + id, message count, permission
 /// mode, thinking effort, last-updated relative time, project, IM attaches.
+///
+/// `effective_model` is resolved by the dispatcher with the same
+/// configured-chain order the next turn uses (#786): session pin → Agent
+/// primary → global `active_model`; the Model line and the context window
+/// both read it so they cannot drift apart.
 pub async fn handle_status(
     session_db: &Arc<SessionDB>,
     store: &AppConfig,
     session_id: Option<&str>,
     agent_id: &str,
+    effective_model: Option<ActiveModel>,
 ) -> Result<CommandResult, String> {
     let mut lines = vec!["**Session Status**\n".to_string()];
 
@@ -192,13 +198,6 @@ pub async fn handle_status(
 
     // The session section below reuses this row; fetch it once.
     let meta = session_id.and_then(|sid| session_db.get_session(sid).ok().flatten());
-    // Effective model for this conversation (#786): a session-pinned model
-    // wins over the global active model, which only applies while the
-    // session has no pin of its own.
-    let effective_model = meta
-        .as_ref()
-        .and_then(|m| super::pinned_model_from_meta(m))
-        .or_else(|| store.active_model.clone());
     let active_model_full = effective_model.as_ref().and_then(|active| {
         provider::build_available_models(&store.providers)
             .into_iter()
@@ -1115,10 +1114,12 @@ mod tests {
             &store,
             Some(&sid),
             crate::agent_loader::DEFAULT_AGENT_ID,
+            None,
         )
         .await
         .expect("ok");
         assert!(result.content.contains("**Hope Agent**: v"));
+        assert!(result.content.contains("**Model**: not set"));
         assert!(result.content.contains("**Title**: Glittery island recap"));
         assert!(result
             .content
@@ -1150,6 +1151,7 @@ mod tests {
             &store,
             Some(&sid),
             crate::agent_loader::DEFAULT_AGENT_ID,
+            None,
         )
         .await
         .expect("ok");
@@ -1184,6 +1186,7 @@ mod tests {
             &AppConfig::default(),
             Some(&sid),
             crate::agent_loader::DEFAULT_AGENT_ID,
+            None,
         )
         .await
         .expect("ok");
@@ -1269,16 +1272,22 @@ mod tests {
         db.update_session_model(&sid, Some("p1"), Some("Provider One"), Some("m2"))
             .expect("pin model");
 
+        // The dispatcher resolves the conversation model (session pin →
+        // Agent primary → global, covered by `effective_session_model`
+        // tests in handlers::mod); here the pin-shaped resolution is what
+        // /status must render — not the global active model.
         let result = handle_status(
             &db,
             &store,
             Some(&sid),
             crate::agent_loader::DEFAULT_AGENT_ID,
+            Some(ActiveModel {
+                provider_id: "p1".into(),
+                model_id: "m2".into(),
+            }),
         )
         .await
         .expect("ok");
-        // The session pin (m2) is what the session runs with — not the global
-        // active model (m1).
         assert!(result
             .content
             .contains("**Model**: Provider One / Model Two"));
@@ -1286,7 +1295,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_status_model_line_falls_back_to_global_without_session_pin() {
+    async fn handle_status_model_line_shows_the_dispatch_resolved_model() {
         use crate::provider::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
 
         let mut provider = ProviderConfig::new(
@@ -1325,9 +1334,8 @@ mod tests {
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .expect("create");
         let sid = meta.id.clone();
-        // Fresh sessions snapshot the agent chain's model (host-config
-        // dependent); un-pin explicitly so the global model is what /status
-        // must show.
+        // No session pin and no Agent primary: the dispatcher resolves the
+        // global active model, and /status must render it.
         db.update_session_model(&sid, None, None, None)
             .expect("unpin model");
 
@@ -1336,6 +1344,7 @@ mod tests {
             &store,
             Some(&sid),
             crate::agent_loader::DEFAULT_AGENT_ID,
+            store.active_model.clone(),
         )
         .await
         .expect("ok");

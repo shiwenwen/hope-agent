@@ -5,13 +5,15 @@ use crate::slash_commands::types::{CommandAction, CommandResult, ModelPickerItem
 
 /// /model [name] — List or switch models.
 ///
-/// `session_model` is the model pinned on the calling session, if any: the
-/// picker's ✓ must show what the session actually runs with (see #786), not
-/// the global `active_model` that only applies when no session pin exists.
+/// `effective_model` is the conversation's resolved model — session pin →
+/// Agent primary → global `active_model`, computed by the dispatcher with
+/// the same configured-chain order the next turn uses (#786): the picker's
+/// ✓ must show what the session actually runs with, not whichever tier the
+/// caller happened to read.
 pub fn handle_model(
     store: &AppConfig,
     args: &str,
-    session_model: Option<&ActiveModel>,
+    effective_model: Option<&ActiveModel>,
 ) -> Result<CommandResult, String> {
     let models = provider::build_available_models(&store.providers);
 
@@ -35,14 +37,10 @@ pub fn handle_model(
             })
             .collect();
 
-        // Session pin wins over the global active model: switching via the
-        // picker pins to the session, so the checkmark must read the same
-        // source the next turn's dispatch will.
-        let effective = session_model
-            .cloned()
-            .or_else(|| store.active_model.clone());
-        let (active_pid, active_mid) = effective
-            .as_ref()
+        // The checkmark reads the resolved effective model: switching via the
+        // picker pins to the session, so it must match the source the next
+        // turn's dispatch will resolve.
+        let (active_pid, active_mid) = effective_model
             .map(|a| (Some(a.provider_id.clone()), Some(a.model_id.clone())))
             .unwrap_or((None, None));
 
@@ -159,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn picker_checkmark_prefers_the_session_pin_over_global_active() {
+    fn picker_checkmark_shows_the_resolved_effective_model() {
         let store = store_with_models(Some(("p1", "m1")));
         let session_pin = ActiveModel {
             provider_id: "p1".into(),
@@ -172,18 +170,12 @@ mod tests {
         assert_eq!(active_mid.as_deref(), Some("m2"));
     }
 
-    #[test]
-    fn picker_checkmark_falls_back_to_global_without_session_pin() {
-        let store = store_with_models(Some(("p1", "m1")));
-
-        let result = handle_model(&store, "", None).expect("ok");
-        let (active_pid, active_mid) = expect_picker(result);
-        assert_eq!(active_pid.as_deref(), Some("p1"));
-        assert_eq!(active_mid.as_deref(), Some("m1"));
-    }
+    // No-pin fallback (session pin → Agent primary → global) is resolved by
+    // `effective_session_model` in the dispatcher and covered by its tests in
+    // handlers::mod; `handle_model` only displays what it receives.
 
     #[test]
-    fn picker_checkmark_clears_when_only_a_global_model_exists() {
+    fn picker_checkmark_clears_without_an_effective_model() {
         let store = store_with_models(None);
 
         let result = handle_model(&store, "", None).expect("ok");
