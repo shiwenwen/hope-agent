@@ -26,8 +26,8 @@ services:
     # workflow re-publishes `:vX.Y.Z` multi-arch tags via `imagetools
     # create` — so a tag pin guards against accidental drift, not
     # tampering. For tamper-evident pinning, resolve and pin by digest:
-    #   docker buildx imagetools inspect ghcr.io/shiwenwen/hope-agent:v0.57.0
-    image: ghcr.io/shiwenwen/hope-agent:v0.57.0
+    #   docker buildx imagetools inspect ghcr.io/shiwenwen/hope-agent:v0.58.0
+    image: ghcr.io/shiwenwen/hope-agent:v0.58.0
     container_name: hope-agent
     restart: unless-stopped
     ports:

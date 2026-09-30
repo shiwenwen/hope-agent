@@ -141,7 +141,7 @@ docker compose --profile with-ollama up -d
 
 `docker-compose.yml` 里的 `ollama` 服务：
 
-- 镜像 `ollama/ollama:latest`
+- 镜像 `ollama/ollama` 按 manifest digest 固定（`@sha256:…`），不会自动跟随上游更新；升级时先用 `docker buildx imagetools inspect ollama/ollama:latest` 解析目标版本的多架构 digest，再手动更新 `docker-compose.yml` 里的固定值
 - 模型持久化到命名卷 `ollama-models`（容器内 `/root/.ollama`）
 - 默认只在 compose 内部网络可达（hope-agent 通过 `http://ollama:11434/v1` 调用）
 - GPU passthrough 与 host 端口暴露默认注释掉，按需取消
@@ -173,7 +173,7 @@ docker compose exec ollama nvidia-smi
 
 容器化部署的升级路径与桌面端不同 —— `app_update` 工具检测到 `HA_DEPLOYMENT=docker` 后会跳过 binary swap，引导用户拉新镜像：
 
-`docker-compose.yml` 示例默认固定到具体版本 tag（如 `:v0.57.0`），`docker compose pull` 只拉取当前固定的版本、不会自动跟随新发布；升级时先在 compose 文件里把 `hope-agent` 的 `image:` tag 改成目标版本，再拉取重启：
+`docker-compose.yml` 示例默认固定到具体版本 tag（如 `:v0.58.0`），`docker compose pull` 只拉取当前固定的版本、不会自动跟随新发布；升级时先在 compose 文件里把 `hope-agent` 的 `image:` tag 改成目标版本，再拉取重启：
 
 ```bash
 # 用 docker compose：先编辑 docker-compose.yml 里的 image tag，
@@ -189,7 +189,7 @@ docker run -d --name hope-agent ... ghcr.io/shiwenwen/hope-agent:latest
 
 数据卷会自动复用，配置 / 历史 / 凭据保留。
 
-compose 用户若偏好跟随 `latest`，把 `image:` 改回 `ghcr.io/shiwenwen/hope-agent:latest` 即可；要防篡改可按 digest 固定（`docker buildx imagetools inspect ghcr.io/shiwenwen/hope-agent:v0.57.0` 解析多架构 digest）。
+compose 用户若偏好跟随 `latest`，把 `image:` 改回 `ghcr.io/shiwenwen/hope-agent:latest` 即可；要防篡改可按 digest 固定（`docker buildx imagetools inspect ghcr.io/shiwenwen/hope-agent:v0.58.0` 解析多架构 digest）。
 
 ## 反向代理
 
