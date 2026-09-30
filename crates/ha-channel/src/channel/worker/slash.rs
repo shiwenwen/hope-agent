@@ -506,7 +506,7 @@ pub(super) async fn dispatch_slash_for_channel(
                 let buttons =
                     build_model_buttons_from_items(&models, &active_provider_id, &active_model_id);
                 Ok(ChannelSlashOutcome::Reply {
-                    content: "Select a model:".into(),
+                    content: model_picker_content(models.len()),
                     new_session_id: None,
                     buttons,
                 })
@@ -859,6 +859,29 @@ fn is_model_active(
         .unwrap_or(false)
 }
 
+/// Upper bound on models rendered by the `/model` picker (buttons and text
+/// paths alike). Raised from the original hard-coded 20 (#785): 50 keeps the
+/// largest realistic picker inside every adapter budget that can render it —
+/// Feishu validates 1-60 buttons per card, Telegram allows 100 — while
+/// adapters with tighter limits (Discord: 5 rows x 5 buttons) keep falling
+/// back to the text rendering via `validate_reply_buttons`. Beyond the cap
+/// the picker says how many were hidden so `/model <name>` stays discoverable.
+pub(super) const MODEL_PICKER_ITEM_LIMIT: usize = 50;
+
+/// Body line for the `/model` picker: names the truncation when the model
+/// list exceeds [`MODEL_PICKER_ITEM_LIMIT`] so the tail is still reachable
+/// by typing `/model <name>`.
+pub(super) fn model_picker_content(model_count: usize) -> String {
+    if model_count <= MODEL_PICKER_ITEM_LIMIT {
+        "Select a model:".to_string()
+    } else {
+        format!(
+            "Select a model (first {} of {} — use `/model <name>` for the rest):",
+            MODEL_PICKER_ITEM_LIMIT, model_count
+        )
+    }
+}
+
 /// Build inline keyboard buttons from model picker items.
 /// Each model gets a button with callback_data `slash:model <model_name>`.
 /// Telegram limits callback_data to 64 bytes, so we use model_name
@@ -871,7 +894,7 @@ pub(super) fn build_model_buttons_from_items(
     let mut rows: Vec<Vec<ha_core::channel::types::InlineButton>> = Vec::new();
     let mut row: Vec<ha_core::channel::types::InlineButton> = Vec::new();
 
-    for m in models.iter().take(20) {
+    for m in models.iter().take(MODEL_PICKER_ITEM_LIMIT) {
         let label = if is_model_active(m, active_provider_id, active_model_id) {
             format!("✓ {}", m.model_name)
         } else {
@@ -925,18 +948,19 @@ fn build_picker_buttons(
 }
 
 /// Text fallback for `ShowModelPicker` on channels without inline buttons.
-/// Lists up to 20 models with the active one marked, then a one-line
-/// instruction so the user can pick by typing `/model <name>`. Same 20-cap
-/// + same model_name preference as `build_model_buttons_from_items` so
-/// the button and text paths look identical.
+/// Lists up to [`MODEL_PICKER_ITEM_LIMIT`] models with the active one
+/// marked, then a one-line instruction so the user can pick by typing
+/// `/model <name>`. Same cap + same model_name preference as
+/// `build_model_buttons_from_items` so the button and text paths look
+/// identical.
 pub(super) fn render_model_picker_text(
     models: &[ha_core::slash_defs::types::ModelPickerItem],
     active_provider_id: &Option<String>,
     active_model_id: &Option<String>,
 ) -> String {
-    let mut lines = Vec::with_capacity(models.len().min(20) + 2);
+    let mut lines = Vec::with_capacity(models.len().min(MODEL_PICKER_ITEM_LIMIT) + 2);
     lines.push("**Available models** (use `/model <name>` to switch):".to_string());
-    for m in models.iter().take(20) {
+    for m in models.iter().take(MODEL_PICKER_ITEM_LIMIT) {
         let prefix = if is_model_active(m, active_provider_id, active_model_id) {
             "✓"
         } else {
@@ -947,8 +971,11 @@ pub(super) fn render_model_picker_text(
             prefix, m.model_name, m.provider_name
         ));
     }
-    if models.len() > 20 {
-        lines.push(format!("… +{} more", models.len() - 20));
+    if models.len() > MODEL_PICKER_ITEM_LIMIT {
+        lines.push(format!(
+            "… +{} more",
+            models.len() - MODEL_PICKER_ITEM_LIMIT
+        ));
     }
     lines.join("\n")
 }
@@ -1185,5 +1212,80 @@ mod tests {
         let rendered = render_slash_button_fallback("Pick one:", &buttons);
         assert!(rendered.contains("Fast"));
         assert!(rendered.contains("`/model fast-model`"));
+    }
+
+    fn picker_item(
+        provider: &str,
+        model: &str,
+        name: &str,
+    ) -> ha_core::slash_defs::types::ModelPickerItem {
+        ha_core::slash_defs::types::ModelPickerItem {
+            provider_id: provider.to_string(),
+            provider_name: format!("{provider} display"),
+            model_id: model.to_string(),
+            model_name: name.to_string(),
+            input_types: vec!["text".to_string()],
+        }
+    }
+
+    #[test]
+    fn model_buttons_cover_up_to_the_limit_in_two_button_rows() {
+        let models: Vec<_> = (0..MODEL_PICKER_ITEM_LIMIT + 5)
+            .map(|i| picker_item("p1", &format!("m{i}"), &format!("Model {i}")))
+            .collect();
+        let none = &None;
+
+        let rows = build_model_buttons_from_items(&models, none, none);
+
+        let covered: usize = rows.iter().map(Vec::len).sum();
+        assert_eq!(covered, MODEL_PICKER_ITEM_LIMIT, "cap the rendered buttons");
+        assert!(rows.iter().all(|row| row.len() <= 2), "two buttons per row");
+        // The 51st model stays out of the keyboard (the body copy names it).
+        let labels: Vec<&str> = rows.iter().flatten().map(|b| b.text.as_str()).collect();
+        assert!(labels.contains(&"Model 49"));
+        assert!(!labels.contains(&"Model 50"));
+    }
+
+    #[test]
+    fn model_buttons_mark_the_active_model() {
+        let models = vec![
+            picker_item("p1", "m1", "Model One"),
+            picker_item("p1", "m2", "Model Two"),
+        ];
+        let active_pid = Some("p1".to_string());
+        let active_mid = Some("m2".to_string());
+
+        let rows = build_model_buttons_from_items(&models, &active_pid, &active_mid);
+
+        assert_eq!(rows[0][0].text, "Model One");
+        assert_eq!(rows[0][1].text, "✓ Model Two");
+    }
+
+    #[test]
+    fn model_picker_text_lists_the_limit_and_counts_the_hidden_tail() {
+        let models: Vec<_> = (0..MODEL_PICKER_ITEM_LIMIT + 5)
+            .map(|i| picker_item("p1", &format!("m{i}"), &format!("Model {i}")))
+            .collect();
+        let none = &None;
+
+        let rendered = render_model_picker_text(&models, none, none);
+
+        let lines: Vec<&str> = rendered.lines().collect();
+        assert_eq!(lines.len(), MODEL_PICKER_ITEM_LIMIT + 2);
+        assert!(rendered.contains("Model 49"));
+        assert!(!rendered.contains("`Model 50`"));
+        assert!(rendered.contains(&format!("… +{}", models.len() - MODEL_PICKER_ITEM_LIMIT)));
+    }
+
+    #[test]
+    fn model_picker_body_names_the_truncation_only_when_truncated() {
+        assert_eq!(model_picker_content(3), "Select a model:");
+        assert_eq!(
+            model_picker_content(MODEL_PICKER_ITEM_LIMIT),
+            "Select a model:"
+        );
+        let truncated = model_picker_content(MODEL_PICKER_ITEM_LIMIT + 5);
+        assert!(truncated.contains("first 50 of 55"));
+        assert!(truncated.contains("`/model <name>`"));
     }
 }
