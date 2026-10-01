@@ -215,4 +215,15 @@ describe("provider template lifecycle hygiene", () => {
     })
     expect(provider?.models.length).toBeGreaterThan(0)
   })
+
+  it("offers API Route with its public OpenAI-compatible endpoint", () => {
+    const provider = PROVIDER_TEMPLATES.find((template) => template.key === "api-route")
+    expect(provider).toMatchObject({
+      apiType: "openai-chat",
+      baseUrl: "https://global.api-route.com/v1",
+      requiresApiKey: true,
+    })
+    // Discovery alone cannot establish model limits, capabilities or group prices.
+    expect(provider?.models).toEqual([])
+  })
 })

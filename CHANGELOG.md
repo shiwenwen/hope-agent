@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **API Route 服务商模板**：预填 OpenAI Chat 兼容端点，填写 API Key 并配置模型后使用。 (#752)
+
 ### Fixed
 
 - **天气城市查询**：含汉字的城市名可正常查询，上游位置缺少国家名时不再导致整批查询失败。 (#797)

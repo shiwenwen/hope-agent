@@ -4035,6 +4035,10 @@
     "waitingBrowserLogin": "브라우저 로그인 대기 중..."
   },
   "provider_templates": {
+    "api-route": {
+      "description": "OpenAI 호환 다중 모델 API 게이트웨이",
+      "name": "API Route"
+    },
     "anthropic": {
       "description": "Claude 시리즈 모델",
       "name": "Anthropic"
