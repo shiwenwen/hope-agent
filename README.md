@@ -350,6 +350,8 @@ All three modes share the same `ha-core` core. Config, sessions, and memories li
 </tr>
 </table>
 
+For API Route, select its template and enter a key from [API Route](https://www.api-route.com/tokens). Expand the model list and add an exact ID returned by `https://global.api-route.com/v1/models`, then verify the limits and prices for your route before saving. The template does not prefill model metadata: the current authenticated listing exposes IDs, not context limits or key-group prices.
+
 ## Project Structure
 
 Layered multi-crate Cargo workspace: kernel capabilities live in `ha-core`; self-contained feature domains live in feature crates (`ha-acp` / `ha-browser` / `ha-design` / `ha-mac` / `ha-mcp` / `ha-media` / `ha-pet` / `ha-updater` / `ha-vcs` / `ha-weather`, with more moving out as the split continues):

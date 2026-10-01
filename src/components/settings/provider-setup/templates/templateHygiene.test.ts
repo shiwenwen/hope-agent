@@ -223,14 +223,7 @@ describe("provider template lifecycle hygiene", () => {
       baseUrl: "https://global.api-route.com/v1",
       requiresApiKey: true,
     })
-    expect(provider?.models).toContainEqual(
-      expect.objectContaining({
-        id: "gpt-5.5",
-        contextWindow: 128000,
-        maxTokens: 8192,
-        costInput: 0.3,
-        costOutput: 1.8,
-      }),
-    )
+    // Discovery alone cannot establish model limits, capabilities or group prices.
+    expect(provider?.models).toEqual([])
   })
 })

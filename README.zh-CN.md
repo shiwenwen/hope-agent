@@ -350,6 +350,8 @@ pnpm tauri build       # 打生产包
 </tr>
 </table>
 
+使用 API Route 时，选择其模板并填写 [API Route 密钥](https://www.api-route.com/tokens)，在模型列表中添加 `https://global.api-route.com/v1/models` 返回的精确 ID，核实所用路由的限制和价格后保存。模板不预填模型参数：当前鉴权模型列表提供 ID，不提供上下文限制或密钥组别价格。
+
 ## 项目结构
 
 Cargo Workspace 分层多 Crate 架构：kernel 能力在 `ha-core`，独立特征业务在特征 crate（`ha-acp` / `ha-browser` / `ha-design` / `ha-mac` / `ha-mcp` / `ha-media` / `ha-pet` / `ha-updater` / `ha-vcs` / `ha-weather`，随 crate 拆分继续迁出）：

@@ -11,19 +11,9 @@ export const infrastructureTemplates: ProviderTemplate[] = [
     baseUrl: "https://global.api-route.com/v1",
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
-    models: [
-      {
-        id: "gpt-5.5",
-        name: "GPT-5.5",
-        inputTypes: ["text"],
-        contextWindow: 128000,
-        maxTokens: 8192,
-        reasoning: true,
-        // gpt standard group, within the first 272k-token pricing tier.
-        costInput: 0.3,
-        costOutput: 1.8,
-      },
-    ],
+    // /v1/models lists IDs, not gateway-verified limits or key-group prices.
+    // Add models explicitly rather than advertising unverified preset metadata.
+    models: [],
   },
   {
     key: "openrouter",
