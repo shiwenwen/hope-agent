@@ -634,6 +634,15 @@ ACP 服务端刻意选择**纯 Rust 原生协议适配、进程内提交共享 T
 `PromptResponse.usage` 扩展中返回精确的 `inputTokens` / `outputTokens`，终态
 落库优先采用该拆分。
 
+`PromptResponse` 的 `stopReason` 是 turn 失败真值的唯一来源：transport 成功不代表
+业务 turn 成功。会话管理器在唯一的投影点把它映射为 run 终态——`end_turn` /
+`max_tokens` / `max_turn_requests` 是协议定义的完成原因，记为 `completed`；
+`refusal` 记为 `error`（正文保留作证据，`get_result()` 返回失败，completion
+event 为 `error`）；`cancelled` 记为 `killed`；协议枚举之外的未知值一律
+fail-closed 记为 `error`，绝不投影为 `completed`。run 终态是 write-once：内存、
+`acp_runs` 行、completion event 与 `get_result()` 由同一个 claim 边界裁定，
+先到的终态（kill / 超时 / turn 完成）胜出，后到的终态写者不生效。
+
 自动发现不得覆盖显式配置的后端 ID：只要 ID 已出现在配置中，无论该项被禁用、二进制不可解析，还是因缺少可信 `distribution` 描述而拒绝注册，都要从自动发现候选中排除。这样旧配置的关闭式失败（fail-closed）拒绝不会被第二轮扫描猜成 ACP v1 并重新启用。
 
 stdio runtime 只有在 `initialize` 协议版本一致且 `session/new` / `session/load` 成功后才把子进程登记为活跃会话。此前任一步骤失败都必须在返回错误前终止并回收刚启动的子进程；命令同时启用 `kill_on_drop` 作为意外提前返回的兜底，禁止协议不兼容或初始化超时留下无人持有的 adapter 进程。
