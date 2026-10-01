@@ -317,22 +317,32 @@ impl AcpSessionManager {
             .get(run_id)
             .ok_or_else(|| anyhow::anyhow!("Run not found: {}", run_id))?;
 
-        if !run.status.is_terminal() {
-            return Err(anyhow::anyhow!(
+        match run.status {
+            AcpRunStatus::Starting | AcpRunStatus::Running => Err(anyhow::anyhow!(
                 "Run is still in progress (status: {})",
                 run.status
-            ));
+            )),
+            AcpRunStatus::Completed => Ok(run.result.clone().unwrap_or_default()),
+            AcpRunStatus::Error | AcpRunStatus::Timeout | AcpRunStatus::Killed => {
+                if let Some(error) = &run.error {
+                    Err(anyhow::anyhow!("Run failed: {}", error))
+                } else {
+                    Err(anyhow::anyhow!("Run failed with status: {}", run.status))
+                }
+            }
         }
-
-        if let Some(error) = &run.error {
-            return Err(anyhow::anyhow!("Run failed: {}", error));
-        }
-
-        Ok(run.result.clone().unwrap_or_default())
     }
 
     /// Kill a running ACP run.
     pub async fn kill_run(&self, run_id: &str) -> anyhow::Result<()> {
+        let run_meta = self.runs.read().await.get(run_id).map(|run| {
+            (
+                run.parent_session_id.clone(),
+                run.backend_id.clone(),
+                run.label.clone(),
+            )
+        });
+
         // Set cancel flag
         if let Some(cancel) = self.cancels.read().await.get(run_id) {
             cancel.store(true, Ordering::Relaxed);
@@ -346,20 +356,24 @@ impl AcpSessionManager {
             }
         }
 
-        // Claim the terminal transition. A run that already reached a
-        // terminal state keeps it — a kill racing an in-flight turn must not
-        // be overwritten by the turn's own completion afterwards.
-        Self::claim_terminal_run(
-            &self.runs,
-            &self.cancels,
-            run_id,
-            AcpRunStatus::Killed,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await;
+        // Use the same terminal exit as turn completion. Whichever writer
+        // wins the claim emits the one matching completion event.
+        if let Some((parent_session_id, backend_id, label)) = run_meta {
+            Self::finalize_run(
+                &self.runs,
+                &self.cancels,
+                run_id,
+                &parent_session_id,
+                &backend_id,
+                label.as_deref(),
+                AcpRunStatus::Killed,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        }
 
         Ok(())
     }
@@ -384,26 +398,26 @@ impl AcpSessionManager {
     }
 
     /// Send a follow-up message to a running ACP session (steer).
-    pub async fn steer_run(&self, run_id: &str, message: &str) -> anyhow::Result<()> {
-        let session = self
-            .sessions
-            .read()
-            .await
-            .get(run_id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("No active session for run {}", run_id))?;
-
-        let runtime = self
-            .registry
-            .get(&session.backend_id)
-            .await
-            .ok_or_else(|| anyhow::anyhow!("Backend not found: {}", session.backend_id))?;
-
-        let (tx, _rx) = mpsc::channel(256);
-        let cancel = Arc::new(AtomicBool::new(false));
-
-        runtime.run_turn(&session, message, tx, cancel).await?;
-        Ok(())
+    ///
+    /// Not supported over the stdio control runtime, and reported honestly as
+    /// such: ACP sessions process one `session/prompt` at a time. The protocol
+    /// has no mid-turn message injection, a second prompt while one is in
+    /// flight is rejected by single-turn backends, and the previous
+    /// implementation — a second concurrent `run_turn` with a colliding
+    /// request id on the same child — could surface a fabricated success
+    /// while the child was being torn down. Callers get a real error instead:
+    /// wait for the run to finish, read its result, then spawn a follow-up
+    /// run if needed.
+    pub async fn steer_run(&self, run_id: &str, _message: &str) -> anyhow::Result<()> {
+        if self.sessions.read().await.get(run_id).is_none() {
+            anyhow::bail!("No active session for run {}", run_id);
+        }
+        anyhow::bail!(
+            "Steering an active ACP run is not supported: ACP sessions process one \
+             prompt at a time, so run {run_id} cannot take a follow-up prompt while \
+             its current turn is in flight. Wait for the run to finish, read its \
+             result, then spawn a follow-up run if needed."
+        );
     }
 
     /// Count active (non-terminal) runs.
@@ -574,6 +588,7 @@ impl AcpSessionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ha_core::event_bus::{BroadcastEventBus, EventBus};
     use std::sync::atomic::AtomicUsize;
 
     /// What a scripted turn does.
@@ -765,6 +780,74 @@ mod tests {
         panic!("close_session was not called {calls} times");
     }
 
+    fn subscribe_test_event_bus() -> tokio::sync::broadcast::Receiver<ha_core::event_bus::AppEvent>
+    {
+        if ha_core::get_event_bus().is_none() {
+            let bus: Arc<dyn EventBus> = Arc::new(BroadcastEventBus::new(256));
+            ha_core::set_event_bus(bus);
+        }
+        ha_core::get_event_bus().expect("event bus").subscribe()
+    }
+
+    async fn recv_acp_event_for_run(
+        rx: &mut tokio::sync::broadcast::Receiver<ha_core::event_bus::AppEvent>,
+        run_id: &str,
+        event_type: &str,
+    ) {
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                let event = rx.recv().await.expect("ACP event");
+                if event.name == events::ACP_CONTROL_EVENT
+                    && event
+                        .payload
+                        .get("runId")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(run_id)
+                    && event
+                        .payload
+                        .get("eventType")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(event_type)
+                {
+                    return;
+                }
+            }
+        })
+        .await
+        .expect("matching ACP event");
+    }
+
+    async fn assert_no_acp_event_for_run(
+        rx: &mut tokio::sync::broadcast::Receiver<ha_core::event_bus::AppEvent>,
+        run_id: &str,
+        event_type: &str,
+    ) {
+        let duplicate = tokio::time::timeout(std::time::Duration::from_millis(50), async {
+            loop {
+                let event = rx.recv().await.expect("ACP event");
+                if event.name == events::ACP_CONTROL_EVENT
+                    && event
+                        .payload
+                        .get("runId")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(run_id)
+                    && event
+                        .payload
+                        .get("eventType")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(event_type)
+                {
+                    return;
+                }
+            }
+        })
+        .await;
+        assert!(
+            duplicate.is_err(),
+            "duplicate {event_type} event for run {run_id}"
+        );
+    }
+
     #[tokio::test]
     async fn end_turn_still_completes_the_run() {
         let fake = FakeRuntime::new(TurnScript::Stop("end_turn"));
@@ -836,6 +919,9 @@ mod tests {
         let run = wait_terminal(&manager, &run_id).await;
         assert_eq!(run.status, AcpRunStatus::Killed);
         assert_eq!(run.result, None);
+        let result = manager.get_result(&run_id).await;
+        assert!(result.is_err(), "cancelled runs must not return success");
+        assert!(result.unwrap_err().to_string().contains("killed"));
     }
 
     #[tokio::test]
@@ -907,6 +993,12 @@ mod tests {
                 .load(std::sync::atomic::Ordering::SeqCst),
             1
         );
+        let result = manager.get_result(&run_id).await;
+        assert!(
+            result.is_err(),
+            "explicitly killed runs must not return success"
+        );
+        assert!(result.unwrap_err().to_string().contains("killed"));
     }
 
     #[tokio::test]
@@ -920,7 +1012,9 @@ mod tests {
             .expect("spawn");
 
         create_entered.notified().await;
-        manager.kill_run(&run_id).await.expect("kill during create");
+        let mut events = subscribe_test_event_bus();
+        manager.kill_run(&run_id).await.expect("terminate run");
+        recv_acp_event_for_run(&mut events, &run_id, "killed").await;
         assert_eq!(
             manager.check_run(&run_id).await.expect("run").status,
             AcpRunStatus::Killed
@@ -929,6 +1023,7 @@ mod tests {
         create_release.notify_one();
         wait_closes(&fake, 1).await;
         tokio::task::yield_now().await;
+        assert_no_acp_event_for_run(&mut events, &run_id, "killed").await;
 
         let run = manager.check_run(&run_id).await.expect("run");
         assert_eq!(run.status, AcpRunStatus::Killed);
@@ -941,6 +1036,71 @@ mod tests {
         );
         assert!(manager.sessions.read().await.get(&run_id).is_none());
     }
+
+    #[tokio::test]
+    async fn steer_on_an_active_run_is_honestly_unsupported() {
+        let fake = FakeRuntime::new(TurnScript::UntilCancelled);
+        let manager = FakeRuntime::manager(fake.clone()).await;
+        let run_id = manager
+            .spawn_run("fake", "task", spawn_params(None), "parent", None)
+            .await
+            .expect("spawn");
+
+        // Wait until the original turn is actually running.
+        for _ in 0..2000 {
+            if matches!(
+                manager.check_run(&run_id).await.map(|r| r.status),
+                Some(AcpRunStatus::Running)
+            ) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+
+        let result = manager.steer_run(&run_id, "follow-up").await;
+        let error = result.expect_err("steer must not fake success");
+        assert!(
+            error.to_string().contains("not supported"),
+            "error: {error}"
+        );
+
+        // Exactly one prompt was ever issued: no second session/prompt was
+        // written against the child while the original turn was in flight.
+        assert_eq!(
+            fake.run_turn_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+
+        // The original run is untouched by the rejected steer.
+        let run = manager.check_run(&run_id).await.expect("run");
+        assert_eq!(run.status, AcpRunStatus::Running);
+        manager.kill_run(&run_id).await.expect("kill to clean up");
+    }
+
+    #[tokio::test]
+    async fn steer_on_a_finished_run_reports_no_active_session() {
+        let fake = FakeRuntime::new(TurnScript::Stop("end_turn"));
+        let manager = FakeRuntime::manager(fake.clone()).await;
+        let run_id = manager
+            .spawn_run("fake", "task", spawn_params(None), "parent", None)
+            .await
+            .expect("spawn");
+        wait_terminal(&manager, &run_id).await;
+
+        let result = manager.steer_run(&run_id, "follow-up").await;
+        let error = result.expect_err("finished runs have no session to steer");
+        assert!(
+            error.to_string().contains("No active session"),
+            "error: {error}"
+        );
+        assert_eq!(
+            fake.run_turn_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
+
     #[test]
     fn project_stop_reason_follows_acp_v1_semantics() {
         // Completion reasons stay successful.

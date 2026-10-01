@@ -653,7 +653,9 @@ stdio runtime 只有在 `initialize` 协议版本一致且 `session/new` / `sess
 
 会话启动、版本获取与健康探测共用分发描述符的认证模式。`InheritedEnvironment` 按既有合同保留宿主环境继承，已知后端自动发现也采用该模式；`Terminal` / `None` 只保留 HOME/USER/USERPROFILE/PATH、语言、时区、临时目录及 Windows 运行所需变量。owner 显式 `env` 最后覆盖。描述符尚未包含认证变量名单，不能把整体继承模式宣称为精确凭据白名单；该切片仍待后端合同与验收矩阵，也不等于 PATH 分发文件已经过来源/摘要验证。
 
-握手及 prompt reader 先识别反向 request，再匹配出站响应 ID，避免同 ID 的权限请求被当成结果。当前未实现审批转发，`session/request_permission` 返回 `cancelled`，其它不支持的反向方法返回 `-32601`；不根据名称、默认选择或无人值守状态授予权限。唯一 reader/id router、完整 elicitation 状态机与真实 adapter 验收仍是独立待完成范围。
+握手及 prompt reader 先识别反向 request，再匹配出站响应 ID，避免同 ID 的权限请求被当成结果。当前未实现审批转发，`session/request_permission` 返回 `cancelled`，其它不支持的反向方法返回 `-32601`；不根据名称、默认选择或无人值守状态授予权限。
+
+stdio 控制面对活跃 run 的 `steer` 明确不支持并诚实报错：ACP 会话一次只处理一个 `session/prompt`，协议没有 mid-turn 注入语义（Hope 自身 ACP server 同样在入队前拒绝并发 prompt）。会话管理器不再向活跃子进程写第二个 prompt，也不留隐藏排队；调用方应等 run 终态后读结果、按需再 spawn 后续 run。prompt 请求 id 为 child 级自增（起于 100），响应只可能匹配自己的请求。匹配该 id 的 JSON-RPC `error` 必须直接结束为 transport/runtime 错误；成功响应必须显式带 `result.stopReason`，缺失 `result` 或 `stopReason` 一律 fail-closed，不能补造 `end_turn`。`run_turn` 读到子进程 stdout EOF 即明确失败（cancel 已置位时保持 `cancelled`），不再把 child 被杀或崩溃伪造成空成功；session 级 close 与 turn 完成线性化，kill 之后的迟到终态不会覆盖 `killed`。完整 multiplex / elicitation 状态机与真实 adapter 验收仍是独立待完成范围。
 
 ## 文件索引
 
