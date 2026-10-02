@@ -61,6 +61,8 @@ jobs:
     runs-on: macos-15-intel
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+      # Ensure Intel binary is linked against macOS 11+ SDK for legacy Mac compatibility
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
       # Match release.yml: the Tauri beforeBuildCommand needs more than
       # Node's default heap when building the frontend on macOS.
       NODE_OPTIONS: "--max-old-space-size=4096"
