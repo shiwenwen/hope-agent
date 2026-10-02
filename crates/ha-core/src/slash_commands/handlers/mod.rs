@@ -71,6 +71,23 @@ pub(super) fn effective_session_model(
     .0
 }
 
+async fn effective_session_model_for_dispatch(
+    session_id: Option<&str>,
+    agent_id: &str,
+    store: &crate::config::AppConfig,
+) -> Result<Option<crate::provider::ActiveModel>, String> {
+    let db = session_db()?.clone();
+    let session_id = session_id.map(str::to_string);
+    let agent_id = agent_id.to_string();
+    let store = store.clone();
+
+    Ok(crate::blocking::run_blocking(move || {
+        let session_pin = session_pinned_model(&db, session_id.as_deref());
+        effective_session_model(&agent_id, session_pin, &store)
+    })
+    .await)
+}
+
 /// Format the (sole, with 1:1 attach) IM-attach row as a markdown
 /// bullet line. Used by `/status` and `/session` (info form) so both
 /// surfaces stay consistent.
@@ -119,14 +136,14 @@ pub async fn dispatch(
         // ── Model ──
         "model" => {
             let store = crate::config::cached_config();
-            let session_model = session_pinned_model(session_db()?, session_id);
-            let effective = effective_session_model(agent_id, session_model, &store);
+            let effective =
+                effective_session_model_for_dispatch(session_id, agent_id, &store).await?;
             model::handle_model(&store, args, effective.as_ref())
         }
         "models" => {
             let store = crate::config::cached_config();
-            let session_model = session_pinned_model(session_db()?, session_id);
-            let effective = effective_session_model(agent_id, session_model, &store);
+            let effective =
+                effective_session_model_for_dispatch(session_id, agent_id, &store).await?;
             model::handle_model(&store, "", effective.as_ref())
         }
         // `think` is a silent alias for `thinking` (only `thinking` is in the
@@ -171,8 +188,8 @@ pub async fn dispatch(
         "help" => Ok(utility::handle_help(session_id)),
         "status" => {
             let store = crate::config::cached_config();
-            let session_model = session_pinned_model(session_db()?, session_id);
-            let effective = effective_session_model(agent_id, session_model, &store);
+            let effective =
+                effective_session_model_for_dispatch(session_id, agent_id, &store).await?;
             utility::handle_status(session_db()?, &store, session_id, agent_id, effective).await
         }
         "export" => utility::handle_export(session_db()?, session_id, args),
