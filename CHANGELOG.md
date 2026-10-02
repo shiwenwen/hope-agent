@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **停止回复后继续对话**：OpenAI Chat 兼容模型的请求历史不再包含空的 assistant 消息，已有会话可继续发送消息。 (#783)
+- **飞书按钮卡片**：多行按钮（如 ask_user、审批、`/model` 选择器）按行垂直排列，不再被挤成一行。 (#790)
+- **IM `/model` 选择器**：可选模型上限从 20 提升到 50，超出时提示用 `/model <名称>` 切换，尾部模型不再不可见。 (#790)
 
 ## [0.58.0] - 2026-09-30
 
