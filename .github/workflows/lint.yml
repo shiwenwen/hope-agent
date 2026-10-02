@@ -99,10 +99,12 @@ jobs:
       - name: Agent kernel migration boundaries
         run: node scripts/check-agent-kernel-boundaries.mjs
 
-      # Informational only for now: the repo carries ~3.3k historical missing
-      # keys across the 10 non-baseline locales (en/zh are the source of truth).
-      # Once that backlog is paid down, drop `continue-on-error` to make this
-      # job block PRs that introduce new missing keys.
-      - name: i18n missing-key check (informational)
-        run: pnpm i18n:check
+      # Missing-key parity is fully green, so it now blocks PRs that
+      # introduce new missing keys.
+      - name: i18n missing-key check
+        run: node scripts/sync-i18n.mjs --check
+      # Quality audit (stale translation seeds, format rules) still carries a
+      # small backlog and stays informational until it is paid down.
+      - name: i18n quality audit (informational)
+        run: node scripts/audit-i18n-quality.mjs --locales ar,es,ja,ko,ms,pt,ru,tr,vi,zh,zh-TW --source src --all --fail-on-same
         continue-on-error: true
