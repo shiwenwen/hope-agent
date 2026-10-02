@@ -259,6 +259,14 @@ impl CronDB {
         if !has_sandbox_override {
             conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN sandbox_mode_override TEXT;")?;
         }
+        // Migration: per-job model snapshot for isolated runs (#784). Nullable —
+        // NULL means "resolve from the agent chain / global active model".
+        let has_model_override: bool = conn
+            .prepare("SELECT model_override FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_model_override {
+            conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN model_override TEXT;")?;
+        }
 
         // Logical deletion keeps run history and its ordinary conversations
         // reachable while removing the task from every live control surface.
@@ -395,6 +403,7 @@ impl CronDB {
             input.project_id.as_deref(),
             input.permission_mode_override,
             input.sandbox_mode_override,
+            input.model_override.as_ref(),
         )?;
 
         let id = uuid::Uuid::new_v4().to_string();
@@ -429,8 +438,8 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at, job_timeout_secs, permission_mode_override, sandbox_mode_override, workspace_policy_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11, ?14, ?15, ?16, ?17)",
+            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at, job_timeout_secs, permission_mode_override, sandbox_mode_override, workspace_policy_json, model_override)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11, ?14, ?15, ?16, ?17, ?18)",
             params![
                 id,
                 input.name,
@@ -448,7 +457,12 @@ impl CronDB {
                 input.job_timeout_secs.map(|v| v as i64),
                 input.permission_mode_override.map(|m| m.as_str()),
                 input.sandbox_mode_override.map(|m| m.as_str()),
-                workspace_policy_json
+                workspace_policy_json,
+                input
+                    .model_override
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .and_then(Result::ok)
             ],
         )?;
 
@@ -475,6 +489,7 @@ impl CronDB {
             job_timeout_secs: input.job_timeout_secs,
             permission_mode_override: input.permission_mode_override,
             sandbox_mode_override: input.sandbox_mode_override,
+            model_override: input.model_override.clone(),
         })
     }
 
@@ -516,6 +531,7 @@ impl CronDB {
             job.project_id.as_deref(),
             job.permission_mode_override,
             job.sandbox_mode_override,
+            job.model_override.as_ref(),
         )?;
 
         let now = Utc::now();
@@ -637,8 +653,8 @@ impl CronDB {
         };
 
         let updated = tx.execute(
-            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, permission_mode_override=?15, sandbox_mode_override=?16, workspace_policy_json=?17, updated_at=?11, revision=revision+1
-             WHERE id=?12 AND deleted_at IS NULL AND revision=?18",
+            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, permission_mode_override=?15, sandbox_mode_override=?16, workspace_policy_json=?17, model_override=?18, updated_at=?11, revision=revision+1
+             WHERE id=?12 AND deleted_at IS NULL AND revision=?19",
             params![
                 job.name,
                 job.description,
@@ -657,6 +673,11 @@ impl CronDB {
                 job.permission_mode_override.map(|m| m.as_str()),
                 job.sandbox_mode_override.map(|m| m.as_str()),
                 workspace_policy_json,
+                job
+                    .model_override
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .and_then(Result::ok),
                 expected_revision_i64,
             ],
         )?;
@@ -1056,7 +1077,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json, model_override
              FROM cron_jobs WHERE id=?1 AND deleted_at IS NULL"
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -1075,11 +1096,13 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json, deleted_at IS NOT NULL
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json, model_override, deleted_at IS NOT NULL
              FROM cron_jobs WHERE id=?1")?;
         let mut rows = stmt.query(params![id])?;
         match rows.next()? {
-            Some(row) => Ok(Some((row_to_cron_job(row)?, row.get(22)?))),
+            // Index 23 = the `deleted_at IS NOT NULL` flag; index 22 is
+            // `model_override`, consumed by `row_to_cron_job`.
+            Some(row) => Ok(Some((row_to_cron_job(row)?, row.get(23)?))),
             None => Ok(None),
         }
     }
@@ -1163,7 +1186,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json, model_override
              FROM cron_jobs WHERE deleted_at IS NULL ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -1194,7 +1217,7 @@ impl CronDB {
             // — without it SQLite returns rows in arbitrary rowid order and, under
             // sustained cap pressure, the most-overdue job could be skipped every
             // tick (starvation). Most-overdue-first makes the cap fair.
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json, model_override
              FROM cron_jobs WHERE deleted_at IS NULL AND status='active'
                AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1
              ORDER BY next_run_at ASC"
@@ -3867,6 +3890,15 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
             .ok()
             .flatten()
             .map(|s| crate::permission::SandboxMode::parse_or_default(&s)),
+        // Index 22, appended after workspace_policy_json (21) in every full
+        // SELECT. `.ok().flatten()` keeps narrower test SELECTs defaulting to
+        // None; unparseable JSON also falls back to None (follow the agent
+        // chain) instead of failing the read.
+        model_override: row
+            .get::<_, Option<String>>(22)
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok()),
     })
 }
 
@@ -3909,11 +3941,13 @@ fn validate_payload_overrides(
     project_id: Option<&str>,
     permission_mode: Option<crate::permission::SessionMode>,
     sandbox_mode: Option<crate::permission::SandboxMode>,
+    model_override: Option<&crate::provider::ActiveModel>,
 ) -> Result<()> {
     if matches!(payload, CronPayload::SessionTurn { .. })
         && (normalize_optional_string(project_id).is_some()
             || permission_mode.is_some()
-            || sandbox_mode.is_some())
+            || sandbox_mode.is_some()
+            || model_override.is_some())
     {
         anyhow::bail!("session_turn_uses_live_session_context");
     }
@@ -3932,7 +3966,7 @@ mod tests {
 
     macro_rules! job {
         ($($fields:tt)*) => {
-            NewCronJob { workspace_policy: Default::default(), $($fields)* }
+            NewCronJob { workspace_policy: Default::default(), model_override: None, $($fields)* }
         };
     }
     macro_rules! run_log {
@@ -5283,7 +5317,7 @@ mod tests {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json
+                "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override, revision, workspace_policy_json, model_override
                  FROM cron_jobs WHERE id='row-read'",
             )
             .expect("prepare");
@@ -6331,5 +6365,110 @@ mod tests {
         assert!(future.next_run_at.is_some());
 
         cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn model_override_round_trips_through_add_get_update() {
+        let path = temp_db_path("model-override-roundtrip");
+        let db = CronDB::open(&path).expect("open");
+        let snapshot = crate::provider::ActiveModel {
+            provider_id: "p1".to_string(),
+            model_id: "m2".to_string(),
+        };
+
+        let mut input = job! {
+            name: "pinned".into(),
+            description: None,
+            schedule: CronSchedule::Every { interval_ms: 3_600_000, start_at: None },
+            payload: CronPayload::AgentTurn {
+                prompt: "hi".into(),
+                agent_id: None,
+            },
+            max_failures: None,
+            notify_on_complete: None,
+            delivery_targets: None,
+            prefix_delivery_with_name: None,
+            job_timeout_secs: None,
+            project_id: None,
+            permission_mode_override: None,
+            sandbox_mode_override: None,
+        };
+        input.model_override = Some(snapshot.clone());
+
+        let created = db.add_job(&input).expect("add");
+        assert_eq!(created.model_override.as_ref(), Some(&snapshot));
+
+        let loaded = db.get_job(&created.id).expect("get").expect("row");
+        assert_eq!(loaded.model_override.as_ref(), Some(&snapshot));
+
+        // Owner edit can clear the pin; the NULL round-trips back.
+        let mut edited = loaded.clone();
+        edited.model_override = None;
+        db.update_job(&edited).expect("update");
+        let reloaded = db.get_job(&created.id).expect("get").expect("row");
+        assert!(reloaded.model_override.is_none());
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn model_override_is_rejected_on_live_session_targets() {
+        let path = temp_db_path("model-override-session-turn");
+        let db = CronDB::open(&path).expect("open");
+        let mut input = job! {
+            name: "live".into(),
+            description: None,
+            schedule: CronSchedule::Every { interval_ms: 3_600_000, start_at: None },
+            payload: CronPayload::SessionTurn {
+                session_id: "chat-1".into(),
+                prompt: "hi".into(),
+            },
+            max_failures: None,
+            notify_on_complete: None,
+            delivery_targets: None,
+            prefix_delivery_with_name: None,
+            job_timeout_secs: None,
+            project_id: None,
+            permission_mode_override: None,
+            sandbox_mode_override: None,
+        };
+        input.model_override = Some(crate::provider::ActiveModel {
+            provider_id: "p1".to_string(),
+            model_id: "m1".to_string(),
+        });
+        let error = db
+            .add_job(&input)
+            .expect_err("SessionTurn must reject a snapshot");
+        assert!(error
+            .to_string()
+            .contains("session_turn_uses_live_session_context"));
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn job_json_without_model_override_still_parses() {
+        // Back-compat: a serialized job from before the field existed must
+        // deserialize to None (follow the agent chain), not fail the read.
+        let legacy = r#"{
+            "id": "job-legacy",
+            "revision": 1,
+            "name": "legacy",
+            "description": null,
+            "schedule": {"type": "every", "interval_ms": 3600000, "start_at": null},
+            "payload": {"type": "agentTurn", "prompt": "hi", "agent_id": null},
+            "status": "active",
+            "nextRunAt": null,
+            "lastRunAt": null,
+            "runningAt": null,
+            "consecutiveFailures": 0,
+            "maxFailures": 5,
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z",
+            "notifyOnComplete": true,
+            "deliveryTargets": []
+        }"#;
+        let job: crate::cron::CronJob = serde_json::from_str(legacy).expect("legacy json");
+        assert!(job.model_override.is_none());
+        assert!(job.permission_mode_override.is_none());
+        assert!(job.sandbox_mode_override.is_none());
     }
 }

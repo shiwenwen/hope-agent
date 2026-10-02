@@ -158,8 +158,9 @@ stateDiagram-v2
 | `job_timeout_secs` | `Option<u64>` | per-job 覆盖全局 per-run 超时预算。`None` = 用全局默认 |
 | `permission_mode_override` | `Option<SessionMode>` | owner 专属：覆盖本任务运行会话的权限模式。`None` = 跟随 Agent 默认 |
 | `sandbox_mode_override` | `Option<SandboxMode>` | owner 专属：覆盖本任务运行会话的沙箱模式。`None` = 跟随 Agent 默认 |
+| `model_override` | `Option<ActiveModel>` | 创建时快照的运行会话模型（isolated `AgentTurn`）。`None` = 跟随 Agent 链 / 全局 activeModel。由 `manage_cron` 创建时自动写入，不进工具 schema |
 
-后三个覆盖字段是 job 级、不走设置三件套，且**只对面向用户本人的控制面（GUI + Tauri/HTTP）开放**——模型能调用的 `manage_cron` 工具恒把它们置 `None`，原因见「per-job 权限 / 沙箱覆盖」。
+后三个覆盖字段是 job 级、不走设置三件套，且**只对面向用户本人的控制面（GUI + Tauri/HTTP）开放**——模型能调用的 `manage_cron` 工具恒把它们置 `None`，原因见「per-job 权限 / 沙箱覆盖」。`model_override` 是唯一一个由工具创建路径**自动**写入的字段（快照创建者会话当时的模型），模型本身不能指定它。
 
 Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `IMMEDIATE` 事务中读取 live runtime 字段并做 revision CAS，成功递增，冲突稳定返回 `cron_revision_conflict + currentJob`。表单保留本地草稿，由用户选择加载最新版本或以最新 revision 重试。pause/resume、Project 清除、投递目标 stale 变化等 owner/config mutation 同样递增；Loop disposition 与 claim/heartbeat/失败计数等 runtime 写不制造编辑冲突。
 
@@ -222,6 +223,7 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 | `prefix_delivery_with_name` | `Option<bool>` | 成功投递前缀开关 |
 | `job_timeout_secs` | `Option<u64>` | per-job 超时覆盖 |
 | `permission_mode_override` / `sandbox_mode_override` | `Option<SessionMode>` / `Option<SandboxMode>` | per-job 权限/沙箱覆盖 |
+| `model_override` | `Option<ActiveModel>` | isolated 运行的模型快照（`None` = 跟随 Agent 链） |
 
 ### CalendarEvent 与 CronTimelineRow
 
@@ -246,6 +248,7 @@ Owner `update` 必带 `expectedRevision`；`CronDB::update_job_cas` 在 SQLite `
 - `workspace_status` 返回任务的 workspace policy、现存受管 Worktree 及后端判定的安全动作；模型只读这些动作，不获得接管、归还、归档、恢复或丢弃 Worktree 的 owner 权限。
 - Project、mode 或 base ref 的变更继续受 revision CAS、运行中锁与 Persistent 资源锁保护；模型不能用陈旧草稿或工具调用绕过。
 - 模型仍不能设置 `permission_mode_override` / `sandbox_mode_override`；这两个字段不进工具 schema，且带 owner 覆盖的任务拒绝模型修改。
+- `create`（isolated 目标）自动把当前会话的模型 pin 快照进 `model_override`，让每次运行沿用创建时的模型，而不是触发时的全局 `activeModel`；快照引用的模型后来被删只 warn 并回落 Agent 链，不 fail-closed。`SessionTurn` 目标不带快照（live 会话语境）。
 - 触发消息本身是 `role='user'` + `source='cron'` + `attachments_meta.cron_trigger` 的普通消息，只是渲染成居中系统气泡。**它必须被 `MessageList.isHumanTurnStart` 当作一轮的开始**（wakeup / loop 触发同理）：自主触发落在两轮之间、自成一轮，若归进上一轮就会被「已处理」折叠吞掉——而那条 prompt 正是解释下面这条回答的唯一线索。subagent / workflow 结果属于派生它们的那一轮，仍不算轮次开始。
 - 模型成功创建任务后通过既有 `tool_metadata` 写入 `schedule_entity`；`MessageContent` 必须把它提升到工具折叠之外，`MessageList` 还必须在整轮「已处理」折叠时再次 hoist，不能只放在 `ToolCallBlock` 或 assistant prefix 内。聊天历史与实时流统一渲染可点击的任务卡片，卡片按 id 读取 live 状态并跳转 Scheduled 详情，不复制任务正文或另建投影表。
 
@@ -695,6 +698,7 @@ CREATE TABLE cron_jobs (
     job_timeout_secs INTEGER,                               -- per-job 超时覆盖（NULL = 全局默认）
     permission_mode_override TEXT,                          -- per-job 权限覆盖（NULL = Agent 默认）
     sandbox_mode_override TEXT,                             -- per-job 沙箱覆盖（NULL = Agent 默认）
+    model_override TEXT,                                    -- isolated 运行的模型快照 JSON（NULL = 跟随 Agent 链）
     deleted_at TEXT,                                       -- NULL=live；非 NULL=逻辑删除时间
     revision INTEGER NOT NULL DEFAULT 1,                   -- owner/config edit generation
     created_at TEXT NOT NULL,
