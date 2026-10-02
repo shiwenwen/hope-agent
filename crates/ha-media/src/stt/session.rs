@@ -196,7 +196,7 @@ impl SttSessionManager {
     /// this call — once we return, the next `finalize` can drop the original
     /// and the engine sees end-of-audio immediately.
     pub fn push_chunk(&self, session_id: &str, chunk: Vec<u8>) -> SttResult<()> {
-        let mut guard = self.sessions.lock().unwrap();
+        let mut guard = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let handle = guard
             .get_mut(session_id)
             .ok_or_else(|| SttError::NotFound(session_id.to_string()))?;
@@ -223,7 +223,7 @@ impl SttSessionManager {
     /// signal atomic with respect to concurrent `push_chunk` racers.
     pub async fn finalize(&self, session_id: &str) -> SttResult<Transcript> {
         let final_rx = {
-            let mut guard = self.sessions.lock().unwrap();
+            let mut guard = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
             let Some(handle) = guard.get_mut(session_id) else {
                 return Err(SttError::NotFound(session_id.to_string()));
             };
@@ -253,7 +253,7 @@ impl SttSessionManager {
 
     /// Mark the session cancelled and drop the audio / final channels.
     pub fn cancel(&self, session_id: &str) -> SttResult<()> {
-        let mut guard = self.sessions.lock().unwrap();
+        let mut guard = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let Some(handle) = guard.remove(session_id) else {
             return Err(SttError::NotFound(session_id.to_string()));
         };
@@ -268,7 +268,7 @@ impl SttSessionManager {
     /// and treat them as abandoned. Used by `runtime_tasks::stt_gc_tick`.
     pub fn gc_idle(&self) -> usize {
         let cutoff = Instant::now() - Duration::from_secs(SESSION_IDLE_TIMEOUT_SECS);
-        let mut guard = self.sessions.lock().unwrap();
+        let mut guard = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let mut to_remove = Vec::new();
         for (id, handle) in guard.iter() {
             if handle.last_active < cutoff {
@@ -296,7 +296,10 @@ impl SttSessionManager {
     /// Test helper — number of live sessions.
     #[cfg(test)]
     pub fn live_count(&self) -> usize {
-        self.sessions.lock().unwrap().len()
+        self.sessions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len()
     }
 }
 
