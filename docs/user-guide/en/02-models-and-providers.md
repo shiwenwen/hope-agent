@@ -305,11 +305,15 @@ The image and audio artifacts of the [Design Space](06-design-space.md) run on t
 
 Configure search providers for the `web_search` tool in conversations.
 
-**Where**: Settings → **Web Search** panel. 9 providers can be dragged to reorder (the one ranked first is the primary; the others that are enabled serve as fallbacks):
+**Where**: Settings → **Web Search** panel. 10 search options can be dragged to reorder (the one ranked first is the primary; the others that are enabled serve as fallbacks):
 
-- **Free, no key needed**: DuckDuckGo (marked "limited reliability")
+- **Free, no key needed**: Free multi-engine search and DuckDuckGo (both marked "limited reliability")
 - **Self-hosted**: SearXNG (fill in the instance URL; includes one-click Docker deployment)
 - **Key required**: Tavily (recommended globally), Bocha (recommended domestically), Brave, Perplexity, Google CSE, Grok, Kimi
+
+New installations enable **Free multi-engine search** by default: Brave web search first, 360 Search if Brave fails or returns no usable results, then DuckDuckGo and other enabled providers in order. No API key, Python runtime, or extra deployment is needed. Existing configurations keep their provider order and append the new option as a fallback when DuckDuckGo is enabled. Otherwise the added option stays disabled; you can enable it manually and drag it to the top. Disabling every provider also prevents execution, including calls made with a stale tool definition.
+
+This native implementation takes inspiration from DDGS's multi-engine fallback and does not run the original Python DDGS package. Keyless access cannot guarantee availability: upstream rate limits, network restrictions, and page changes can still cause failures. Country and language filters are applied on a best-effort basis according to upstream support; an explicit freshness filter prevents fallback to 360 Search, which does not support it.
 
 | Advanced setting | What it does |
 | --- | --- |

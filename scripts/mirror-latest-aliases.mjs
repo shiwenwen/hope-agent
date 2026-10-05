@@ -22,7 +22,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-// Exactly the filenames README.md / README.en.md link under
+// Exactly the filenames README.md / README.zh-CN.md link under
 // https://repo.hopeagent.ai/download/latest/. Adding a link there? Add it
 // here too, or it is not covered by the mirror's verification gate.
 //

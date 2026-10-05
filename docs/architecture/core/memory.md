@@ -315,8 +315,8 @@ CREATE TABLE memories (
 
 Project scope 比 Agent scope 更窄，存在的意义是：**会话属于某项目时，项目知识优先，且不会泄漏到用同一 Agent 的其它项目**。隔离保证：
 
-- `recall_memory` / `save_memory` 工具经 `scope_where(agent_id)` 查询，**有意排除 Project scope**，防止项目记忆在无关会话中泄漏。
-- 项目记忆仅通过显式 `MemoryScope::Project { id }` 或 `load_prompt_candidates_with_project()` 访问；`save_memory` 的 `scope="project"` 从当前会话 `session.project_id` 自动解析。
+- `recall_memory` 只查询当前会话可读的作用域：当前 Project（若有）、当前 Agent，以及 Agent 允许共享时的 Global。各作用域分别检索；有词法命中或足够语义相似度时先各保留一条，再按 Project、Agent、Global 优先级填满 `limit`，避免单一作用域占满结果。`limit` 小于匹配作用域数时仍按此优先级截断。
+- Project 记忆仅通过当前会话的项目 ID 查询，不会泄漏到其它项目；`save_memory` 的 `scope="project"` 也从当前会话 `session.project_id` 自动解析。Global 的读写仍受当前 Agent 的 shared 设置约束。
 
 `MemoryBackend` trait 另有 owner-only 的只读 `health()`（SQLite quick_check、索引缺口、embedding 覆盖、claim graph 孤儿、Dreaming stale state）和保守 `repair(action)`——**实现必须显式 opt-in，绝不让模型能调用的工具面直接触发**。
 

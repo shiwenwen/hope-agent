@@ -2411,6 +2411,25 @@ impl AssistantAgent {
                             }
                         }
                     } else {
+                        // Older interrupted turns can retain an assistant
+                        // placeholder with no text or tool call. Chat APIs
+                        // reject it, so omit it from the provider projection.
+                        if item.get("role").and_then(|r| r.as_str()) == Some("assistant") {
+                            let has_text = item
+                                .get("content")
+                                .and_then(|content| content.as_str())
+                                .is_some_and(|content| !content.trim().is_empty());
+                            let has_tool_call = item
+                                .get("tool_calls")
+                                .and_then(|calls| calls.as_array())
+                                .is_some_and(|calls| !calls.is_empty())
+                                || item
+                                    .get("function_call")
+                                    .is_some_and(|call| !call.is_null());
+                            if !has_text && !has_tool_call {
+                                continue;
+                            }
+                        }
                         // String content or other — pass through
                         result.push(item.clone());
                     }
@@ -3494,6 +3513,29 @@ mod responses_history_tests {
         );
         // user + assistant survive; both reasoning items dropped.
         assert_eq!(normalized.len(), 2);
+    }
+
+    #[test]
+    fn chat_history_omits_empty_interrupted_assistant_but_keeps_tool_calls() {
+        let history = vec![
+            json!({"role": "user", "content": "first"}),
+            json!({"role": "assistant", "content": "", "reasoning_content": "partial thought"}),
+            json!({"role": "assistant", "content": null}),
+            json!({"role": "assistant", "content": "  "}),
+            json!({"role": "assistant", "content": null, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "read", "arguments": "{}"}}]}),
+            json!({"role": "tool", "tool_call_id": "call_1", "content": "done"}),
+            json!({"role": "user", "content": "continue"}),
+        ];
+        let normalized = AssistantAgent::normalize_history_for_chat(&history);
+        assert_eq!(
+            normalized,
+            vec![
+                history[0].clone(),
+                history[4].clone(),
+                history[5].clone(),
+                history[6].clone()
+            ]
+        );
     }
 
     #[test]

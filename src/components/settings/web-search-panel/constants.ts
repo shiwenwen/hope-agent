@@ -1,6 +1,17 @@
 import type { ProviderMeta, ProviderEntry } from "./types"
 
 export const PROVIDER_META: Record<string, ProviderMeta> = {
+  keyless: {
+    id: "keyless",
+    labelKey: "settings.webSearchProviderKeyless",
+    badges: [
+      { labelKey: "settings.webSearchNoKey", tone: "positive" },
+      { labelKey: "settings.webSearchLimitedReliability", tone: "warning" },
+    ],
+    needsApiKey: false,
+    url: "https://github.com/shiwenwen/hope-agent/blob/main/docs/architecture/core/tool-system.md",
+    fields: [],
+  },
   "duck-duck-go": {
     id: "duck-duck-go",
     labelKey: "settings.webSearchProviderDDG",
@@ -153,8 +164,8 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
 export function hasRequiredCredentials(entry: ProviderEntry): boolean {
   const meta = PROVIDER_META[entry.id]
   if (!meta) return false
-  // DuckDuckGo: always ready
-  if (entry.id === "duck-duck-go") return true
+  // Built-in keyless providers need no credentials or external runtime.
+  if (entry.id === "keyless" || entry.id === "duck-duck-go") return true
   // SearXNG: needs baseUrl (instance address)
   if (entry.id === "searxng") return !!entry.baseUrl?.trim()
   // Paid providers: need apiKey

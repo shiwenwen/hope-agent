@@ -414,6 +414,7 @@ flowchart LR
 正常完成只有一个 `commit_assistant_turn` 事务，依次完成 journal 物化、最终 assistant、legacy trailing placeholder 清理、完整 context、可选 `chat_turns` 终态、usage ledger、run/attempt 终态和 session 时间。任何 SQL 失败整体回滚，turn 不得伪装 completed。成功 `chat:stream_end` 只能在该事务提交后发送。
 
 停止/失败由 `commit_interrupted_turn` 原子收敛：只物化 checksum 正确且 seq 连续的最大前缀，写明确恢复/中断事件，并把 turn/run 标为 interrupted/failed/recovered。
+中断后的消息台账可用空文本 assistant 行承接已经产生的思考块；OpenAI Chat 请求历史投影会跳过没有文本和工具调用的 assistant 行，保留原始消息与思考块而不向 Provider 发送非法消息。
 
 ### 紧急 spool 与 Incognito
 

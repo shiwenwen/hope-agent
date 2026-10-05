@@ -64,7 +64,7 @@ permissions:
 env:
   # Public base URL served by the R2 bucket's custom domain. Baked into the
   # apt sources.list line and the dnf .repo file; keep in lockstep with
-  # README.md / README.en.md / linux-repo/rpm/hope-agent.repo.
+  # README.md / README.zh-CN.md / linux-repo/rpm/hope-agent.repo.
   PUBLIC_BASE: https://repo.hopeagent.ai
   # rclone remote "r2" configured entirely from env (no rclone.conf file).
   RCLONE_CONFIG_R2_TYPE: s3

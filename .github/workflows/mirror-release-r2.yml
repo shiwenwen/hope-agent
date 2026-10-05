@@ -83,7 +83,7 @@ permissions:
 
 env:
   # Public base URL served by the R2 bucket's custom domain. Keep in lockstep
-  # with update-linux-repo.yml, README.md / README.en.md,
+  # with update-linux-repo.yml, README.md / README.zh-CN.md,
   # linux-repo/rpm/hope-agent.repo, and the R2 entry in
   # src-tauri/tauri.conf.json#plugins.updater.endpoints — that last one is
   # enforced by scripts/verify-updater-endpoints.mjs.

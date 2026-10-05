@@ -596,9 +596,11 @@ fn read_category(category: &str) -> Result<Value> {
             "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode)
         })),
         "proxy" => Ok(serde_json::to_value(&cfg.proxy)?),
-        "web_search" => Ok(redact_web_search_value(serde_json::to_value(
-            &cfg.web_search,
-        )?)),
+        "web_search" => {
+            let mut search = cfg.web_search.clone();
+            crate::tools::web_search::backfill_providers(&mut search);
+            Ok(redact_web_search_value(serde_json::to_value(search)?))
+        }
         "web_fetch" => Ok(serde_json::to_value(&cfg.web_fetch)?),
         "browser" => Ok(serde_json::to_value(&cfg.browser)?),
         "security" => Ok(json!({

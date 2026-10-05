@@ -1701,6 +1701,8 @@ Team 生命周期 HTTP 响应保持原有 `status` 字段并追加可观测结�
 
 ### Weather / URL preview / Embedded browser
 
+`geocode_search` 的位置结果保持 `country: string`；Open-Meteo 省略国家名时返回空字符串，仍保留位置、国家码及其他已提供字段。
+
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
 | `geocode_search` | `GET /api/weather/geocode` | ✅ |

@@ -13,6 +13,26 @@ export const internationalTemplates: ProviderTemplate[] = [
     requiresApiKey: true,
     models: [
       {
+        id: "claude-opus-5-5",
+        name: "Claude Opus 5.5",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_000_000,
+        maxTokens: 128_000,
+        reasoning: true,
+        costInput: 4.0,
+        costOutput: 20.0,
+      },
+      {
+        id: "claude-sonnet-5-5",
+        name: "Claude Sonnet 5.5",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_000_000,
+        maxTokens: 128_000,
+        reasoning: true,
+        costInput: 2.0,
+        costOutput: 10.0,
+      },
+      {
         id: "claude-fable-5-1",
         name: "Claude Fable 5.1",
         inputTypes: ["text", "image"],
@@ -125,6 +145,39 @@ export const internationalTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
+      {
+        id: "gpt-6.1-sol",
+        name: "GPT-6.1 Sol",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_050_000,
+        maxTokens: 128_000,
+        reasoning: true,
+        // Standard short-context prices; cache and long-input tiers are not represented.
+        costInput: 2.0,
+        costOutput: 10.0,
+      },
+      {
+        id: "gpt-6-sol",
+        name: "GPT-6 Sol",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_050_000,
+        maxTokens: 128_000,
+        reasoning: true,
+        // Standard short-context prices; cache and long-input tiers are not represented.
+        costInput: 2.0,
+        costOutput: 10.0,
+      },
+      {
+        id: "gpt-6-luna",
+        name: "GPT-6 Luna",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_050_000,
+        maxTokens: 128_000,
+        reasoning: true,
+        // Standard short-context prices; cache and long-input tiers are not represented.
+        costInput: 0.1,
+        costOutput: 0.5,
+      },
       {
         id: "gpt-6-astra",
         name: "GPT-6 Astra",

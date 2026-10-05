@@ -71,6 +71,8 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         }
         // Anthropic — Claude 5 family
         m if m.contains("claude-fable-5") || m.contains("claude-mythos-5") => (10.0, 50.0),
+        // Opus 5.5 has a lower price than the earlier Opus 5 family.
+        m if m.contains("claude-opus-5-5") => (4.0, 20.0),
         m if m.contains("claude-opus-5") => (5.0, 25.0),
         m if m.contains("claude-sonnet-5") => (2.0, 10.0),
         // Anthropic — Claude 4.x. Opus 4.5 onwards is $5/$25; only Opus 4/4.1 stayed $15/$75.
@@ -94,6 +96,8 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         // OpenAI — GPT-5.x. Tier suffixes must precede the bare family arm.
         // Sol 的 $4/$20 促销至少持续至 2026-11-21；2026-08-31 核验。
         "gpt-6-astra" => (10.0, 50.0),
+        m if m.contains("gpt-6.1-sol") || m.contains("gpt-6-sol") => (2.0, 10.0),
+        m if m.contains("gpt-6-luna") => (0.10, 0.50),
         m if m.contains("gpt-5.6-terra") => (2.0, 12.0),
         m if m.contains("gpt-5.6-luna") => (0.20, 1.20),
         m if m.contains("gpt-5.6") => (4.0, 20.0),
@@ -547,8 +551,13 @@ mod tests {
 
         // Opus 5 有独立臂：`claude-opus-4*` 匹配不到它，漏了会掉默认价。
         assert_eq!(prices("claude-opus-5"), (5.0, 25.0));
+        assert_eq!(prices("claude-opus-5-5"), (4.0, 20.0));
+        assert_eq!(prices("claude-sonnet-5-5"), (2.0, 10.0));
 
         // Tier suffixes differ in price from the bare family.
+        assert_eq!(prices("gpt-6.1-sol"), (2.0, 10.0));
+        assert_eq!(prices("gpt-6-sol"), (2.0, 10.0));
+        assert_eq!(prices("gpt-6-luna"), (0.10, 0.50));
         assert_eq!(prices("gpt-5.6-terra"), (2.0, 12.0));
         assert_eq!(prices("gpt-5.6-luna"), (0.20, 1.20));
         assert_eq!(prices("gpt-5.6-sol"), (4.0, 20.0));

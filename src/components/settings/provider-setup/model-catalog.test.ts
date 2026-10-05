@@ -44,6 +44,18 @@ function template(
 }
 
 describe("model catalog", () => {
+  it("makes the latest direct OpenAI and Anthropic models selectable", () => {
+    for (const [id, name] of [
+      ["gpt-6.1-sol", "GPT-6.1 Sol"],
+      ["gpt-6-sol", "GPT-6 Sol"],
+      ["gpt-6-luna", "GPT-6 Luna"],
+      ["claude-opus-5-5", "Claude Opus 5.5"],
+      ["claude-sonnet-5-5", "Claude Sonnet 5.5"],
+    ]) {
+      expect(searchModelCatalog(MODEL_CATALOG, id)[0]).toMatchObject({ id, name })
+    }
+  })
+
   it("finds Gemini 3.8 Flash in direct and OpenRouter catalogs without overwriting custom prices", () => {
     for (const [id, source] of [
       ["gemini-3.8-flash", "Google Gemini"],

@@ -44,9 +44,23 @@ describe("provider template lifecycle hygiene", () => {
     ).toBe(true)
   })
 
-  it("offers Astra with Responses and Fable 5.1 at their standard base prices", () => {
+  it("offers current OpenAI and Anthropic models with their direct API templates", () => {
     const responses = PROVIDER_TEMPLATES.find((provider) => provider.key === "openai")!
     expect(responses.apiType).toBe("openai-responses")
+    for (const [id, input, output] of [
+      ["gpt-6.1-sol", 2, 10],
+      ["gpt-6-sol", 2, 10],
+      ["gpt-6-luna", 0.1, 0.5],
+    ] as const) {
+      expect(responses.models.find((model) => model.id === id)).toMatchObject({
+        contextWindow: 1_050_000,
+        maxTokens: 128_000,
+        inputTypes: ["text", "image"],
+        reasoning: true,
+        costInput: input,
+        costOutput: output,
+      })
+    }
     expect(responses.models.find((model) => model.id === "gpt-6-astra")).toMatchObject({
       contextWindow: 1_050_000,
       maxTokens: 128_000,
@@ -56,8 +70,24 @@ describe("provider template lifecycle hygiene", () => {
       costOutput: 50,
     })
     const chat = PROVIDER_TEMPLATES.find((provider) => provider.key === "openai-chat")!
-    expect(chat.models.some((model) => model.id === "gpt-6-astra")).toBe(false)
+    expect(
+      chat.models.some((model) =>
+        ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-6-astra"].includes(model.id),
+      ),
+    ).toBe(false)
     const anthropic = PROVIDER_TEMPLATES.find((provider) => provider.key === "anthropic")!
+    expect(anthropic.models.find((model) => model.id === "claude-opus-5-5")).toMatchObject({
+      contextWindow: 1_000_000,
+      maxTokens: 128_000,
+      costInput: 4,
+      costOutput: 20,
+    })
+    expect(anthropic.models.find((model) => model.id === "claude-sonnet-5-5")).toMatchObject({
+      contextWindow: 1_000_000,
+      maxTokens: 128_000,
+      costInput: 2,
+      costOutput: 10,
+    })
     expect(anthropic.models.find((model) => model.id === "claude-fable-5-1")).toMatchObject({
       contextWindow: 1_000_000,
       maxTokens: 128_000,
@@ -130,6 +160,11 @@ describe("provider template lifecycle hygiene", () => {
     expect(
       provider?.models.some((model) => model.id === "accounts/fireworks/routers/kimi-k2p5-turbo"),
     ).toBe(true)
+  })
+
+  it("removes Together's retired Kimi K2.6 serverless preset", () => {
+    const together = PROVIDER_TEMPLATES.find((provider) => provider.key === "together")
+    expect(together?.models.some((model) => model.id === "moonshotai/Kimi-K2.6")).toBe(false)
   })
 
   it("does not offer retired direct model IDs to newly configured providers", () => {

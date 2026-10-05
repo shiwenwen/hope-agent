@@ -1695,6 +1695,8 @@ mod tests {
         };
 
         for model in [
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
             "claude-fable-5",
             "claude-mythos-5",
             "claude-sonnet-5",

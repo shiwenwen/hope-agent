@@ -262,6 +262,10 @@ Path-aware 工具统一用 `ToolExecContext` 解析默认路径：显式绝对�
 | `web_fetch` | default_deferred=false, concurrent_safe | V2 单 URL 安全读取：Direct HTTP + 可选隔离 Render，支持 HTML / JSON / XML / CSV / Markdown / PDF、CSS scope、`max_chars` + `max_tokens` 投影、不可变 snapshot cursor 与 freshness。结果统一为 untrusted envelope，来源写入 metadata sink。详见 [web-fetch](web-fetch.md)。 |
 | `web_search` | 条件注入, concurrent_safe, **GenericJob** | 网络搜索（需在设置启用）。参数：`query`(必填)、`count`、`country`、`language`、`freshness`、`run_in_background`、`job_timeout_secs`。不同 provider（Bocha / Brave / SearXNG / Perplexity / Google / Tavily）支持的过滤参数不同。 |
 
+免 Key 多引擎搜索（配置标识 `keyless`，入口 `tools/web_search/keyless.rs`）是借鉴 [DDGS](https://github.com/deedy5/ddgs) 的原生实现，无需 Python、额外部署或 API Key。新配置默认先尝试 Brave 网页搜索、再回退 360 网页搜索；DuckDuckGo 保留为下一层服务商兜底。旧配置回填追加该项，不改既有顺序；仅在 DuckDuckGo 已启用时启用该兜底，保留需 Key / 自托管搜索用户的免费搜索禁用状态。全部服务商关闭时执行路径拒绝调用，不因旧工具定义回落到默认入口。按参数先确定可用引擎，再在它们之间分配该服务商的超时预算；有两个可用引擎时首项预留后一项的时间。403 / 429 后该引擎冷却 60 秒。360 网页入口不支持时效过滤，指定 `freshness` 时跳过该入口，Brave 独占完整预算。国家 / 语言过滤依上游能力尽力生效，不作为硬保证。
+
+每次引擎尝试经逐跳 SSRF 检查、目标代理选择和响应字节上限；结果去重、拒绝非 HTTP(S) 和携凭据链接。用量经 `model_usage.rs` 按 `keyless_search` 操作记录成功 / 失败及耗时，无痕跳过持久化，不记录查询、正文或估算 Token。上游不可用与确实没有结果仍需分开诊断，免 Key 不承诺可用率。
+
 ### 4. 记忆系统
 
 均为 internal（永不审批）。`core_memory` 及其兼容入口用本机 Markdown，其余在 SQLite + FTS5 + 向量检索后端上操作。契约详见 [memory](memory.md)。
@@ -385,7 +389,7 @@ Path-aware 工具统一用 `ToolExecContext` 解析默认路径：显式绝对�
 |------|------|------|
 | `send_notification` | 条件注入, internal | 发系统原生桌面通知。参数：`title`、`body`(必填)。 |
 | `send_attachment` | always_load, internal | 把生成文件以可下载卡片推送到桌面 UI。参数：`path`(必填，绝对路径，上限 20 MB)、`display_name`、`description`。自动复制到 `~/.hope-agent/attachments/{session_id}/`。IM 渠道会话不可用（由渠道插件的原生媒体发送代替）。 |
-| `get_weather` | deferred, internal, concurrent_safe | 通过 Open-Meteo 获取天气（免 API key）。`location` 支持城市名或 `latitude,longitude`；`forecast_days` 1–16(默认 1)。 |
+| `get_weather` | deferred, internal, concurrent_safe | 通过 Open-Meteo 获取天气（免 API key）。`location` 支持城市名或 `latitude,longitude`；含汉字的城市名使用 `zh` 地理编码，其余沿用 `en`。地理编码允许上游省略 `country`（内部以空字符串表示），不使整批位置解码失败；`forecast_days` 1–16(默认 1)。 |
 
 ### 15. 元工具
 

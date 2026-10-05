@@ -167,7 +167,7 @@ If your PR matches any of these, you **must update the corresponding doc in the 
 - Subsystem architecture change → `docs/architecture/<name>.md`
 - New architectural capability → new file in `docs/architecture/` + `docs/README.md` index
 - Modify Tauri command / HTTP route → [`docs/architecture/system/api-reference.md`](docs/architecture/system/api-reference.md)
-- Edit either README → sync the other in the same PR (`README.md` ↔ `README.en.md`)
+- Edit either README → sync the other in the same PR (`README.md` in English ↔ `README.zh-CN.md` in Chinese)
 - Edit release notes → both Chinese and English in the same PR
 
 ## For experienced contributors / AI assistants

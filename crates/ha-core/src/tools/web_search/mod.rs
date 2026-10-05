@@ -12,6 +12,7 @@ mod duckduckgo;
 mod google;
 mod grok;
 mod helpers;
+mod keyless;
 mod kimi;
 mod perplexity;
 mod searxng;
@@ -33,10 +34,24 @@ pub use ha_config_schema::tools::web_search::{
 /// This handles the case where a new provider is added but the user's saved config
 /// was created before that provider existed.
 pub fn backfill_providers(config: &mut WebSearchConfig) {
+    let was_enabled = has_enabled_provider(config);
+    let had_keyless_search = config
+        .providers
+        .iter()
+        .any(|entry| entry.id == WebSearchProvider::DuckDuckGo && entry.enabled);
     let defaults = default_providers();
     for default_entry in &defaults {
         if !config.providers.iter().any(|p| p.id == default_entry.id) {
-            config.providers.push(default_entry.clone());
+            let mut entry = default_entry.clone();
+            // Adding a default fallback must not re-enable search when the user
+            // has explicitly disabled every provider in an existing config.
+            entry.enabled &= was_enabled;
+            // Extend the existing free-search fallback, while preserving the
+            // opt-out of users who enabled only credentialed/self-hosted search.
+            if entry.id == WebSearchProvider::Keyless {
+                entry.enabled &= had_keyless_search;
+            }
+            config.providers.push(entry);
         }
     }
 }
@@ -46,23 +61,29 @@ pub fn has_enabled_provider(config: &WebSearchConfig) -> bool {
     config.providers.iter().any(|p| p.enabled)
 }
 
-/// Collect all enabled providers in order. Falls back to DuckDuckGo if none enabled.
+/// Collect enabled providers in order. Explicitly disabling search also closes
+/// the execution path, including calls made with a stale tool definition.
 fn resolve_providers(config: &WebSearchConfig) -> Vec<&WebSearchProviderEntry> {
-    let enabled: Vec<&WebSearchProviderEntry> =
-        config.providers.iter().filter(|e| e.enabled).collect();
-    if enabled.is_empty() {
-        static DDG_FALLBACK: std::sync::LazyLock<WebSearchProviderEntry> =
-            std::sync::LazyLock::new(|| WebSearchProviderEntry {
-                id: WebSearchProvider::DuckDuckGo,
-                enabled: true,
-                api_key: None,
-                api_key2: None,
-                base_url: None,
-            });
-        vec![&DDG_FALLBACK]
-    } else {
-        enabled
-    }
+    config
+        .providers
+        .iter()
+        .filter(|entry| entry.enabled)
+        .collect()
+}
+
+fn query_and_count(args: &Value, default_count: usize) -> Result<(&str, usize)> {
+    let query = args
+        .get("query")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|query| !query.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("A non-empty 'query' parameter is required"))?;
+    let count = args
+        .get("count")
+        .and_then(Value::as_u64)
+        .unwrap_or(default_count as u64)
+        .clamp(1, 10) as usize;
+    Ok((query, count))
 }
 
 // ── Tool Entry Point ─────────────────────────────────────────────
@@ -121,22 +142,16 @@ pub(super) fn record_llm_web_search_usage(
 }
 
 pub(crate) async fn tool_web_search(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    let config = crate::config::cached_config().web_search.clone();
+    let mut config = crate::config::cached_config().web_search.clone();
+    // Saved configurations from older releases need the same effective
+    // provider list as the settings UI, even before the user saves it again.
+    backfill_providers(&mut config);
     let usage_ctx = WebSearchUsageContext {
         session_id: ctx.session_id.clone(),
         agent_id: ctx.agent_id.clone(),
     };
 
-    let query = args
-        .get("query")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
-
-    let count = args
-        .get("count")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(config.default_result_count as u64)
-        .min(10) as usize;
+    let (query, count) = query_and_count(args, config.default_result_count)?;
 
     let params = SearchParams {
         country: args
@@ -157,6 +172,9 @@ pub(crate) async fn tool_web_search(args: &Value, ctx: &ToolExecContext) -> Resu
     };
 
     let providers = resolve_providers(&config);
+    if providers.is_empty() {
+        anyhow::bail!("Web search is disabled; enable a provider in Settings → Web Search");
+    }
     let timeout = config.timeout_seconds;
 
     // Try each enabled provider in order; fallback to next on error or 0 results
@@ -188,6 +206,9 @@ pub(crate) async fn tool_web_search(args: &Value, ctx: &ToolExecContext) -> Resu
         }
 
         let attempt = match provider_id {
+            WebSearchProvider::Keyless => {
+                keyless::search_keyless(query, count, &params, timeout, &usage_ctx).await
+            }
             WebSearchProvider::DuckDuckGo => {
                 duckduckgo::search_duckduckgo(query, count, timeout).await
             }
@@ -398,6 +419,82 @@ fn write_search_cache(key: String, response: String, ttl_minutes: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keyless_defaults_and_backfill_preserve_search_disabled_state() {
+        let defaults = WebSearchConfig::default();
+        assert_eq!(defaults.providers[0].id, WebSearchProvider::Keyless);
+        assert!(defaults.providers[0].enabled);
+        for enabled in [false, true] {
+            let mut config = WebSearchConfig {
+                providers: vec![WebSearchProviderEntry {
+                    id: WebSearchProvider::DuckDuckGo,
+                    enabled,
+                    api_key: None,
+                    api_key2: None,
+                    base_url: None,
+                }],
+                ..defaults.clone()
+            };
+            backfill_providers(&mut config);
+            assert_eq!(config.providers[0].id, WebSearchProvider::DuckDuckGo);
+            assert_eq!(
+                config
+                    .providers
+                    .iter()
+                    .find(|entry| entry.id == WebSearchProvider::Keyless)
+                    .unwrap()
+                    .enabled,
+                enabled
+            );
+            assert_eq!(has_enabled_provider(&config), enabled);
+            assert_eq!(resolve_providers(&config).is_empty(), !enabled);
+            let count = config.providers.len();
+            backfill_providers(&mut config);
+            assert_eq!(config.providers.len(), count);
+        }
+    }
+
+    #[test]
+    fn keyless_backfill_preserves_an_explicit_free_search_opt_out() {
+        let mut config = WebSearchConfig::default();
+        config
+            .providers
+            .retain(|entry| entry.id != WebSearchProvider::Keyless);
+        for entry in &mut config.providers {
+            entry.enabled = entry.id == WebSearchProvider::Brave;
+            if entry.id == WebSearchProvider::Brave {
+                entry.api_key = Some("TEST_ONLY_KEY".into());
+            }
+        }
+        let existing = serde_json::to_value(&config.providers).unwrap();
+        backfill_providers(&mut config);
+        let added = config.providers.last().unwrap();
+        assert_eq!(added.id, WebSearchProvider::Keyless);
+        assert!(!added.enabled);
+        assert_eq!(
+            serde_json::to_value(&config.providers[..config.providers.len() - 1]).unwrap(),
+            existing
+        );
+    }
+
+    #[test]
+    fn search_arguments_reject_blank_queries_and_bound_result_count() {
+        for query in [serde_json::json!(null), serde_json::json!(" \n\t")] {
+            assert!(query_and_count(&serde_json::json!({ "query": query }), 5).is_err());
+        }
+        assert!(query_and_count(&serde_json::json!({}), 5).is_err());
+        for (requested, expected) in [(0, 1), (1, 1), (5, 5), (10, 10), (u64::MAX, 10)] {
+            let args = serde_json::json!({ "query": " 中文 Rust ", "count": requested });
+            assert_eq!(query_and_count(&args, 5).unwrap(), ("中文 Rust", expected));
+        }
+        assert_eq!(
+            query_and_count(&serde_json::json!({ "query": "Rust" }), 0)
+                .unwrap()
+                .1,
+            1
+        );
+    }
 
     #[test]
     fn user_facing_search_diagnostics_only_expose_provider_details() {

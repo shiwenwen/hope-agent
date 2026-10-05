@@ -221,7 +221,7 @@ for (const template of ["hope-agent.rb.tmpl", "hope-agent-arm-only.rb.tmpl"]) {
   } else {
     const required = new Set([...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]))
     const linked = new Set()
-    for (const readme of ["README.md", "README.en.md"]) {
+    for (const readme of ["README.md", "README.zh-CN.md"]) {
       const text = readFileSync(path.join(repoRoot, readme), "utf8")
       const names = [...text.matchAll(/download\/latest\/([A-Za-z0-9._-]+)/g)].map((m) => m[1])
       for (const n of names) {
