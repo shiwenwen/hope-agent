@@ -62,6 +62,9 @@ pnpm typecheck
 echo "[pre-push] eslint"
 pnpm lint
 
+echo "[pre-push] i18n missing-key check"
+node scripts/sync-i18n.mjs --check
+
 echo "[pre-push] verify-updater-pubkey (tauri.conf.json ↔ ha-updater)"
 node scripts/verify-updater-pubkey.mjs
 
