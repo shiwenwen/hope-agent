@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **raw CDP 逐次审批收严**：YOLO / 全局 YOLO 模式下 `control.raw_cdp` 不再仅记审计日志放行，与 Default / Smart 一致强制逐次确认。
 - **新建项目按钮**：扩大侧栏项目区新建按钮的点击区域，并与滚动条保持间距，便于点击。 (#761)
 
 ## [0.56.0] - 2026-09-27
