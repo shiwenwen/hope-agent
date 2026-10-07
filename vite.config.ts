@@ -1,3 +1,26 @@
+// Plugin to transform WebKit <16.4 incompatible RegExp lookbehinds in upstream packages (e.g. mdast-util-gfm-autolink-literal)
+function safari14RegexCompat() {
+  return {
+    name: "safari14-regex-compat",
+    transform(code: string, id: string) {
+      if (!id.includes("node_modules") && !id.endsWith(".js") && !id.endsWith(".ts")) return null
+      if (code.includes("(?<=^|\\s|\\p{P}|\\p{S})")) {
+        return {
+          code: code.replaceAll(
+            "/(?<=^|\\s|\\p{P}|\\p{S})([-.\\w+]+)@([-\\w]+(?:\\.[-\\w]+)+)/gu",
+            // ponytail: 替换文本是最终 JS 源码字面量（非 replace 转义上下文）故单反斜杠；
+            // 边界用补集 [^a-zA-Z0-9] 表达"非字母数字=边界"，等价 lookbehind 在 ASCII 的行为。
+            // 升级：若上游 mdast 正则再改，需同步更新此双常量。
+            "/(?:^|[^a-zA-Z0-9])([-.\\w+]+)@([-\\w]+(?:\\.[-\\w]+)+)/gu",
+          ),
+          map: null,
+        }
+      }
+      return null
+    },
+  }
+}
+
 import { readFileSync } from "node:fs"
 import { defineConfig } from "vitest/config"
 import react from "@vitejs/plugin-react"
@@ -28,6 +51,7 @@ export default defineConfig({
     // Build-time inline of the curated vscode-icons file-type icons used by
     // `FileTypeIcon` (offline, tree-shaken — only imported icons are bundled).
     Icons({ compiler: "jsx", jsx: "react", autoInstall: false }),
+    safari14RegexCompat(),
   ],
   resolve: {
     alias: {
@@ -35,8 +59,8 @@ export default defineConfig({
     },
   },
   build: {
-    // Tauri WebView / 现代浏览器都支持 esnext，不必降级转译，省体积与转译开销。
-    target: "esnext",
+    // 适配旧款 macOS (Safari 14/15/16) 的系统 WebKit，转译 static block 与 lookbehind 规避白屏
+    target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : ["es2021", "safari14"],
     // 拆 vendor 后单 chunk 远低于此；调高以消除噪音警告。
     chunkSizeWarningLimit: 2000,
     rolldownOptions: {
