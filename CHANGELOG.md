@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **进程稳定性加固**：移除多处可致整个进程退出的 panic 放大点——macOS 全屏通知回调内的断言（跨 FFI 回调 panic 即 abort）、流式输出序号注册表与实时语音会话表的锁中毒连锁 panic、知识库 OCR 守卫 Drop 内的二次 panic，全部改为恢复/降级处理。
 - **新建项目按钮**：扩大侧栏项目区新建按钮的点击区域，并与滚动条保持间距，便于点击。 (#761)
 
 ## [0.56.0] - 2026-09-27
