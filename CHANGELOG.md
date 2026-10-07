@@ -65,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **停止回复后继续对话**：OpenAI Chat 兼容模型的请求历史不再包含空的 assistant 消息，已有会话可继续发送消息。 (#783)
+- **IM `/model` 勾选与 `/status` 模型行**：显示会话实际生效模型（会话固定 → Agent 首选 → 全局默认），Agent 单独配置模型时不再误标全局模型。 (#789)
 
 ## [0.58.0] - 2026-09-30
 
