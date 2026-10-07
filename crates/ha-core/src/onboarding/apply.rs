@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 
 use crate::agent_config::AgentConfig;
 use crate::agent_loader::{ensure_default_agent, save_agent_config, DEFAULT_AGENT_ID};
-use crate::config::{load_config, save_config, ApprovalTimeoutAction};
+use crate::config::{mutate_config, ApprovalTimeoutAction};
 use crate::onboarding::presets::PersonalityPreset;
 use crate::user_config::{load_user_config, save_user_config_to_disk, SERVER_MODE_REMOTE};
 
@@ -20,9 +20,10 @@ use crate::user_config::{load_user_config, save_user_config_to_disk, SERVER_MODE
 /// so legacy paths that read from either keep working.
 pub fn apply_language(language: &str) -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "language");
-    let mut cfg = load_config()?;
-    cfg.language = language.to_string();
-    save_config(&cfg)?;
+    mutate_config(("onboarding", "language"), |cfg| {
+        cfg.language = language.to_string();
+        Ok(())
+    })?;
 
     let _g2 = crate::backup::scope_save_reason("onboarding", "language");
     let mut user = load_user_config()?;
@@ -98,31 +99,34 @@ pub struct SafetyStepInput {
 
 pub fn apply_safety(input: SafetyStepInput) -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "safety");
-    let mut cfg = load_config()?;
-    if input.approvals_enabled {
-        // Re-enabling approvals must also clear YOLO (it may have been set by a
-        // prior "no approvals" run), otherwise the engine keeps bypassing every
-        // Ask and the user is never actually prompted.
-        cfg.permission.global_yolo = false;
-        if cfg.permission.approval_timeout_action == ApprovalTimeoutAction::Proceed {
-            cfg.permission.approval_timeout_action = ApprovalTimeoutAction::Deny;
+    let approvals_enabled = input.approvals_enabled;
+    mutate_config(("onboarding", "safety"), move |cfg| {
+        if approvals_enabled {
+            // Re-enabling approvals must also clear YOLO (it may have been set by a
+            // prior "no approvals" run), otherwise the engine keeps bypassing every
+            // Ask and the user is never actually prompted.
+            cfg.permission.global_yolo = false;
+            if cfg.permission.approval_timeout_action == ApprovalTimeoutAction::Proceed {
+                cfg.permission.approval_timeout_action = ApprovalTimeoutAction::Deny;
+            }
+            if cfg.permission.approval_timeout_enabled && cfg.permission.approval_timeout_secs == 0
+            {
+                cfg.permission.approval_timeout_secs = 300;
+            }
+        } else {
+            // DEADLOCK-3: "no approvals" used to write `approval_timeout_enabled=false`
+            // + `action=Proceed`. But `enabled=false` means timeout=0 = wait forever,
+            // and the Proceed branch is only read on a timeout that never fires — so
+            // every Ask hung instead of auto-proceeding, the exact opposite of what
+            // the user was told. The honest implementation of "don't ask me" is
+            // global YOLO: the permission engine returns Allow directly, no Ask is
+            // ever emitted (so nothing can hang). This is more permissive than the
+            // old intent (it also bypasses protected-path / dangerous-command
+            // prompts) — the CLI wizard text says so explicitly.
+            cfg.permission.global_yolo = true;
         }
-        if cfg.permission.approval_timeout_enabled && cfg.permission.approval_timeout_secs == 0 {
-            cfg.permission.approval_timeout_secs = 300;
-        }
-    } else {
-        // DEADLOCK-3: "no approvals" used to write `approval_timeout_enabled=false`
-        // + `action=Proceed`. But `enabled=false` means timeout=0 = wait forever,
-        // and the Proceed branch is only read on a timeout that never fires — so
-        // every Ask hung instead of auto-proceeding, the exact opposite of what
-        // the user was told. The honest implementation of "don't ask me" is
-        // global YOLO: the permission engine returns Allow directly, no Ask is
-        // ever emitted (so nothing can hang). This is more permissive than the
-        // old intent (it also bypasses protected-path / dangerous-command
-        // prompts) — the CLI wizard text says so explicitly.
-        cfg.permission.global_yolo = true;
-    }
-    save_config(&cfg)
+        Ok(())
+    })
 }
 
 /// Skills. `disabled` overwrites the existing disabled list, which
@@ -130,9 +134,10 @@ pub fn apply_safety(input: SafetyStepInput) -> Result<()> {
 /// and writes back the edited version.
 pub fn apply_skills(disabled: Vec<String>) -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "skills");
-    let mut cfg = load_config()?;
-    cfg.disabled_skills = disabled;
-    save_config(&cfg)
+    mutate_config(("onboarding", "skills"), move |cfg| {
+        cfg.disabled_skills = disabled;
+        Ok(())
+    })
 }
 
 /// Web search provider. The GUI writes through the existing
@@ -141,9 +146,10 @@ pub fn apply_skills(disabled: Vec<String>) -> Result<()> {
 pub fn apply_web_search(mut config: crate::tools::web_search::WebSearchConfig) -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "search-provider");
     crate::tools::web_search::backfill_providers(&mut config);
-    let mut cfg = load_config()?;
-    cfg.web_search = config;
-    save_config(&cfg)
+    mutate_config(("onboarding", "search-provider"), move |cfg| {
+        cfg.web_search = config;
+        Ok(())
+    })
 }
 
 /// Server. `bind_addr` of `None` keeps current; same for `api_key`.
