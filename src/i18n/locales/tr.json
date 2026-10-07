@@ -4035,6 +4035,10 @@
     "waitingBrowserLogin": "Tarayıcı girişi bekleniyor..."
   },
   "provider_templates": {
+    "api-route": {
+      "description": "OpenAI uyumlu çok modelli API ağ geçidi",
+      "name": "API Route"
+    },
     "anthropic": {
       "description": "Claude serisi modeller",
       "name": "Anthropic"

@@ -4035,6 +4035,10 @@
     "waitingBrowserLogin": "等待浏览器登录…"
   },
   "provider_templates": {
+    "api-route": {
+      "description": "兼容 OpenAI 的多模型 API 网关",
+      "name": "API Route"
+    },
     "anthropic": {
       "description": "Claude 系列模型",
       "name": "Anthropic"
