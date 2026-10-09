@@ -4115,6 +4115,10 @@
       "description": "멀티모델 집계 게이트웨이, 하나의 Key 로 수백 개 모델",
       "name": "OpenRouter"
     },
+    "opper": {
+      "description": "EU 호스팅 AI 게이트웨이, 하나의 Key 로 700개 이상 모델",
+      "name": "Opper"
+    },
     "qianfan": {
       "description": "Baidu AI Cloud 천범 플랫폼",
       "name": "바이두 첸판"

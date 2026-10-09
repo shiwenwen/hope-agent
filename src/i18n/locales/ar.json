@@ -4115,6 +4115,10 @@
       "description": "بوابة تجميع متعددة النماذج، مئات النماذج بمفتاح واحد",
       "name": "OpenRouter"
     },
+    "opper": {
+      "description": "بوابة ذكاء اصطناعي مستضافة في الاتحاد الأوروبي، أكثر من 700 نموذج بمفتاح واحد",
+      "name": "Opper"
+    },
     "qianfan": {
       "description": "منصة Qianfan من Baidu AI Cloud",
       "name": "بايدو تشيانفان"

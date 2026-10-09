@@ -4115,6 +4115,10 @@
       "description": "Get laluan agregasi multi-model, ratusan model dengan satu key",
       "name": "OpenRouter"
     },
+    "opper": {
+      "description": "Get laluan AI yang dihoskan di EU, 700+ model dengan satu key",
+      "name": "Opper"
+    },
     "qianfan": {
       "description": "Platform Qianfan Baidu AI Cloud",
       "name": "Baidu Qianfan"

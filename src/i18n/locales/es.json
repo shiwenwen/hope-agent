@@ -4115,6 +4115,10 @@
       "description": "Puerta de enlace multi-modelo, cientos de modelos con una sola key",
       "name": "OpenRouter"
     },
+    "opper": {
+      "description": "Puerta de enlace de IA alojada en la UE, más de 700 modelos con una sola key",
+      "name": "Opper"
+    },
     "qianfan": {
       "description": "Plataforma Qianfan de Baidu AI Cloud",
       "name": "Baidu Qian Fan"

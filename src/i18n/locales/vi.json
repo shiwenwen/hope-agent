@@ -4115,6 +4115,10 @@
       "description": "Cổng tổng hợp đa mô hình, hàng trăm mô hình với một key duy nhất",
       "name": "OpenRouter"
     },
+    "opper": {
+      "description": "Cổng AI lưu trữ tại EU, hơn 700 mô hình với một key duy nhất",
+      "name": "Opper"
+    },
     "qianfan": {
       "description": "Nền tảng Qianfan của Baidu AI Cloud",
       "name": "Baidu Qianfan"

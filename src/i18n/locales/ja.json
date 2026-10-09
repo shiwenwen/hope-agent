@@ -4115,6 +4115,10 @@
       "description": "マルチモデル集約ゲートウェイ、1 つの Key で数百のモデル",
       "name": "OpenRouter"
     },
+    "opper": {
+      "description": "EU ホスティングの AI ゲートウェイ、1 つの Key で 700 以上のモデル",
+      "name": "Opper"
+    },
     "qianfan": {
       "description": "Baidu AI Cloud 千帆プラットフォーム",
       "name": "百度千帆"

@@ -4115,6 +4115,10 @@
       "description": "Çok modelli toplama ağ geçidi, tek key ile yüzlerce model",
       "name": "OpenRouter"
     },
+    "opper": {
+      "description": "AB'de barındırılan yapay zeka ağ geçidi, tek key ile 700+ model",
+      "name": "Opper"
+    },
     "qianfan": {
       "description": "Baidu AI Cloud Qianfan platformu",
       "name": "Baidu Qianfan"

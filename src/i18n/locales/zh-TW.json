@@ -4115,6 +4115,10 @@
       "description": "多模型聚合閘道器，一個 Key 用數百個模型",
       "name": "OpenRouter"
     },
+    "opper": {
+      "description": "歐盟託管的 AI 閘道器，一個 Key 用 700+ 個模型",
+      "name": "Opper"
+    },
     "qianfan": {
       "description": "百度智慧雲千帆大模型平台",
       "name": "百度千帆"

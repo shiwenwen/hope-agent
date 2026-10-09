@@ -4115,6 +4115,10 @@
       "description": "Gateway multi-modelo, centenas de modelos com uma única key",
       "name": "OpenRouter"
     },
+    "opper": {
+      "description": "Gateway de IA hospedado na UE, mais de 700 modelos com uma única key",
+      "name": "Opper"
+    },
     "qianfan": {
       "description": "Plataforma Qianfan da Baidu AI Cloud",
       "name": "Baidu Qian Fan"

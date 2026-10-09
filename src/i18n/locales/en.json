@@ -4115,6 +4115,10 @@
       "description": "Multi-model aggregation gateway, hundreds of models with one key",
       "name": "OpenRouter"
     },
+    "opper": {
+      "description": "EU-hosted AI gateway, 700+ models with one key",
+      "name": "Opper"
+    },
     "qianfan": {
       "description": "Baidu AI Cloud Qianfan Platform",
       "name": "Baidu Qianfan"

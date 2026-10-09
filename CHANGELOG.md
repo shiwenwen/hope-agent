@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Opper 服务商模板**：新增 Opper 欧盟托管 AI 网关预设（OpenAI Chat 兼容），内置常用模型池（按请求跨服务商和区域选路，预设取各路由中最小的上下文和最高的单价）与一个固定欧盟区的 Claude 路由。 (#813)
+
 ## [0.64.0] - 2026-10-08
 
 ### Fixed

@@ -4115,6 +4115,10 @@
       "description": "Мульти-модельный шлюз, сотни моделей по одному ключу",
       "name": "OpenRouter"
     },
+    "opper": {
+      "description": "ИИ-шлюз с хостингом в ЕС, более 700 моделей по одному ключу",
+      "name": "Opper"
+    },
     "qianfan": {
       "description": "Платформа Qianfan от Baidu AI Cloud",
       "name": "Байду Цяньфан"

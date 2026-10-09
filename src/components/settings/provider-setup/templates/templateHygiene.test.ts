@@ -220,4 +220,20 @@ describe("provider template lifecycle hygiene", () => {
     })
     expect(provider?.models.length).toBeGreaterThan(0)
   })
+
+  it("offers Opper as an OpenAI Chat compatible gateway", () => {
+    const provider = PROVIDER_TEMPLATES.find((template) => template.key === "opper")
+    expect(provider).toMatchObject({
+      apiType: "openai-chat",
+      baseUrl: "https://api.opper.ai/v3/compat/chat/completions",
+      requiresApiKey: true,
+    })
+    expect(provider?.models.length).toBeGreaterThan(0)
+    // Pool IDs route across providers and regions, so they carry the most conservative route values.
+    expect(provider?.models.find((model) => model.id === "gpt-5.4-mini")).toMatchObject({
+      contextWindow: 272_000,
+      costInput: 0.825,
+      costOutput: 4.95,
+    })
+  })
 })
