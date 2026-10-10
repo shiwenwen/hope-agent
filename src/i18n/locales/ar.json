@@ -4123,6 +4123,10 @@
       "description": "نماذج Alibaba Cloud DashScope",
       "name": "Qwen"
     },
+    "unbiased": {
+      "name": "Unbiased",
+      "description": "نموذج Pareto المدمج، متوافق مع OpenAI Chat"
+    },
     "requesty": {
       "description": "بوابة توجيه متعددة النماذج، مئات النماذج بمفتاح واحد",
       "name": "Requesty"

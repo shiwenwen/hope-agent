@@ -4123,6 +4123,10 @@
       "description": "Alibaba Cloud DashScope モデル",
       "name": "Qwen"
     },
+    "unbiased": {
+      "name": "Unbiased",
+      "description": "Pareto の複数モデル融合、OpenAI Chat 互換"
+    },
     "requesty": {
       "description": "マルチモデルルーティングゲートウェイ、1 つの Key で数百のモデル",
       "name": "Requesty"

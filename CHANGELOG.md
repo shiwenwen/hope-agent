@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Unbiased 服务商**：新增 Pareto 稳定版与预览版预设，可通过 API Key 接入文本与图片对话，沿用现有流式回复、工具调用与用量统计。 (#814)
+
 ## [0.64.0] - 2026-10-08
 
 ### Fixed
