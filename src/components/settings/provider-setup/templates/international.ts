@@ -3,6 +3,53 @@ import type { ProviderTemplate } from "../types"
 export const internationalTemplates: ProviderTemplate[] = [
   // ── 国际 Provider ──
   {
+    key: "unbiased",
+    name: "Unbiased",
+    description: "Pareto 多模型融合，兼容 OpenAI Chat",
+    icon: "⚖️",
+    apiType: "openai-chat",
+    baseUrl: "https://api.unbiased.ai/v1",
+    apiKeyPlaceholder: "sk_...",
+    requiresApiKey: true,
+    thinkingStyle: "none",
+    currency: "USD",
+    models: [
+      {
+        // 2026-10-10 已鉴权 GET /v1/models：pareto 仍指向 26.9。
+        // 官网统一报价为 26.10 Preview，不能套到稳定版；未知 ID 可能被按 Pareto 计费。
+        id: "pareto",
+        name: "Pareto",
+        inputTypes: ["text", "image"],
+        contextWindow: 262_144,
+        // 直连目录未公布最大输出上限，使用可调整的保守配置值。
+        maxTokens: 8_192,
+        reasoning: false,
+        costInput: 2.5,
+        costOutput: 7.5,
+      },
+      {
+        id: "pareto-26.10-preview",
+        name: "Pareto 26.10 Preview",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_048_576,
+        maxTokens: 8_192,
+        reasoning: false,
+        costInput: 0.8,
+        costOutput: 3.2,
+      },
+      {
+        id: "pareto-26.9",
+        name: "Pareto 26.9",
+        inputTypes: ["text", "image"],
+        contextWindow: 262_144,
+        maxTokens: 8_192,
+        reasoning: false,
+        costInput: 2.5,
+        costOutput: 7.5,
+      },
+    ],
+  },
+  {
     key: "anthropic",
     name: "Anthropic",
     description: "Claude 系列模型",

@@ -4123,6 +4123,10 @@
       "description": "Model Alibaba Cloud DashScope",
       "name": "Qwen"
     },
+    "unbiased": {
+      "name": "Unbiased",
+      "description": "Model gabungan Pareto, serasi dengan OpenAI Chat"
+    },
     "requesty": {
       "description": "Get laluan penghalaan multi-model, ratusan model dengan satu key",
       "name": "Requesty"

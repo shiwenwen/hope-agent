@@ -4123,6 +4123,10 @@
       "description": "Các mô hình Alibaba Cloud DashScope",
       "name": "Qwen"
     },
+    "unbiased": {
+      "name": "Unbiased",
+      "description": "Mô hình kết hợp Pareto, tương thích OpenAI Chat"
+    },
     "requesty": {
       "description": "Cổng định tuyến đa mô hình, hàng trăm mô hình với một key duy nhất",
       "name": "Requesty"

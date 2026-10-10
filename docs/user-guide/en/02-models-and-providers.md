@@ -44,6 +44,8 @@ Click a template (such as Anthropic, OpenAI, DeepSeek, or Tongyi Qianwen) to ope
 
 After you add a provider, the system automatically sets its first model as the current default model, so you can start chatting right away.
 
+**Unbiased / Pareto**: Choose the **Unbiased** template and enter the API key issued by the platform for text and image conversations. The template uses OpenAI Chat and `https://api.unbiased.ai/v1`, with stable `pareto`, pinned `pareto-26.9`, and `pareto-26.10-preview` presets. In the direct catalog verified on October 10, 2026, stable models have a `262,144` context window and input / output prices of `$2.50 / $7.50` per million tokens; the preview has `1,048,576` and `$0.80 / $3.20`. The maximum output of `8,192` is an adjustable conservative setting. Use the preset IDs: the API currently accepts unknown IDs, so a typo may still incur charges. The API is in beta; use the actual endpoint catalog for availability and pricing, as the [official documentation](https://unbiased.ai/developers/) and [pricing page](https://unbiased.ai/pricing/) may not yet reflect every model.
+
 > **DeepSeek vision model**: New direct DeepSeek providers can select **DeepSeek V4.1 Flash**. It supports image input, a million-token context window, and reasoning. Existing DeepSeek configurations are not rewritten automatically; add model ID `deepseek-flash` manually when needed, or create the connection again.
 
 ### Custom provider

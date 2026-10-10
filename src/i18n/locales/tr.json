@@ -4123,6 +4123,10 @@
       "description": "Alibaba Cloud DashScope modelleri",
       "name": "Qwen"
     },
+    "unbiased": {
+      "name": "Unbiased",
+      "description": "Pareto birleşik modeli, OpenAI Chat uyumlu"
+    },
     "requesty": {
       "description": "Çok modelli yönlendirme ağ geçidi, tek key ile yüzlerce model",
       "name": "Requesty"

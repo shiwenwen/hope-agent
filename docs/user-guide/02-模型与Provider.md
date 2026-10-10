@@ -44,6 +44,8 @@ Fireworks 新建模板已移除退役的 GLM 5.2 Fast 和 Kimi K2.6 Turbo/Fast�
 
 新增服务商后,系统会自动把它的第一个模型设为当前默认模型,你可以立刻开始对话。
 
+**Unbiased / Pareto**：选择 **Unbiased** 模板并填入平台签发的 API Key，即可使用文本与图片对话。模板使用 OpenAI Chat 和 `https://api.unbiased.ai/v1`，提供稳定版 `pareto`、固定版本 `pareto-26.9` 及预览版 `pareto-26.10-preview`。2026-10-10 的直连目录中，稳定版上下文为 `262,144`，输入 / 输出单价为每百万 Token `$2.50 / $7.50`；预览版为 `1,048,576` 和 `$0.80 / $3.20`。最大输出 `8,192` 是可调整的保守配置值。请使用预设 ID，官方目前不会拒绝未知型号，拼写错误也可能产生费用。API 仍处于测试阶段，型号与价格以实际端点为准；[官方文档](https://unbiased.ai/developers/)和[价格页](https://unbiased.ai/pricing/)可能尚未同步全部型号。
+
 > **DeepSeek 视觉模型**:新建 DeepSeek 直连服务商时可直接选择 **DeepSeek V4.1 Flash**。它支持图片输入、百万级上下文和推理。已有 DeepSeek 配置不会被自动改写;需要时可手动添加模型 ID `deepseek-flash`,或重新创建连接。
 
 ### 自定义服务商
