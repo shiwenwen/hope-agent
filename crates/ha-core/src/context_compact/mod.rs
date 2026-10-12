@@ -73,20 +73,6 @@ pub(crate) const IDENTIFIER_PRESERVATION_INSTRUCTIONS: &str =
     "Preserve all opaque identifiers exactly as written (no shortening or reconstruction), \
      including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file names.";
 
-/// Merge instructions for multi-part summaries
-#[allow(dead_code)]
-pub(crate) const MERGE_SUMMARIES_PROMPT: &str = r#"Merge these partial summaries into a single cohesive summary.
-
-MUST PRESERVE:
-- Active tasks and their current status (in-progress, blocked, pending)
-- Batch operation progress (e.g., '5/17 items completed')
-- The last thing the user requested and what was being done about it
-- Decisions made and their rationale
-- TODOs, open questions, and constraints
-- Any commitments or follow-ups promised
-
-PRIORITIZE recent context over older history."#;
-
 // ── Re-exports ──
 
 pub use boundary::{
