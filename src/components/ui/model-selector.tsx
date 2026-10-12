@@ -10,6 +10,9 @@ import { FLAT_CONTROL_SURFACE_CLASS } from "@/components/ui/control-surface"
 import { usePortalScope } from "@/components/ui/portal-scope-context"
 import { cn } from "@/lib/utils"
 
+const MODEL_MENU_SCROLL_CLASS =
+  "max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height))] overflow-x-hidden overflow-y-auto overscroll-contain"
+
 export interface AvailableModel {
   providerId: string
   providerName: string
@@ -106,12 +109,14 @@ export function ModelSelector({
       <ModelSelectorPortal>
         <DropdownMenu.Content
           className={cn(
-            "z-50 min-w-[12rem] overflow-hidden p-1.5",
+            "z-50 min-w-[12rem] p-1.5",
+            MODEL_MENU_SCROLL_CLASS,
             FLOATING_MENU_SURFACE_CLASS,
             FLOATING_MENU_RADIX_MOTION_CLASS,
           )}
           sideOffset={6}
           align="start"
+          collisionPadding={8}
         >
           {clearLabel && onClear && (
             <DropdownMenu.Item
@@ -133,12 +138,14 @@ export function ModelSelector({
               <ModelSelectorPortal>
                 <DropdownMenu.SubContent
                   className={cn(
-                    "z-50 min-w-[8rem] overflow-hidden p-1.5",
+                    "z-50 min-w-[8rem] p-1.5",
+                    MODEL_MENU_SCROLL_CLASS,
                     FLOATING_MENU_SURFACE_CLASS,
                     FLOATING_MENU_RADIX_MOTION_CLASS,
                   )}
                   sideOffset={6}
                   alignOffset={-4}
+                  collisionPadding={8}
                 >
                   {models.map((m) => {
                     const isSelected =
@@ -149,9 +156,7 @@ export function ModelSelector({
                     // the backend's `model_supports_vision` three-state semantics
                     // (custom provider entries default to an empty list).
                     const visionBlocked =
-                      !!requireVision &&
-                      m.inputTypes.length > 0 &&
-                      !m.inputTypes.includes("image")
+                      !!requireVision && m.inputTypes.length > 0 && !m.inputTypes.includes("image")
                     return (
                       <DropdownMenu.Item
                         key={`${m.providerId}::${m.modelId}`}

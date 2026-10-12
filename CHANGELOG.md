@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **模型选择长列表**：模型配置中的服务商和模型菜单可随可用空间限高滚动，默认、降级和计划模式模型的末尾选项可正常选择。 (#818)
+
 ## [0.64.0] - 2026-10-08
 
 ### Fixed
