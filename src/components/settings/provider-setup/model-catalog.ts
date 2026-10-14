@@ -120,6 +120,7 @@ function matchRank(entry: ModelCatalogEntry, query: string) {
     return Number.POSITIVE_INFINITY
   }
 
+  if (entry.id === query.trim()) return -1
   if (id === needle) return 0
   if (name === needle) return 1
   if (id.startsWith(needle)) return 2

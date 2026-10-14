@@ -907,11 +907,20 @@ fn build_responses_request(
     reasoning: Option<super::super::api_types::ReasoningConfig>,
     req: &RoundRequest<'_>,
 ) -> (ResponsesRequest, Vec<Value>, bool, bool) {
-    let is_astra = crate::agent::config::is_direct_openai_astra(base_url, model);
-    let reasoning = if is_astra {
-        Some(super::super::api_types::ReasoningConfig {
-            effort: crate::agent::config::astra_reasoning_effort(req.reasoning_effort).to_string(),
-            summary: reasoning.and_then(|reasoning| reasoning.summary),
+    let gpt6 = crate::agent::config::is_direct_openai_gpt6(base_url, model);
+    let reasoning = if gpt6 {
+        let requested = if req.reasoning_disabled {
+            Some("none")
+        } else {
+            req.reasoning_effort
+        };
+        crate::agent::config::gpt6_api_reasoning_effort(model, requested).map(|effort| {
+            super::super::api_types::ReasoningConfig {
+                effort: effort.to_string(),
+                summary: reasoning
+                    .and_then(|reasoning| reasoning.summary)
+                    .filter(|_| !req.reasoning_disabled),
+            }
         })
     } else {
         reasoning
@@ -952,6 +961,7 @@ fn build_responses_request(
         Some(req.tool_schemas.to_vec())
     };
     let tools = tools.map(normalize_responses_tool_schemas);
+    let sampling_supported = !gpt6 || reasoning.as_ref().is_some_and(|r| r.effort == "none");
 
     let request = ResponsesRequest {
         model: model.to_string(),
@@ -962,7 +972,7 @@ fn build_responses_request(
         reasoning,
         include: None,
         tools,
-        temperature: req.temperature.filter(|_| !is_astra),
+        temperature: req.temperature.filter(|_| sampling_supported),
         prompt_cache_key: req.prompt_cache_key.map(str::to_string),
         prompt_cache_options: explicit_prompt_cache
             .then(|| json!({ "mode": "explicit", "ttl": "30m" })),
@@ -1619,11 +1629,58 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
+    fn gpt6_api_efforts_preserve_max_and_scope_sampling_to_direct_models() {
+        let history = vec![serde_json::json!({"role":"user","content":"hello"})];
+        let mut req = super::super::test_support::round_request(&history);
+        req.temperature = Some(0.2);
+        for model in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"] {
+            for effort in [None, Some("minimal"), Some("none"), Some("max")] {
+                req.reasoning_effort = effort;
+                let expected = crate::agent::config::gpt6_api_reasoning_effort(model, effort);
+                let (request, _, _, _) =
+                    build_responses_request("https://api.openai.com", model, None, &req);
+                let body = serde_json::to_value(request).unwrap();
+                assert_eq!(
+                    body.get("reasoning")
+                        .and_then(|r| r.get("effort"))
+                        .and_then(Value::as_str),
+                    expected
+                );
+                assert_eq!(body.get("temperature").is_some(), expected == Some("none"));
+                assert_eq!(body["store"], false);
+                assert_eq!(body["stream"], true);
+            }
+            req.reasoning_disabled = true;
+            req.reasoning_effort = None;
+            let (request, _, _, _) =
+                build_responses_request("https://api.openai.com", model, None, &req);
+            assert_eq!(
+                request.reasoning.unwrap().effort,
+                if matches!(model, "gpt-6-sol" | "gpt-6-luna") {
+                    "none"
+                } else {
+                    "low"
+                }
+            );
+            req.reasoning_disabled = false;
+            for base in [
+                "https://relay.example",
+                "http://api.openai.com",
+                "https://api.openai.com:444",
+                "https://api.openai.com.evil.example",
+            ] {
+                let (request, _, _, _) = build_responses_request(base, model, None, &req);
+                assert!(request.reasoning.is_none());
+                assert_eq!(request.temperature, Some(0.2));
+            }
+        }
+    }
+
+    #[test]
     fn astra_request_preserves_max_and_omits_unsupported_sampling_only_on_direct_api() {
         let history = vec![serde_json::json!({"role":"user","content":"hello"})];
         let mut req = super::super::test_support::round_request(&history);
         for (effort, expected) in [
-            (None, "low"),
             (Some("none"), "low"),
             (Some("minimal"), "low"),
             (Some("low"), "low"),

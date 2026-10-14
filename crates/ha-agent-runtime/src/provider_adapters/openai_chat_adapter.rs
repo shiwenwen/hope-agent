@@ -300,8 +300,8 @@ fn apply_official_chat_effort(
             "gemini-3.7-flash" | "gemini-3.8-flash",
             "xhigh" | "max",
         ) => "high",
-        (Some("api.x.ai"), "grok-4.6", "minimal") => "low",
-        (Some("api.x.ai"), "grok-4.6", "xhigh" | "max") => "xhigh",
+        (Some("api.x.ai"), "grok-4.6" | "grok-4.7", "minimal") => "low",
+        (Some("api.x.ai"), "grok-4.6" | "grok-4.7", "xhigh" | "max") => "xhigh",
         (
             Some("api.openai.com"),
             "gpt-5.6" | "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna",
@@ -1217,8 +1217,10 @@ pub(crate) async fn parse_chat_completions_sse(
                         };
 
                         // Reasoning/thinking content (DeepSeek, OpenAI o-series, etc.)
-                        if let Some(reasoning) =
-                            delta.get("reasoning_content").and_then(|c| c.as_str())
+                        if let Some(reasoning) = delta
+                            .get("reasoning_content")
+                            .and_then(|c| c.as_str())
+                            .or_else(|| delta.get("reasoning").and_then(|c| c.as_str()))
                         {
                             if !reasoning.is_empty() && !reasoning_output_disabled {
                                 if first_token_time.is_none() {
@@ -1577,6 +1579,13 @@ mod tests {
             ),
             ("https://api.x.ai/v1", "grok-4.6", "xhigh", "xhigh"),
             ("https://api.x.ai/v1", "grok-4.6", "max", "xhigh"),
+            ("https://api.x.ai/v1", "grok-4.7", "minimal", "low"),
+            ("https://api.x.ai/v1", "grok-4.7", "xhigh", "xhigh"),
+            ("https://api.x.ai/v1", "grok-4.7", "max", "xhigh"),
+            ("https://gateway.example/v1", "grok-4.7", "max", "high"),
+            ("https://api.x.ai.example/v1", "grok-4.7", "max", "high"),
+            ("http://api.x.ai/v1", "grok-4.7", "max", "high"),
+            ("https://api.x.ai:444/v1", "grok-4.7", "max", "high"),
             ("https://api.openai.com/v1", "gpt-5.6-sol", "max", "max"),
             ("https://api.openai.com", "gpt-5.6-terra", "xhigh", "xhigh"),
             ("https://gateway.example/v1", "grok-4.6", "xhigh", "high"),
@@ -1671,6 +1680,34 @@ mod tests {
         assert_eq!(buffer, b"rest");
         assert!(decode_chat_completion_sse_data(r#"{"choices":[]}"#).is_ok());
         assert!(decode_chat_completion_sse_data("{").is_err());
+    }
+
+    #[tokio::test]
+    async fn together_reasoning_stream_preserves_usage_tools_and_disabled_output() {
+        for disabled in [false, true] {
+            let body = concat!(
+                "data: {\"choices\":[{\"delta\":{\"reasoning\":\"considering\"},\"finish_reason\":null}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_together\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n",
+                "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":9,\"total_tokens\":21}}\n\n",
+                "data: [DONE]\n\n"
+            );
+            let response = super::super::test_support::raw_sse_response(body.to_string()).await;
+            let cancel = Arc::new(AtomicBool::new(false));
+            let (_, calls, usage, thinking, _) = super::parse_chat_completions_sse(
+                response,
+                std::time::Instant::now(),
+                disabled,
+                &cancel,
+                &|_| {},
+            )
+            .await
+            .unwrap();
+            assert_eq!(thinking, if disabled { "" } else { "considering" });
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].call_id, "call_together");
+            assert_eq!(usage.input_tokens, 12);
+            assert_eq!(usage.output_tokens, 9);
+        }
     }
 
     #[tokio::test]

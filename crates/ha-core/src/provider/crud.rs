@@ -288,13 +288,14 @@ fn codex_provider_needs_backfill(provider: &ProviderConfig) -> bool {
 
 fn default_codex_model_ids() -> &'static [&'static str] {
     &[
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-6-luna",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",
-        "gpt-5.5",
-        "gpt-5.4",
         "gpt-5.3-codex",
-        "gpt-5.3-codex-spark",
         "gpt-5.2",
         "gpt-5.2-codex",
         "gpt-5.1",
@@ -1090,6 +1091,67 @@ mod tests {
     }
 
     #[test]
+    fn codex_gpt6_catalogs_match_and_backfill_preserves_user_choices() {
+        let expected = crate::agent::get_codex_models()
+            .into_iter()
+            .map(|m| m.id)
+            .collect::<Vec<_>>();
+        let mut provider = codex_provider();
+        assert_eq!(
+            provider
+                .models
+                .iter()
+                .map(|m| m.id.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            default_codex_model_ids(),
+            expected.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        for id in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"] {
+            assert!(crate::agent::is_valid_codex_model(id));
+            let m = provider.models.iter().find(|m| m.id == id).unwrap();
+            assert_eq!(m.context_window, 272_000);
+            assert_eq!(m.input_types, ["text", "image"]);
+            assert_eq!(m.cost_input, Some(0.0));
+            assert_eq!(m.max_tokens, 16384);
+        }
+        for id in ["gpt-5.5", "gpt-5.4", "gpt-5.3-codex-spark"] {
+            assert!(!crate::agent::is_valid_codex_model(id));
+        }
+        provider.models.retain(|m| !m.id.starts_with("gpt-6"));
+        let mut historical = provider.models[0].clone();
+        historical.id = "gpt-5.5".into();
+        historical.context_window = 99_000;
+        provider.models.push(historical.clone());
+        provider.enabled = false;
+        let active = ActiveModel {
+            provider_id: provider.id.clone(),
+            model_id: historical.id.clone(),
+        };
+        let mut cfg = AppConfig {
+            providers: vec![provider],
+            active_model: Some(active.clone()),
+            ..AppConfig::default()
+        };
+        assert!(codex_provider_needs_backfill(&cfg.providers[0]));
+        ensure_codex_provider(&mut cfg);
+        assert!(!cfg.providers[0].enabled);
+        assert_eq!(cfg.active_model.unwrap().model_id, active.model_id);
+        assert_eq!(
+            cfg.providers[0]
+                .models
+                .iter()
+                .find(|m| m.id == "gpt-5.5")
+                .unwrap()
+                .context_window,
+            99_000
+        );
+        assert!(!codex_provider_needs_backfill(&cfg.providers[0]));
+    }
+
+    #[test]
     fn codex_noop_detects_existing_provider_and_active_model() {
         let mut cfg = AppConfig::default();
         let provider = codex_provider();
@@ -1116,7 +1178,7 @@ mod tests {
     #[test]
     fn codex_backfill_detection_fires_when_default_model_is_missing() {
         let mut provider = codex_provider();
-        provider.models.retain(|m| m.id != "gpt-5.5");
+        provider.models.retain(|m| m.id != "gpt-6.1-sol");
         assert!(codex_provider_needs_backfill(&provider));
     }
 
@@ -1184,12 +1246,12 @@ mod tests {
         apply_codex_active_model_update(
             &mut cfg,
             &provider_id,
-            ActiveModelUpdate::Always("gpt-5.4".into()),
+            ActiveModelUpdate::Always("gpt-6.1-sol".into()),
         )
         .unwrap();
 
         assert!(cfg.providers[0].enabled);
-        assert_active_model(&cfg, &provider_id, "gpt-5.4");
+        assert_active_model(&cfg, &provider_id, "gpt-6.1-sol");
     }
 
     #[test]

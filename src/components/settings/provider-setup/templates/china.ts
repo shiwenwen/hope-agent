@@ -463,13 +463,25 @@ export const chinaTemplates: ProviderTemplate[] = [
   {
     key: "minimax",
     name: "MiniMax",
-    description: "MiniMax M2 系列模型 (Anthropic 兼容)",
+    description: "MiniMax M3 / M2 系列模型 (Anthropic 兼容)",
     icon: "🔶",
     apiType: "anthropic",
     baseUrl: "https://api.minimax.io/anthropic",
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
+      {
+        id: "MiniMax-M3",
+        name: "MiniMax M3",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_000_000,
+        // Official recommended generation cap; the API allows up to 512K.
+        maxTokens: 131_072,
+        reasoning: true,
+        // Standard rates up to 512K input; longer prompts cost $0.60/$2.40.
+        costInput: 0.3,
+        costOutput: 1.2,
+      },
       {
         id: "MiniMax-M2.7",
         name: "MiniMax M2.7",
@@ -497,16 +509,6 @@ export const chinaTemplates: ProviderTemplate[] = [
         contextWindow: 200000,
         maxTokens: 8192,
         reasoning: true,
-        costInput: 0.3,
-        costOutput: 1.2,
-      },
-      {
-        id: "MiniMax-VL-01",
-        name: "MiniMax VL 01",
-        inputTypes: ["text", "image"],
-        contextWindow: 200000,
-        maxTokens: 8192,
-        reasoning: false,
         costInput: 0.3,
         costOutput: 1.2,
       },

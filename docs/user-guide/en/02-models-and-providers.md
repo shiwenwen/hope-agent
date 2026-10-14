@@ -28,6 +28,14 @@ Hope Agent connects to each vendor's large models through a "**provider + API ke
 
 New Fireworks templates exclude retired GLM 5.2 Fast and Kimi K2.6 Turbo/Fast. Existing connections and dedicated deployments keep their settings; if you use a retired serverless model, choose a replacement according to the provider’s current availability.
 
+Templates and model autocomplete now include **Claude Haiku 5.5**, **Grok 4.7**, **MiniMax M3**, and Fireworks **DeepSeek V4.1 Flash, GLM 5.3, and GLM 5.3 Flash**. Haiku 5.5 supports a 1M context and 128K output, uses adaptive thinking, and allows thinking to be disabled; temperature is omitted. Grok 4.7 uses the OpenAI Chat compatible API, accepts images, supports a 500K context, a 64K output preset, and reasoning up to `xhigh`; the vendor does not allow thinking to be disabled. The three Fireworks presets use Chat with a conservative 131,072-token output cap from the official examples; check dedicated deployment limits separately.
+
+Haiku 5.5 base input/output rates are $0.10/$0.50 per million tokens, rising to $0.50/$2.50 above 100,000 input tokens. Grok 4.7 base rates are $2/$6, rising to $4/$12 above 200K input. Templates and the dashboard store a single base rate and do not automatically calculate these tiers, caching, or regional premiums; they are not bills. New xAI templates exclude five explicitly retired IDs. Existing settings remain editable, but retired IDs may be billed at replacement-model rates, so check vendor pricing before migrating.
+
+MiniMax M3 uses the existing Anthropic compatible connection, accepts images, supports a 1M context and a thinking toggle, and defaults to the officially recommended 131,072 output tokens. Base input/output rates are $0.30/$1.20 per million tokens, rising to $0.60/$2.40 above 512K input. M3 has a thinking toggle rather than adjustable thinking depth. Video uploads and M3.1 Flash Preview are not preset capabilities. New templates exclude VL-01, which this compatible API does not list as supported; existing settings remain editable.
+
+New direct Google templates exclude Gemini 3.7 / 3.5 Flash, which redirect to newer models, and Gemini 2.5 models, which are restricted to users who previously used them. Choose stable Gemini 3.8 Flash or 3.6 Flash. Existing connections and other gateway candidates remain available.
+
 **Where**: Settings → **Model Configuration** → **Providers** tab → click "**Add Provider**" in the top right.
 
 The first page of the add wizard offers five paths:
@@ -56,7 +64,7 @@ If your provider has no ready-made template, choose "Custom provider" and follow
 2. Fill in the provider name, **Base URL**, API key (optional), thinking style, and billing currency (USD / CNY); you can test the connection.
 3. Add models: type a model name, ID, or provider name into the model ID field to search models from all built-in templates. Selecting a suggestion fills in the ID, display name, input types, context window, max output, and reasoning capability; you can still edit these manually. Use the up/down arrows to select, Enter to confirm, and Esc to close suggestions.
 
-Autocomplete works when adding or editing models without replacing your relay's address, API type, key, or thinking parameter format. If the catalog has pricing in the same currency that differs from your current pricing, a dialog shows the source and unit prices and lets you keep your prices or use the catalog prices; prices in another currency never directly overwrite yours. Model IDs are not autocorrected or automatically capitalized by the system.
+Autocomplete works when adding or editing models without replacing your relay's address, API type, key, or thinking parameter format. If the catalog has pricing in the same currency that differs from your current pricing, a dialog shows the source and unit prices and lets you keep your prices or use the catalog prices; prices in another currency never directly overwrite yours. Model IDs are not autocorrected or automatically capitalized by the system. When you enter a full ID, a candidate with exactly matching case appears first.
 
 > Suggestions come from built-in templates, not an online probe of models available through your relay. The same model ID can have different context limits at different providers. Check the suggestion's source and use the ID, capabilities, and actual pricing supported by your provider.
 
@@ -108,9 +116,15 @@ When automatically switching models across protocols (for example, when the prim
 
 ---
 
+Gateway presets also cover current stable models: OpenRouter adds the four GPT-6 models, Claude Opus / Sonnet / Haiku 5.5, Grok 4.7, GLM 5.3 / Flash, DeepSeek V4.1 Flash, MiniMax M3, and Kimi K3. Prices estimate the public catalog's base route rates; routing, caching, and long-input tiers may change the bill. A model's file or video capability does not mean Hope supports those inputs.
+
+Together adds GLM 5.3 / Flash, Kimi K3, MiniMax M3, and DeepSeek V4.1 Flash with channel-specific context and prices and a conservative **16K output preset**, not a vendor hard limit. Only text input is declared. These models use default reasoning without the GPT-OSS-only `reasoning_effort`; Together's reasoning toggle is not integrated.
+
+MiniMax M3 keeps its default thinking off when effort is unset. Selecting an effort enables adaptive thinking; explicitly choosing off sends the disabled setting.
+
 ## 2.4 Sign in with a ChatGPT / Codex account
 
-Don't want to enter an API key by hand? You can sign in directly with a ChatGPT account, use the GPT-5.x series as your primary chat model, and consume your subscription quota.
+Don't want to enter an API key by hand? You can sign in directly with a ChatGPT account, use GPT models as your primary chat model, and consume your subscription quota.
 
 **Sign in**: Settings → Add Provider → the "**Sign in with ChatGPT (Codex)**" primary button at the top of the first page opens the system browser to complete authorization (finish within 5 minutes). Once signed in, the configuration is saved automatically and a green "Configured" badge appears.
 
@@ -126,6 +140,9 @@ hope-agent auth codex logout         # Sign out (deletes the Codex provider and 
 **Re-sign in**: the Codex provider card's "⋮" menu has "Re-sign in" (rather than "Delete", to avoid accidental removal); when the token expires the interface also guides you to sign in again.
 
 - The specific model used after signing in can be switched in Settings; the default is the tier available across all account levels.
+- The built-in Codex catalog includes `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-sol`, and `gpt-6-luna`. Upgrades backfill missing entries while preserving selected models, custom parameters, and disabled providers. Access still depends on your ChatGPT plan, workspace settings, and rollout.
+- Codex GPT-6 presets use the official bundled catalog's **272K** context, separately from the OpenAI API's **1.05M**. The existing **16K output reservation** is not a server output limit. GPT-6 reasoning ranges from `low` to `max`; `minimal` and “off” map to `low` on this endpoint, while “off” still hides reasoning output. An unset effort preserves the model default. `Ultra` is Codex task delegation; Hope does not send it as a reasoning parameter.
+- New defaults omit retired GPT-5.4 and GPT-5.3-Codex-Spark, plus GPT-5.5 retiring from Codex on 2026-10-14. Saved configurations remain; GPT-5.5 API presets are unaffected by this Codex retirement.
 - Codex credentials are stored only on this machine (`~/.hope-agent/credentials/auth.json`) and are never written to logs.
 - Codex sign-in and the account sign-in for [11 · MCP: connecting external tools](11-connect-and-extend.md#111-mcp-connecting-external-tools) are two completely independent mechanisms that do not affect each other.
 
