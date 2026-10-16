@@ -4080,7 +4080,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "Các mô hình dòng MiniMax M2 (tương thích Anthropic)",
+      "description": "Mô hình MiniMax M3 (tương thích Anthropic)",
       "name": "MiniMax"
     },
     "mistral": {

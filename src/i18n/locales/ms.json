@@ -4080,7 +4080,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "Model siri MiniMax M2 (serasi dengan Anthropic)",
+      "description": "Model MiniMax M3 (serasi dengan Anthropic)",
       "name": "MiniMax"
     },
     "mistral": {

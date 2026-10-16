@@ -270,6 +270,13 @@ jobs:
             echo "CHANGELOG.md"
             echo "docs/release-notes/${TAG}.md"
             echo "docs/release-notes/${TAG}.en.md"
+            # Public setup guides linked by recent notes. Older tags can
+            # predate these paths; only stage guides shipped by this tag.
+            for p in "docs/user-guide/02-模型与Provider.md" "docs/user-guide/en/02-models-and-providers.md"; do
+              if git cat-file -e "${TAG}:${p}" 2>/dev/null; then
+                echo "$p"
+              fi
+            done
           } > "$WORK/allowed-docs.txt"
           while IFS= read -r p; do
             if ! git cat-file -e "${TAG}:${p}" 2>/dev/null; then

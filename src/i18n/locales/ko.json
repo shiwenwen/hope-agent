@@ -4080,7 +4080,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "MiniMax M2 시리즈 모델(Anthropic 호환)",
+      "description": "MiniMax M3 모델(Anthropic 호환)",
       "name": "MiniMax"
     },
     "mistral": {

@@ -150,6 +150,10 @@ flowchart TD
 - Copilot 新建默认列表移除 7 月已退役的 Gemini 2.5 Pro / 3 Flash，以及 9 月 1 日将退役的 Gemini 3.1 Pro、Opus 4.6、Sonnet 4.6、Raptor mini。Sonnet 4.6 年付个人计划的例外仍可自行配置，既有配置不删除，也不把账户目录等同于全局可用性。[7 月公告](https://github.blog/changelog/2026-07-31-gemini-2-5-pro-and-gemini-3-flash-deprecated/)、[9 月退役公告](https://github.blog/changelog/2026-07-31-upcoming-august-2026-model-deprecations-in-github-copilot/)
 - OpenAI 直连的 GPT-5.6 / Sol 基础输入/输出价为每百万令牌 4/20 美元，促销至少持续至 2026-11-21；Sonnet 5 直连基础价为 2/10 美元，已转为长期定价。同步内置估算表，不覆盖用户价格或网关模板报价。缓存、长上下文阶梯、实际账单与历史价不是本表表达的内容，大盘仍是估算而非账单；促销结束前重新核验。[Sol 定价](https://developers.openai.com/api/docs/models/gpt-5.6-sol)、[Claude 定价](https://platform.claude.com/docs/en/about-claude/pricing)
 
+#### 2026-10-15 MiniMax 新用户候选维护
+
+复用依赖快检 10-15 已归档的官方[型号公告](https://platform.minimax.io/docs/guides/models-intro)和[Anthropic 兼容合同](https://platform.minimax.io/docs/api-reference/text-anthropic-api)：M2.5/M2.7 家族从 10-19 起不再对新用户开放，既有按量用户至 11-18 退役；M Plan / Token Plan 的旧名请求从 10-19 起由厂商转向 M3.1 Flash Preview。新建 `minimax` 模板仅清理 `MiniMax-M2.5`、`MiniMax-M2.7`、`MiniMax-M2.7-highspeed`，继续使用既有 M3 参数、端点与价格。模板驱动的模型补全随之更新；网关型号和已保存配置不迁移，active/fallback 不重选。Preview 套餐资格和 thinking/effort 另有合同，本次不新增。此次为静态目录维护与本地验证，不代表真实账号、流式工具、套餐路由或账单验收。
+
 #### 2026-10-05 Fireworks 精确退役候选
 
 01 专项本周成功归档确认 GLM 5.2 Fast 与 Kimi K2.6 Turbo/Fast 已退役；官方公告分别在 9 月 26 日确认 9 月 25 日退役生效、8 月 27 日列出 Turbo/Fast 退役。新建模板仅移除 `accounts/fireworks/routers/glm-5p2-fast` 和 `accounts/fireworks/routers/kimi-k2p6-turbo`。历史保存配置和 Dedicated ID 仍按字符串读写，不自动迁移；其它 router 不依名称相似删除。GLM 5.3/Kimi K3 替代路由及合成工具/流式/usage 验收仍待证据，本轮不新增候选。[官方变更记录](https://docs.fireworks.ai/updates/changelog)

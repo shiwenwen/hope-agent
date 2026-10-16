@@ -4080,7 +4080,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "نماذج سلسلة MiniMax M2 (متوافقة مع Anthropic)",
+      "description": "نماذج MiniMax M3 (متوافقة مع Anthropic)",
       "name": "MiniMax"
     },
     "mistral": {

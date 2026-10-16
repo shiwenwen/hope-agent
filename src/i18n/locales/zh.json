@@ -4080,7 +4080,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "MiniMax M2 系列模型（兼容 Anthropic）",
+      "description": "MiniMax M3 模型（兼容 Anthropic）",
       "name": "MiniMax"
     },
     "mistral": {

@@ -4080,7 +4080,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "Модели серии MiniMax M2 (совместимы с Anthropic)",
+      "description": "Модели MiniMax M3 (совместимы с Anthropic)",
       "name": "MiniMax"
     },
     "mistral": {

@@ -4080,7 +4080,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "MiniMax M2 serisi modeller (Anthropic uyumlu)",
+      "description": "MiniMax M3 modelleri (Anthropic uyumlu)",
       "name": "MiniMax"
     },
     "mistral": {
