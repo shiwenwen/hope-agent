@@ -50,12 +50,6 @@ function safeAgentMentionLabel(label: string, fallback: string): string {
   return safe || fallback
 }
 
-export function agentIdFromHref(href: string | undefined): string | null {
-  if (!href) return null
-  const m = /^#agent(?::|%3a)([A-Za-z0-9._-]+)$/i.exec(href)
-  return m ? m[1] : null
-}
-
 export function agentQueryFromToken(token: string): string {
   const t = token.trim().toLowerCase()
   if (t.startsWith("agent:")) return t.slice("agent:".length)
