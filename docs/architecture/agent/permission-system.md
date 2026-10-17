@@ -102,13 +102,13 @@ flowchart LR
 |------|------|--------|
 | **Default** | 硬编码"编辑类必审" + Agent 自定义审批清单叠加 | 大多数用户（傻瓜默认） |
 | **Smart** | 模型自报 `_confidence:"high"` 跳过 / 独立 judge 模型裁决 / 两者并联 | 进阶用户：信任 LLM 在熟悉项目内的判断 |
-| **Yolo** | 本会话全放行（仅 Plan Mode 仍能拦） | 一次性脚本会话、极信任场景 |
+| **Yolo** | 本会话全放行（raw CDP 仍逐次弹，Plan Mode 仍能拦） | 一次性脚本会话、极信任场景 |
 
 切换入口是聊天标题栏的 `PermissionModeSwitcher` 下拉。会话首次创建时，初始值按 `AgentConfig.capabilities.default_session_permission_mode → AppConfig 默认 → Default` 解析。字符串取值 `default | smart | yolo`，未知值一律回落 `Default`（`SessionMode::parse_or_default`）。
 
 ### Global YOLO（进程级）
 
-`AppConfig.permission.global_yolo` 与 CLI flag `--dangerously-skip-all-approvals` 是 OR 关系。开启时**所有会话**都视作 YOLO，仅 Plan Mode 仍能拦。命中保护路径 / 危险命令 / macOS 控制 / raw CDP / 外部连接器写动作时，落 `app_warn!` 审计日志但不弹窗——语义上，用户既然开了全局 YOLO，就是接受了全部风险。
+`AppConfig.permission.global_yolo` 与 CLI flag `--dangerously-skip-all-approvals` 是 OR 关系。开启时**所有会话**都视作 YOLO，仅 Plan Mode 仍能拦。命中保护路径 / 危险命令 / macOS 控制 / 外部连接器写动作时，落 `app_warn!` 审计日志但不弹窗——语义上，用户既然开了全局 YOLO，就是接受了全部风险。唯一例外是 raw CDP：strict 属于任意模式（含全局 YOLO），照常逐次弹窗。
 
 ### Plan Mode（正交工作模式）
 
@@ -580,7 +580,7 @@ flowchart TD
 
 不存在"全局 per-tool 默认开关"。Default 模式实际审批集 = **硬编码必审 ∪ Agent 自定义勾选**。
 
-**硬编码必审**（不可关闭，YOLO 可 override）：`write`/`edit`/`apply_patch`、`exec` 命中编辑命令、`browser.control.evaluate/raw_cdp/download_cancel`、`browser` 真实 Chrome 状态访问（`tabs.open_user_tabs/claim/select`、`observe.downloads`）、`mac_control` 普通/隐私/高危动作。额外，连 YOLO 都覆盖不了的只有 Plan Mode：保护路径 + 危险命令 + 高危 mac + raw CDP + 外部连接器写动作在非 YOLO 下强制弹。
+**硬编码必审**（不可关闭；除 raw CDP 外 YOLO 可 override）：`write`/`edit`/`apply_patch`、`exec` 命中编辑命令、`browser.control.evaluate/download_cancel`、`browser` 真实 Chrome 状态访问（`tabs.open_user_tabs/claim/select`、`observe.downloads`）、`mac_control` 普通/隐私/高危动作。连 YOLO 都覆盖不了的只有两类：Plan Mode（保护路径 + 危险命令 + 高危 mac + 外部连接器写动作强制弹），以及 **raw CDP——strict 属于任意模式，含 YOLO**（见 [browser.md](../core/browser.md)）。
 
 **自定义勾选可加**（`ApprovalTab` 内 `enable_custom_tool_approval` 开启后展示，共 **18 个内置项**）：
 
