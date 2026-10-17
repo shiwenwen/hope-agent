@@ -49,12 +49,41 @@ const BLOCKED_UPDATE_CATEGORIES: &[&str] = &[
     // legacy value readable for compatibility, but do not let conversational
     // Settings claim that changing it has any effect.
     "tool_result_disk_threshold",
+    // Approval-policy chain — these categories configure the permission engine
+    // itself, so a model-authored write would let the model relax its own
+    // supervision without a single approval prompt: the YOLO master switch
+    // (`security.skipAllApprovals`), the SSRF egress policy and its trusted
+    // hosts (`security.ssrf`), the strict approval pattern lists
+    // (`protected_paths` / `edit_commands` / `dangerous_commands`, wholesale
+    // replaced — an empty array clears every strict trigger), the approval
+    // timeout auto-proceed (`approval`), and the unattended-run proceed
+    // switch (`unattended_approval`). Reads stay available; writes go through
+    // the Settings UI with the owner in the loop.
+    "approval",
+    "security",
+    "security.ssrf",
+    "protected_paths",
+    "edit_commands",
+    "dangerous_commands",
+    "unattended_approval",
+    // Outbound traffic route — a silent proxy rewrite would point every
+    // egress request (fetch / search / provider calls) at an attacker-chosen
+    // endpoint. Owner-UI only.
+    "proxy",
 ];
 
 /// Credential-bearing fields inside otherwise writable categories. The user
 /// category stays model-writable for ordinary preferences, but its remote
 /// Owner Token remains owner-UI-only and must never enter tool responses.
 const BLOCKED_USER_UPDATE_FIELDS: &[&str] = &["remoteApiKey"];
+
+/// `browser.extension` holds `allowRawCdp` — the hard kill switch for raw
+/// DevTools Protocol against the user's real Chrome (see
+/// `BrowserExtensionConfig::allow_raw_cdp`). Silently flipping it back on
+/// after the owner turned it off is a privilege escalation, so the whole
+/// extension sub-config stays owner-UI only; the operational browser
+/// preferences of this category stay writable.
+const BLOCKED_BROWSER_UPDATE_FIELDS: &[&str] = &["extension"];
 
 /// Single registry for schema reachability and risk metadata. `read_only`
 /// entries are readable after category-specific redaction but omitted from the
@@ -99,7 +128,6 @@ const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
     ("timeout_policy", "medium"),
     ("deferred_tools", "medium"),
     ("async_tools", "medium"),
-    ("approval", "medium"),
     ("ask_user_question_timeout", "medium"),
     ("plan", "medium"),
     ("issue_reporting", "medium"),
@@ -120,25 +148,26 @@ const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
     ("file_limits", "medium"),
     ("knowledge_source_limits", "medium"),
     ("reasoning_effort", "medium"),
-    ("proxy", "high"),
     ("shortcuts", "high"),
     ("skills", "high"),
     ("acp_control", "high"),
     ("skill_env", "high"),
-    ("security", "high"),
-    ("security.ssrf", "high"),
     ("smart_mode", "high"),
     ("mcp_global", "high"),
     ("filesystem", "high"),
     ("browser", "high"),
     ("knowledge_maintenance", "high"),
     ("knowledge_media_retention", "high"),
-    ("unattended_approval", "high"),
     ("auto_update", "high"),
-    ("protected_paths", "high"),
-    ("edit_commands", "high"),
-    ("dangerous_commands", "high"),
     ("external_memory_providers", "high"),
+    ("approval", "read_only"),
+    ("proxy", "read_only"),
+    ("security", "read_only"),
+    ("security.ssrf", "read_only"),
+    ("unattended_approval", "read_only"),
+    ("protected_paths", "read_only"),
+    ("edit_commands", "read_only"),
+    ("dangerous_commands", "read_only"),
     ("active_model", "read_only"),
     ("fallback_models", "read_only"),
     ("channels", "read_only"),
@@ -971,13 +1000,6 @@ pub(crate) async fn tool_update_settings(args: &Value, ctx: &ToolExecContext) ->
         return update_external_memory_providers(values).await;
     }
 
-    if matches!(
-        category,
-        "protected_paths" | "edit_commands" | "dangerous_commands"
-    ) {
-        return update_permission_patterns(category, values).await;
-    }
-
     update_app_config(category, values, ctx).await
 }
 
@@ -1017,37 +1039,6 @@ async fn update_external_memory_providers(values: &Value) -> Result<String> {
 /// Replace one of the three permission pattern lists. These lists intentionally
 /// live outside AppConfig, so their canonical `save_patterns` path owns the
 /// atomic file write and in-process cache refresh.
-async fn update_permission_patterns(category: &str, values: &Value) -> Result<String> {
-    let patterns: Vec<String> = serde_json::from_value(
-        values
-            .get("patterns")
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("{category}: missing `patterns` array"))?,
-    )
-    .map_err(|err| anyhow::anyhow!("{category}.patterns: {err}"))?;
-
-    let save_category = category.to_string();
-    crate::blocking::run_blocking(move || match save_category.as_str() {
-        "protected_paths" => crate::permission::protected_paths::save_patterns(&patterns),
-        "edit_commands" => crate::permission::edit_commands::save_patterns(&patterns),
-        "dangerous_commands" => crate::permission::dangerous_commands::save_patterns(&patterns),
-        _ => unreachable!("validated permission-list category"),
-    })
-    .await?;
-
-    let updated_value = read_category(category)?;
-    let mut response = json!({
-        "category": category,
-        "riskLevel": risk_level(category),
-        "updated": true,
-        "settings": updated_value,
-    });
-    if let Some(note) = side_effect_note(category) {
-        response["sideEffect"] = json!(note);
-    }
-    Ok(serde_json::to_string_pretty(&response)?)
-}
-
 /// Update STT IM auto-transcribe config: the global fallback model and any
 /// number of per-account `autoTranscribeVoice` toggles. Both top-level keys
 /// are optional and processed independently.
@@ -1164,6 +1155,18 @@ fn reject_blocked_user_update_fields(values: &Value) -> Result<()> {
     Ok(())
 }
 
+fn reject_blocked_browser_update_fields(values: &Value) -> Result<()> {
+    if let Some(field) = BLOCKED_BROWSER_UPDATE_FIELDS
+        .iter()
+        .find(|field| values.get(**field).is_some())
+    {
+        bail!(
+            "browser.{field} cannot be modified through this tool because it holds the raw CDP kill switch (`allowRawCdp`) and the extension trust config. Change it in Settings → Browser.",
+        );
+    }
+    Ok(())
+}
+
 async fn update_session_title_config(values: &Value) -> Result<String> {
     let values = values.clone();
     config::mutate_config_async(("session_title", "skill"), move |store| {
@@ -1263,38 +1266,15 @@ fn apply_app_config_update(
             }
         }
         "timeout_policy" => merge_field(&mut store.timeout_policy, values)?,
-        "approval" => {
-            if let Some(v) = values
-                .get("approvalTimeoutEnabled")
-                .and_then(|v| v.as_bool())
-            {
-                store.permission.approval_timeout_enabled = v;
-            }
-            if let Some(v) = values.get("approvalTimeoutSecs").and_then(|v| v.as_u64()) {
-                store.permission.approval_timeout_secs = v;
-            }
-            if let Some(v) = values.get("approvalTimeoutAction") {
-                store.permission.approval_timeout_action = serde_json::from_value(v.clone())?;
-            }
-        }
-        "unattended_approval" => {
-            if let Some(v) = values.get("unattendedApprovalAction") {
-                store.permission.unattended_approval_action = serde_json::from_value(v.clone())?;
-            }
-        }
-        "proxy" => merge_field(&mut store.proxy, values)?,
         "web_search" => merge_field(&mut store.web_search, values)?,
         "web_fetch" => {
             merge_field(&mut store.web_fetch, values)?;
             crate::tools::web_fetch::validate_config(&store.web_fetch)?;
         }
-        "browser" => merge_field(&mut store.browser, values)?,
-        "security" => {
-            if let Some(v) = values.get("skipAllApprovals").and_then(|v| v.as_bool()) {
-                store.permission.global_yolo = v;
-            }
+        "browser" => {
+            reject_blocked_browser_update_fields(values)?;
+            merge_field(&mut store.browser, values)?
         }
-        "security.ssrf" => merge_field(&mut store.ssrf, values)?,
         "compact" => merge_field(&mut store.compact, values)?,
         "session_title" => merge_field(&mut store.session_title, values)?,
         "notification" => merge_field(&mut store.notification, values)?,
@@ -1846,22 +1826,15 @@ mod tests {
             "acp_control",
             "auto_update",
             "browser",
-            "dangerous_commands",
-            "edit_commands",
             "external_memory_providers",
             "filesystem",
             "knowledge_maintenance",
             "knowledge_media_retention",
             "mcp_global",
-            "protected_paths",
-            "proxy",
-            "security",
-            "security.ssrf",
             "shortcuts",
             "skill_env",
             "skills",
             "smart_mode",
-            "unattended_approval",
         ];
         expected.sort_unstable();
         assert_eq!(
@@ -1904,15 +1877,23 @@ mod tests {
         let expected = [
             "active_model",
             "active_stt_model",
+            "approval",
             "channels",
+            "dangerous_commands",
+            "edit_commands",
             "embedding",
             "fallback_models",
             "hooks",
             "mcp_servers",
+            "protected_paths",
+            "proxy",
+            "security",
+            "security.ssrf",
             "server",
             "stt_fallback_models",
             "stt_providers",
             "tool_result_disk_threshold",
+            "unattended_approval",
         ];
         // Golden read_only set: adding/removing one fails here and forces review —
         // read_only is the exemption from the GUI-only credential rule.
@@ -1940,12 +1921,37 @@ mod tests {
             "active_stt_model",
             "stt_fallback_models",
             "tool_result_disk_threshold",
+            // Approval-policy chain: the permission engine's own configuration
+            // must not be rewritable by the model it supervises.
+            "approval",
+            "security",
+            "security.ssrf",
+            "protected_paths",
+            "edit_commands",
+            "dangerous_commands",
+            "unattended_approval",
+            "proxy",
         ] {
             assert!(
                 BLOCKED_UPDATE_CATEGORIES.contains(&cat),
                 "{cat} must be in BLOCKED_UPDATE_CATEGORIES"
             );
         }
+    }
+
+    #[test]
+    fn browser_extension_field_is_blocked_but_operational_prefs_stay_writable() {
+        let err = reject_blocked_browser_update_fields(&json!({
+            "extension": { "allowRawCdp": true }
+        }))
+        .expect_err("extension sub-config must be rejected");
+        assert!(err.to_string().contains("allowRawCdp"));
+
+        reject_blocked_browser_update_fields(&json!({
+            "defaultProfile": "managed",
+            "heartbeatIntervalSecs": 90
+        }))
+        .expect("operational browser prefs stay writable");
     }
 
     #[test]
