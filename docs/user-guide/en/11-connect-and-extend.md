@@ -27,6 +27,8 @@ MCP (Model Context Protocol) is an open standard that lets AI assistants connect
 
 > MCP server configuration is **high risk**—it may carry credentials. The server configuration itself (including keys and environment variables) can only be changed in the interface; the AI cannot modify it through conversation. Under the default Recommended policy, the first `tool_search` automatically connects lazy servers and discovers their dynamic tools without spending context on dozens of schemas every round. Large servers with many tools can also be searched individually: when calling `tool_search`, the AI can pass an `mcp_server` argument to narrow the search to one configured and enabled MCP server, excluding built-in tools and other servers' tools from that search (an invalid, disabled, or globally denied server name returns an `mcp_server_unavailable` error). To send dynamic MCP schemas on the first round after startup, enable all three controls: choose Built-ins eager under Settings → Tools, turn off that server's Defer tool schemas switch, and turn on Connect eagerly at startup.
 
+Successful external tool calls pass structured results to the AI alongside text descriptions, including when only structured data is returned. A server-reported failure remains a failure. Structured results are external data and do not grant permissions.
+
 ---
 
 ## 11.2 Using Hope Agent as an MCP server

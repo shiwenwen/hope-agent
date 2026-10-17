@@ -1,5 +1,20 @@
 # 行动卡统一迭代台账
 
+## 2026-10-17：MCP 结构化结果增量
+
+每日增量 prepare `exit=0/ok=true`；核验基线 **61737ff55b7d349bffa20c5da43742098da584b3**，核验时间 **2026-10-17T10:33:17.282948+00:00**，独立分支 `codex/automation-7-20261017t103309-38386cd4`，writer lease 已取得。本任务 #835 已 MERGED 且清理；依赖主责 #836 已 MERGED，合并提交等于当前基线，10-23 新建目录维护已交付，真实模型/账号/费用及已存配置迁移仍待各自合同。ZIP/rustls 安全维护由 `hope-agent-3` 于10-18接续，不接管其分支。
+
+00–12全部13组 LATEST.md/完整JSON及不可变双文件已读取并校验；仅05更新为10-16 19:10。来源卡由117增为118，保留原稳定语义ID，00只关联排序；新增 `05-ACP-NOTICE-COMPACTION`，状态待证据：稳定可选能力先冻结离线序列化/路由夹具，UI及本地压缩映射另评估，不默认宣告或启用。继承141张，共 **142** 张：已交付18、部分交付42、待决策29、待授权26、待证据14、观察13。完整来源/逐卡状态/计划见本轮受管run，不补跑历史专项。
+
+| 优先级 / 主责 | 工作流、基线与本轮范围 | 验收 / 重新评估条件 |
+| --- | --- | --- |
+| P0 / automation-7，`05-A1` | 既有授权MCP工具成功响应仅归一化content，structuredContent被丢弃；本轮唯一小包追加带标记的紧凑JSON | 缺省维持旧输出；显式null及全部JSON类型、文字/媒体双结果离线wire夹具；isError仍失败，不新增结构化错误日志；正常hooks、精确头审查/必需CI、保护合并后回读 |
+| P0/P1 / automation-7，`07-HA-RT-008` | 托管Chrome刷新继续等待四平台字节/SHA/许可/原生隔离冒烟 | 不以版本号替代完整验收，不升级宿主 |
+| P1 / hope-agent-3 | 新ZIP公告、rustls与机器人PR | 沿依赖队列的10-18安全包；兼容性和可达性证据先于升级 |
+| P1 / automation-7，`04-A7` / `10-A14` | OpenViking5000+1分页、Signal逐账号/daemon代次重放 | 合成夹具继续排队，真实服务/账号门保留 |
+
+`05-A1` 保持部分交付：本轮仅成功结果数据传递，不新增schema校验器、outputSchema组合/$ref预算、MRTR或权限能力；协议`_meta`不进模型正文。`isError=true`沿原正文错误路径，不把新增结构化负载写进Learning错误事件。旧文本与媒体占位保留，入站4MiB及执行层结果预算/无痕生命周期沿既有路径；没有真实GitHub MCP Server、OAuth、外部Agent或Provider调用。#836的静态目录交付与66项旧基线有界回归分别记账，后者不是当前源码复验。7项离线Rust测试（含36组JSON/文字/版本组合）、中英手册15+15对齐及普通pre-push通过：Rust5417项/7项既有ignored、前端301文件/1735项。正式交付 [PR #837](https://github.com/shiwenwen/hope-agent/pull/837)，最终精确头审查、CI与合并终态以交付回执为准。
+
 ## 2026-10-17：依赖主责接续 OpenAI 临期目录
 
 `hope-agent-3` 精确 prepare 成功，基线 `323d07fc966fb90840460364618726ecc02ac6f6`，运行 `20261017T033245-a2d7735d`；本轮一个相关维护包 [PR #836](https://github.com/shiwenwen/hope-agent/pull/836) 接续 `embedding:A1`（既有台账关联 `02-A3`）与 `llm-provider:OPENAI-LEGACY-20261023`。在 [官方公告](https://developers.openai.com/api/docs/deprecations) 的 10-23 截止前，新建 OpenAI 图像模板移除 `gpt-image-1`、保留已有 `gpt-image-2` 为首选；两个直连聊天模板移除 `o1` / `o1-pro` / `o3-mini` / `o4-mini`，保留既有 GPT-5.6 候选，并按官方深度研究说明清理7-23已停用的 `o3-deep-research` / `o4-mini-deep-research`；这是本轮审查补漏，不作为新退役公告。已存模型、active/fallback、自定义及网关不改写；`overview.rs` 的旧型号是脱敏测试夹具，不是运行时默认值。18项前端目录检查与Rust图像目录定向检查通过，中英手册、Provider/媒体合同同步；普通hooks、最终精确头CI、审查线程、保护合入和远端逐文件读回由本任务交付回执记录。真实生成/编辑、质量、账号、费用及用户配置迁移仍待各自合同，整卡保持部分交付，其他任务不重复建目录PR。

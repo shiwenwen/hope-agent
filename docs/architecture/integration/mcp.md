@@ -304,7 +304,7 @@ sequenceDiagram
     INV->>SEM: acquire_owned（全局 → per-server）
     INV->>PEER: call_tool（call_timeout_secs>0 时套 timeout）
     PEER-->>INV: CallToolResult
-    Note over INV: normalize_content 折叠为字符串<br/>isError=true → ToolFailed
+    Note over INV: normalize_result 保留正文和结构化结果<br/>isError=true → ToolFailed
     INV->>LE: emit mcp_tool_called / mcp_tool_failed
     INV-->>EX: String
 ```
@@ -318,6 +318,8 @@ sequenceDiagram
 | `audio` | 占位行 `[audio mime=… size_b64=…]` |
 | 内嵌 `resource` | `[resource uri=…]\n<正文>`；blob 正文显示为 `[blob base64 size=…]` |
 | `resource_link` | `[resource_link uri=…]` |
+
+成功结果先保留上述正文，再将存在的 `structuredContent` 以 `[structuredContent]` 标记和紧凑 JSON 追加；没有正文时也返回该数据。对象、数组、字符串、数字、布尔值和显式 `null` 均保留，字段缺失则保持旧输出不变。它仍是外部工具结果，不作为指令或授权；`_meta` 不进入模型正文。`isError=true` 继续返回 `ToolFailed`，沿既有正文诊断，结构化负载不新增到错误 Learning 事件中。当前只保证数据传递，尚未实现 `outputSchema` 校验、组合 schema / `$ref` 预算或完整 MCP conformance，不宣称真实 GitHub Server 互操作已验收。
 
 `call_timeout_secs > 0` 时单次调用外套 `tokio::time::timeout`，`0` 表示不加 call-level timeout。超时或 `isError=true` 会让 per-server 失败计数 +1，喂给 watchdog 升级；一次干净调用则把计数清零。
 
