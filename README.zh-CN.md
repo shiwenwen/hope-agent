@@ -343,7 +343,7 @@ pnpm tauri build       # 打生产包
   <td width="140"><b>📦 模型 Provider</b></td>
   <td>
     <b>约 50 个模板 · 数百个预设模型</b><br/>
-    <b>国际</b> · Anthropic · OpenAI · Codex · GitHub Copilot · Google Gemini · OpenRouter · Requesty · Azure OpenAI · Groq · Together AI · Fireworks · Novita · Perplexity · xAI Grok · Mistral · Cohere<br/>
+    <b>国际</b> · Anthropic · OpenAI · Codex · GitHub Copilot · Google Gemini · API Route · OpenRouter · Requesty · Azure OpenAI · Groq · Together AI · Fireworks · Novita · Perplexity · xAI Grok · Mistral · Cohere<br/>
     <b>国内</b> · DeepSeek · Moonshot (Kimi) · 通义千问 (Qwen) · 豆包 (火山引擎) · 智谱 GLM · MiniMax · 小米 MiMo<br/>
     <b>本地</b> · Ollama · 任意 OpenAI 兼容端点
   </td>
@@ -357,6 +357,8 @@ pnpm tauri build       # 打生产包
   <td><b>10+ 种</b> · 简体中文 · 繁體中文 · English · 日本語 · 한국어 · Español · Português · Русский · العربية · Türkçe · Tiếng Việt · Bahasa Melayu</td>
 </tr>
 </table>
+
+使用 API Route 时，选择其模板并填写 [API Route 密钥](https://www.api-route.com/tokens)，在模型列表中添加 `https://global.api-route.com/v1/models` 返回的精确 ID，核实所用路由的限制和价格后保存。模板不预填模型参数：当前鉴权模型列表提供 ID，不提供上下文限制或密钥组别价格。
 
 ## 项目结构
 

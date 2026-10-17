@@ -4035,6 +4035,10 @@
     "waitingBrowserLogin": "Aguardando login no navegador..."
   },
   "provider_templates": {
+    "api-route": {
+      "description": "Gateway de API multimodelo compatível com OpenAI",
+      "name": "API Route"
+    },
     "anthropic": {
       "description": "Modelos da série Claude",
       "name": "Anthropic"

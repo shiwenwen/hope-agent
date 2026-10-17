@@ -140,7 +140,7 @@ const ALLOW_SAME_AS_EN = [
   /^Grok \(X\.AI\)$/,
   /^Kimi \(Moonshot\)$/,
   /^Bocha AI Search$/,
-  /^(Chutes \(TEE\)|Cloudflare AI Gateway|Google Gemini|Groq|Hugging Face|Kimi Coding|LiteLLM|LM Studio|MiniMax|Mistral|Moonshot AI \(Kimi\)|NVIDIA|NVIDIA AI Endpoints|OpenAI \(Chat\)|OpenRouter|Requesty|Together AI|vLLM|xAI)$/,
+  /^(API Route|Chutes \(TEE\)|Cloudflare AI Gateway|Google Gemini|Groq|Hugging Face|Kimi Coding|LiteLLM|LM Studio|MiniMax|Mistral|Moonshot AI \(Kimi\)|NVIDIA|NVIDIA AI Endpoints|OpenAI \(Chat\)|OpenRouter|Requesty|Together AI|vLLM|xAI)$/,
   /^(BytePlus|Baidu Qianfan|Volcengine \(Doubao\)|Xiaomi MiMo|Zhipu AI \(Z\.AI\))$/,
   /^(SiliconFlow \(Qwen-Image \/ Kolors\)|Tongyi Wanxiang \(wanx-v1\)|ZhipuAI \(CogView-4\))$/,
   /^阿里云百炼$/,

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **API Route 服务商模板**：预填 OpenAI Chat 兼容端点，填写 API Key 并配置模型后使用。 (#752)
+
 ### Fixed
 
 - **Figma 导入诊断**：修正令牌权限提示，区分访问失败与限流等待，并避免错误信息暴露文件和账号内容。 (#835)

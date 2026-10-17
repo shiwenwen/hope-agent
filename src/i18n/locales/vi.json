@@ -4035,6 +4035,10 @@
     "waitingBrowserLogin": "Đang chờ đăng nhập trình duyệt..."
   },
   "provider_templates": {
+    "api-route": {
+      "description": "Cổng API đa mô hình tương thích OpenAI",
+      "name": "API Route"
+    },
     "anthropic": {
       "description": "Các mô hình dòng Claude",
       "name": "Anthropic"

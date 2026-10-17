@@ -4035,6 +4035,10 @@
     "waitingBrowserLogin": "ブラウザログインを待機中..."
   },
   "provider_templates": {
+    "api-route": {
+      "description": "OpenAI 互換のマルチモデル API ゲートウェイ",
+      "name": "API Route"
+    },
     "anthropic": {
       "description": "Claude シリーズモデル",
       "name": "Anthropic"

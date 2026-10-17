@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import ProviderSetup from "./index"
 import type { ModelConfig, ProviderTemplate } from "./types"
+import { PROVIDER_TEMPLATES } from "./templates"
 
 const transportMock = vi.hoisted(() => ({ call: vi.fn() }))
 
@@ -53,12 +54,42 @@ vi.mock("./TemplateGrid", () => ({
         template
       </button>
       <button onClick={onStartCustom}>custom</button>
+      <button
+        onClick={() =>
+          onSelectTemplate(PROVIDER_TEMPLATES.find((template) => template.key === "api-route")!)
+        }
+      >
+        API Route
+      </button>
     </>
   ),
 }))
 
 vi.mock("./TemplateConfig", () => ({
-  TemplateConfig: ({ onSave }: { onSave: () => void }) => <button onClick={onSave}>save</button>,
+  TemplateConfig: ({
+    onSave,
+    setModels,
+    setApiKey,
+    modelsExpanded,
+  }: {
+    onSave: () => void
+    setModels: (models: ModelConfig[]) => void
+    setApiKey: (key: string) => void
+    modelsExpanded: boolean
+  }) => (
+    <>
+      {modelsExpanded && <span>models expanded</span>}
+      <button
+        onClick={() => {
+          setModels([model])
+          setApiKey("sk-test")
+        }}
+      >
+        configure model
+      </button>
+      <button onClick={onSave}>save</button>
+    </>
+  ),
 }))
 
 vi.mock("./CustomWizard", () => ({
@@ -88,6 +119,28 @@ beforeEach(() => {
 })
 
 afterEach(cleanup)
+
+test("API Route starts with an open model editor and saves only user-configured metadata", async () => {
+  const onComplete = vi.fn()
+  render(<ProviderSetup onComplete={onComplete} onCodexAuth={vi.fn()} />)
+  fireEvent.click(screen.getByRole("button", { name: "API Route" }))
+  expect(screen.getByText("models expanded")).toBeTruthy()
+  fireEvent.click(screen.getByRole("button", { name: "save" }))
+  expect(transportMock.call.mock.calls.some(([command]) => command === "add_provider")).toBe(false)
+
+  fireEvent.click(screen.getByRole("button", { name: "configure model" }))
+  fireEvent.click(screen.getByRole("button", { name: "save" }))
+  await waitFor(() => expect(onComplete).toHaveBeenCalledOnce())
+  expect(transportMock.call).toHaveBeenCalledWith("add_provider", {
+    config: expect.objectContaining({
+      name: "API Route",
+      apiType: "openai-chat",
+      baseUrl: "https://global.api-route.com/v1",
+      apiKey: "sk-test",
+      models: [model],
+    }),
+  })
+})
 
 test.each(["template", "custom"])(
   "adding a %s provider leaves default selection to the atomic backend write",
