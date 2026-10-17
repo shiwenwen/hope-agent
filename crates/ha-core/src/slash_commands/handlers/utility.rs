@@ -1,5 +1,5 @@
 use crate::config::AppConfig;
-use crate::provider;
+use crate::provider::{self, ActiveModel};
 use crate::session::SessionDB;
 use crate::slash_commands::registry;
 use crate::slash_commands::truncate_description;
@@ -180,23 +180,31 @@ fn format_help_row(c: &SlashCommandDef) -> String {
 /// (see `ChatTitleBar.tsx`): version, model + auth type, context window usage,
 /// last-round cache stats, agent, session title + id, message count, permission
 /// mode, thinking effort, last-updated relative time, project, IM attaches.
+///
+/// `effective_model` is resolved by the dispatcher with the same
+/// configured-chain order the next turn uses (#786): session pin → Agent
+/// primary → global `active_model`; the Model line and the context window
+/// both read it so they cannot drift apart.
 pub async fn handle_status(
     session_db: &Arc<SessionDB>,
     store: &AppConfig,
     session_id: Option<&str>,
     agent_id: &str,
+    effective_model: Option<ActiveModel>,
 ) -> Result<CommandResult, String> {
     let mut lines = vec!["**Session Status**\n".to_string()];
 
     lines.push(format!("- **Hope Agent**: v{}", env!("CARGO_PKG_VERSION")));
 
-    let active_model_full = store.active_model.as_ref().and_then(|active| {
+    // The session section below reuses this row; fetch it once.
+    let meta = session_id.and_then(|sid| session_db.get_session(sid).ok().flatten());
+    let active_model_full = effective_model.as_ref().and_then(|active| {
         provider::build_available_models(&store.providers)
             .into_iter()
             .find(|m| m.provider_id == active.provider_id && m.model_id == active.model_id)
     });
 
-    if let Some(ref active) = store.active_model {
+    if let Some(ref active) = effective_model {
         let (name, auth_label) = if let Some(model) = active_model_full.as_ref() {
             (
                 format!("{} / {}", model.provider_name, model.model_name),
@@ -216,8 +224,6 @@ pub async fn handle_status(
     lines.push(format!("- **Agent**: `{}`", agent_id));
 
     if let Some(sid) = session_id {
-        let meta = session_db.get_session(sid).ok().flatten();
-
         if let Some(title) = meta
             .as_ref()
             .and_then(|m| m.title.as_deref())
@@ -1108,10 +1114,12 @@ mod tests {
             &store,
             Some(&sid),
             crate::agent_loader::DEFAULT_AGENT_ID,
+            None,
         )
         .await
         .expect("ok");
         assert!(result.content.contains("**Hope Agent**: v"));
+        assert!(result.content.contains("**Model**: not set"));
         assert!(result.content.contains("**Title**: Glittery island recap"));
         assert!(result
             .content
@@ -1143,6 +1151,7 @@ mod tests {
             &store,
             Some(&sid),
             crate::agent_loader::DEFAULT_AGENT_ID,
+            None,
         )
         .await
         .expect("ok");
@@ -1177,6 +1186,7 @@ mod tests {
             &AppConfig::default(),
             Some(&sid),
             crate::agent_loader::DEFAULT_AGENT_ID,
+            None,
         )
         .await
         .expect("ok");
@@ -1204,5 +1214,142 @@ mod tests {
                 err
             );
         }
+    }
+
+    #[tokio::test]
+    async fn handle_status_model_line_prefers_the_session_pin() {
+        use crate::provider::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
+
+        let mut provider = ProviderConfig::new(
+            "Provider One".into(),
+            ApiType::OpenaiChat,
+            "https://example.test".into(),
+            "test-key".into(),
+        );
+        provider.id = "p1".into();
+        provider.enabled = true;
+        provider.models = vec![
+            ModelConfig {
+                id: "m1".into(),
+                name: "Model One".into(),
+                input_types: vec!["text".into()],
+                context_window: 128_000,
+                max_tokens: 8192,
+                reasoning: false,
+                thinking_style: None,
+                cost_input: None,
+                cost_output: None,
+            },
+            ModelConfig {
+                id: "m2".into(),
+                name: "Model Two".into(),
+                input_types: vec!["text".into()],
+                context_window: 64_000,
+                max_tokens: 8192,
+                reasoning: false,
+                thinking_style: None,
+                cost_input: None,
+                cost_output: None,
+            },
+        ];
+        let store = AppConfig {
+            providers: vec![provider],
+            active_model: Some(ActiveModel {
+                provider_id: "p1".into(),
+                model_id: "m1".into(),
+            }),
+            ..Default::default()
+        };
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        ensure_channel_conversations_table(&db);
+        let meta = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create");
+        let sid = meta.id.clone();
+        db.update_session_model(&sid, Some("p1"), Some("Provider One"), Some("m2"))
+            .expect("pin model");
+
+        // The dispatcher resolves the conversation model (session pin →
+        // Agent primary → global, covered by `effective_session_model`
+        // tests in handlers::mod); here the pin-shaped resolution is what
+        // /status must render — not the global active model.
+        let result = handle_status(
+            &db,
+            &store,
+            Some(&sid),
+            crate::agent_loader::DEFAULT_AGENT_ID,
+            Some(ActiveModel {
+                provider_id: "p1".into(),
+                model_id: "m2".into(),
+            }),
+        )
+        .await
+        .expect("ok");
+        assert!(result
+            .content
+            .contains("**Model**: Provider One / Model Two"));
+        assert!(!result.content.contains("Model One"));
+    }
+
+    #[tokio::test]
+    async fn handle_status_model_line_shows_the_dispatch_resolved_model() {
+        use crate::provider::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
+
+        let mut provider = ProviderConfig::new(
+            "Provider One".into(),
+            ApiType::OpenaiChat,
+            "https://example.test".into(),
+            "test-key".into(),
+        );
+        provider.id = "p1".into();
+        provider.enabled = true;
+        provider.models = vec![ModelConfig {
+            id: "m1".into(),
+            name: "Model One".into(),
+            input_types: vec!["text".into()],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input: None,
+            cost_output: None,
+        }];
+        let store = AppConfig {
+            providers: vec![provider],
+            active_model: Some(ActiveModel {
+                provider_id: "p1".into(),
+                model_id: "m1".into(),
+            }),
+            ..Default::default()
+        };
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = Arc::new(SessionDB::open_ephemeral_for_test(&path).expect("open"));
+        ensure_channel_conversations_table(&db);
+        let meta = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create");
+        let sid = meta.id.clone();
+        // No session pin and no Agent primary: the dispatcher resolves the
+        // global active model, and /status must render it.
+        db.update_session_model(&sid, None, None, None)
+            .expect("unpin model");
+
+        let result = handle_status(
+            &db,
+            &store,
+            Some(&sid),
+            crate::agent_loader::DEFAULT_AGENT_ID,
+            store.active_model.clone(),
+        )
+        .await
+        .expect("ok");
+        assert!(result
+            .content
+            .contains("**Model**: Provider One / Model One"));
     }
 }
