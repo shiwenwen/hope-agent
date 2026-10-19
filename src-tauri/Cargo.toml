@@ -80,7 +80,7 @@ objc2-vision = { version = "0.3.2", default-features = false, features = ["std",
 xcap = "0.9"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
-tauri-plugin-updater = "=2.12.0"
+tauri-plugin-updater = "=2.14.0"
 
 [lints]
 workspace = true

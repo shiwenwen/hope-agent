@@ -275,12 +275,12 @@ prepare `exit=0/ok=true`；基线 **29aef3279f1c19610fd58b5dc9c8b53dda3f9f4b**�
 | `12-FTR-004` | 部分交付 | 09-20 FTR-004（新增） | #737 的内存 SQLite 八周合成 PoC，原12类检查通过，本周未重新执行；生产模板/Goal revision 对接、展示文案和样本门需后续决策。 |
 | `12-FTR-005` | 部分交付 | 10-04 FTR-005 → 09-27 同 ID；10-11 FTR-005 | #775已确认MERGED且当前main包含typed内存PoC；151行四组×3为历史作者自测，本轮不补跑。真实文件字节、自然语言与生产Domain Quality验收未完成，FTR-002独立保留。 |
 | `12-FTR-006` | 待决策 | 10-04 FTR-006 | 新接管/交回控制合同与 owner 实验门未启动；建议6组 fake表单×3，要求正式事件屏障，不能将刷新暂停或 role/text 重定位当停止/授权；无运行成绩。 |
-| `06-SDK-01` | 部分交付 | 10-06 SDK-01 | 修补 Tauri 跨窗口 IPC Channel：Tauri 2.11.6锁与最低约束；上游queue源码有所属webview隔离/关闭清理。workspace与当前头CI证据另列；真实双webview大响应/聊天流验收尚无本轮结果，取得隔离设备fixture后重评。 |
+| `06-SDK-01` | 部分交付 | 10-06 SDK-01 | 修补 Tauri 跨窗口 IPC Channel：Tauri 2.12.4 / JS API 2.12.4 配对锁（10-19 #839）；原最低约束保留；上游queue源码有所属webview隔离/关闭清理。workspace与当前头CI证据另列；真实双webview大响应/聊天流验收尚无本轮结果，取得隔离设备fixture后重评。 |
 | `06-SDK-02` | 部分交付 | 10-06 SDK-02 | 升级 PDF 文本解析，阻断小文件栈溢出：ha-core/ha-design配对pdf-extract0.12.1→lopdf0.42.0；合成10380层PDF子进程、正常两页/空页回归，证据见定向日志。图像/PDFium和真实用户PDF不在该文本补丁验收内；失败保持受控文本回退。 |
 | `06-SDK-04` | 部分交付 | 10-06 SDK-04 | 独立提升 rustls 与 h2 安全补丁：Cargo.lock rustls0.23.46（10-18补丁）/h2 0.4.16，保留native-tls；共享rustls支线未忽略。公告与resolver/编译可复核，未运行畸形TLS握手/空DATA专用攻击fixture；有平台fixture后复核，不能回退脆弱下限。；10-18依赖主责PR838已MERGED，rustls0.23.46；真实TLS/H2攻击与平台专项未验，卡仍部分交付。 |
 | `06-SDK-05` | 部分交付 | 10-06 SDK-05 | 同时修补自有 XML 与 calamine 传递链：自有quick-xml0.41.0及calamine0.36.1配对，XML1.0归一化API、原深度/属性/实体/ZIP预算保留；合成Excel类型/空白及Office负例证据见定向日志。xcb构建链0.30.0仍待上游兼容，真实Office样本未授权。 |
 | `06-SDK-06` | 部分交付 | 10-06 SDK-06 | 采用 Tokio 进程与取消生命周期修复：Tokio1.53.2安全生命周期补丁已锁，原MCP kill_on_drop/JobManager/Stop保持。取消/子进程相关现有测试与跨平台CI另列，不把macOS编译宣称Windows句柄实机证明。 |
-| `06-SDK-07` | 部分交付 | 10-06 SDK-07 | 将 updater 降级决定收回应用配置：updater Rust/JS精确2.12.0、应用allowDowngrades=false；既有GUI回归与workspace check证据另列。未使用生产源/安装真实更新，本地签名降级manifest与完整平台安装仍待fixture；不得由renderer覆盖或回退版本门。 |
+| `06-SDK-07` | 部分交付 | 10-06 SDK-07 | 将 updater 降级决定收回应用配置：updater Rust/JS精确2.14.0（10-19 #839配对维护）、应用allowDowngrades=false；既有GUI回归与workspace check证据另列。未使用生产源/安装真实更新，本地签名降级manifest与完整平台安装仍待fixture；不得由renderer覆盖或回退版本门。 |
 | `06-SDK-08` | 部分交付 | 10-06 SDK-08 | 清理 lru 条件性内存安全问题：ha-core/ha-channel lru最低0.18.2、实际锁0.18.5；容量、淘汰和计量key语义保留。当前缓存回归/CI另列，无新增unsafe或生产数据；自定义panic Drop攻击验收未运行，有反证后重评。 |
 | `06-SDK-09` | 部分交付 | 10-06 SDK-09 | 更新 DOMPurify 安全下限并核查第三方配置：DOMPurify override>=3.4.16、锁3.4.16，保留现行过滤。源码未引入IN_PLACE/hook；第三方清洗/跨调用真实攻击覆盖仍待专用fixture，不称默认Markdown已有XSS复现或完全免疫。 |
 | `06-SDK-11` | 部分交付 | 10-06 SDK-11 | 替换停止维护的 mp4-muxer：现有客户端MP4迁移候选Mediabunny1.61.3（MPL-2.0元数据已核），保持harness/H.264/关键帧/时间戳；逐帧排空异步写，成功仅返最终MP4；合成码流容器两帧读回与编码/写入失败清理3项通过。只供合成测试引用，生产默认仍为mp4-muxer；按来源门先取得各平台实际H.264/播放fixture再切换，质量/速度尚未测。 |
