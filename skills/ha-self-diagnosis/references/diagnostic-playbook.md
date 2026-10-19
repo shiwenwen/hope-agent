@@ -219,7 +219,7 @@ gotcha that most often explains a failure. Open every DB read-only.
 - 模型/媒体/嵌入收到 3xx 时先核对显式配置的端点，禁止通过重新发送原密钥/输入来探测目标；模型客户端禁止重定向，资源 GET 的逐跳 SSRF 是另一条路径。参见 Provider、媒体与安全文档。
 - PDF 解析失败沿文本回退处理；深层输入的受控错误与进程 abort 分别记录。quick-xml 自有/Excel 为 0.41，xcb 旧构建链与 GTK/glib 平台债不冒称已消除。
 - 客户端 MP4 导出分别定位编码、异步封装与清理错误；成功须有最终 MP4 bytes，不能以抓帧数或 encoder flush 完成认定已交付。Mediabunny 仅为隔离候选，合成读回不证明平台 H.264 编码/播放可用，生产默认未切换。
-- 桌面 updater 2.12.0 的降级开关来自应用配置且固定 false；不通过 renderer 参数覆盖版本门，不关闭验签/重启确认。
+- 桌面 updater 的 Rust/JS 两端固定 2.14.0（2026-10-19 配对维护）；降级开关来自应用配置且固定 false，不通过 renderer 参数覆盖版本门，不关闭验签/重启确认。
 
 ### Kimi Basic 搜索迁移
 
