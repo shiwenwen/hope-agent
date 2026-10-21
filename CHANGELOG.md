@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cheaper Inference 服务商模板**：新增 Cheaper Inference 多模型网关预设（OpenAI Chat 兼容），内置常用模型。 (#849)
+
 ## [0.67.0] - 2026-10-20
 
 ### Added

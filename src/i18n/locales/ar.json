@@ -4068,6 +4068,10 @@
       "description": "منصة النماذج الدولية BytePlus AI",
       "name": "بايت بلس"
     },
+    "cheaperinference": {
+      "description": "بوابة LLM متوافقة مع OpenAI، نماذج من عدة مختبرات بمفتاح واحد",
+      "name": "Cheaper Inference"
+    },
     "chutes": {
       "description": "استدلال AI في بيئة التنفيذ الموثوقة (TEE)",
       "name": "Chutes (TEE)"

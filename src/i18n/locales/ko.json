@@ -4068,6 +4068,10 @@
       "description": "BytePlus AI 국제 모델 플랫폼",
       "name": "바이트플러스"
     },
+    "cheaperinference": {
+      "description": "OpenAI 호환 LLM 게이트웨이, 하나의 Key 로 여러 업체 모델",
+      "name": "Cheaper Inference"
+    },
     "chutes": {
       "description": "TEE 신뢰 실행 환경 AI 추론",
       "name": "Chutes (TEE)"

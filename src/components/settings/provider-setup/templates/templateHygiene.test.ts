@@ -388,4 +388,44 @@ describe("provider template lifecycle hygiene", () => {
     })
     expect(provider?.models.length).toBeGreaterThan(0)
   })
+
+  it("offers Cheaper Inference as an OpenAI Chat compatible gateway", () => {
+    const provider = PROVIDER_TEMPLATES.find((template) => template.key === "cheaperinference")
+    expect(provider).toMatchObject({
+      apiType: "openai-chat",
+      baseUrl: "https://api.cheaperinference.com/v1",
+      requiresApiKey: true,
+    })
+    // Limits from the gateway's GET /v1/models (context_length / max_output_tokens).
+    expect(
+      provider?.models.map(({ id, contextWindow, maxTokens, inputTypes }) => ({
+        id,
+        contextWindow,
+        maxTokens,
+        inputTypes,
+      })),
+    ).toEqual([
+      {
+        id: "gpt-5.4-mini",
+        contextWindow: 400000,
+        maxTokens: 128000,
+        inputTypes: ["text", "image"],
+      },
+      { id: "gpt-5.4", contextWindow: 1000000, maxTokens: 128000, inputTypes: ["text", "image"] },
+      {
+        id: "claude-sonnet-5",
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        inputTypes: ["text", "image"],
+      },
+      {
+        id: "gemini-3.1-pro",
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        inputTypes: ["text", "image"],
+      },
+      { id: "deepseek-v4-flash", contextWindow: 1000000, maxTokens: 384000, inputTypes: ["text"] },
+      { id: "glm-5.3", contextWindow: 1000000, maxTokens: 131072, inputTypes: ["text"] },
+    ])
+  })
 })

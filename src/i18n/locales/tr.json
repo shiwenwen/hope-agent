@@ -4068,6 +4068,10 @@
       "description": "BytePlus AI uluslararası model platformu",
       "name": "BytePlus"
     },
+    "cheaperinference": {
+      "description": "OpenAI uyumlu LLM ağ geçidi, tek key ile birden çok laboratuvarın modelleri",
+      "name": "Cheaper Inference"
+    },
     "chutes": {
       "description": "Güvenilir yürütme ortamı (TEE) AI çıkarımı",
       "name": "Chutes (TEE)"
