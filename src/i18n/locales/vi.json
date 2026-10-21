@@ -4068,6 +4068,10 @@
       "description": "Nền tảng mô hình AI quốc tế BytePlus",
       "name": "BytePlus"
     },
+    "cheaperinference": {
+      "description": "Cổng LLM tương thích OpenAI, mô hình của nhiều phòng lab với một key duy nhất",
+      "name": "Cheaper Inference"
+    },
     "chutes": {
       "description": "Suy luận AI trong môi trường thực thi tin cậy (TEE)",
       "name": "Chutes (TEE)"
