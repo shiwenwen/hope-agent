@@ -44,3 +44,8 @@ docs/plan/
 
 # Local assistant state（worktrees / settings.local.json 等）
 .claude/
+# ZCode 助手本地状态与会话计划（.zcodeignore 由工具从 .gitignore 同步生成）
+.zcode/
+.zcodeignore
+# codebase-memory-mcp 持久化知识图谱索引
+.codebase-memory/
