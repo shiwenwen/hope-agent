@@ -4060,6 +4060,10 @@
     }
   },
   "provider_templates": {
+    "api-route": {
+      "description": "相容 OpenAI 的多模型 API 閘道",
+      "name": "API Route"
+    },
     "anthropic": {
       "description": "Claude 系列模型",
       "name": "Anthropic"

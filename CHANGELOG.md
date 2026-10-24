@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **API Route 服务商模板**：预填 OpenAI Chat 兼容端点，填写 API Key 并配置模型后使用。 (#752)
+
 ### Fixed
 
 - **OpenViking 同步完整性**：远端记忆列表被截断或无法证明完整时明确停止，避免仅同步部分内容却显示成功，并保留已有记忆与同步进度。 (#855)

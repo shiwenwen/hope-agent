@@ -4060,6 +4060,10 @@
     }
   },
   "provider_templates": {
+    "api-route": {
+      "description": "Pasarela API multimodelo compatible con OpenAI",
+      "name": "API Route"
+    },
     "anthropic": {
       "description": "Modelos de la serie Claude",
       "name": "Anthropic"
