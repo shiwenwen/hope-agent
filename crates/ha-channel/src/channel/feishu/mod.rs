@@ -60,22 +60,36 @@ fn build_button_card_v2(
     text: Option<&str>,
     buttons: &[Vec<ha_core::channel::types::InlineButton>],
 ) -> serde_json::Value {
-    let columns: Vec<_> = buttons
+    // One column_set per input row. A column_set is Feishu's horizontal
+    // container and never wraps, so flattening every row into a single one
+    // squeezed N buttons into one line (#785); separate column_sets stack
+    // vertically and preserve the row structure the callers already model.
+    let row_sets: Vec<_> = buttons
         .iter()
-        .flatten()
-        .map(|b| {
+        .filter(|row| !row.is_empty())
+        .map(|row| {
+            let columns: Vec<_> = row
+                .iter()
+                .map(|b| {
+                    serde_json::json!({
+                        "tag": "column",
+                        "width": "auto",
+                        "elements": [{
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": &b.text},
+                            "type": "primary",
+                            "behaviors": [{
+                                "type": "callback",
+                                "value": {HOPE_CALLBACK_KEY: b.callback_id()},
+                            }],
+                        }],
+                    })
+                })
+                .collect();
             serde_json::json!({
-                "tag": "column",
-                "width": "auto",
-                "elements": [{
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": &b.text},
-                    "type": "primary",
-                    "behaviors": [{
-                        "type": "callback",
-                        "value": {HOPE_CALLBACK_KEY: b.callback_id()},
-                    }],
-                }],
+                "tag": "column_set",
+                "horizontal_align": "left",
+                "columns": columns,
             })
         })
         .collect();
@@ -87,11 +101,7 @@ fn build_button_card_v2(
             "content": t,
         }));
     }
-    body_elements.push(serde_json::json!({
-        "tag": "column_set",
-        "horizontal_align": "left",
-        "columns": columns,
-    }));
+    body_elements.extend(row_sets);
 
     serde_json::json!({
         "schema": "2.0",
@@ -653,5 +663,70 @@ mod tests {
         assert!(validate_feishu_buttons(&buttons).is_ok());
         let oversized = build_button_card_v2(Some(&"x".repeat(31 * 1024)), &buttons);
         assert!(validate_feishu_card_payload(&oversized).is_err());
+    }
+
+    #[test]
+    fn button_card_keeps_one_column_set_per_row() {
+        let buttons = vec![
+            vec![
+                InlineButton {
+                    text: "A1".to_string(),
+                    callback_data: Some("ask_user:1:a1".to_string()),
+                    url: None,
+                },
+                InlineButton {
+                    text: "A2".to_string(),
+                    callback_data: Some("ask_user:1:a2".to_string()),
+                    url: None,
+                },
+            ],
+            vec![InlineButton {
+                text: "B1".to_string(),
+                callback_data: Some("ask_user:1:b1".to_string()),
+                url: None,
+            }],
+        ];
+
+        let card = build_button_card_v2(None, &buttons);
+        let elements = card["body"]["elements"].as_array().unwrap();
+        // Two input rows => two column_sets; no flattening into one line.
+        assert_eq!(elements.len(), 2, "one column_set per row");
+        assert_eq!(elements[0]["tag"], "column_set");
+        assert_eq!(elements[1]["tag"], "column_set");
+
+        let first_row = elements[0]["columns"].as_array().unwrap();
+        assert_eq!(first_row.len(), 2);
+        assert_eq!(
+            first_row[0]["elements"][0]["behaviors"][0]["value"]["hope_callback"],
+            "ask_user:1:a1"
+        );
+        let second_row = elements[1]["columns"].as_array().unwrap();
+        assert_eq!(second_row.len(), 1);
+        assert_eq!(
+            second_row[0]["elements"][0]["behaviors"][0]["value"]["hope_callback"],
+            "ask_user:1:b1"
+        );
+    }
+
+    #[test]
+    fn button_card_text_precedes_every_row() {
+        let buttons = vec![
+            vec![InlineButton {
+                text: "A1".to_string(),
+                callback_data: Some("ask_user:1:a1".to_string()),
+                url: None,
+            }],
+            vec![InlineButton {
+                text: "B1".to_string(),
+                callback_data: Some("ask_user:1:b1".to_string()),
+                url: None,
+            }],
+        ];
+
+        let card = build_button_card_v2(Some("pick"), &buttons);
+        let elements = card["body"]["elements"].as_array().unwrap();
+        assert_eq!(elements.len(), 3, "markdown + two row column_sets");
+        assert_eq!(elements[0]["tag"], "markdown");
+        assert_eq!(elements[0]["content"], "pick");
     }
 }
