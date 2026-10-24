@@ -177,7 +177,7 @@ pub fn get_acp_spawn_tool() -> ToolDefinition {
                 "action": {
                     "type": "string",
                     "enum": ["spawn", "check", "list", "result", "kill", "kill_all", "steer", "backends"],
-                    "description": "Action: spawn (start external agent), check (poll/wait), list (all runs), result (full output), kill (terminate), kill_all (terminate all), steer (send follow-up), backends (list available)"
+                    "description": "Action: spawn (start external agent), check (poll/wait), list (all runs), result (full output), kill (terminate), kill_all (terminate all), steer (unsupported: an ACP session processes one prompt at a time; wait for completion, then spawn a follow-up run), backends (list available)"
                 },
                 "backend": {
                     "type": "string",
@@ -205,7 +205,7 @@ pub fn get_acp_spawn_tool() -> ToolDefinition {
                 },
                 "message": {
                     "type": "string",
-                    "description": "Follow-up message to send (for steer action)"
+                    "description": "Follow-up message (accepted by steer for schema compatibility; steer itself returns an unsupported error — ACP sessions take one prompt at a time)"
                 },
                 "wait": {
                     "type": "boolean",
