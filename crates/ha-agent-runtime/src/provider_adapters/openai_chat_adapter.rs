@@ -292,12 +292,12 @@ fn apply_official_chat_effort(
     let mapped = match (url.host_str(), model, effort) {
         (
             Some("generativelanguage.googleapis.com"),
-            "gemini-3.7-flash" | "gemini-3.8-flash",
+            "gemini-3.7-flash" | "gemini-3.8-flash" | "gemini-4-argon",
             "minimal",
         ) => "low",
         (
             Some("generativelanguage.googleapis.com"),
-            "gemini-3.7-flash" | "gemini-3.8-flash",
+            "gemini-3.7-flash" | "gemini-3.8-flash" | "gemini-4-argon",
             "xhigh" | "max",
         ) => "high",
         (Some("api.x.ai"), "grok-4.6" | "grok-4.7", "minimal") => "low",
@@ -1524,6 +1524,46 @@ mod tests {
             &req,
         );
         assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn gemini_4_argon_chat_body_uses_compatible_efforts_and_default_when_unset() {
+        let history = vec![serde_json::json!({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe this image and call inspect."},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,synthetic"}}
+            ]
+        })];
+        let tools = vec![serde_json::json!({
+            "name": "inspect", "parameters": {"type": "object", "properties": {}}
+        })];
+        let mut req = super::super::test_support::round_request(&history);
+        req.tool_schemas = &tools;
+        for (effort, expected) in [
+            (Some("minimal"), Some("low")),
+            (Some("low"), Some("low")),
+            (Some("medium"), Some("medium")),
+            (Some("high"), Some("high")),
+            (Some("xhigh"), Some("high")),
+            (Some("max"), Some("high")),
+            (Some("none"), None),
+            (None, None),
+        ] {
+            req.reasoning_effort = effort;
+            let (body, _, _) = build_chat_body(
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "gemini-4-argon",
+                &ThinkingStyle::Openai,
+                true,
+                &req,
+            );
+            assert_eq!(body["reasoning_effort"].as_str(), expected, "{effort:?}");
+            assert_eq!(body["model"], "gemini-4-argon");
+            assert_eq!(body["messages"][1], history[0]);
+            assert_eq!(body["tools"][0]["function"], tools[0]);
+            assert_eq!(body["stream_options"]["include_usage"], true);
+        }
     }
 
     #[test]

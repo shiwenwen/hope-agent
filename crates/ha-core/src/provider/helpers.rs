@@ -271,13 +271,14 @@ pub fn is_masked_key(key: &str) -> bool {
 /// provider by [`ensure_codex_provider`], so老用户升级后无需重新登录也能拿到新模型。
 fn default_codex_models() -> Vec<ModelConfig> {
     vec![
-        // Official Codex bundled catalog uses 272K, separately from the 1.05M API limit.
-        // Keep the existing 16K output reservation; Codex does not accept an output cap.
+        // The current Work/Codex Help Center specifies a 500K default for GPT-6.1 Sol.
+        // The upstream CLI catalog still says 272K context_window / 872K maximum;
+        // use the product-specific default, not that catalog's maximum.
         ModelConfig {
             id: "gpt-6.1-sol".into(),
             name: "GPT-6.1 Sol".into(),
             input_types: vec!["text".into(), "image".into()],
-            context_window: 272_000,
+            context_window: 500_000,
             max_tokens: 16384,
             reasoning: true,
             thinking_style: None,

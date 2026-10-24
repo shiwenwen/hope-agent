@@ -93,6 +93,14 @@ describe("provider template lifecycle hygiene", () => {
         id,
       ).toBe(false)
     }
+    expect(google.models.find((model) => model.id === "gemini-4-argon")).toMatchObject({
+      inputTypes: ["text", "image"],
+      contextWindow: 1_048_576,
+      maxTokens: 65_536,
+      reasoning: true,
+      costInput: 2,
+      costOutput: 10,
+    })
     expect(google.models.some((model) => model.id === "gemini-3.8-flash")).toBe(true)
     expect(google.models.some((model) => model.id === "gemini-3.6-flash")).toBe(true)
     expect(

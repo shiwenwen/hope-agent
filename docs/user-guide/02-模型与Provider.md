@@ -38,6 +38,10 @@ MiniMax M3 使用原有 Anthropic 兼容连接，支持图片、百万上下文�
 
 Google 直连新建模板已移除弃用并转向新型号的 Gemini 3.7 / 3.5 Flash，以及仅限过去使用过的用户访问的 Gemini 2.5 系列。可选择稳定版 Gemini 3.8 Flash 或 3.6 Flash；既有连接和其他网关候选保留。
 
+Google 模板现提供 GA 稳定型号 `gemini-4-argon`。Hope 通过 Gemini 的 OpenAI Chat 兼容端点使用它，声明文本和图片输入、1,048,576 个统一输入/输出上下文令牌、同步输出上限 65,536，并支持函数调用与流式响应。推理档位按官方兼容规则映射为 `low / medium / high`；`minimal` 映射到 `low`，`xhigh` 和 `max` 映射到 `high`。未设置或显式关闭推理参数时会省略该字段，由 Google 默认使用 `medium`，这不会关闭模型思考。Hope 不调用 Interactions API 的后台长输出，因此不会使用超过 65,536 的 long decode，也不声明音频、视频或 PDF 输入能力。
+
+Gemini 4 Argon 标准付费价目前为每百万输入/输出令牌 $2/$10，至 2026-11-30；2026-12-01 起为 $4/$20。该模型不向 Free tier 或 Google AI Pro 计划开放。模板和大盘只记录当前基础价，缓存折扣、其他推理档位费用及实际账单需以 Google 账户为准。[型号与限制](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon)、[OpenAI 兼容参数](https://ai.google.dev/gemini-api/docs/openai)、[价格](https://ai.google.dev/gemini-api/docs/pricing)。
+
 **入口**:设置 → **模型配置** → **服务商** 标签页 → 点右上角「**添加服务商**」。
 
 添加向导首页提供五条路径:
@@ -149,7 +153,7 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 
 - 登录后使用的具体模型可在设置里切换,默认选择所有账号档位都可用的那一档。
 - 内建 Codex 目录已包含 `gpt-6-astra`、`gpt-6.1-sol`、`gpt-6-sol`、`gpt-6-luna`；升级时补齐缺失条目，保留已选模型、自定义参数与禁用状态。可用性仍由 ChatGPT 套餐、工作区开关及官方上线范围决定。
-- Codex 的 GPT-6 上下文预设为官方内建目录的 **272K**，与 OpenAI API 的 **1.05M** 分开；沿用 **16K 输出预留**，不是服务端输出硬上限。GPT-6 推理档位为 `low` 至 `max`；`minimal` 和“关闭”按接口映射为 `low`，“关闭”仍隐藏思考展示；未设置强度时保留模型默认。`Ultra` 是 Codex 的任务委派能力，Hope 不把它当成推理请求参数发送。
+- Codex OAuth 的 `gpt-6.1-sol` 上下文预设为 ChatGPT Work/Codex 官方说明的 **500K**；其它 GPT-6 OAuth 预设沿用官方 Codex 内建目录的 **272K**，OpenAI API 目录仍为 **1.05M**。上游 Codex 清单另列 872K 最大窗口，但 Hope 不把它当默认预算。沿用 **16K 输出预留**，不是服务端输出硬上限。GPT-6 推理档位为 `low` 至 `max`；`minimal` 和“关闭”按接口映射为 `low`，“关闭”仍隐藏思考展示；未设置强度时保留模型默认。`Ultra` 是 Codex 的任务委派能力，Hope 不把它当成推理请求参数发送。套餐、工作区设置和上线资格仍由服务端裁决。
 - 新目录不再提供已退役的 GPT-5.4、GPT-5.3-Codex-Spark，以及 2026-10-14 在 Codex 退役的 GPT-5.5；既有配置保留，GPT-5.5 的 API 候选不受这次 Codex 退役影响。
 - Codex 凭据只存在本机(`~/.hope-agent/credentials/auth.json`),绝不写入日志。
 - Codex 登录与 [11 · MCP 接入外部工具](11-连接与扩展.md#111-mcp接入外部工具) 的账号登录是两套完全独立的机制,互不影响。

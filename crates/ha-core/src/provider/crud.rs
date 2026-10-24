@@ -1109,10 +1109,15 @@ mod tests {
             default_codex_model_ids(),
             expected.iter().map(String::as_str).collect::<Vec<_>>()
         );
-        for id in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"] {
+        for (id, context_window) in [
+            ("gpt-6.1-sol", 500_000),
+            ("gpt-6-astra", 272_000),
+            ("gpt-6-sol", 272_000),
+            ("gpt-6-luna", 272_000),
+        ] {
             assert!(crate::agent::is_valid_codex_model(id));
             let m = provider.models.iter().find(|m| m.id == id).unwrap();
-            assert_eq!(m.context_window, 272_000);
+            assert_eq!(m.context_window, context_window);
             assert_eq!(m.input_types, ["text", "image"]);
             assert_eq!(m.cost_input, Some(0.0));
             assert_eq!(m.max_tokens, 16384);
@@ -1149,6 +1154,39 @@ mod tests {
             99_000
         );
         assert!(!codex_provider_needs_backfill(&cfg.providers[0]));
+    }
+
+    #[test]
+    fn codex_backfill_preserves_saved_context_metadata() {
+        let mut provider = codex_provider();
+        provider
+            .models
+            .iter_mut()
+            .find(|model| model.id == "gpt-6.1-sol")
+            .unwrap()
+            .context_window = 272_000;
+        let provider_id = provider.id.clone();
+        let mut cfg = AppConfig {
+            providers: vec![provider],
+            active_model: Some(ActiveModel {
+                provider_id: provider_id.clone(),
+                model_id: "gpt-6.1-sol".into(),
+            }),
+            ..AppConfig::default()
+        };
+
+        ensure_codex_provider(&mut cfg);
+
+        assert_eq!(
+            cfg.providers[0]
+                .models
+                .iter()
+                .find(|model| model.id == "gpt-6.1-sol")
+                .unwrap()
+                .context_window,
+            272_000
+        );
+        assert_eq!(cfg.active_model.as_ref().unwrap().model_id, "gpt-6.1-sol");
     }
 
     #[test]

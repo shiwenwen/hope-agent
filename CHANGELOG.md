@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Gemini 4 Argon 模型**：在 Google 模板中加入 GA 稳定型号，并适配 OpenAI Chat 兼容端点的推理档位映射与当前官方价格；同步说明同步输出上限和计划可用性。 (#841)
+- **Codex GPT-6.1 Sol 上下文**：按最新 Work/Codex 官方说明将 OAuth 新预设预算更新为 500K；其它模型、API 上下文及已保存的自定义上下文保持各自边界。 (#841)
+
 ### Fixed
 
 - **OpenViking 同步完整性**：远端记忆列表被截断或无法证明完整时明确停止，避免仅同步部分内容却显示成功，并保留已有记忆与同步进度。 (#855)

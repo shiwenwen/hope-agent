@@ -518,6 +518,18 @@ export const internationalTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "AIza...",
     requiresApiKey: true,
     models: [
+      // Gemini 4 Argon Standard pricing is promotional through 2026-11-30; recheck before 2026-12-01.
+      // Google OpenAI compatibility supports Chat Completions; Hope uses synchronous output only.
+      {
+        id: "gemini-4-argon",
+        name: "Gemini 4 Argon",
+        inputTypes: ["text", "image"],
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 2.0,
+        costOutput: 10.0,
+      },
       // 3.8 / 3.7 / 3.6 Flash 标准付费层促销至 2026-12-31，之后回到 $1.5/$7.5。
       // 2026-09-08 核验：https://ai.google.dev/gemini-api/docs/pricing
       // 这里只记录当期标准输入/输出价；缓存、Batch、Flex、Priority 另计。

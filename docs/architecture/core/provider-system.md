@@ -195,6 +195,12 @@ Google 官方 HTTPS 端点的精确 ID 将 `minimal` 调整为 `low`、`xhigh/ma
 
 两个模板及大盘兜底估价补齐当前标准输入/输出价 0.75/3.75 美元每百万令牌。Google 此价格有效至 2026-12-31，2027-01-01 起为 1.5/7.5；到期前需重新核验并更新模板和估价表。OpenRouter 以其渠道当期报价为准。缓存、Batch/Flex/Priority 及用户账户的实际账单不由基础单价表达；本次仅离线契约验证，没有真实模型质量、延迟或费用实测。[Google 定价](https://ai.google.dev/gemini-api/docs/pricing)
 
+#### 2026-10-19 Gemini 4 Argon 稳定型号
+
+Google 于 2026-10-13 将 `gemini-4-argon` 标为 GA。其模型页给出统一 1,048,576 输入/输出上下文与同步 65,536 最大输出；超过 65,536 的 long decode 需 Interactions API 后台执行，Hope 当前适配器不走该协议。模板只声明文本/图片，因为这是已核验的 OpenAI Chat 兼容输入；不把原生音频、视频、PDF 或服务端工具计为 Hope 已接入。官方 OpenAI 兼容层列出此模型的 `reasoning_effort` 映射，并支持 Chat Completions、流式与函数调用；仅官方 Google HTTPS 主机、443 端口及精确模型 ID 应用 `minimal → low`、`xhigh/max → high` 映射，未设置或 `none` 不发送参数并保留 Google 默认 `medium`，因此不能表示为关闭思考。
+
+模板与成本估算同步标准付费档当前输入/输出价 $2/$10 每百万令牌，官方促销截止 2026-11-30，12-01 起为 $4/$20。它不支持 Free tier 或 Google AI Pro；缓存仅隐式，费用不在标量模板价格内。当前数据可用于同期估算，不代表账单；到期前须重新核价。[GA 更新](https://ai.google.dev/gemini-api/docs/changelog)、[模型限制](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon)、[OpenAI 兼容](https://ai.google.dev/gemini-api/docs/openai)、[官方价格](https://ai.google.dev/gemini-api/docs/pricing)。
+
 #### Anthropic 工作区鉴权
 
 `AuthProfile.anthropic_workspace_id` 的线上字段为 `anthropicWorkspaceId`：缺失或 `null` 表示限定工作区旧密钥；`Some` 表示用户已选择显式绑定，空串和非法 ID 必须在保存或发送前拒绝。该字段只在设置页每把密钥的“多工作区密钥”入口编辑，不增加 `ha-settings` 的服务商读写类别。不能根据密钥内容猜测其权限范围。[官方鉴权规则](https://platform.claude.com/docs/en/manage-claude/authentication)
@@ -500,7 +506,7 @@ SSE 事件处理：
 - **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` 头
 - **终端登录**：`hope-agent auth codex login` 复用同一 PKCE loopback 流程，成功后写 `~/.hope-agent/credentials/auth.json` 并调 `ensure_codex_provider_persisted(...)`；`--no-open` 只打印 URL，适合 SSH/headless 配合 `ssh -L 1455:127.0.0.1:1455 <host>`
 - **内置模型目录三处必须同步**：`agent::config::get_codex_models()` / `provider::helpers::default_codex_models()` / `provider::crud::default_codex_model_ids()`（id 集合 + 顺序一致，单测锁长度）。`DEFAULT_CODEX_MODEL_ID` 当前是 `gpt-5.6-terra`——**不是**列表里的旗舰 `gpt-5.6-sol`。原因：GPT-5.6 按 ChatGPT 套餐分级（Free/Go 只有 Terra，Sol 需付费套餐），而这个常量会通过 `ActiveModelUpdate::Always` 套到每个新登录账号，必须选所有 Codex 账号都有的那一档
-- **GPT-6 目录与参数**：三份内建目录按相同顺序补齐 `gpt-6.1-sol`、`gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`。依据 [Codex 官方内建目录](https://github.com/openai/codex/blob/e762c05bd686dd1eb3595aef2e14cc37c739f401/codex-rs/models-manager/models.json) 使用 272000 上下文、text/image 与订阅估算价 0，保留既有 16384 输出预留（Codex 不接收 `max_output_tokens`）。补齐缺失模型仍由既有 `ensure_codex_provider` / CRUD 写入口执行，保留用户已选模型、限制、其它条目和禁用状态；套餐和工作区权限由服务端裁决。
+- **GPT-6 目录与参数**：三份内建目录按相同顺序补齐 `gpt-6.1-sol`、`gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`。Codex CLI 内建目录列出 272000 `context_window` / 872000 `max_context_window`，但当前 [ChatGPT Work 与 Codex 官方说明](https://help.openai.com/en/articles/20001275-chatgpt-work-and-codex) 将 GPT-6.1 Sol 的默认上下文明确为 500000；OAuth 模板采用这个产品级默认，其他 GPT-6 仍取 CLI 目录的 272000，不把 872000 当默认预算。API Responses 保持独立的 1.05M 上下文。Codex 模型使用 text/image 与订阅估算价 0，保留既有 16384 输出预留（Codex 不接收 `max_output_tokens`）。已有用户保存的上下文值不自动覆盖；补齐缺失模型仍由既有 `ensure_codex_provider` / CRUD 写入口执行，并保留用户已选模型、限制、其它条目和禁用状态。GPT-6.1 Sol 只向符合套餐、工作区设置及上线资格的账号开放，ChatGPT 登录消耗计划用量；自带 API Key 则按 API 价格计费。
 - **GPT-6 推理差异**：Codex 四项只发送 `low/medium/high/xhigh/max`，未设置时省略推理参数以保留服务端/模型默认，`minimal/明确关闭 → low`，不发送温度；关闭思考仍由既有展示守卫丢弃推理输出。新增 GPT-6 原厂规则限定 Responses 与 Codex；Chat 保留原有 Astra 保护及其它型号的既有兼容映射，不声称完整 GPT-6 Chat 合同。API Responses 则只在精确 `api.openai.com` HTTPS 默认端口应用原厂规则，Sol/Luna 的显式关闭发送 `none`，Astra/6.1 Sol 的关闭发送 `low`，保留 `max`，未设置时保留官方默认（6.1 Sol/Sol/Luna 为 medium），推理启用时省略温度；网关与未知 ID 保持既有映射。官方 Codex `ultra` 是客户端委派模式，本轮不扩展 Hope 的工具或调度权限。
 - **Codex 生命周期**：新目录移除 GPT-5.4、GPT-5.3-Codex-Spark 与 2026-10-14 退役的 GPT-5.5；`ensure_codex_provider` 不删除已保存的旧条目，不自动迁移 active/fallback。Codex 退役不传播到 OpenAI API 目录。证据见 [官方模型](https://learn.chatgpt.com/docs/models) 与 [官方变更日志](https://learn.chatgpt.com/docs/changelog)。新 Sign in with ChatGPT 的公共 API token-sharing 流程使用另一授权契约，本轮不将现有 Codex PKCE 凭据或端点改成该流程。
 - **重试与降级**：Codex adapter 的一次 dispatch claim 严格只发送一次，不在内部隐藏传输层重试。明确未发送或收到完整 HTTP 拒绝的 retryable 错误由外层执行器按 policy 退避；每次重试都重新准备精确正文、建立新计划并取得新 claim。收到响应前发送状态未知、流中断或 WAL 收敛失败统一进入 `DispatchUnknown`，禁止自动重发；Codex 仍不参与 profile 轮换，只有**非 terminal** 错误耗尽当前模型后才允许外层 fallback model 链换模型
