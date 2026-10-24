@@ -59,48 +59,59 @@ pub(crate) fn tool_manage_cron<'a>(
                 let (delivery_targets, inferred) =
                     resolve_delivery_targets_for_create(args, session_id.as_deref())?;
                 let conversation_target = parse_conversation_target(args)?;
-                let (payload, project_id, workspace_policy) = match conversation_target {
-                    CronConversationTarget::New => {
-                        anyhow::ensure!(
+                let (payload, project_id, workspace_policy, model_override) =
+                    match conversation_target {
+                        CronConversationTarget::New => {
+                            anyhow::ensure!(
                             args.get("target_session_id").is_none(),
                             "target_session_id is only valid with conversation_target=existing_session"
                         );
-                        let agent_id = args
-                            .get("agent_id")
-                            .and_then(|v| v.as_str())
-                            .map(String::from);
-                        (
-                            CronPayload::AgentTurn {
-                                prompt: prompt.to_string(),
-                                agent_id,
-                            },
-                            resolve_project_id_for_create(args, session_id.as_deref())?,
-                            resolve_workspace_policy(args, None)?,
-                        )
-                    }
-                    CronConversationTarget::Current => {
-                        reject_existing_session_context_overrides(args)?;
-                        anyhow::ensure!(
-                            args.get("target_session_id").is_none(),
-                            "target_session_id is only valid with conversation_target=existing_session"
-                        );
-                        let target_session_id = session_id.clone().ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "conversation_target=current_session requires a current chat"
+                            let agent_id = args
+                                .get("agent_id")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+                            // Snapshot the creating session's own model so each
+                            // isolated run dispatches with the model the author
+                            // was using, not whatever the global `active_model`
+                            // has drifted to by fire time (#784).
+                            let model_override = session_id
+                                .as_deref()
+                                .and_then(|sid| ha_core::session::lookup_session_meta(Some(sid)))
+                                .and_then(|meta| ha_core::session::session_model_pin(&meta));
+                            (
+                                CronPayload::AgentTurn {
+                                    prompt: prompt.to_string(),
+                                    agent_id,
+                                },
+                                resolve_project_id_for_create(args, session_id.as_deref())?,
+                                resolve_workspace_policy(args, None)?,
+                                model_override,
                             )
-                        })?;
-                        (
-                            CronPayload::SessionTurn {
-                                session_id: target_session_id,
-                                prompt: prompt.to_string(),
-                            },
-                            None,
-                            CronWorkspacePolicy::default(),
-                        )
-                    }
-                    CronConversationTarget::Existing => {
-                        reject_existing_session_context_overrides(args)?;
-                        let target_session_id = args
+                        }
+                        CronConversationTarget::Current => {
+                            reject_existing_session_context_overrides(args)?;
+                            anyhow::ensure!(
+                            args.get("target_session_id").is_none(),
+                            "target_session_id is only valid with conversation_target=existing_session"
+                        );
+                            let target_session_id = session_id.clone().ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "conversation_target=current_session requires a current chat"
+                                )
+                            })?;
+                            (
+                                CronPayload::SessionTurn {
+                                    session_id: target_session_id,
+                                    prompt: prompt.to_string(),
+                                },
+                                None,
+                                CronWorkspacePolicy::default(),
+                                None,
+                            )
+                        }
+                        CronConversationTarget::Existing => {
+                            reject_existing_session_context_overrides(args)?;
+                            let target_session_id = args
                             .get("target_session_id")
                             .and_then(Value::as_str)
                             .map(str::trim)
@@ -110,16 +121,17 @@ pub(crate) fn tool_manage_cron<'a>(
                                     "conversation_target=existing_session requires target_session_id from sessions_list"
                                 )
                             })?;
-                        (
-                            CronPayload::SessionTurn {
-                                session_id: target_session_id.to_string(),
-                                prompt: prompt.to_string(),
-                            },
-                            None,
-                            CronWorkspacePolicy::default(),
-                        )
-                    }
-                };
+                            (
+                                CronPayload::SessionTurn {
+                                    session_id: target_session_id.to_string(),
+                                    prompt: prompt.to_string(),
+                                },
+                                None,
+                                CronWorkspacePolicy::default(),
+                                None,
+                            )
+                        }
+                    };
 
                 let job_timeout_secs = match resolve_cron_job_timeout_secs_arg(args, ctx).await {
                     CronTimeoutArg::Set(value) => value,
@@ -149,6 +161,7 @@ pub(crate) fn tool_manage_cron<'a>(
                     // None here = follow the agent default.
                     permission_mode_override: None,
                     sandbox_mode_override: None,
+                    model_override,
                     workspace_policy,
                 };
 
