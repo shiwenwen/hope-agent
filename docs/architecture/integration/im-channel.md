@@ -970,6 +970,7 @@ WhatsApp 仍通过用户自部署的 HTTP Bridge 接入。`GET /api/health` 的�
 ### Signal、iMessage 与 Google Chat
 
 - **Signal**：对解析后的 `signal-cli` 二进制执行 3 秒、无凭据参数的 `--version` 探测，输出只提取长度受限的版本 token。未知或低于当前观测基线 `0.14.0` 只告警、不阻断消息；账号健康页展示白名单能力快照。
+  接收端按完整UTF-8行解码SSE，支持CR、LF、CRLF、流首BOM与多行data；字段仅移除冒号后的一个ASCII空格。单连接未完成行与事件合计最多1MiB，非法UTF-8或超限时明确断连并走既有退避，未完成EOF不投递；错误只报告固定类别，不回显载荷。连接响应头、流读取和入站队列背压均可取消。默认/receive事件沿既有MsgContext入口，其他事件仍忽略；解析器随连接重建，不持久化消息或游标。`id`/`Last-Event-ID`重放尚未启用，逐账号/daemon代次、过期与乱序去重仍待独立验收，不能据解析修复宣称断线零丢失。协议格式依据[HTML SSE标准](https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation)。
 - **iMessage**：`imsgProtocolV1` 默认开启。reader 就绪后依次协商 `initialize` / `status`，保存版本与能力；旧版本仅在方法不存在或参数不支持时回退 legacy。`-32001` / `-32004` 与超时后的未知投递均禁止自动重放；`watch.overflow` 通过 `messages.after` 有界补追、GUID/rowid 去重和 cursor 重订阅，任一补追分页或重订阅瞬时失败都保持降级态，并以有上限的指数退避从已确认 cursor 持续恢复；重复 overflow 合并且不得阻塞 RPC reader。子进程退出后受控重启但不重发 mutation。重启后的子进程在 `initialize` / `status` / `watch.subscribe` 全部恢复前保持降级态，并以有上限的指数退避持续重试；每代子进程拥有独立取消令牌，退出或停止时取消旧恢复任务，禁止跨代竞态。
   启动日志和健康探测仅用经长度/字符限制的 `status.version` 做只读安全下限诊断：明确低于 `0.15.8` 提示手工升级；未知、legacy 或不可解析版本显示未核验，不视作已修复。运行中账户通过已协商的缓存状态进入 `channel_health` / `channel_health_all`，每 10 秒设置页轮询不另启子进程；运行中缓存若在 Stop 竞态中消失，也不回退启动临时进程。停止账户的聚合状态不触发临时探测，单账户手动健康检查保留原探测路径。健康探测仍可成功、旧安装不被版本提示阻断；此判断不读取凭据、不发送消息、不自动安装二进制。macOS 实机版本与投递行为仍需独立验收。
 - **Google Chat**：`googleChatStandardMarkdown` 默认开启，仅消息创建 body 发送 `markupSyntax=MARKUP_SYNTAX_MARKDOWN`；编辑仍走旧语法，因为该字段是 create-only。标准 Markdown mention 只接受结构化 `users/...` 标识并跳过行内代码、缩进代码及围栏代码；围栏与缩进判定会先剥离引用块 / 列表容器前缀，容器内的 `<users/...>` 同样不能被编译。原始 HTML/mention 字符串不能穿透。
@@ -1280,7 +1281,7 @@ crates/ha-channel/src/channel/{name}/
 | 飞书 | `feishu/{mod,api,auth,format,media,inbound_media,ws_event}.rs` |
 | QQ Bot | `qqbot/{mod,api,auth,format,inbound_media,gateway}.rs` |
 | IRC | `irc/{mod,client,format,protocol}.rs` |
-| Signal | `signal/{mod,client,daemon,format,media,inbound_media}.rs` |
+| Signal | `signal/{mod,client,daemon,format,media,inbound_media,sse}.rs` |
 | iMessage | `imessage/{mod,client,format,media}.rs` |
 | WhatsApp | `whatsapp/{mod,api,format,media,inbound_media,polling}.rs` |
 | Google Chat | `googlechat/{mod,api,auth,format,inbound_media,webhook}.rs` |

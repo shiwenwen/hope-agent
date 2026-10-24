@@ -58,6 +58,7 @@ In the account editor you can configure:
 - Telegram/Slack can disable native streaming per account. iMessage, Google Chat, and Discord expose protocol or rollout switches and fall back to their compatibility paths when disabled.
 - iMessage health checks show the reported imsg version. Versions below 0.15.8 prompt a manual update; older builds without a version show “unverified” and are neither upgraded nor blocked automatically.
 - Signal and WhatsApp account cards show detected sidecar/Bridge versions. Unknown versions are warning-only; a known-vulnerable Baileys Bridge is blocked at startup and before sends.
+- Signal reception preserves Chinese text and emoji across network chunks and supports multiline SSE messages. Stopping an account cancels connections and queue waits. Invalid events or events exceeding 1 MiB disconnect and reconnect; disconnected-message replay is not yet supported.
 
 ---
 
