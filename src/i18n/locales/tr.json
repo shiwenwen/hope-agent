@@ -4156,6 +4156,10 @@
       "description": "Çok modelli yönlendirme ağ geçidi, tek key ile yüzlerce model",
       "name": "Requesty"
     },
+    "runcrate": {
+      "description": "Açık modelleri OpenAI uyumlu API ile sunan GPU bulutu",
+      "name": "Runcrate"
+    },
     "together": {
       "description": "Açık kaynak model bulut çıkarım platformu",
       "name": "Together AI"
