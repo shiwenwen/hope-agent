@@ -305,8 +305,11 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 **入口**:设置 → **模型配置** → **媒体生成模型** 标签页。点「添加服务商」从 27 个内置模板一键接入,模板按模态分组并支持搜索——品牌名和模型 ID 都能搜(例如输入 `seedream` 或 `flux` 直接定位到对应服务商):
 
 - **图像**:OpenAI(gpt-image)、Google(Gemini,支持改图和多参考图)、Fal(Flux)、SiliconFlow(Qwen-Image)、智谱(CogView)、通义万相、火山引擎(Seedream)、腾讯混元、阶跃星辰、百度千帆、商汤日日新、Black Forest Labs(FLUX)、Stability AI、Replicate、Together、xAI(Grok Image)、Recraft、快手可灵、科大讯飞
+
 - **音频**:ElevenLabs(TTS + 音乐 + 音效)、MiniMax(语音 + 音乐)、OpenAI(TTS)、Cartesia、Deepgram、Fish Audio、Hume、火山豆包语音、Stability(音效)、快手可灵
 - **自建端点**:「自定义(OpenAI 兼容)」
+
+xAI 的新建图像模板保留 Grok Imagine Image 为首选，并将旧质量别名替换为 Grok Imagine Image 2.0 的低质量档。已保存的模型和默认链不会自动改写；仍在使用 `grok-imagine-image-quality` 的用户应在其 2026 年 11 月 2 日退役前手动核对替代型号与费用。当前 xAI 接入只支持生成，不支持参考图编辑；新型号的真实画质与费用尚未验收。
 
 部分服务商的凭据格式需注意:快手可灵与火山豆包语音同时支持新旧两套鉴权,填 `ak:sk`(可灵)或 `app_id:access_key`(豆包语音)即按旧版签发;科大讯飞需填 `appid:apikey:apisecret` 三件套。
 

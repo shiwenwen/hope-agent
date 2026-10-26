@@ -305,8 +305,11 @@ Image and audio generation share one **provider → models → per-function defa
 **Where**: Settings → **Model Configuration** → **Media Generation Models** tab. Click "Add Provider" to connect one of 27 built-in templates in a single click. Templates are grouped by modality and searchable — both brand names and model IDs match, so typing `seedream` or `flux` jumps straight to the right provider:
 
 - **Image**: OpenAI (gpt-image), Google (Gemini, supporting image editing and multiple reference images), Fal (Flux), SiliconFlow (Qwen-Image), Zhipu (CogView), Tongyi Wanxiang, Volcengine (Seedream), Tencent Hunyuan, StepFun, Baidu Qianfan, SenseNova, Black Forest Labs (FLUX), Stability AI, Replicate, Together, xAI (Grok Image), Recraft, Kling, iFlytek
+
 - **Audio**: ElevenLabs (TTS + music + sound effects), MiniMax (speech + music), OpenAI (TTS), Cartesia, Deepgram, Fish Audio, Hume, Volcengine Doubao Speech, Stability (sound effects), Kling
 - **Self-hosted**: "Custom (OpenAI-compatible)"
+
+New xAI image templates keep Grok Imagine Image first and replace the old quality alias with the low-quality setting of Grok Imagine Image 2.0. Saved models and default chains are not rewritten. If you still use `grok-imagine-image-quality`, review the replacement model and pricing before its November 2, 2026 retirement. The current xAI integration supports generation only, without reference-image editing; actual image quality and billing for the new model have not been validated.
 
 A few providers have credential formats worth noting: Kling and Volcengine Doubao Speech accept both the current and the legacy auth scheme — entering `ak:sk` (Kling) or `app_id:access_key` (Doubao Speech) signs requests the legacy way. iFlytek needs the `appid:apikey:apisecret` triple.
 

@@ -120,7 +120,7 @@ flowchart TD
 
 | 文件 | 类别 | Provider 数（约） | 特点 |
 |------|------|:---:|------|
-| `international.ts` | 国际 | 7 | Anthropic / OpenAI / Google / xAI / Mistral / DeepSeek 等一线厂商 |
+| `international.ts` | 国际 | 8 | Anthropic / OpenAI / Google / xAI / Mistral / DeepSeek / Unbiased 等 |
 | `china.ts` | 国内 | 11 | Kimi / 通义千问 / 豆包 / 智谱 / MiniMax 等，多标 CNY 计价 |
 | `infrastructure.ts` | 基础设施 / 聚合 | 26 | OpenRouter / Groq / Together / Fireworks / 各类网关与 TEE 推理 |
 | `local.ts` | 本地 / 自托管 | 5 | Ollama / LiteLLM / vLLM / LM Studio / SGLang，指向 `127.0.0.1` |

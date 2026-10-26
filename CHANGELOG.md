@@ -7,10 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-10-27
+
 ### Added
 
 - **Unbiased 服务商**：新增 Pareto 稳定版与预览版预设，可通过 API Key 接入文本与图片对话，沿用现有流式回复、工具调用与用量统计。 (#814)
-- **Mistral GLM 5.3 Flash 模型**：新增 Z.ai 的 GA 型号预设，支持文本、图片和函数调用，并录入官方上下文、输出与标准价格；缓存折扣仍按标准输入价估算。 (#861)
+- **Mistral 的 Z.ai GLM 5.3 Flash 模型**：新增 Z.ai 的 GA 型号预设，支持文本、图片和函数调用，并录入官方上下文、输出与标准价格；缓存折扣仍按标准输入价估算。 (#861)
 - **导航入口文字**：侧栏图标常驻显示文字标签，长名称仍可查看完整提示，小窗口继续通过“更多”访问折叠入口。 (#859)
 - **Gemini 4 Argon 模型**：在 Google 模板中加入 GA 稳定型号，并适配 OpenAI Chat 兼容端点的推理档位映射与当前官方价格；同步说明同步输出上限和计划可用性。 (#841)
 - **Codex GPT-6.1 Sol 上下文**：按最新 Work/Codex 官方说明将 OAuth 新预设预算更新为 500K；其它模型、API 上下文及已保存的自定义上下文保持各自边界。 (#841)
