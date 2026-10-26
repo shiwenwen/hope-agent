@@ -1,7 +1,7 @@
 [package]
 name = "ha-channel"
-version = "0.64.0"
-description = "Hope Agent IM channel feature — 12 chat platform plugins, inbound worker pipeline, Feishu business tools"
+version = "0.69.0"
+description = "Hope Agent IM channel feature — 13 chat platform plugins, inbound worker pipeline, Feishu business tools"
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -29,7 +29,7 @@ fancy-regex = { workspace = true }
 futures-util = { workspace = true }
 hmac = "0.12"
 jsonwebtoken = "9"
-lru = "0.12"
+lru = "0.18.2"
 md-5 = "0.10"
 native-tls = "0.2"
 once_cell = { workspace = true }
@@ -38,6 +38,8 @@ pulldown-cmark = "0.13.4"
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
+# teloxide 0.17 exposes a reqwest 0.12 Client; keep this SDK boundary local.
+reqwest_teloxide = { package = "reqwest", version = "0.12.28", features = ["json", "stream", "native-tls", "multipart", "socks", "charset", "gzip", "brotli", "deflate", "zstd"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

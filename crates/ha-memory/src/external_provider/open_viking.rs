@@ -177,7 +177,7 @@ async fn pull_memory_files(
     );
     let value = send_json(request, outcome).await?;
     ensure_ok_envelope(&value).map_err(|error| failure(outcome.clone(), error))?;
-    let files = parse_remote_files(&value);
+    let files = parse_remote_files(&value).map_err(|error| failure(outcome.clone(), error))?;
     let mut changed = files
         .into_iter()
         .filter(|file| ledger.remote_versions.get(&file.uri) != Some(&file.version))
@@ -535,11 +535,28 @@ fn ensure_ok_envelope(value: &Value) -> Result<()> {
     }
 }
 
-fn parse_remote_files(value: &Value) -> Vec<RemoteFile> {
-    let Some(items) = value.get("result").and_then(Value::as_array) else {
-        return Vec::new();
+fn parse_remote_files(value: &Value) -> Result<Vec<RemoteFile>> {
+    let items = value
+        .get("result")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("OpenViking listing omitted its entries array"))?;
+    let has_more = match value.get("has_more") {
+        None => None,
+        Some(Value::Bool(has_more)) => Some(*has_more),
+        Some(_) => bail!("OpenViking listing has an invalid continuation flag"),
     };
-    items
+    // Old servers omit has_more. Reaching their node cap is ambiguous even
+    // when all returned files are already in the ledger. Check raw nodes,
+    // including directories/hidden files, before filtering or reading any.
+    // Offset paging without a stable snapshot can skip moving entries; do not
+    // guess a continuation or mark a truncated prefix as a successful sync.
+    if has_more == Some(true)
+        || items.len() > MAX_REMOTE_FILES_PER_RUN
+        || (has_more.is_none() && items.len() == MAX_REMOTE_FILES_PER_RUN)
+    {
+        bail!("OpenViking memory listing is incomplete; bounded continuation is not supported");
+    }
+    Ok(items
         .iter()
         .filter(|item| item.get("isDir").and_then(Value::as_bool) != Some(true))
         .filter_map(|item| {
@@ -558,8 +575,7 @@ fn parse_remote_files(value: &Value) -> Vec<RemoteFile> {
             );
             Some(RemoteFile { uri, version })
         })
-        .take(MAX_REMOTE_FILES_PER_RUN)
-        .collect()
+        .collect())
 }
 
 fn export_session_id(subject_id: &str, hash: &str) -> String {
@@ -1070,9 +1086,126 @@ mod tests {
                 {"uri": "viking://user/memories/profile/", "isDir": true}
             ]
         });
-        let files = parse_remote_files(&value);
+        let files = parse_remote_files(&value).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].version, "2026-01-01:12");
+    }
+
+    fn listing_nodes(count: usize) -> Vec<Value> {
+        (0..count)
+            .map(|n| json!({"uri":format!("viking://~/memories/{n}.md"),"isDir":false,"modTime":"old","size":1}))
+            .collect()
+    }
+
+    #[test]
+    fn listing_completeness_is_checked_before_filtering_or_truncation() {
+        let nodes = listing_nodes(MAX_REMOTE_FILES_PER_RUN);
+        assert_eq!(
+            parse_remote_files(&json!({"result":nodes,"has_more":false}))
+                .unwrap()
+                .len(),
+            MAX_REMOTE_FILES_PER_RUN
+        );
+        assert!(parse_remote_files(&json!({"result":nodes})).is_err());
+        assert!(parse_remote_files(&json!({"result":nodes,"has_more":true})).is_err());
+        let mut overflow = listing_nodes(MAX_REMOTE_FILES_PER_RUN + 1);
+        overflow.last_mut().unwrap()["modTime"] = json!("changed");
+        assert!(parse_remote_files(&json!({"result":overflow,"has_more":false})).is_err());
+        // Directories count against the server's node limit too.
+        assert!(parse_remote_files(
+            &json!({"result":vec![json!({"isDir":true});MAX_REMOTE_FILES_PER_RUN]})
+        )
+        .is_err());
+        assert!(parse_remote_files(&json!({"result":[],"has_more":true})).is_err());
+        for invalid in [Value::Null, json!("false"), json!(0), json!({})] {
+            assert!(parse_remote_files(&json!({"result":[],"has_more":invalid})).is_err());
+        }
+        for invalid in [
+            json!({}),
+            json!({"result":null}),
+            json!({"result":{"entries":[],"has_more":false}}),
+        ] {
+            assert!(parse_remote_files(&invalid).is_err());
+        }
+        assert!(parse_remote_files(&json!({"result":[]}))
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn incomplete_listing_never_reads_content_advances_ledger_or_starts_export() {
+        let temp = tempfile::tempdir().unwrap();
+        ha_core::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            struct RestoreCache(std::sync::Arc<ha_core::config::AppConfig>);
+            impl Drop for RestoreCache {
+                fn drop(&mut self) {
+                    ha_core::config::replace_cache_for_test((*self.0).clone());
+                }
+            }
+            let _restore = RestoreCache(ha_core::config::cached_config());
+            let mut config = ha_core::config::AppConfig::default();
+            config.ssrf.trusted_hosts = vec!["127.0.0.1".to_owned()];
+            ha_core::config::replace_cache_for_test(config);
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let server = MockServer::start().await;
+                    let credentials = ExternalMemoryProviderCredentials {
+                        endpoint: server.uri(),
+                        ..credentials()
+                    };
+                    let provider = ExternalMemoryProviderConfig {
+                        id: "incomplete-openviking".to_owned(),
+                        kind: ExternalMemoryProviderKind::OpenViking,
+                        display_name: "OpenViking".to_owned(),
+                        enabled: true,
+                        sync_policy: ha_core::memory::ExternalMemorySyncPolicy::Bidirectional,
+                        endpoint_configured: true,
+                        last_sync_at: None,
+                        last_error: None,
+                    };
+                    let nodes = listing_nodes(MAX_REMOTE_FILES_PER_RUN);
+                    let mut ledger = ExternalMemoryProviderSyncLedger {
+                        remote_versions: nodes.iter().map(|n| (n["uri"].as_str().unwrap().to_owned(), "old:1".to_owned())).collect(),
+                        ..Default::default()
+                    };
+                    let before = serde_json::to_vec(&ledger).unwrap();
+                    let client = external_http_client().unwrap();
+                    // A complete first scan has no changed prefix. Later the
+                    // list grows beyond the cap and only the omitted tail
+                    // changes: neither scan may invent a successful suffix.
+                    for protocol in [OpenVikingProtocol::V1LegacyCurrentUser, OpenVikingProtocol::V1TildeCurrentUser] {
+                        for value in [
+                            json!({"status":"ok","result":nodes,"has_more":false}),
+                            json!({"status":"ok","result":nodes,"has_more":true}),
+                            json!({"status":"ok","result":nodes}),
+                            json!({"status":"ok","result":listing_nodes(MAX_REMOTE_FILES_PER_RUN+1),"has_more":false}),
+                            json!({"status":"ok","result":{},"has_more":false}),
+                        ] {
+                            server.reset().await;
+                            Mock::given(method("GET"))
+                                .and(path("/api/v1/fs/ls"))
+                                .and(wiremock::matchers::query_param("uri", protocol.current_user_memories_uri()))
+                                .and(wiremock::matchers::query_param("node_limit", "5000"))
+                                .respond_with(ResponseTemplate::new(200).set_body_json(value.clone()))
+                                .expect(1)
+                                .mount(&server)
+                                .await;
+                            let mut outcome = ExternalMemoryAdapterSyncOutcome::default();
+                            if value["has_more"] == json!(false) && value["result"].as_array().is_some_and(|v| v.len() == MAX_REMOTE_FILES_PER_RUN) {
+                                pull_memory_files(&provider, &credentials, protocol, &credentials.endpoint, &client, &mut ledger, &mut outcome).await.unwrap();
+                            } else {
+                                assert!(sync_operations(&provider, &credentials, protocol, &credentials.endpoint, &client, &mut ledger, &mut outcome).await.is_err());
+                            }
+                            assert_eq!(serde_json::to_vec(&ledger).unwrap(), before);
+                            assert_eq!(outcome.imported_memory_count + outcome.updated_memory_count + outcome.exported_memory_count, 0);
+                            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+                        }
+                    }
+                });
+        });
     }
 
     #[test]

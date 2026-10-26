@@ -38,6 +38,8 @@ git checkout -b feat/xxx   # 或 fix/xxx, docs/xxx
 
 ### 2. 装环境 + 跑起来
 
+推荐使用与 CI / Docker 一致的 Node.js 24。`@testing-library/jest-dom` 7 要求 Node.js 22+，并以现有 `@testing-library/dom` 10 为 peer dependency；测试继续通过 `@testing-library/jest-dom/vitest` 加载匹配器。
+
 ```bash
 pnpm install              # 装前端依赖 + Husky pre-push 钩子
 pnpm dev:desktop          # 启动默认桌面开发模式（前端 + Rust 后端 + 热重载）

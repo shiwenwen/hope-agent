@@ -44,15 +44,19 @@ pub struct ListDirQuery {
     /// Absolute path to list. When omitted, the handler returns a platform
     /// default root.
     pub path: Option<String>,
+    #[serde(default, rename = "directoriesOnly")]
+    pub directories_only: bool,
 }
 
 /// `GET /api/filesystem/list-dir?path=<abs>` — list one level of a directory.
 pub async fn list_dir(Query(q): Query<ListDirQuery>) -> Result<Json<Value>, AppError> {
     let requested = q.path.clone();
-    let result = tokio::task::spawn_blocking(move || filesystem::list_dir(requested.as_deref()))
-        .await
-        .map_err(|e| AppError::internal(format!("list-dir task failed: {}", e)))?
-        .map_err(map_err)?;
+    let result = tokio::task::spawn_blocking(move || {
+        filesystem::list_dir_filtered(requested.as_deref(), q.directories_only)
+    })
+    .await
+    .map_err(|e| AppError::internal(format!("list-dir task failed: {}", e)))?
+    .map_err(map_err)?;
     Ok(Json(serde_json::to_value(result)?))
 }
 
@@ -108,9 +112,11 @@ mod tests {
         std::fs::create_dir_all(&sub).unwrap();
         let file = sub.join("hello.txt");
         std::fs::write(&file, b"hi").unwrap();
+        std::fs::create_dir(sub.join("folder")).unwrap();
 
         let res = list_dir(Query(ListDirQuery {
             path: Some(sub.to_string_lossy().to_string()),
+            directories_only: false,
         }))
         .await
         .unwrap_or_else(|e| panic!("list_dir failed: {}", e.message));
@@ -121,6 +127,16 @@ mod tests {
             .and_then(|n| n.as_str())
             .map(|s| s == "hello.txt")
             .unwrap_or(false)));
+
+        let filtered = list_dir(Query(ListDirQuery {
+            path: Some(sub.to_string_lossy().to_string()),
+            directories_only: true,
+        }))
+        .await
+        .unwrap();
+        let folders = filtered.0["entries"].as_array().unwrap();
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0]["name"], "folder");
 
         let _ = std::fs::remove_dir_all(&sub);
     }
@@ -135,6 +151,7 @@ mod tests {
         std::fs::write(&file, b"x").unwrap();
         let res = list_dir(Query(ListDirQuery {
             path: Some(file.to_string_lossy().to_string()),
+            directories_only: false,
         }))
         .await;
         assert!(res.is_err(), "expected error when path is a file");
@@ -145,6 +162,7 @@ mod tests {
     async fn list_dir_rejects_relative_path() {
         let res = list_dir(Query(ListDirQuery {
             path: Some("relative/path".to_string()),
+            directories_only: false,
         }))
         .await;
         assert!(res.is_err(), "relative paths must be rejected");

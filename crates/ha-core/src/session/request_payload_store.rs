@@ -11,7 +11,7 @@
 #![allow(dead_code)]
 
 use anyhow::{anyhow, bail, Context, Result};
-use rand::RngCore;
+use rand::Rng;
 use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};

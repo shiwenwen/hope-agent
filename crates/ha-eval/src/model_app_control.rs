@@ -17,7 +17,7 @@ use ha_eval_spec::model::{
     reject_embedded_secrets, CampaignBudget, ModelCampaignOutcome, ModelShardResult,
 };
 use ha_eval_spec::{digest_file, read_json, stable_shard, write_json, CaseResult, EvalStatus};
-use rand::RngCore;
+use rand::Rng;
 use serde::Deserialize;
 use std::collections::{BTreeSet, VecDeque};
 use std::fs;

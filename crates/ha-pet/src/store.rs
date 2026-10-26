@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use base64::Engine as _;
-use rand::RngCore;
+use rand::Rng;
 
 use super::atlas::{
     portable_pet_id, upgrade_v1_atlas_to_v2, validate_package, ValidatedPetPackage,

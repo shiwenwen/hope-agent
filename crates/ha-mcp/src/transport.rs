@@ -129,10 +129,9 @@ fn build_stdio_command(cfg: &McpServerConfig) -> McpResult<Command> {
 /// needs to drive after the fact. `stderr` is `Some` only for stdio.
 ///
 /// We construct the rmcp transport **and** call `.serve()` internally
-/// here so the concrete reqwest-0.13 `Client` type rmcp uses for
-/// Streamable HTTP never escapes this module (ha-core itself depends
-/// on reqwest 0.12 through other call sites; mixing the two at the
-/// type level causes a trait-resolution conflict).
+/// here so the HTTP transport implementation stays private. Workspace and
+/// rmcp currently share reqwest 0.13; callers still consume the served MCP
+/// client rather than depending on its concrete HTTP client or adapter.
 pub struct ConnectedClient {
     pub running: RunningService<RoleClient, ()>,
     pub stderr: Option<ChildStderr>,

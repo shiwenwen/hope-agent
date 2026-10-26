@@ -271,7 +271,7 @@ Streamable HTTP 和 SSE 是**两套 wire 协议，不能互相路由**：Streama
 
 - `description` 前缀 `[<server>] ` 方便模型归因；server 未给描述则回退 `MCP tool from server '<name>'`
 - 统一 `tier = Mcp`、`internal = false`、`concurrent_safe = false`；是否注入由 per-agent `capabilities.mcpEnabled` 门控
-- **`background_policy` 映射**（读 rmcp `execution.taskSupport`，spec date 2025-11-25）：`Required` / `Optional` → `GenericJob`（让 tool loop 的"同步预算超时自动后台化"分支可触发）；`Forbidden` / 缺省 → `ForegroundOnly`
+- **`background_policy`**：当前 catalog 始终发布 `ForegroundOnly`，不因远端 `execution.taskSupport` 为 `Required` / `Optional` 就投影为本地 Job。SDK 的协议生命周期与 Hope 的 `JobManager` 保持独立；至少两个授权服务器的取消/恢复/终态 fixture 通过后，才按受控实验门评估产品投影。
 - `deferredTools=true` 的 server，其工具不 eager 注入，改由 `tool_search` 发现
 
 ### 分发路径
@@ -304,7 +304,7 @@ sequenceDiagram
     INV->>SEM: acquire_owned（全局 → per-server）
     INV->>PEER: call_tool（call_timeout_secs>0 时套 timeout）
     PEER-->>INV: CallToolResult
-    Note over INV: normalize_content 折叠为字符串<br/>isError=true → ToolFailed
+    Note over INV: normalize_result_for 按调用方保留正文或Hook协议<br/>isError=true → ToolFailed
     INV->>LE: emit mcp_tool_called / mcp_tool_failed
     INV-->>EX: String
 ```
@@ -318,6 +318,8 @@ sequenceDiagram
 | `audio` | 占位行 `[audio mime=… size_b64=…]` |
 | 内嵌 `resource` | `[resource uri=…]\n<正文>`；blob 正文显示为 `[blob base64 size=…]` |
 | `resource_link` | `[resource_link uri=…]` |
+
+成功结果先保留上述正文，再将存在的 `structuredContent` 以 `[structuredContent]` 标记和紧凑 JSON 追加；没有正文时也返回该数据。对象、数组、字符串、数字、布尔值和显式 `null` 均保留，字段缺失则保持旧输出不变。它仍是外部工具结果，不作为指令或授权；`_meta` 不进入模型正文。`isError=true` 继续返回 `ToolFailed`，沿既有正文诊断，结构化负载不新增到错误 Learning 事件中。MCP Hook 使用同一调度路径的专用输出格式：只有含已知字段且可解码的 `structuredContent` 才作为 `HookOutput` 候选，附加元数据/畸形值保留旧正文；空对象/空嵌套及合法空值字段保持正常审批；两通道均为协议时按真实事件合并更严格决定及 `continue:false`、保留上下文和旧改写，显式allow须双通道共同声明；不追加对话标记或重复 JSON，避免拒绝/阻断指令因混合正文失效。格式由内核调用方指定，工具入参不能切换。当前只保证数据传递，尚未实现 `outputSchema` 校验、组合 schema / `$ref` 预算或完整 MCP conformance，不宣称真实 GitHub Server 互操作已验收。
 
 `call_timeout_secs > 0` 时单次调用外套 `tokio::time::timeout`，`0` 表示不加 call-level timeout。超时或 `isError=true` 会让 per-server 失败计数 +1，喂给 watchdog 升级；一次干净调用则把计数清零。
 
@@ -377,7 +379,7 @@ Composer 的统一 `@` 菜单通过 `mention_hooks` 获取 namespaced capability
 
 ## OAuth 2.1 + PKCE
 
-`oauth.rs` 是独立实现，不复用 `rmcp::auth_client`（rmcp 自带 reqwest 0.13，与 ha-mcp 的 reqwest 0.12 trait 冲突）。
+`oauth.rs` 是独立实现，不复用 `rmcp::auth_client`：issuer、刷新序列化、撤销围栏与条件安全写由 Hope 自己裁决。当前 workspace 与 rmcp 3.5.1 共用 reqwest 0.13.5；依赖统一不替代这些身份边界，也不启用远程 Tasks 的产品投影。
 
 ```mermaid
 sequenceDiagram
@@ -753,7 +755,7 @@ Dashboard Learning Tab → 选时间窗口 → 按 `ref_id` 前缀 `mcp__` 过�
 
 | 维度 | hope-agent | openclaw | claude-code |
 |---|---|---|---|
-| SDK | `rmcp` 1.5（Rust） | `@modelcontextprotocol/sdk`（TS） | 同 openclaw |
+| SDK | `rmcp` 3.5.1（Rust） | `@modelcontextprotocol/sdk`（TS） | 同 openclaw |
 | Transport | stdio / HTTP / SSE / WebSocket（4） | stdio / Streamable HTTP（2） | stdio / SSE / HTTP / WebSocket（4） |
 | 工具命名 | `mcp__<server>__<tool>` | 同 | 同 |
 | Scope 分层 | 全局（项目 / 临时预留） | 单层 | project / user / local（3 层） |

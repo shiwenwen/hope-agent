@@ -188,6 +188,7 @@ pub fn run() {
             commands::provider::reorder_providers,
             commands::provider::delete_provider,
             commands::provider::test_provider,
+            commands::provider::discover_provider_models,
             commands::provider::test_model,
             commands::provider::get_available_models,
             commands::provider::get_active_model,

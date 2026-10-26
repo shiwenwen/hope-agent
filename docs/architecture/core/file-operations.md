@@ -217,6 +217,8 @@ Transport 在 [`transport.ts`](../../../src/lib/transport.ts) 定义所有文件
 
 [`transport-provider.ts`](../../../src/lib/transport-provider.ts) 通过 `useSyncExternalStore` 暴露响应式 `useTransport()`；切换本地/远程后所有文件能力立即重算。非 React 代码保留 `getTransport()`。存在脏编辑器时，切换 Transport 必须先确认。
 
+目录选择器的 `fs_list_dir` / `GET /api/filesystem/list-dir` 支持可选 `directoriesOnly`，默认 false；为 true 时后端在条目上限之前过滤普通文件，目录符号链接仍可浏览。上限与 `truncated` 仅计入匹配目录；不改变 canonicalize、绝对路径或鉴权边界。
+
 ## 4. Workspace 访问与写闸门
 
 Tauri `project_fs_capabilities` 与 HTTP `GET /api/fs/capabilities` 返回统一形状：

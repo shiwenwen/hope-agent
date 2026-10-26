@@ -17,6 +17,8 @@ The end of this chapter also covers a memory-related feature, [behavior awarenes
 
 For configured OpenViking external sync, an accepted request does not mean the export completed. Unfinished tasks are checked again on the next sync, including after switching to pull-only. Failed tasks, lost receipts, skipped writes or changed credentials leave the batch awaiting reconciliation and stop automatic resending. Older servers that return only extraction counts and a memory-diff URI, without explicit proof of zero skipped writes, also require reconciliation. Check the task and actual results in the original service before deciding whether to clear the connection; clearing credentials or removing the connection deletes the key but preserves an unresolved or damaged ledger. Removing and recreating the same connection does not clear this reconciliation protection. Restore the original credentials to continue checking it. Do not delete local state to force a retry.
 
+If OpenViking reports an incomplete memory listing, the sync stops pulling and starting new exports for that cycle; existing local memories remain unchanged. Continuation beyond 5,000 nodes is not supported yet. Older servers also stop when they return exactly the limit without proving completeness. Keep the connection and sync state until reliable continuation is supported; do not delete local state to bypass the warning.
+
 ---
 
 ## 4.1 Three tiers of memory: Global / Agent / Project

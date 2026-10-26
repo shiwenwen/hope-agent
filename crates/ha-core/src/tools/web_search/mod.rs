@@ -241,7 +241,7 @@ pub(crate) async fn tool_web_search(args: &Value, ctx: &ToolExecContext) -> Resu
             }
             WebSearchProvider::Kimi => {
                 let key = entry.api_key.as_deref().unwrap_or("");
-                kimi::search_kimi(key, query, count, timeout, &usage_ctx).await
+                kimi::search_kimi(key, query, count, &params, timeout, &usage_ctx).await
             }
             WebSearchProvider::Tavily => {
                 let key = entry.api_key.as_deref().unwrap_or("");
@@ -391,6 +391,12 @@ static WEB_SEARCH_CACHE: Lazy<TtlCache<String, String>> =
     Lazy::new(|| TtlCache::new(WEB_SEARCH_CACHE_MAX_ENTRIES));
 
 fn search_cache_key(provider: &str, query: &str, count: usize, params: &SearchParams) -> String {
+    // Never reuse model-generated Kimi summaries as Basic REST results.
+    let provider = if provider == "Kimi" {
+        "Kimi.Basic.v1"
+    } else {
+        provider
+    };
     format!(
         "{}:{}:{}:{}:{}:{}",
         provider,
@@ -419,6 +425,18 @@ fn write_search_cache(key: String, response: String, ttl_minutes: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kimi_basic_cache_cannot_reuse_legacy_model_summaries() {
+        assert_eq!(
+            search_cache_key("Kimi", " query ", 5, &SearchParams::default()),
+            "Kimi.Basic.v1:query:5:::"
+        );
+        assert_eq!(
+            search_cache_key("Brave", "query", 5, &SearchParams::default()),
+            "Brave:query:5:::"
+        );
+    }
 
     #[test]
     fn keyless_defaults_and_backfill_preserve_search_disabled_state() {

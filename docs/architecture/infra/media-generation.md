@@ -13,7 +13,11 @@
 > [`ha-media/src/audio_generate/`](../../../crates/ha-media/src/audio_generate/)。图/音生成唯一入口
 > `execute_image` / `execute_audio`。
 
-2026-10-05 图像目录维护：OpenAI 新建模板不再推荐已退役的 `dall-e-3`；Google 新建模板采用 `gemini-3.1-flash-image` / `gemini-3-pro-image`，移除旧 preview、2.5 Flash Image 和 Imagen 4 直连预设。仅修改内置新建目录，保留用户已存配置及其他渠道自己的 ID。`gpt-image-1` 的 2026-10-23 截止日期继续跟踪；新质量/透明/格式/压缩字段及真实输出验收仍待后续合同，不据目录更新宣称已支持。
+2026-10-05 图像目录维护：OpenAI 新建模板不再推荐已退役的 `dall-e-3`；Google 新建模板采用 `gemini-3.1-flash-image` / `gemini-3-pro-image`，移除旧 preview、2.5 Flash Image 和 Imagen 4 直连预设。仅修改内置新建目录，保留用户已存配置及其他渠道自己的 ID。新质量/透明/格式/压缩字段及真实输出验收仍待后续合同，不据目录更新宣称已支持。
+
+2026-10-17 OpenAI 图像目录维护：在 [官方公告](https://developers.openai.com/api/docs/deprecations) 的 2026-10-23 截止前移除新建模板中的 `gpt-image-1`，已有 `gpt-image-2` 成为首个图像候选，沿用现有生成/编辑适配器和能力。已保存的服务商、模型、默认链与自定义 ID 不自动迁移；`overview.rs` 中同名值仅是脱敏测试夹具，不是运行时默认值。官方 [图像迁移说明](https://developers.openai.com/api/docs/guides/image-prompting) 要求迁移前验证工作流；本次只核验本地目录与既有适配合同，不声称真实账号、图像质量、费用或新增参数已验收。新建目录可回退代码版本，但到期后不得恢复退役型号作为可用兜底。
+
+2026-10-12 鉴权请求边界：连接探测收到3xx显示失败并提示最终Base URL，POST-only探测既有405/422兼容保持。生成提交、轮询、音色列表与探测统一使用 `provider::apply_model_proxy`，禁止自动重定向，避免把密钥、提示词或上传内容重发到未核验目标。返回的图片/音频资源由 `adapters/fetch.rs` 单独逐跳核验；SiliconFlow/智谱结果链接也走此入口，不复用鉴权客户端，合法 CDN 跳转可继续下载，每跳不携 API 密钥并保留体积上限；异步任务的未决回执、Stop、费用与用量合同不因 HTTP 依赖更新而改变。
 
 ## 1. 核心思想
 
@@ -172,6 +176,27 @@ profile 注释：火山方舟无 `n`（多图靠 `sequential_image_generation`�
 显式关掉，否则每张图会被打上「AI 生成」）；Together 的 `response_format` 取值是 `base64` 而非
 `b64_json`（尽管响应字段名仍叫 `b64_json`）；腾讯混元 size 用冒号分隔；SenseNova 只接受 20 个固定
 像素桶且全局默认尺寸不在其中。
+
+### xAI 质量别名的临期目录维护（2026-10-26）
+
+沿既有 `embedding:A2`，新建 xAI 模板的第二个候选改为显式
+`grok-imagine-image-2.0`，模型级 `extra.quality=low`，显示名同时标明 `low`。
+[官方迁移公告](https://docs.x.ai/developers/migration/imagine-image-quality-nov-2)
+确认 2026-11-02 起旧 `grok-imagine-image-quality`（含已重定向的 `pro`）会转向
+2.0 的 `low` 档；这不是调用中断，但模型、默认质量和计费会改变。显式低档对应官方
+重定向的目标，避免省略质量后由 `auto` 决定。这里不承诺新旧图像质量等价或真实账单。
+
+现有 schema 的 `MediaModelConfig.extra` 已能表达该参数：执行器按服务商级到模型级
+合并，模型值优先，共享 JSON 适配器将其写入 `/v1/images/generations` 请求体。
+不新增全局质量设置、质量选择控件或工具参数。
+官方还提供 `medium` 和 `auto`，但本模板不默认选择更高档。离线回归核对模板配置
+序列化后的实际 profile 请求体，保留 `n`、比例、分辨率与返回格式。
+
+官方明确 1.0 的 `grok-imagine-image` 不受影响，继续作为首个候选，可供所有者显式
+选择回退；旧别名不再进入新模板。已保存配置、自定义模型和显式链不自动改写，
+也不在运行时替换旧 ID。虽然官方 2.0 支持编辑，现有 xAI profile 尚未实现其参考图
+对象协议，故本次仍不声明编辑、蒙版或多图编辑能力。真实账号、付费生成、画质与费用
+验收不属于这次目录与离线请求合同维护。
 
 ### 音频厂商的 wire 差异
 

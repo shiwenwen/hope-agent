@@ -117,6 +117,8 @@ In file previews (code / text, Markdown, rich Office previews), managed HTML / A
 
 ---
 
+For an `.html`, `.htm`, `.md` or analysis `artifact.json` deliverable, open **Artifacts** in the sidebar and choose **Register file as new Artifact**. Select a file to upload; confirming registration copies it into a versioned, managed snapshot. Alternatively, choose **Agent host path** and enter an absolute path within the Agent process working directory or user home. Obtain files from other session directories first, then select them for upload. In a remote UI, upload reads the file you select on the client; it does not treat a client path as a server path. The source is preserved, and script intermediates are not registered automatically. Leaving Artifacts closes registration and aborts an unfinished upload. An import already sent is not rolled back automatically; refresh and check its result when returning. Matching names are not merged: select an existing Artifact and choose **Update from file** to iterate it. If its version changed, refresh and review it first; history is never overwritten. **First version / Updated** labels and creation/update dates describe the durable lifecycle, rather than files changed in the current turn.
+
 ## 3.5 Managing and searching sessions
 
 - **New conversation**: "New" in the sidebar, or `/new`. When you start a new conversation inside a project, it stays as a draft first and is only saved once you send the first message.
@@ -171,7 +173,7 @@ Assign a default working directory to the current conversation. It will:
 - act as the actual working directory for `exec` (running commands) and as the resolution root for relative paths in `read` (reading files);
 - have its top-level file listing shared with the AI, so it can sense what you're working on.
 
-**How to set it**: click the "Working directory" button in the input toolbar. The desktop app opens the system directory picker; the web / server version opens a directory browser (pointing at a path on the server machine).
+**How to set it**: click the "Working directory" button in the input toolbar. On Linux desktop, the app's directory browser lists only folders and accepts a pasted absolute path; the project's "Add folder" entry uses the same approach. macOS / Windows desktop still use the system directory picker. The web / server version uses a directory browser pointing at paths on the machine running the agent.
 
 When no path is already selected, the directory browser starts in the home folder of the system account running Hope Agent; use the Home button to return there at any time. Hope Agent never elevates itself just to write a system directory, so choose a folder owned by that account if the current location is not writable. Creating a folder from the web / server UI also requires "Allow remote file writes" under Settings → Server; when it is off, the browser links directly to that setting instead of attempting a write that will fail.
 
@@ -198,7 +200,11 @@ Compaction starts with deterministic projections that do not call another model,
 | Reactive micro-compaction | On | Cleans up old tool results as needed at the end of each round |
 | Trigger ratio | 0.75 | Reactive cleanup is triggered when context usage exceeds this ratio |
 | Summarization model | Empty (uses the chat model) | The model used to generate summaries; you can specify a cheaper model to save cost |
+| Summary reasoning override | Keep current summary policy | Changes reasoning only for summaries; failures preserve history without switching models or raising the output limit |
 | Summarization trigger threshold | 0.85 | Summary-based compaction is triggered when usage exceeds this ratio |
+
+If reasoning consumes the output budget and leaves an empty summary, choose an off or lower level that the summary model actually supports. Some models cannot disable reasoning. Unsupported choices produce an explicit error, and an empty summary never replaces the original history. Choose **Keep current summary policy** to restore the previous behavior; this setting does not affect the main conversation or other background one-shot tasks.
+
 
 > These are "behavior adjustment" settings (medium risk) that affect context and cost. The vast majority of users can keep the defaults. Compaction also has a full set of finer parameters (trim ratio, number of recent rounds to keep, file recovery, and so on), all in the "Advanced" area of the same panel—adjust them as needed.
 

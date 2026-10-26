@@ -368,7 +368,18 @@
     "lineAccessToken": "채널 액세스 토큰",
     "lineChannelSecret": "채널 비밀",
     "feishuDomainFeishu": "Feishu(중국)",
-    "feishuDomainLark": "Lark(국제판)"
+    "feishuDomainLark": "Lark(국제판)",
+    "pluginName_wecom": "WeCom",
+    "pluginDesc_wecom": "AI 봇에 직접 연결하는 개인·그룹 텍스트",
+    "wecomBotId": "Bot ID",
+    "wecomSecret": "Bot Secret",
+    "wecomSetupHint": "WeCom에서 Bot ID와 Secret을 가져오세요. Bot당 클라이언트는 하나만 사용합니다. 검증은 잠시 구독하며 같은 자격 증명의 정상 연결은 재사용합니다. 실행 중인 Bot의 Secret을 변경해 검증하려면 먼저 계정을 중지하세요.",
+    "wecomHostChanged": "실행 호스트가 변경되었습니다. 양식을 다시 여세요. 진행 중인 작업은 원래 호스트에서 결과를 확인한 뒤 다시 시도하세요.",
+    "wecomValidated": "인증 확인됨",
+    "wecomValidationFailed": "인증이 거부되었거나 연결할 수 없습니다. 자격 증명과 네트워크를 확인하세요.",
+    "wecomGroups": "그룹 채팅 ID",
+    "wecomGroupsHint": "한 줄에 chatid(또는 group:chatid)를 입력하세요. 새 그룹은 @ 없는 텍스트를 허용합니다. 확인된 멘션 표시가 없으므로 기존 멘션 전용 정책은 계속 거부합니다.",
+    "wecomReplyLimit": "첫 버전은 최종 텍스트만 지원합니다(20 KiB). 먼저 보내기, 미디어, 카드는 지원하지 않습니다. 승인과 질문은 앱에서 처리하세요."
   },
   "chat": {
     "crossSession": {
@@ -958,8 +969,8 @@
     "viewSystemPrompt": "시스템 프롬프트 보기",
     "weeksAgo": "{{count}}주 전",
     "workingDir": {
-      "browserDescription": "경로는 에이전트가 실행되는 서버에서 확인됩니다.",
-      "browserTitle": "서버의 디렉터리 선택",
+      "browserDescription": "경로는 에이전트가 실행되는 컴퓨터에서 확인됩니다.",
+      "browserTitle": "디렉터리 선택",
       "change": "디렉터리 변경",
       "clear": "디렉터리 지우기",
       "current": "작업 디렉터리",
@@ -971,6 +982,7 @@
       "locationNotWritable": "이 위치에는 쓸 수 없습니다. 홈 폴더나 Hope Agent 실행 사용자가 소유한 다른 폴더를 선택하세요.",
       "loadError": "디렉터리를 읽을 수 없습니다",
       "loading": "불러오는 중…",
+      "noSubdirectories": "표시할 하위 디렉터리가 없습니다",
       "parent": "상위 폴더",
       "pathPlaceholder": "절대 경로, 예: /srv/projects/app",
       "remoteWritesUnavailable": "원격 쓰기 권한을 확인할 수 없습니다",
@@ -4032,7 +4044,20 @@
     "currencyCny": "중국 위안 (CNY)",
     "currencyDesc": "이 프로바이더 모델 단가의 통화입니다. 공급업체 가격 페이지에 표시된 그대로 입력하세요. 비용 통계는 자동으로 미국 달러로 환산됩니다.",
     "title": "제공업체",
-    "waitingBrowserLogin": "브라우저 로그인 대기 중..."
+    "waitingBrowserLogin": "브라우저 로그인 대기 중...",
+    "discovery": {
+      "action": "모델 찾기",
+      "description": "테스트 대화 없이 모델 목록만 조회합니다. 모델을 선택하고 토큰 한도를 입력한 뒤 확인하면 저장 전 목록에 추가됩니다. 새 항목은 텍스트 입력과 추론 끄기로 시작하며, 다른 기능과 가격은 저장 전에 수정할 수 있습니다.",
+      "error": "모델을 찾지 못했습니다. API 기본 URL, 인증 정보와 네트워크 정책을 확인하거나 수동으로 추가하세요.",
+      "truncated": "일부 목록만 불러왔습니다. 누락된 모델은 수동으로 추가할 수 있습니다.",
+      "search": "찾은 모델 검색",
+      "empty": "추가할 새 모델이 없습니다. 기존 항목은 유지됩니다.",
+      "select": "{{id}} 선택",
+      "context": "{{id}} 컨텍스트 한도",
+      "output": "{{id}} 출력 한도",
+      "confirm": "선택한 모델의 텍스트 대화 및 도구 호출 지원 여부와 위 토큰 한도를 제공업체 정보로 확인했습니다.",
+      "add": "선택 항목 추가 ({{count}})"
+    }
   },
   "provider_templates": {
     "anthropic": {
@@ -4080,7 +4105,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "MiniMax M2 시리즈 모델(Anthropic 호환)",
+      "description": "MiniMax M3 모델(Anthropic 호환)",
       "name": "MiniMax"
     },
     "mistral": {
@@ -8786,7 +8811,10 @@
       "save": "설정 저장",
       "saving": "저장 중…",
       "saved": "저장됨"
-    }
+    },
+    "contextCompactSummaryReasoning": "요약 전용 추론 설정",
+    "contextCompactSummaryReasoningDefault": "현재 요약 정책 유지",
+    "contextCompactSummaryReasoningDesc": "컨텍스트 요약에만 적용됩니다. 지원하지 않는 단계는 기록을 보존하고 오류를 표시합니다. 실패해도 모델이나 출력 한도를 자동 변경하지 않으며 기본값은 현재 동작을 유지합니다."
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",
@@ -11817,7 +11845,24 @@
     "exportReviewPassed": "수출 심사 통과",
     "exportReviewBlocked": "수출 검토에는 여전히 방해 요소가 있습니다.",
     "guardStatus": "경비원",
-    "defaultName": "산출물"
+    "defaultName": "산출물",
+    "registration": {
+      "create": "파일을 새 결과물로 등록",
+      "update": "파일에서 업데이트",
+      "description": ".html, .htm, .md 또는 분석용 artifact.json 파일을 선택해 관리 스냅샷으로 복사합니다. 원본을 유지하며 같은 이름을 덮어쓰지 않습니다. 업데이트는 선택한 ID와 기록을 유지합니다.",
+      "path": "Agent 컴퓨터에 있는 파일의 절대 경로",
+      "source": "파일 원본",
+      "uploadSource": "파일 선택 및 업로드",
+      "pathSource": "Agent 호스트 경로",
+      "file": "등록할 파일 선택",
+      "pathHint": "경로 가져오기는 Agent 프로세스의 작업 디렉터리 또는 사용자 홈으로 제한됩니다. 범위 밖의 파일은 확보한 후 업로드하세요.",
+      "failed": "결과를 확인할 수 없습니다. 다시 제출하기 전에 라이브러리를 새로고침해 확인하고, 등록되지 않았다면 파일 형식, 경로 권한과 현재 버전을 확인하세요.",
+      "hostChanged": "Agent 컴퓨터가 변경되었습니다. 이 창을 닫고 원래 컴퓨터에서 결과를 확인하세요.",
+      "firstVersion": "첫 버전",
+      "updatedVersion": "업데이트됨",
+      "createdAt": "생성",
+      "updatedAt": "업데이트"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "백그라운드 작업",
@@ -12181,12 +12226,15 @@
       "desc": "Figma 파일의 게시된 색상 / 텍스트 / 그림자 스타일을 가져와 브랜드 디자인 시스템으로 정제합니다. 토큰은 이번 가져오기에만 사용되며 저장되지 않습니다.",
       "url": "Figma 파일 URL 또는 키",
       "token": "개인 액세스 토큰",
-      "tokenHint": "Figma → Settings → Security → Personal access tokens에서 생성(file_read 권한 필요).",
+      "tokenHint": "Figma → Settings → Security → Personal access tokens에서 생성(library_content:read, file_content:read 및 파일 접근 권한 필요).",
       "name": "시스템 이름(선택)",
       "namePlaceholder": "Figma 디자인 시스템",
       "import": "가져오기",
       "ok": "Figma에서 디자인 시스템을 가져왔습니다",
-      "err": "Figma 가져오기 실패 — URL과 토큰을 확인하세요"
+      "err": "Figma 가져오기 실패 — URL과 토큰을 확인하세요",
+      "permissionErr": "Figma 가져오기가 거부되었습니다. 토큰 유효성, library_content:read, file_content:read 및 파일/조직 접근 권한을 확인하세요.",
+      "rateLimited": "Figma 요청이 제한되었습니다. 대기 시간을 알 수 없습니다. 나중에 다시 시도하세요.",
+      "retryAfter": "Figma 요청이 제한되었습니다. 최소 {{seconds}}초 후 다시 시도하세요."
     },
     "exportHandoff": "개발 핸드오프 (ZIP)",
     "bind": {

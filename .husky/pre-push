@@ -85,9 +85,13 @@ node scripts/check-agent-kernel-boundaries.mjs
 
   echo "[pre-push] verify-tauri-version-sync (tauri crate ↔ @tauri-apps/api)"
   node scripts/verify-tauri-version-sync.mjs
+  node --test scripts/__tests__/tauri-version-sync.test.mjs
 
 echo "[pre-push] vitest run"
 pnpm test
+
+echo "[pre-push] project automation control contracts"
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/automation -p 'test_*.py'
 
 if [ "$HA_RUN_RUST_CI" != "true" ]; then
   : # The scope message above already explains why cargo test is omitted.

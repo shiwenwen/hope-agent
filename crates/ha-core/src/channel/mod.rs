@@ -1,5 +1,5 @@
-//! IM 渠道的**台账与契约**——机器（12 个插件 / worker / 媒体管道 / 账号生命
-//! 周期）已随阶段 5 第五刀迁出 `ha-channel`，此处只留 kernel 必须自持的部分。
+//! IM 渠道的**台账与契约**——机器（现有 13 个插件 / worker / 媒体管道 / 账号生命
+//! 周期）由 `ha-channel` 承载，此处只留 kernel 必须自持的部分。
 //!
 //! # 为什么这四个留 kernel
 //!
@@ -16,8 +16,8 @@
 //!   ha-config-schema，这里只是转发。
 //! - [`traits`]（`ChannelPlugin`）/ [`registry`]（`ChannelRegistry`）——**契约与
 //!   持有者，不是机器**：trait 本身零实现，registry 只是按 `ChannelId` 存放
-//!   `Arc<dyn ChannelPlugin>` 并转发 start/stop/restart。12 个插件实现随
-//!   ha-channel 上浮，靠 [`crate::channel_hooks`] 的插件注册槽在 `app_init`
+//!   `Arc<dyn ChannelPlugin>` 并转发 start/stop/restart。13 个插件实现由
+//!   ha-channel 承载，靠 [`crate::channel_hooks`] 的插件注册槽在 `app_init`
 //!   建好 registry 之后装入。这样 `CHANNEL_REGISTRY` 全局、`AppState`
 //!   字段与壳层的 **registry** 调用点（src-tauri 9 处 / ha-server 1 处 /
 //!   ha-cron 1 处）**一处未改**。

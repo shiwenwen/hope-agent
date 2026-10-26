@@ -68,3 +68,36 @@ export function defaultWeChatLabel(connection: WeChatConnection): string {
   const identity = connection.userId?.trim() || connection.remoteAccountId?.trim()
   return identity ? `WeChat ${identity}` : "WeChat"
 }
+
+/** Keep custom group policies intact; only explicitly added WeCom group IDs
+ * receive the first-version no-mention text policy. */
+export function withWeComGroups(
+  current: Record<string, import("./types").TelegramGroupConfig>,
+  raw: string,
+): Record<string, import("./types").TelegramGroupConfig> {
+  const result = new Map<string, import("./types").TelegramGroupConfig>()
+  for (const entry of raw
+    .split(/[\n,]/)
+    .map((value) => value.trim())
+    .filter(Boolean)) {
+    const id =
+      entry.startsWith("group:") || Object.hasOwn(current, entry) ? entry : `group:${entry}`
+    if ((id === "group:*" || id === "*") && !Object.hasOwn(current, id)) continue
+    if (
+      id === "group:" ||
+      Array.from(id).some(
+        (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+      )
+    )
+      continue
+    result.set(
+      id,
+      current[id] ?? { requireMention: false, enabled: true, allowFrom: [], topics: {} },
+    )
+  }
+  return Object.fromEntries(result)
+}
+
+export function readWeComGroups(current: Record<string, unknown>): string {
+  return Object.keys(current).join("\n")
+}

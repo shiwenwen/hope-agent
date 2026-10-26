@@ -431,8 +431,9 @@ export interface Transport {
    *
    * @param path Absolute path to list. When omitted, the server returns a
    *             platform default root (`/` on Unix, user profile on Windows).
+   * @param directoriesOnly Filter before applying the listing cap; default false.
    */
-  listServerDirectory(path?: string): Promise<DirListing>;
+  listServerDirectory(path?: string, directoriesOnly?: boolean): Promise<DirListing>;
 
   /**
    * Create an absolute directory on the runtime machine and return its listing.

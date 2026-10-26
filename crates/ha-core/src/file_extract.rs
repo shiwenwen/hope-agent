@@ -1378,7 +1378,7 @@ fn optional_xml_attribute(
         }
         found = Some(
             attribute
-                .decode_and_unescape_value(reader.decoder())
+                .decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder())
                 .map_err(|_| anyhow::anyhow!("typed Office XML attribute cannot be decoded"))?
                 .into_owned(),
         );
@@ -1398,7 +1398,7 @@ fn validate_xml_attributes(
             attribute.map_err(|_| anyhow::anyhow!("typed Office XML has a malformed attribute"))?;
         ensure_bounded_xml_attribute(&attribute, index)?;
         attribute
-            .decode_and_unescape_value(reader.decoder())
+            .decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder())
             .map_err(|_| anyhow::anyhow!("typed Office XML attribute cannot be decoded"))?;
     }
     Ok(())
@@ -2506,6 +2506,25 @@ mod bounded_tests {
     }
 
     #[test]
+    fn calamine_keeps_synthetic_xlsx_cell_values() {
+        let bytes = office_zip(&[
+            ("_rels/.rels", "<Relationships><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>"),
+            ("xl/_rels/workbook.xml.rels", "<Relationships><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>"),
+            ("xl/workbook.xml", "<workbook xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Synthetic\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>"),
+            ("xl/sharedStrings.xml", "<sst><si><t xml:space=\"preserve\">  Shared &amp; safe  </t></si></sst>"),
+            ("xl/worksheets/sheet1.xml", "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\" t=\"b\"><v>1</v></c><c r=\"C1\"><v>42.5</v></c><c r=\"D1\" t=\"inlineStr\"><is><t>Inline</t></is></c><c r=\"E1\" t=\"d\"><v>2026-10-12T00:00:00</v></c></row></sheetData></worksheet>"),
+        ]);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("synthetic.xlsx");
+        std::fs::write(&path, bytes).unwrap();
+        let (text, images) = extract_excel(&path).expect("patched Excel parser");
+        let text = text.unwrap();
+        assert!(text.contains("=== Sheet: Synthetic ==="));
+        assert!(text.contains("  Shared & safe  \ttrue\t42.5\tInline\t2026-10-12T00:00:00"));
+        assert!(images.is_empty());
+    }
+
+    #[test]
     fn bounded_pptx_and_xlsx_keep_common_document_semantics() {
         let pptx = office_zip(&[
             (
@@ -2670,6 +2689,13 @@ mod bounded_tests {
     fn bounded_xml_rejects_unclosed_declarations_trees_attributes_and_depth() {
         assert!(ensure_bounded_xml_encoding("<?xml version=\"1.0\" encoding=\"utf-8").is_err());
         assert!(extract_xml_text_limited("<w:p><w:t>open", b"w:t", 100).is_err());
+        assert!(extract_xml_text_limited(
+            "<w:p a=\"1\" a=\"2\"><w:t>text</w:t></w:p>",
+            b"w:t",
+            100
+        )
+        .is_err());
+
         assert!(extract_xml_text_limited(
             "<w:p>&unknown;<w:t>otherwise safe</w:t></w:p>",
             b"w:t",

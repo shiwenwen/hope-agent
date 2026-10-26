@@ -368,7 +368,18 @@
     "lineAccessToken": "Kanal Erişim Jetonu",
     "lineChannelSecret": "Kanal Sırrı",
     "feishuDomainFeishu": "Feishu (Çin)",
-    "feishuDomainLark": "Lark (Uluslararası)"
+    "feishuDomainLark": "Lark (Uluslararası)",
+    "pluginName_wecom": "WeCom",
+    "pluginDesc_wecom": "AI botu için doğrudan özel ve grup metinleri",
+    "wecomBotId": "Bot ID",
+    "wecomSecret": "Bot Secret",
+    "wecomSetupHint": "Bot ID ve Secret bilgilerini WeCom’dan alın. Her bot için tek istemci kullanın. Doğrulama kısa süre abone olur; aynı kimlik bilgileriyle sağlıklı yerel bağlantı yeniden kullanılır. Aynı botun değiştirilmiş Secret değerini doğrulamadan önce çalışan hesabı durdurun.",
+    "wecomHostChanged": "Çalışma sunucusu değişti. Formu kapatıp yeniden açın. Yeniden denemeden önce bekleyen işlemi eski sunucuda doğrulayın.",
+    "wecomValidated": "Kimlik doğrulandı",
+    "wecomValidationFailed": "Kimlik reddedildi veya bağlantı kullanılamıyor. Bilgileri ve ağı kontrol edin.",
+    "wecomGroups": "Grup sohbeti kimlikleri",
+    "wecomGroupsHint": "Her satıra bir chatid (veya group:chatid). Yeni gruplar @ olmadan metne izin verir. Protokolde doğrulanmış etiketleme işareti olmadığından mevcut zorunlu etiketleme kuralları kapalı kalır.",
+    "wecomReplyLimit": "İlk sürüm: yalnızca son metin (20 KiB); proaktif gönderim, medya veya kart yok. Onay ve soruları uygulamada işleyin."
   },
   "chat": {
     "crossSession": {
@@ -958,8 +969,8 @@
     "viewSystemPrompt": "Sistem İstemini Görüntüle",
     "weeksAgo": "{{count}} hafta önce",
     "workingDir": {
-      "browserDescription": "Yollar ajanın çalıştığı sunucuda çözümlenir.",
-      "browserTitle": "Sunucuda bir dizin seç",
+      "browserDescription": "Yollar ajanın çalıştığı makinede çözümlenir.",
+      "browserTitle": "Dizin seç",
       "change": "Dizini değiştir",
       "clear": "Dizini temizle",
       "current": "Çalışma dizini",
@@ -971,6 +982,7 @@
       "locationNotWritable": "Bu konuma yazılamıyor. Ana klasörünüzü veya Hope Agent'ı çalıştıran kullanıcıya ait başka bir klasörü seçin.",
       "loadError": "Dizin listelenemiyor",
       "loading": "Yükleniyor…",
+      "noSubdirectories": "Görüntülenecek alt dizin yok",
       "parent": "Bir üst klasöre çık",
       "pathPlaceholder": "Mutlak yol, örn. /srv/projects/app",
       "remoteWritesUnavailable": "Uzaktan yazma erişimi doğrulanamıyor",
@@ -4032,7 +4044,20 @@
     "currencyCny": "Çin Yuanı (CNY)",
     "currencyDesc": "Bu sağlayıcının model fiyatlarının para birimi. Fiyatları sağlayıcının fiyat sayfasında listelendiği şekilde girin; maliyet istatistikleri otomatik olarak USD'ye dönüştürülür.",
     "title": "Sağlayıcılar",
-    "waitingBrowserLogin": "Tarayıcı girişi bekleniyor..."
+    "waitingBrowserLogin": "Tarayıcı girişi bekleniyor...",
+    "discovery": {
+      "action": "Modelleri keşfet",
+      "description": "Test sohbeti göndermeden model listesini okur. Modelleri seçin, belirteç sınırlarını girip onaylayın; kaydedilmemiş listeye eklenirler. Yeni kayıtlar yalnızca metin kullanır ve akıl yürütme kapalıdır; diğer yetenekleri ve fiyatları kaydetmeden önce düzenleyebilirsiniz.",
+      "error": "Modeller keşfedilemedi. API temel URL’sini, kimlik bilgilerini ve ağ politikasını kontrol edin veya elle ekleyin.",
+      "truncated": "Liste eksik. Bulunamayan modelleri elle ekleyebilirsiniz.",
+      "search": "Keşfedilen modelleri ara",
+      "empty": "Eklenecek yeni model yok. Mevcut kayıtlar korunur.",
+      "select": "{{id}} seç",
+      "context": "{{id}} bağlam sınırı",
+      "output": "{{id}} çıktı sınırı",
+      "confirm": "Seçili modellerin metin sohbetini ve araç çağrılarını desteklediğini doğruladım ve belirteç sınırlarını sağlayıcıyla kontrol ettim.",
+      "add": "Seçilenleri ekle ({{count}})"
+    }
   },
   "provider_templates": {
     "anthropic": {
@@ -4080,7 +4105,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "MiniMax M2 serisi modeller (Anthropic uyumlu)",
+      "description": "MiniMax M3 modelleri (Anthropic uyumlu)",
       "name": "MiniMax"
     },
     "mistral": {
@@ -8786,7 +8811,10 @@
       "save": "Tercihleri kaydet",
       "saving": "Kaydediliyor…",
       "saved": "Kaydedildi"
-    }
+    },
+    "contextCompactSummaryReasoning": "Özete özel akıl yürütme",
+    "contextCompactSummaryReasoningDefault": "Mevcut özet ilkesini koru",
+    "contextCompactSummaryReasoningDesc": "Yalnızca bağlam özetlerini etkiler. Desteklenmeyen düzeyler hata verir ve geçmişi korur. Hata durumunda model veya çıktı sınırı otomatik değişmez. Varsayılan, mevcut davranışı korur."
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",
@@ -11817,7 +11845,24 @@
     "exportReviewPassed": "Dışa aktarma incelemesi geçildi",
     "exportReviewBlocked": "Dışa aktarma incelemesinde hâlâ engelleyiciler var",
     "guardStatus": "Koruma",
-    "defaultName": "Çıktı"
+    "defaultName": "Çıktı",
+    "registration": {
+      "create": "Dosyayı yeni ürün olarak kaydet",
+      "update": "Dosyadan güncelle",
+      "description": "Yönetilen anlık görüntüye kopyalamak için .html, .htm, .md veya analiz artifact.json dosyası seçin. Kaynak korunur. Ada göre üzerine yazılmaz; güncellemeler seçili kimliği ve geçmişi korur.",
+      "path": "Agent bilgisayarındaki dosyanın mutlak yolu",
+      "source": "Dosya kaynağı",
+      "uploadSource": "Yüklenecek dosyayı seç",
+      "pathSource": "Agent sunucu yolu",
+      "file": "Kaydedilecek dosyayı seç",
+      "pathHint": "Yol içe aktarma Agent işleminin çalışma dizini veya kullanıcı ana diziniyle sınırlıdır. Kapsam dışındaki dosyayı önce edinin, ardından yüklemek için seçin.",
+      "failed": "Sonuç doğrulanamadı. Tekrar göndermeden önce kitaplığı yenileyin; kayıt yoksa biçimi, yol izinlerini ve mevcut sürümü kontrol edin.",
+      "hostChanged": "Agent bilgisayarı değişti. Bu pencereyi kapatıp sonucu ilk bilgisayarda kontrol edin.",
+      "firstVersion": "İlk sürüm",
+      "updatedVersion": "Güncellendi",
+      "createdAt": "Oluşturuldu",
+      "updatedAt": "Güncellendi"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "Arka Plan Görevleri",
@@ -12181,12 +12226,15 @@
       "desc": "Bir Figma dosyasının yayımlanmış renk / metin / gölge stillerini alıp bir marka tasarım sistemine dönüştürün. Token yalnızca bu içe aktarma için kullanılır ve saklanmaz.",
       "url": "Figma dosya URL'si veya anahtarı",
       "token": "Kişisel erişim token'ı",
-      "tokenHint": "Figma → Settings → Security → Personal access tokens bölümünden oluşturun (file_read izni gerekir).",
+      "tokenHint": "Figma → Settings → Security → Personal access tokens bölümünden oluşturun (library_content:read, file_content:read ve dosya erişimi gerekir).",
       "name": "Sistem adı (isteğe bağlı)",
       "namePlaceholder": "Figma tasarım sistemi",
       "import": "İçe aktar",
       "ok": "Tasarım sistemi Figma'dan içe aktarıldı",
-      "err": "Figma içe aktarma başarısız — URL ve token'ı kontrol edin"
+      "err": "Figma içe aktarma başarısız — URL ve token'ı kontrol edin",
+      "permissionErr": "Figma içe aktarımı reddedildi: belirteç geçerliliğini, library_content:read, file_content:read ve dosya/kuruluş erişimini denetleyin.",
+      "rateLimited": "Figma istekleri sınırlı. Yeniden denemeden önce bekleyin; bekleme süresi bilinmiyor.",
+      "retryAfter": "Figma istekleri sınırlı. Yeniden denemeden önce en az {{seconds}} saniye bekleyin."
     },
     "exportHandoff": "Geliştirici paketi (ZIP)",
     "bind": {

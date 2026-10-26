@@ -13,12 +13,15 @@ use anyhow::Context;
 use ha_core::filesystem::{self, DirListing, FileSearchResponse};
 
 #[tauri::command]
-pub async fn fs_list_dir(path: Option<String>) -> Result<DirListing, CmdError> {
-    Ok(
-        tokio::task::spawn_blocking(move || filesystem::list_dir(path.as_deref()))
-            .await
-            .context("fs_list_dir task failed")??,
-    )
+pub async fn fs_list_dir(
+    path: Option<String>,
+    directories_only: Option<bool>,
+) -> Result<DirListing, CmdError> {
+    Ok(tokio::task::spawn_blocking(move || {
+        filesystem::list_dir_filtered(path.as_deref(), directories_only.unwrap_or(false))
+    })
+    .await
+    .context("fs_list_dir task failed")??)
 }
 
 #[tauri::command]

@@ -34,6 +34,7 @@ import {
 } from "@dnd-kit/core"
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable"
 import AuthProfileEditor from "@/components/settings/provider-setup/AuthProfileEditor"
+import { ModelDiscovery } from "@/components/settings/provider-setup/ModelDiscovery"
 import {
   ArrowLeft,
   ArrowRight,
@@ -389,6 +390,20 @@ export default function ProviderEditPage({
         </div>
 
         {/* Models (collapsible like ProviderSetup) */}
+        {!isCodex && (
+          <ModelDiscovery
+            config={buildEditedConfig()}
+            onAdd={(added) => {
+              setEditModels((current) => [
+                ...current,
+                ...added.filter(
+                    (model) => !current.some((existing) => existing.id.trim() === model.id),
+                  ),
+              ])
+              setModelsExpanded(true)
+            }}
+          />
+        )}
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           <Button
             variant="ghost"

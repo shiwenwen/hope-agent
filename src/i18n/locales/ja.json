@@ -368,7 +368,18 @@
     "lineAccessToken": "チャネルアクセストークン",
     "lineChannelSecret": "チャンネルシークレット",
     "feishuDomainFeishu": "Feishu（中国）",
-    "feishuDomainLark": "Lark（国際版）"
+    "feishuDomainLark": "Lark（国際版）",
+    "pluginName_wecom": "WeCom",
+    "pluginDesc_wecom": "AIボットに直接接続する個人・グループテキスト",
+    "wecomBotId": "Bot ID",
+    "wecomSecret": "Bot Secret",
+    "wecomSetupHint": "WeCom で Bot ID と Secret を取得します。Bot ごとにクライアントは1つです。検証時は短時間接続し、同じ認証情報の正常な接続は再利用します。稼働中の Bot の Secret を変更して検証する場合は、先にアカウントを停止してください。",
+    "wecomHostChanged": "接続先が変わりました。フォームを開き直してください。 処理中の操作は元のホストで結果を確認してから再試行してください。",
+    "wecomValidated": "認証を確認しました",
+    "wecomValidationFailed": "認証拒否または接続できません。認証情報とネットワークを確認してください。",
+    "wecomGroups": "グループチャットID",
+    "wecomGroupsHint": "1行にchatid（またはgroup:chatid）を入力。新しいグループは@なしのテキストを許可します。検証済みのメンション情報がないため、既存のメンション必須設定は拒否を維持します。",
+    "wecomReplyLimit": "初版は最終テキストのみ（20 KiB）。能動送信、メディア、カードは非対応です。承認・質問はアプリで処理してください。"
   },
   "chat": {
     "crossSession": {
@@ -958,8 +969,8 @@
     "viewSystemPrompt": "システムプロンプトを表示",
     "weeksAgo": "{{count}}週間前",
     "workingDir": {
-      "browserDescription": "パスはエージェントが実行されているサーバーで解決されます。",
-      "browserTitle": "サーバー上のディレクトリを選択",
+      "browserDescription": "パスはエージェントが実行されているマシン上で解決されます。",
+      "browserTitle": "ディレクトリを選択",
       "change": "ディレクトリを変更",
       "clear": "ディレクトリをクリア",
       "current": "作業ディレクトリ",
@@ -971,6 +982,7 @@
       "locationNotWritable": "この場所には書き込めません。ホームフォルダーまたは Hope Agent の実行ユーザーが所有する別のフォルダーを選択してください。",
       "loadError": "ディレクトリを一覧できません",
       "loading": "読み込み中…",
+      "noSubdirectories": "表示するサブディレクトリはありません",
       "parent": "上の階層へ",
       "pathPlaceholder": "絶対パス（例: /srv/projects/app）",
       "remoteWritesUnavailable": "リモート書き込み権限を確認できません",
@@ -4032,7 +4044,20 @@
     "currencyCny": "人民元 (CNY)",
     "currencyDesc": "このプロバイダーのモデル単価の通貨。ベンダーの価格ページに記載された通りに入力してください。コスト統計は自動的に米ドルに換算されます。",
     "title": "プロバイダー",
-    "waitingBrowserLogin": "ブラウザログインを待機中..."
+    "waitingBrowserLogin": "ブラウザログインを待機中...",
+    "discovery": {
+      "action": "モデルを検出",
+      "description": "テスト会話を送信せずモデル一覧を取得します。モデルを選び、トークン上限を入力して確認後、未保存の一覧に追加します。新規項目はテキスト入力・推論オフです。他の機能と料金は保存前に編集できます。",
+      "error": "検出できませんでした。API のベース URL、認証情報、ネットワークポリシーを確認するか、手動で追加してください。",
+      "truncated": "一覧は不完全です。足りないモデルは手動で追加できます。",
+      "search": "検出したモデルを検索",
+      "empty": "追加できる新規モデルはありません。既存の設定は保持されます。",
+      "select": "{{id}} を選択",
+      "context": "{{id}} のコンテキスト上限",
+      "output": "{{id}} の出力上限",
+      "confirm": "選択したモデルがテキスト会話とツール呼び出しに対応し、トークン上限が提供元の情報と一致することを確認しました。",
+      "add": "選択したモデルを追加（{{count}}）"
+    }
   },
   "provider_templates": {
     "anthropic": {
@@ -4080,7 +4105,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "MiniMax M2 シリーズのモデル（Anthropic 互換）",
+      "description": "MiniMax M3 モデル（Anthropic 互換）",
       "name": "MiniMax"
     },
     "mistral": {
@@ -8786,7 +8811,10 @@
       "save": "設定を保存",
       "saving": "保存中…",
       "saved": "保存済み"
-    }
+    },
+    "contextCompactSummaryReasoning": "要約専用の推論設定",
+    "contextCompactSummaryReasoningDefault": "現在の要約方針を維持",
+    "contextCompactSummaryReasoningDesc": "コンテキスト要約だけに適用します。非対応のレベルは履歴を保持してエラーになります。失敗してもモデルや出力上限を自動変更しません。既定は現在の動作を維持します。"
   },
   "shortcuts": {
     "actionOpenSettings": "設定を開く",
@@ -11817,7 +11845,24 @@
     "exportReviewPassed": "輸出審査に合格しました",
     "exportReviewBlocked": "輸出審査には依然として阻害要因がある",
     "guardStatus": "ガード",
-    "defaultName": "成果物"
+    "defaultName": "成果物",
+    "registration": {
+      "create": "ファイルを新規成果物に登録",
+      "update": "ファイルから更新",
+      "description": ".html、.htm、.md、分析用 artifact.json を選び、管理スナップショットにコピーします。元ファイルは保持されます。同名で上書きせず、更新では選択した識別子と履歴を保持します。",
+      "path": "Agent のコンピューター上の絶対ファイルパス",
+      "source": "ファイルの取得元",
+      "uploadSource": "ファイルを選んでアップロード",
+      "pathSource": "Agent ホストのパス",
+      "file": "登録するファイルを選択",
+      "pathHint": "パスからの読み込みは Agent プロセスの作業ディレクトリかホーム内に限られます。範囲外のファイルは取得してからアップロードしてください。",
+      "failed": "結果を確認できません。再送信前にライブラリを更新して確認し、未登録なら形式、パス権限、現在の版を確認してください。",
+      "hostChanged": "Agent のコンピューターが切り替わりました。この画面を閉じ、元のコンピューターで結果を確認してください。",
+      "firstVersion": "初版",
+      "updatedVersion": "更新済み",
+      "createdAt": "作成",
+      "updatedAt": "更新"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "バックグラウンドタスク",
@@ -12181,12 +12226,15 @@
       "desc": "Figma ファイルの公開済みカラー / テキスト / エフェクトスタイルを取得し、ブランドデザインシステムに蒸留します。トークンは今回の取り込みにのみ使用し、保存しません。",
       "url": "Figma ファイルの URL またはキー",
       "token": "個人アクセストークン",
-      "tokenHint": "Figma → Settings → Security → Personal access tokens で生成（file_read 権限が必要）。",
+      "tokenHint": "Figma → Settings → Security → Personal access tokens で生成（library_content:read、file_content:read、ファイルへのアクセス権が必要）。",
       "name": "システム名（任意）",
       "namePlaceholder": "Figma デザインシステム",
       "import": "取り込む",
       "ok": "Figma からデザインシステムを取り込みました",
-      "err": "Figma の取り込みに失敗しました。URL とトークンを確認してください"
+      "err": "Figma の取り込みに失敗しました。URL とトークンを確認してください",
+      "permissionErr": "Figma の取り込みが拒否されました。トークンの有効性、library_content:read、file_content:read、ファイル／組織へのアクセス権を確認してください。",
+      "rateLimited": "Figma のレート制限です。待ち時間は不明です。しばらくしてから再試行してください。",
+      "retryAfter": "Figma のレート制限です。{{seconds}} 秒以上待ってから再試行してください。"
     },
     "exportHandoff": "開発ハンドオフ (ZIP)",
     "bind": {

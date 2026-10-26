@@ -383,7 +383,8 @@ matcher 目标按事件取（`HookInput::matcher_target`）：`tool_name`（工�
 
 ### 10.3 mcp_tool
 
-- 调 `mcp::invoke::call_tool`（内部校验 MCP 就绪；未就绪 = 非阻断错误）。
+- 调 `mcp::invoke::call_tool_for_hook`，经同一 MCP 注册表、连接、并发及超时路径；内部校验 MCP 就绪，未就绪仍为非阻断错误。
+- 成功结果的 `structuredContent` 只有包含已知 Hook 字段且可解码为 `HookOutput` 时才作为协议候选；缺失、未知元数据或畸形字段沿原正文回退；空对象、空的hookSpecificOutput及可解码的空值字段均表示保持正常审批。双通道均为协议时按真实 `HookInput` 枚举对应事件比较，保留较严格的 deny/block/defer/ask，`continue:false` 优先，防止附加元数据或较弱决定覆盖旧拒绝。双协议保守合并上下文，旧输入/结果改写优先；仅两通道均显式allow才可跳过软审批，不能让普通上下文或改写响应变成自动批准。结构化 JSON 是协议载荷，不拼接对话的 `[structuredContent]` 标记或重复正文，保证 `HookOutput` 的 deny/block/ask/continue:false 可被完整解析；`_meta` 不转发，`isError` 继续走失败分支。格式由内核调用方选择，不接受工具入参切换。
 - `input` 模板支持 `${dotted.path}` 占位符插值（`tool_input.*` / `tool_response.*` / `session_id` / `cwd` / `agent_id` / `tool_name` / `prompt`）；未解析占位符留字面量 + warn。identity 含 input hash。
 
 ### 10.4 prompt
@@ -534,6 +535,7 @@ command Hook 的 `allowedEnvVars` 只复制命名变量，不记录值；变量�
 
 其余测试：
 
+- `ha-mcp/tests/mcp_hook_results.rs`：内存 JSON-RPC 经 rmcp、装配 trampoline、真实 MCP Hook runner 和输出解析器，覆盖结构化单结果、SDK 双结果、旧文字 JSON 及十类附加元数据/较弱协议的拒绝/阻断/问答/停止协议；不启动子进程、网络或数据库。
 - **单元**（inline `#[cfg(test)]`）：matcher / config / parse / condition / decision / 各 runner；另有 Stop continue 计数器 cap/reset/不泄漏（零 IO 确定性）与预闸 soundness（`cwd_free_pregate_only_ever_skips_work`）。
 - **其它集成**（`crates/ha-core/tests/`，各**一个** `#[test]`/binary——`install_hook` 写进程全局 config、`reload_from_config` 换全局 registry，同 binary 两个 test fn 必 flake）：`hooks_e2e.rs`（config→reload→dispatch 全链 + SessionStart once-per-session + overflow + hot-reload 清除 + PermissionRequest tool_name matcher 真链路）、`hooks_project_scope.rs`（工作区路径+内容授权闸）、`hooks_pre_tool_continue_false.rs`（`continue:false` 聚合）。
 - **兼容 fixture**（`tests/fixtures/hooks/claude-code-compat/`，三十余个）：跑**未改动**的官方风格 jq 脚本证明字段级对齐；脚本一律 `[ -n "$x" ] || exit 1`——字段改名会**大声失败**而非静默回显空串。`jq` 缺失自动跳过；CI Unix legs 装 jq 确保真跑。

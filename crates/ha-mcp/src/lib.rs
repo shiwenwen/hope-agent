@@ -300,9 +300,10 @@ pub fn wire() {
             name: &'a str,
             args: &'a serde_json::Value,
             ctx: &'a ha_core::tools::ToolExecContext,
+            format: ha_core::mcp_hooks::McpToolResultFormat,
         ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + 'a>>
         {
-            Box::pin(invoke::call_tool(name, args, ctx))
+            Box::pin(invoke::call_tool_with_format(name, args, ctx, format))
         }
         fn system_prompt_snippet() -> Option<String> {
             catalog::system_prompt_snippet()

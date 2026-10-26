@@ -123,10 +123,11 @@ impl AssistantAgent {
     ) -> Result<SideQueryResult> {
         let operation = operation.to_string();
         let started = std::time::Instant::now();
-        let client =
-            crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
-                .build()
-                .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+        let client = crate::provider::apply_model_proxy(
+            reqwest::Client::builder().user_agent(&self.user_agent),
+        )
+        .build()
+        .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
         // Arc::clone is cheap (pointer bump), no deep copy
         let cached = self
@@ -433,10 +434,11 @@ impl AssistantAgent {
         attachments: &[Attachment],
         max_tokens: u32,
     ) -> Result<SideQueryResult> {
-        let client =
-            crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
-                .build()
-                .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+        let client = crate::provider::apply_model_proxy(
+            reqwest::Client::builder().user_agent(&self.user_agent),
+        )
+        .build()
+        .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
         let hydrated_codex;
         let provider = if codex_direct_needs_oauth_hydration(&self.provider) {
@@ -627,7 +629,7 @@ impl AssistantAgent {
         session_id: Option<&str>,
     ) -> Result<String> {
         let started = std::time::Instant::now();
-        let client = crate::provider::apply_proxy(
+        let client = crate::provider::apply_model_proxy(
             reqwest::Client::builder().user_agent(super::config::USER_AGENT),
         )
         .build()

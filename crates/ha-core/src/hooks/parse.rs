@@ -11,6 +11,110 @@ use super::decision::HookContribution;
 use super::runner::RawHookResult;
 use super::types::{HookDecision, HookEvent, HookOutput};
 
+/// Compose a machine-readable MCP hook payload without discarding a legacy
+/// verdict for supplemental metadata. If both channels contain protocol data,
+/// preserve the stricter event-specific decision (continue:false wins).
+pub fn mcp_hook_stdout(structured: &serde_json::Value, legacy: &str, event: HookEvent) -> String {
+    let Some(map) = structured.as_object() else {
+        return legacy.to_string();
+    };
+    // An empty protocol object means normal permission flow, not an explicit
+    // approval. It must also veto a second channel's prompt-skipping allow.
+    // Recognize the declared root namespace, including optional null fields
+    // and empty/nested no-op outputs. Deserialization below checks types;
+    // unknown metadata objects must not impersonate a protocol response.
+    let known = map.is_empty()
+        || map.keys().any(|key| {
+            matches!(
+                key.as_str(),
+                "continue"
+                    | "stopReason"
+                    | "suppressOutput"
+                    | "systemMessage"
+                    | "terminalSequence"
+                    | "decision"
+                    | "reason"
+                    | "hookSpecificOutput"
+            )
+        });
+    let Ok(output) = serde_json::from_value::<HookOutput>(structured.clone()) else {
+        return legacy.to_string();
+    };
+    if !known {
+        return legacy.to_string();
+    }
+    let previous_output = serde_json::from_str::<HookOutput>(legacy).ok();
+    // SDK dual results repeat the same protocol value; do not double contexts.
+    if serde_json::from_str::<serde_json::Value>(legacy)
+        .ok()
+        .as_ref()
+        == Some(structured)
+    {
+        return structured.to_string();
+    }
+    let candidate = contribution_from_output(output, event);
+    let legacy_protocol = previous_output.is_some();
+    let previous = previous_output
+        .map(|output| contribution_from_output(output, event))
+        .unwrap_or_else(|| parse_stdout(legacy, event));
+    if !legacy_protocol && previous.additional_context.is_none() {
+        return structured.to_string();
+    }
+    // An implicit Allow preserves normal approval, unlike explicit permission
+    // allow. Two protocol channels must both opt in before a prompt is skipped.
+    let permission_allow =
+        candidate.permission_allow && (!legacy_protocol || previous.permission_allow);
+    let updated_input = previous
+        .updated_input
+        .clone()
+        .or_else(|| candidate.updated_input.clone());
+    let updated_output = previous
+        .updated_mcp_output
+        .clone()
+        .or_else(|| candidate.updated_mcp_output.clone());
+    let mut merged = super::decision::aggregate(vec![previous, candidate]);
+    merged.permission_allow = permission_allow;
+    merged.updated_input = updated_input;
+    merged.updated_mcp_output = updated_output;
+    let mut wire = serde_json::json!({
+        "continue": merged.continue_execution,
+        "suppressOutput": merged.suppress_output,
+        "stopReason": merged.stop_reason,
+        "systemMessage": merged.system_message,
+        "hookSpecificOutput": {
+            "additionalContext": merged.merged_additional_context(),
+            "sessionTitle": merged.session_title,
+            "updatedInput": merged.updated_input,
+            "updatedToolOutput": merged.updated_mcp_output,
+            "retry": merged.retry,
+            "worktreePath": merged.worktree_path
+        }
+    });
+    match merged.decision {
+        HookDecision::Deny { reason } => {
+            wire["decision"] = serde_json::json!("deny");
+            wire["reason"] = serde_json::json!(reason);
+        }
+        HookDecision::Block { reason } => {
+            wire["decision"] = serde_json::json!("block");
+            wire["reason"] = serde_json::json!(reason);
+        }
+        HookDecision::Ask => wire["decision"] = serde_json::json!("ask"),
+        HookDecision::Defer => wire["decision"] = serde_json::json!("defer"),
+        HookDecision::Allow if merged.permission_allow => match event {
+            HookEvent::PreToolUse => {
+                wire["hookSpecificOutput"]["permissionDecision"] = serde_json::json!("allow");
+            }
+            HookEvent::PermissionRequest => {
+                wire["hookSpecificOutput"]["decision"] = serde_json::json!({"behavior": "allow"});
+            }
+            _ => {}
+        },
+        HookDecision::Allow => {}
+    }
+    wire.to_string()
+}
+
 /// Parse one handler's raw result into its decision contribution.
 pub fn parse(raw: &RawHookResult, event: HookEvent) -> HookContribution {
     if raw.timed_out {
@@ -147,6 +251,94 @@ mod tests {
             duration: Duration::ZERO,
             timed_out: false,
         }
+    }
+
+    #[test]
+    fn mcp_dual_results_use_event_specific_decisions() {
+        let legacy = r#"{"decision":"block","reason":"legacy veto"}"#;
+        let structured = serde_json::json!({
+            "hookSpecificOutput": {"permissionDecision": "deny"}
+        });
+        let parse_mcp = |structured: &serde_json::Value, legacy: &str, event| {
+            parse(
+                &raw(Some(0), &mcp_hook_stdout(structured, legacy, event), ""),
+                event,
+            )
+        };
+        assert!(matches!(
+            parse_mcp(&structured, legacy, HookEvent::PreToolUse).decision,
+            HookDecision::Deny { .. }
+        ));
+        assert_eq!(
+            parse_mcp(&structured, legacy, HookEvent::PermissionRequest).decision,
+            HookDecision::Block {
+                reason: "legacy veto".into()
+            }
+        );
+        let stop = r#"{"continue":false,"stopReason":"stop"}"#;
+        assert!(!parse_mcp(&structured, stop, HookEvent::PreToolUse).continue_execution);
+        let block = serde_json::json!({"decision":"block"});
+        assert!(matches!(
+            parse_mcp(&block, "{}", HookEvent::PreToolUse).decision,
+            HookDecision::Block { .. }
+        ));
+    }
+
+    #[test]
+    fn mcp_dual_results_preserve_normal_approval_context_and_rewrites() {
+        for (event, allow) in [
+            (
+                HookEvent::PreToolUse,
+                serde_json::json!({"hookSpecificOutput":{"permissionDecision":"allow"}}),
+            ),
+            (
+                HookEvent::PermissionRequest,
+                serde_json::json!({"hookSpecificOutput":{"decision":{"behavior":"allow"}}}),
+            ),
+        ] {
+            for normal in [
+                serde_json::json!({}),
+                serde_json::json!({"hookSpecificOutput":{"additionalContext":"context"}}),
+                serde_json::json!({"hookSpecificOutput":{"updatedInput":{"safe":true}}}),
+                serde_json::json!({"hookSpecificOutput": {}}),
+                serde_json::json!({"hookSpecificOutput": null}),
+                serde_json::json!({"hookSpecificOutput": {"permissionDecision": null, "additionalContext": null, "updatedInput": null}}),
+                serde_json::json!({"decision": null, "stopReason": null, "reason": null, "terminalSequence": null, "systemMessage": null}),
+                serde_json::json!({"hookSpecificOutput": {"risk": "unknown"}}),
+            ] {
+                for (legacy, structured) in [(&normal, &allow), (&allow, &normal)] {
+                    let stdout = mcp_hook_stdout(structured, &legacy.to_string(), event);
+                    let result = parse(&raw(Some(0), &stdout, ""), event);
+                    assert_eq!(result.decision, HookDecision::Allow);
+                    assert!(!result.permission_allow);
+                    assert_eq!(
+                        result.updated_input,
+                        normal["hookSpecificOutput"]
+                            .get("updatedInput")
+                            .filter(|value| !value.is_null())
+                            .cloned()
+                    );
+                    assert_eq!(
+                        result.additional_context.as_deref(),
+                        normal["hookSpecificOutput"]["additionalContext"].as_str()
+                    );
+                }
+            }
+        }
+        let context = serde_json::json!({"hookSpecificOutput":{"additionalContext":"once"}});
+        assert_eq!(
+            mcp_hook_stdout(&context, &context.to_string(), HookEvent::SessionStart),
+            context.to_string()
+        );
+        let legacy = r#"{"hookSpecificOutput":{"updatedInput":{"command":"safe"}}}"#;
+        let structured = serde_json::json!({"hookSpecificOutput":{"permissionDecision":"ask","updatedInput":{"command":"other"}}});
+        let stdout = mcp_hook_stdout(&structured, legacy, HookEvent::PreToolUse);
+        let result = parse(&raw(Some(0), &stdout, ""), HookEvent::PreToolUse);
+        assert_eq!(result.decision, HookDecision::Ask);
+        assert_eq!(
+            result.updated_input,
+            Some(serde_json::json!({"command":"safe"}))
+        );
     }
 
     #[test]

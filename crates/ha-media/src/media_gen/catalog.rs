@@ -318,7 +318,8 @@ fn together_image_caps(edit: bool) -> ImageModelCaps {
 fn xai_image_caps() -> ImageModelCaps {
     ImageModelCaps {
         max_n: 10,
-        // xAI defines no size/quality/style knobs at all.
+        // xAI uses aspect ratio + resolution rather than pixel size.
+        // Imagine 2.0 quality is passed through model-level `extra`.
         supports_size: false,
         supports_aspect_ratio: true,
         supports_resolution: true,
@@ -578,7 +579,6 @@ pub fn media_provider_templates() -> Vec<MediaProviderTemplate> {
             requires_api_key: true,
             supports_voice_listing: true,
             models: vec![
-                img("gpt-image-1", "GPT Image 1", openai_image_caps(), &[]),
                 img("gpt-image-2", "GPT Image 2", openai_image_caps(), &[]),
                 aud("gpt-4o-mini-tts", "GPT-4o mini TTS", speech_caps()),
                 aud("tts-1", "TTS-1", speech_caps()),
@@ -896,10 +896,10 @@ pub fn media_provider_templates() -> Vec<MediaProviderTemplate> {
                     &[],
                 ),
                 img(
-                    "grok-imagine-image-quality",
-                    "Grok Imagine Image Quality",
+                    "grok-imagine-image-2.0",
+                    "Grok Imagine Image 2.0 (low)",
                     xai_image_caps(),
-                    &[],
+                    &[("quality", "low")],
                 ),
             ],
         },
@@ -1351,12 +1351,13 @@ mod tests {
     fn direct_image_templates_exclude_retired_models() {
         let templates = media_provider_templates();
         let openai = templates.iter().find(|t| t.key == "openai").unwrap();
-        let gpt1 = openai
+        let gpt2 = openai
             .models
             .iter()
-            .find(|m| m.id == "gpt-image-1")
+            .find(|m| m.id == "gpt-image-2")
             .unwrap();
-        assert!(gpt1.image.as_ref().unwrap().supports_mask);
+        assert!(gpt2.image.as_ref().unwrap().supports_mask);
+        assert!(!openai.models.iter().any(|m| m.id == "gpt-image-1"));
         assert!(!openai.models.iter().any(|m| m.id == "dall-e-3"));
         let google = templates.iter().find(|t| t.key == "google").unwrap();
         for retired in [

@@ -1,6 +1,6 @@
 [package]
 name = "ha-core"
-version = "0.64.0"
+version = "0.69.0"
 description = "Hope Agent core business logic — zero Tauri dependency"
 license.workspace = true
 authors.workspace = true
@@ -50,11 +50,11 @@ cron = "0.13"
 # host zone for the legacy null→local backfill.
 chrono-tz = "0.10"
 iana-time-zone = "0.1"
-pdf-extract = "0.10"
+pdf-extract = "0.12.1"
 pdfium-render = "0.9"
-calamine = "0.34"
+calamine = "0.36"
 zip = "7"
-quick-xml = "0.39"
+quick-xml = "0.41"
 # default-features=false 砍掉 readability 的 reqwest(0.11)抓取特性——只用它的纯
 # 离线正文抽取 extractor::extract()（web_fetch.rs，HTTP 我们自己用 reqwest 0.12）。
 # 连带消除整条重复的旧 HTTP 栈：reqwest 0.11 + hyper 0.14 + h2 0.3 + http 0.2 +
@@ -88,7 +88,7 @@ hmac = "0.12"
 # / `jsonwebtoken` 一并从 kernel 移除——它们迁出后在 ha-core 里零引用。）
 aes = "0.8"
 axum = "0.8"
-lru = "0.12"
+lru = "0.18.2"
 flate2 = "1"
 blake3 = "1.8.5"
 rust-embed = { version = "8", features = ["include-exclude"] }
@@ -138,8 +138,8 @@ windows-sys = { version = "0.52", features = [
 openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]
-rquickjs = "0.12"
-rquickjs-serde = "0.6"
+rquickjs = "0.14"
+rquickjs-serde = "0.8"
 wiremock = "0.6"
 # Compile-time trait-impl assertions（`assert_not_impl_all!` 用于
 # `CodexEvaluationSecret` 不得实现 Debug 的红线守卫）——已在 Cargo.lock 里被

@@ -34,7 +34,7 @@ Release 产物由 [`.github/workflows/release.yml`](../../.github/workflows/rele
    rustup default stable-msvc
    rustup target add x86_64-pc-windows-msvc
    ```
-3. **Node.js 20+**（安装时勾选 "Add to PATH"）
+3. **Node.js 24**（与 CI / Docker 一致；安装时勾选 "Add to PATH"）。前端测试依赖 `@testing-library/jest-dom` 7 要求 Node.js 22+。
 4. **WebView2 Runtime**（Win11 自带；Win10 需[手动装 Evergreen Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)）
 5. **NASM**（可选但推荐）——`ring`（经 jsonwebtoken / rustls 间接引入）汇编其 Windows MSVC 加密原语时需要。Windows 已不再编译 vendored OpenSSL（AES/MD5 改用纯 Rust `aes` + `md-5`，TLS 走 SChannel），所以无需 Strawberry Perl
    ```powershell

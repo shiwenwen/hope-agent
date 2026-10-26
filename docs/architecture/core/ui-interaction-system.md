@@ -195,6 +195,10 @@ flowchart LR
 DropdownMenu，而不是普通 `Select`；弹出结构不同，但触发器仍遵守同一个表面 token。默认模型、
 视觉模型、fallback 和 `ModelChainEditor` 都通过它继承统一外观。
 
+`ModelSelector` 的服务商菜单与模型子菜单均以 `20rem` 和 Radix 碰撞检测提供的可用高度中的较小值
+限高，保留 `8px` 视口边缘间距；长列表在浮层内纵向滚动，并限制滚动向外传播。末尾选项必须能通过
+滚轮和键盘导航到达，窗口缩小或菜单靠近底部时也不得裁掉不可访问的选项。
+
 `NumberInput` 继续使用原生 `<input type="number">`，保留 `min`、`max`、`step`、
 ArrowUp/ArrowDown、移动端数字键盘提示和屏幕阅读器数值语义；业务侧不得隐藏步进按钮。需要草稿式
 编辑（编辑期间不即时提交、失焦或 Enter 才提交并钳制到 min/max）时用 `DeferredNumberInput`。

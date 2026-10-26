@@ -14,6 +14,38 @@ pub async fn call_tool(
     args: &Value,
     ctx: &crate::tool_defs::ToolExecContext,
 ) -> anyhow::Result<String> {
+    call_tool_with_format(
+        name,
+        args,
+        ctx,
+        crate::mcp_hooks::McpToolResultFormat::Conversation,
+    )
+    .await
+}
+
+/// Hook stdout is a machine protocol; supplemental structured metadata must
+/// not discard a legacy verdict. Both channels use event-specific precedence.
+pub async fn call_tool_for_hook(
+    name: &str,
+    args: &Value,
+    ctx: &crate::tool_defs::ToolExecContext,
+    event: crate::hooks::HookEvent,
+) -> anyhow::Result<String> {
+    call_tool_with_format(
+        name,
+        args,
+        ctx,
+        crate::mcp_hooks::McpToolResultFormat::Hook(event),
+    )
+    .await
+}
+
+async fn call_tool_with_format(
+    name: &str,
+    args: &Value,
+    ctx: &crate::tool_defs::ToolExecContext,
+    format: crate::mcp_hooks::McpToolResultFormat,
+) -> anyhow::Result<String> {
     let Some(hooks) = crate::mcp_hooks::mcp_hooks() else {
         anyhow::bail!(
             "MCP subsystem is not wired in this process (ha_mcp::wire() missing); \
@@ -21,5 +53,5 @@ pub async fn call_tool(
             name
         );
     };
-    (hooks.call_tool)(name, args, ctx).await
+    (hooks.call_tool)(name, args, ctx, format).await
 }

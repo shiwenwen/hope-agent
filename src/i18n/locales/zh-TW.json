@@ -368,7 +368,18 @@
     "lineAccessToken": "Channel Access Token",
     "lineChannelSecret": "Channel Secret",
     "feishuDomainFeishu": "飛書（中國版）",
-    "feishuDomainLark": "Lark（國際版）"
+    "feishuDomainLark": "Lark（國際版）",
+    "pluginName_wecom": "企業微信",
+    "pluginDesc_wecom": "智慧機器人直連單聊與群聊文字",
+    "wecomBotId": "Bot ID",
+    "wecomSecret": "Bot Secret",
+    "wecomSetupHint": "在企業微信取得 Bot ID 和 Secret。同一 Bot 僅使用一個用戶端；驗證會短暫訂閱，可重用原憑據的健康連線。變更執行中 Bot 的 Secret 時，請先停止帳戶再驗證。",
+    "wecomHostChanged": "執行主機已變更，請關閉後重新開啟表單。 如有進行中的操作，請先回原主機確認結果，再重試。",
+    "wecomValidated": "驗證已確認",
+    "wecomValidationFailed": "驗證遭拒或連線無法使用，請檢查憑證與網路。",
+    "wecomGroups": "群聊 ID",
+    "wecomGroupsHint": "每行一個 chatid（或 group:chatid）。新增群組將允許無需 @ 的文字；原有僅 @ 策略維持拒絕，因為此協定沒有已驗證的提及標記。",
+    "wecomReplyLimit": "首版僅最終文字（20 KiB），不主動推播、傳送媒體或卡片。核准與提問請在應用程式中處理。"
   },
   "chat": {
     "crossSession": {
@@ -958,8 +969,8 @@
     "viewSystemPrompt": "檢視系統提示詞",
     "weeksAgo": "{{count}}周前",
     "workingDir": {
-      "browserDescription": "路徑將在執行 Agent 的伺服器上解析。",
-      "browserTitle": "選擇伺服器上的目錄",
+      "browserDescription": "路徑將在執行 Agent 的機器上解析。",
+      "browserTitle": "選擇目錄",
       "change": "更換目錄",
       "clear": "清除目錄",
       "current": "工作目錄",
@@ -971,6 +982,7 @@
       "locationNotWritable": "目前位置無法寫入。請選擇主目錄，或 Hope Agent 執行使用者擁有的其他資料夾。",
       "loadError": "無法列出目錄",
       "loading": "載入中……",
+      "noSubdirectories": "沒有可顯示的子目錄",
       "parent": "返回上一層",
       "pathPlaceholder": "絕對路徑，例如 /srv/projects/app",
       "remoteWritesUnavailable": "無法確認遠端寫入權限",
@@ -4032,7 +4044,20 @@
     "currencyCny": "人民幣 (CNY)",
     "currencyDesc": "本 Provider 模型單價的幣種。單價請照廠商價目頁原文填寫，成本統計會自動換算為美元。",
     "title": "模型服務商",
-    "waitingBrowserLogin": "等待瀏覽器登入…"
+    "waitingBrowserLogin": "等待瀏覽器登入…",
+    "discovery": {
+      "action": "探索模型",
+      "description": "僅查詢模型清單，不傳送測試對話。先勾選、填寫權杖上限並確認，再加入待儲存清單。新項目預設純文字且關閉推理，其他能力與價格可在儲存前繼續編輯。",
+      "error": "無法探索模型。請檢查 API 基礎網址、憑證及網路原則，或手動新增模型。",
+      "truncated": "清單尚未完整讀取，仍可手動新增缺少的模型。",
+      "search": "搜尋探索到的模型",
+      "empty": "沒有可新增的模型，現有項目維持不變。",
+      "select": "選取 {{id}}",
+      "context": "{{id}} 的上下文上限",
+      "output": "{{id}} 的輸出上限",
+      "confirm": "我已確認所選模型支援文字對話與工具呼叫，並向服務商核對以上權杖上限。",
+      "add": "加入所選（{{count}}）"
+    }
   },
   "provider_templates": {
     "anthropic": {
@@ -4080,7 +4105,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "MiniMax M2 系列模型（相容 Anthropic）",
+      "description": "MiniMax M3 模型（相容 Anthropic）",
       "name": "MiniMax"
     },
     "mistral": {
@@ -8786,7 +8811,10 @@
       "save": "儲存偏好",
       "saving": "儲存中…",
       "saved": "已儲存"
-    }
+    },
+    "contextCompactSummaryReasoning": "摘要專用推理覆寫",
+    "contextCompactSummaryReasoningDefault": "保留目前摘要策略",
+    "contextCompactSummaryReasoningDesc": "僅用於上下文摘要。不支援的等級會報錯並保留歷史；失敗後不會自動換模型或提高輸出上限。預設維持現況。"
   },
   "shortcuts": {
     "actionOpenSettings": "開啟設定",
@@ -11817,7 +11845,24 @@
     "exportReviewPassed": "匯出複核已通過",
     "exportReviewBlocked": "匯出複核仍有阻塞項",
     "guardStatus": "門禁",
-    "defaultName": "產物"
+    "defaultName": "產物",
+    "registration": {
+      "create": "登記檔案為新產物",
+      "update": "從檔案更新產物",
+      "description": "選擇 .html、.htm、.md 或分析型 artifact.json，複製為受管快照；原檔案保留。新增不依同名覆寫；更新保留所選產物身分與歷史。",
+      "path": "Agent 所在電腦上的檔案絕對路徑",
+      "source": "檔案來源",
+      "uploadSource": "選擇檔案上傳",
+      "pathSource": "Agent 主機路徑",
+      "file": "選擇要登記的檔案",
+      "pathHint": "路徑匯入僅限 Agent 程序的工作目錄或使用者主目錄。範圍外的檔案請先取得檔案，再選擇上傳。",
+      "failed": "無法確認登記結果。請先重新整理產物庫核對；若未成功，再檢查檔案格式、路徑權限或目前版本後提交。",
+      "hostChanged": "Agent 所在電腦已切換。請關閉此視窗，並切回原電腦核對結果。",
+      "firstVersion": "初版",
+      "updatedVersion": "已迭代",
+      "createdAt": "建立於",
+      "updatedAt": "更新於"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "背景任務",
@@ -12181,12 +12226,15 @@
       "desc": "拉取 Figma 檔案已發布的顏色 / 文字 / 陰影樣式，蒸餾成品牌設計系統。權杖僅本次使用、不會儲存。",
       "url": "Figma 檔案 URL 或 key",
       "token": "個人存取權杖",
-      "tokenHint": "在 Figma → Settings → Security → Personal access tokens 產生（需 file_read 權限）。",
+      "tokenHint": "在 Figma → Settings → Security → Personal access tokens 產生（需 library_content:read、file_content:read 及檔案存取權）。",
       "name": "系統名稱（可選）",
       "namePlaceholder": "Figma 設計系統",
       "import": "匯入",
       "ok": "已從 Figma 匯入設計系統",
-      "err": "Figma 匯入失敗，請檢查 URL 與權杖"
+      "err": "Figma 匯入失敗，請檢查 URL 與權杖",
+      "permissionErr": "Figma 匯入被拒絕：請檢查權杖有效性、library_content:read、file_content:read 及檔案／組織存取權。",
+      "rateLimited": "Figma 請求受限，請稍後手動重試；等待時間未知。",
+      "retryAfter": "Figma 請求受限，請至少等待 {{seconds}} 秒後手動重試。"
     },
     "exportHandoff": "程式交付包 (ZIP)",
     "bind": {

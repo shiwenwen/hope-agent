@@ -153,7 +153,7 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
     let model = resolve_model(params.voice, params.model);
     let query = build_query(model, params.extra);
 
-    let client = ha_core::provider::apply_proxy(
+    let client = ha_core::provider::apply_model_proxy(
         Client::builder()
             .connect_timeout(Duration::from_secs(30))
             .timeout(Duration::from_secs(params.timeout_secs)),

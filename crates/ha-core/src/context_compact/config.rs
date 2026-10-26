@@ -2,7 +2,7 @@
 //
 // 类型已下沉 ha-config-schema，此处原地再导出保持既有路径不变。
 
-pub use ha_config_schema::context_compact::CompactConfig;
+pub use ha_config_schema::context_compact::{CompactConfig, SummaryReasoningEffort};
 
 #[cfg(test)]
 mod tests {

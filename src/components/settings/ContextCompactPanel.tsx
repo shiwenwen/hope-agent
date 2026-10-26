@@ -6,6 +6,7 @@ import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
+import { ReasoningEffortSelect } from "@/components/ui/reasoning-effort-select"
 import {
   Select,
   SelectContent,
@@ -40,6 +41,7 @@ interface CompactConfig {
   identifierInstructions: string | null
   customInstructions: string | null
   summarizationModel: string | null
+  summaryReasoningEffort?: string | null
   summarizationTimeoutSecs: number
   summaryMaxTokens: number
   maxHistoryShare: number
@@ -397,6 +399,22 @@ export default function ContextCompactPanel() {
                     {config.summarizationModel
                       ? t("settings.contextCompactSummarizationModelCustomHint")
                       : t("settings.contextCompactSummarizationModelCacheHint")}
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-sm">
+                      {t("settings.contextCompactSummaryReasoning")}
+                    </label>
+                    <ReasoningEffortSelect
+                      value={config.summaryReasoningEffort ?? null}
+                      inheritLabel={t("settings.contextCompactSummaryReasoningDefault")}
+                      onChange={(value) => update({ summaryReasoningEffort: value })}
+                      className="h-7 w-56 text-sm"
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/60">
+                    {t("settings.contextCompactSummaryReasoningDesc")}
                   </p>
                 </div>
                 <RatioInput

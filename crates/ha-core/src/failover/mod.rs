@@ -44,6 +44,7 @@ pub struct ProviderApiError {
     status: Option<u16>,
     code: Option<String>,
     error_type: Option<String>,
+    parameter: Option<String>,
     message: Option<String>,
     retry_after_ms: Option<u64>,
     transport: ProviderErrorTransport,
@@ -83,6 +84,9 @@ impl ProviderApiError {
         let message = decoded
             .as_ref()
             .and_then(|value| json_string_at(value, &["/error/message", "/message", "/detail"]));
+        let parameter = decoded
+            .as_ref()
+            .and_then(|value| json_string_at(value, &["/error/param", "/param"]));
         let public_detail = message
             .as_deref()
             .or(code.as_deref())
@@ -100,6 +104,7 @@ impl ProviderApiError {
             status: Some(status),
             code,
             error_type,
+            parameter,
             message,
             retry_after_ms: None,
             transport: ProviderErrorTransport::HttpResponse,
@@ -119,6 +124,7 @@ impl ProviderApiError {
             status: None,
             code: code.map(ToOwned::to_owned),
             error_type: error_type.map(ToOwned::to_owned),
+            parameter: None,
             message: message.map(ToOwned::to_owned),
             retry_after_ms: None,
             transport: ProviderErrorTransport::StreamEvent,
@@ -143,6 +149,44 @@ impl ProviderApiError {
 
     pub fn retry_after_ms(&self) -> Option<u64> {
         self.retry_after_ms
+    }
+
+    /// A summary-only caller can stop on an explicitly rejected reasoning
+    /// contract without changing normal request retry/failover classification.
+    /// Raw provider text remains private and is never returned by this predicate.
+    pub fn rejects_reasoning_parameter(&self) -> bool {
+        if !matches!(self.status, Some(400 | 422)) {
+            return false;
+        }
+        let fields = [
+            "reasoning",
+            "thinking",
+            "enable_thinking",
+            "budget_tokens",
+            "output_config",
+        ];
+        if self.parameter.as_deref().is_some_and(|parameter| {
+            fields.iter().any(|field| {
+                parameter == *field
+                    || parameter.starts_with(&format!("{field}."))
+                    || parameter.starts_with(&format!("{field}_"))
+            })
+        }) {
+            return true;
+        }
+        self.message.as_deref().is_some_and(|message| {
+            let message = message.to_ascii_lowercase();
+            fields.iter().any(|field| message.contains(field))
+                && [
+                    "unsupported",
+                    "not support",
+                    "not allowed",
+                    "invalid",
+                    "must be",
+                ]
+                .iter()
+                .any(|marker| message.contains(marker))
+        })
     }
 
     fn is_thinking_signature_rejection(&self) -> bool {

@@ -50,6 +50,10 @@ flowchart TB
 
 **唯一的例外是 LLM Provider 出站**：`ProviderConfig.allow_private_network` 只是一个 UI 标记，后端不做拦截。原因很实际——用户的本地 Ollama / vLLM 自部署常年住在 `192.168.*` / `10.*`，如果对 Provider 也套 SSRF 策略，最常见的本地部署反而被误伤。这条例外在下文"调用方对照"里会再点明。
 
+### 桌面深链依赖的临时上游补丁
+
+工作区将 `tauri-plugin-deep-link 2.6.2` 固定到官方签名提交 `463977675da7bbb257dee59669b5e122c8d681db`，仅补齐 Linux INI 解析选项的新增字段，保留原有引号与转义处理设置，以及该版本的 XDG 注册归属与错误上报修复。`rust-ini 0.21.3` 及所有已锁定包的版本保持不变，Cargo 重新解析已有跨平台依赖边；不回退到已撤回的 INI 版本。来源由 `Cargo.toml` 与 `Cargo.lock` 的完整提交摘要固定；有兼容的正式 crate 发布后再移除补丁，并以真实桌面构建与 Linux 相关验证验收。普通不含 Tauri 壳的 Rust CI 不构成此路径的编译证明。
+
 ---
 
 ## 一、SSRF 出站防护
@@ -285,6 +289,8 @@ pub fn status() -> DangerousModeStatus;
 
 ## 四、凭据与日志红线
 
+随机数调用使用工作区 `rand 0.10`：字节填充导入 `rand::Rng`，PKCE 的 `random()` 方法导入 `rand::RngExt`，均保留 `rand::rng()`。迁移只调整 trait 入口；OAuth 校验码、Server Owner Token、票据、加密盐与 nonce 的长度、编码及存储格式保持原契约，不持久化或复制 RNG 状态。兼容依据见 [rand 0.10 迁移说明](https://rust-random.github.io/book/update-0.10.html)。
+
 这几条不属于某个具体函数，而是所有子系统都要守的跨切面约束：
 
 - **凭据绝不进日志**。任何日志路径（`app_*!` / `tracing` / panic backtrace / 请求响应体落盘）在写出前都必须经 [`logging::redact_sensitive`](../../../crates/ha-base/src/logging/file_ops.rs) 脱敏；错误/正文预览还会额外做长度截断，避免把大段响应体连同其中的密钥一起写进磁盘。API Key / OAuth Token 绝不能出现在任何日志中——一旦模型能读到含密钥的历史，日志就成了泄漏通道。
@@ -321,3 +327,57 @@ pub fn status() -> DangerousModeStatus;
 | [`ha-config-schema/src/config.rs`](../../../crates/ha-config-schema/src/config.rs) | `AppConfig.ssrf: SsrfConfig` + `AppConfig.permission: PermissionGlobalConfig` 字段定义（`permission.rs` 内含 `global_yolo`） |
 | [`ha-core/src/tools/execution.rs`](../../../crates/ha-core/src/tools/execution.rs) | `resolve_tool_permission` 构造 `ResolveContext`，把 `is_dangerous_skip_active()` 喂进 `global_yolo`，调 `permission::engine::resolve_async`；YOLO bypass 落在其同步核心 `resolve` |
 | [`ha-base/src/logging/file_ops.rs`](../../../crates/ha-base/src/logging/file_ops.rs) | `redact_sensitive` 脱敏函数 |
+
+
+## 2026-10-12 依赖安全维护
+
+当前固定字节由两套锁文件提供；安全下限来自 06 专项 10-06 成功归档及本轮官方复核，不将公告命中版本等同于已复现攻击。
+
+| 运行链 | 本轮锁定与边界 | 验证限制 |
+| --- | --- | --- |
+| 多窗口 Channel | Tauri 2.12.4 / JS API 2.12.4（10-19 配对维护）；响应队列按所属 webview 隔离，关闭时清理；不放宽 CSP/capability | 依赖源码与 workspace 检查；真实多窗口交互另列待证 |
+| PDF 文本 | ha-core/ha-design 的 pdf-extract 0.12.1 → lopdf 0.42.0 | 合成深嵌套输入在子进程返回错误，正常两页/空页验证通过；按真实页树逐页传播错误，内容流严格语法检查拒绝后页损坏，不返回已读前页作为完整成功；不使用用户 PDF，不把 catch_unwind 当作 abort 隔离 |
+| XML/Excel | 自有 quick-xml 0.41.0，calamine 0.36.1 → quick-xml 0.41.0；属性解码使用 XML 1.0 归一化 API | 原有大小/深度/属性/实体/ZIP 上限继续生效；xcb 构建链的 0.30.0 仍需上游 ABI 兼容路线，不宣称彻底去重 |
+| HTTP/TLS/取消 | 直接 reqwest 0.13.5（native-tls 保留）、rustls 0.23.46（10-18 补丁）、h2 0.4.16、Tokio 1.53.2 | 禁止重定向不取代 SSRF；Telegram 适配器保留 SDK 所需的 reqwest 0.12.28；平台运行证据分别报告 |
+| 内存缓存与脚本 | lru 0.18.5；ha-core/ha-workflow 的 rquickjs 0.14.0 + serde 0.8.0 成对 | 不新增 unsafe 字节借用，保留原容量/超时/内存/取消语义 |
+| Markdown/图表清洗 | DOMPurify override 下限 3.4.17，实际锁 3.4.17（10-24 补丁） | 不放宽标签或新增 IN_PLACE/hook；依赖有补丁不表示所有嵌入入口已完成真实攻击验收 |
+| 桌面更新 | updater Rust/JS 2.14.0（10-19 配对维护），应用 `allowDowngrades=false` | 不接触生产更新源，不安装真实应用更新；签名/重启审批保持 |
+
+Tauri [GHSA-w28w-mhc8-qvjv](https://github.com/tauri-apps/tauri/security/advisories/GHSA-w28w-mhc8-qvjv)、PDF [RUSTSEC-2026-0187](https://rustsec.org/advisories/RUSTSEC-2026-0187.html)、XML [0194](https://rustsec.org/advisories/RUSTSEC-2026-0194.html)/[0195](https://rustsec.org/advisories/RUSTSEC-2026-0195.html)、TLS [0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html) 和 HTTP/2 [0258](https://rustsec.org/advisories/RUSTSEC-2026-0258.html) 为当前范围的原始来源。GTK/glib 与维护停更告警仍需按平台/调用链裁决；未取得兼容替代时不强塞跨 ABI patch。
+
+### 2026-10-18 rustls 安全补丁
+
+共享锁文件仅将 rustls 0.23.45 提升到 [0.23.46 正式版](https://github.com/rustls/rustls/releases/tag/v%2F0.23.46)，覆盖 [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html)、[0347](https://rustsec.org/advisories/RUSTSEC-2026-0347.html)、[0348](https://rustsec.org/advisories/RUSTSEC-2026-0348.html)、[0349](https://rustsec.org/advisories/RUSTSEC-2026-0349.html) 的修复下限。四项分别涉及会话 Debug 泄密、ECH 拒绝后发送缓冲数据、Brotli 证书解压分配和后续连接的密钥交换降级，不能笼统称为证书验证绕过。
+
+直接 reqwest 的 native-tls 路线及 Telegram 兼容客户端不变；共享 rustls 由 chromiumoxide/reqwest 等传递依赖引入，跨目标特征解析仍为 ring/std/tls12，未启用 rustls 的 Brotli 证书解压（与 reqwest 的 HTTP Brotli 压缩不同）。项目未直接配置 ECH、自定义 rustls 会话存储或输出其会话 Debug。版本范围命中与这些调用条件分开记录，普通编译/CI不替代畸形握手、跨平台运行或真实 Provider 验收；回滚不得退回已知受影响的 rustls 版本。
+
+### 2026-10-19 依赖机器人配对维护
+
+[#839](https://github.com/shiwenwen/hope-agent/pull/839) 的 Cargo 分组更新带入 Tauri 2.12.4 与 updater 2.14.0；前端同步 API 2.12.4 和精确 updater 2.14.0，避免 Rust/JS minor 不一致导致桌面发布构建失败。保留 `allowDowngrades=false`、公钥、端点、CSP 与 capability。上游 minisign-verify 0.3 支线由桌面插件使用，自有 headless 更新器仍用原有 0.2.5；不能把插件升级描述成整个签名图均已更新。
+
+分组中的 0.x 变化按调用边界核查：tauri-utils 的构建链使用 dom_query 0.28；Tauri 接收 auto-launch、infer、tao/wry、tray-icon 等上游适配；项目不直接跨接这些类型。保留现有 HTML→Markdown、分词 singleton、PDFium 渲染与更新桥调用，不因分组名声称无行为变化。官方 [Tauri 变更](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.4) 与 [updater 变更](https://github.com/tauri-apps/plugins-workspace/releases/tag/updater-v2.14.0) 需结合精确头编译、CI 和审查证据；不包含真实桌面/系统安装或 Provider 验收。
+
+2026-10-20 的实际发布 CLI 预检进一步发现 dialog、notification、process 的 Rust/JS minor 不一致。JS 侧分别对齐 2.8.3、2.7.0、2.4.0，Cargo 解析版本不变；主包和 updater 的配对不足以证明全部插件兼容。版本守卫现覆盖所有已声明的官方 JS 插件及其原生对应项，继续按实际锁定版本比较 major.minor，允许 patch 差异；缺失任一对应项也拒绝。该检查及合成夹具不替代实际四平台构建、系统权限、通知交互或重启验收。
+
+## 2026-10-23 Node 构建运行时安全补丁
+
+[Node 官方安全公告](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)提供24.22.1补丁。main的Lint运行39914864235（提交b33bfa7b）的setup-node日志实际读取缓存24.21.0，浮动major并未获取补丁。五处既有setup-node统一固定24.22.1，保留Actions完整摘要、job名称、matrix和门禁。后续补丁应显式维护该版本，不回退受影响补丁；普通CI会读回实际安装版本。
+
+Docker前端构建基础镜像node:24-bookworm-slim刷新后，digest `sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205` 的无网络、只读根、无挂载隔离容器读回24.22.1。此证据仅覆盖该镜像digest及当前平台，不表示历史缓存已刷新、多架构完整构建、生产部署或宿主软件已升级。Dockerfile未改，镜像digest固定的既有独立PR归原主责。
+
+## 2026-10-24 前端依赖安全补丁
+
+[#853](https://github.com/shiwenwen/hope-agent/pull/853) 收敛为 Vite 8.3.4、Vitest / @vitest/mocker 4.1.12 与 DOMPurify 3.4.17 的维护包。同步 Vite 的工作区精确 override，避免仅修改 package.json 后仍解析 8.3.0；DOMPurify 的共享下限覆盖 Mermaid 与 jsPDF 两条传递路径。Vite 所需的 Rolldown 1.2.15 / @oxc-project/types 0.155.0 由上游内部消费，项目没有直接跨接其类型；通过实际构建验证。其余分组升级保留基线版本，React Hooks 7.1.1 新规则迁移另行处理，不改现有 ESLint 配置。
+
+Vite 的 [launch-editor 公告](https://github.com/vitejs/launch-editor/security/advisories/GHSA-698v-4r3x-3vcv)、[路径越界公告](https://github.com/vitejs/vite/security/advisories/GHSA-rq7h-c2jc-7f22) 和 [WASM 文件头公告](https://github.com/vitejs/vite/security/advisories/GHSA-vfpm-58rq-9qcg) 的修复下限为 8.3.3；本包采用机器人已提出的 8.3.4 正式补丁。Vitest [手动 mock 注册注入公告](https://github.com/vitest-dev/vitest/security/advisories/GHSA-qxg6-89mg-rqv8) 的修复下限为 @vitest/mocker 4.1.12。以上涉及开发或测试服务器，不将依赖版本匹配描述成已证实的发布产物远程执行。
+
+DOMPurify 的 [模板与 shadow root](https://github.com/cure53/DOMPurify/security/advisories/GHSA-cg2g-xh64-v4q7)、[IN_PLACE hook](https://github.com/cure53/DOMPurify/security/advisories/GHSA-mrv2-3pqr-j5jr)、[XHTML SMIL](https://github.com/cure53/DOMPurify/security/advisories/GHSA-c6gr-qvv4-5v3f) 三项公告均以 3.4.17 修复。npm 评级与发布者的 low 评级有差异；三者均要求非默认设置或特定 hook / 模板处理，当前应用未发现对应配置。保留 Mermaid strict 字符串清洗和 CSP，不新增允许标签、原地清洗或模板执行。锁文件、隔离合成检查、构建和普通 CI 分别提供证据，不替代真实桌面、恶意内容全入口或 Provider 验收；回滚不得恢复这些已知受影响版本。
+
+
+## 2026-10-25 emSign 信任链安全补丁
+
+同一来源 `rustsec:CVE-2026-111943` 的 [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382.html) 与 [0383](https://rustsec.org/advisories/RUSTSEC-2026-0383.html) 分别约束证书验证器与随包根证书。共享锁文件仅将 `rustls-webpki` 0.103.15 提升至 0.103.16、`webpki-root-certs` 1.0.9 提升至 1.0.10；两者均为已正式发布、未撤回的兼容补丁，发布包 SHA-256 与注册表校验值一致。上游前者在路径构建时拒绝八项已不受信任的 emSign 中间证书公钥，后者移除 `emSign ECC Root CA - G3`。原公告条件是配置的信任锚允许相关证书路径，不能将版本匹配直接描述成当前设备已被攻击。
+
+项目没有直接调用 webpki 或穷举其错误；`rustls` 0.23.46 经 chromiumoxide/reqwest 等传递路径使用验证器。`rustls-platform-verifier` 0.7.0 的随包根证书用于 wasm32 路线；原生平台分别使用系统信任，不因锁中包含该包就声称每个平台都使用随包根。补丁保留现有 ring/std/tls12 特征、直接 reqwest 的 native-tls 路线、SSRF、重定向守卫及证书验证策略，不写用户证书库或 Provider 配置。`webpki-root-certs` 的最低 Rust 版本由 1.70 升至 1.71，低于项目既有工具链，不新增宿主升级要求。
+
+本地编译、锁文件范围核验与隔离的上游合成证书路径测试分别留证；它们不替代真实 Provider、设备系统信任库、跨平台 TLS 或生产验收。回滚应保留受支持的已修补兼容图，不恢复上述已知受影响版本，也不通过关闭证书验证恢复连接。

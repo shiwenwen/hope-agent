@@ -262,6 +262,10 @@ Path-aware 工具统一用 `ToolExecContext` 解析默认路径：显式绝对�
 | `web_fetch` | default_deferred=false, concurrent_safe | V2 单 URL 安全读取：Direct HTTP + 可选隔离 Render，支持 HTML / JSON / XML / CSV / Markdown / PDF、CSS scope、`max_chars` + `max_tokens` 投影、不可变 snapshot cursor 与 freshness。结果统一为 untrusted envelope，来源写入 metadata sink。详见 [web-fetch](web-fetch.md)。 |
 | `web_search` | 条件注入, concurrent_safe, **GenericJob** | 网络搜索（需在设置启用）。参数：`query`(必填)、`count`、`country`、`language`、`freshness`、`run_in_background`、`job_timeout_secs`。不同 provider（Bocha / Brave / SearXNG / Perplexity / Google / Tavily）支持的过滤参数不同。 |
 
+Kimi 适配器固定调用国内 `POST https://api.moonshot.cn/v1/tools/search`（Basic），复用已有 Key 与服务商排序，不新增模型循环、Pro/Fetch 或配置字段。`text_query` 使用查询、`limit` 沿工具的 1–10 上限，`timeout_seconds` 限定 1–60 秒，`include_content=false`；HTTP 客户端仍受用户总超时约束。发出前走 SSRF 检查、按目标选择代理并禁止自动重定向；响应限 1 MB，仅 HTTP 200 与合法 `search_results` 算协议成功，链接只接受绝对 HTTP(S)，不将空 URL 或模型摘要变成引用。`authority` 不参与信任裁决。不支持国家、语言和时效过滤时在发出前明确失败，继续既有服务商回退；无可用服务商时保留诊断。Kimi 缓存使用独立 `Kimi.Basic.v1` 标识，旧模型生成内容不复用。
+
+Basic 每个实际尝试经 `model_usage.rs` 记录 `web_search.kimi.basic`，保留 session/agent 与统一无痕裁决，不填写不存在的模型或 Token。元数据只记录端点类别、状态码、原始结果数量与官方计费资格：200 且非空为可计费，非200或空数组为不可计费，取消/断流/解析受限后的未知结果保持 `null`；本地丢弃的无效链接不能把上游非空误记为免费。请求取消也记录未完成，不自动重试；不保留查询、密钥、响应正文或厂商错误消息。资格不表示真实账单金额。[官方 Basic 合同](https://platform.kimi.com/docs/api/tools-search)与[迁移通知](https://platform.kimi.com/docs/guide/use-web-search)于 2026-10-14 重核，旧内置搜索预计 10-20 下线；本轮只运行本地合成回归，没有真实搜索请求。
+
 免 Key 多引擎搜索（配置标识 `keyless`，入口 `tools/web_search/keyless.rs`）是借鉴 [DDGS](https://github.com/deedy5/ddgs) 的原生实现，无需 Python、额外部署或 API Key。新配置默认先尝试 Brave 网页搜索、再回退 360 网页搜索；DuckDuckGo 保留为下一层服务商兜底。旧配置回填追加该项，不改既有顺序；仅在 DuckDuckGo 已启用时启用该兜底，保留需 Key / 自托管搜索用户的免费搜索禁用状态。全部服务商关闭时执行路径拒绝调用，不因旧工具定义回落到默认入口。按参数先确定可用引擎，再在它们之间分配该服务商的超时预算；有两个可用引擎时首项预留后一项的时间。403 / 429 后该引擎冷却 60 秒。360 网页入口不支持时效过滤，指定 `freshness` 时跳过该入口，Brave 独占完整预算。国家 / 语言过滤依上游能力尽力生效，不作为硬保证。
 
 每次引擎尝试经逐跳 SSRF 检查、目标代理选择和响应字节上限；结果去重、拒绝非 HTTP(S) 和携凭据链接。用量经 `model_usage.rs` 按 `keyless_search` 操作记录成功 / 失败及耗时，无痕跳过持久化，不记录查询、正文或估算 Token。上游不可用与确实没有结果仍需分开诊断，免 Key 不承诺可用率。

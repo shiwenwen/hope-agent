@@ -1,5 +1,6 @@
 mod anthropic;
 mod crud;
+pub mod discovery;
 mod helpers;
 mod local;
 mod proxy;

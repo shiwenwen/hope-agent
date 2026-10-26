@@ -12,6 +12,7 @@ pub mod daemon;
 pub mod format;
 pub mod inbound_media;
 pub mod media;
+mod sse;
 
 use anyhow::Result;
 use async_trait::async_trait;

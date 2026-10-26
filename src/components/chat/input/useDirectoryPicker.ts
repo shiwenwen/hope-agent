@@ -1,7 +1,7 @@
 /**
- * Shared directory-picker choreography for both Tauri (native dialog) and
- * HTTP (server-side `ServerDirectoryBrowser`) modes. Used by the chat-input
- * `WorkingDirectoryButton` and the `ProjectDialog` working-dir field.
+ * Shared directory-picker choreography: native on desktop by default, with
+ * an app-browser opt-in for selected entry points; HTTP always uses the app
+ * browser to select a directory on the machine running the agent.
  *
  * Caller still owns rendering — including mounting `<ServerDirectoryBrowser>`
  * — so per-call-site UI variations stay explicit.
@@ -14,6 +14,8 @@ import { logger } from "@/lib/logger"
 
 interface UseDirectoryPickerOptions {
   onPicked: (path: string) => void
+  /** Opt in to the app browser even when a native picker is available. */
+  preferDirectoryBrowser?: boolean
   /** Translated toast title used when the native picker rejects the path. */
   errorTitle: string
   /** `logger.error` source label, e.g. `"ProjectDialog::pickWorkingDir"`. */
@@ -22,13 +24,15 @@ interface UseDirectoryPickerOptions {
 
 export function useDirectoryPicker({
   onPicked,
+  preferDirectoryBrowser = false,
   errorTitle,
   loggerSource,
 }: UseDirectoryPickerOptions) {
   const [browserOpen, setBrowserOpen] = useState(false)
+  const useDirectoryBrowser = preferDirectoryBrowser || !isTauriMode()
 
   const pick = useCallback(async () => {
-    if (isTauriMode()) {
+    if (!useDirectoryBrowser) {
       try {
         const picked = await getTransport().pickLocalDirectory()
         if (picked) onPicked(picked)
@@ -41,7 +45,7 @@ export function useDirectoryPicker({
     } else {
       setBrowserOpen(true)
     }
-  }, [onPicked, errorTitle, loggerSource])
+  }, [onPicked, errorTitle, loggerSource, useDirectoryBrowser])
 
   const handleBrowserSelect = useCallback(
     (path: string) => {
@@ -51,5 +55,5 @@ export function useDirectoryPicker({
     [onPicked],
   )
 
-  return { pick, browserOpen, setBrowserOpen, handleBrowserSelect }
+  return { pick, browserOpen, setBrowserOpen, handleBrowserSelect, useDirectoryBrowser }
 }

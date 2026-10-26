@@ -1145,6 +1145,10 @@ fn build_router_with_cors(
             delete(routes::providers::delete_provider),
         )
         .route("/providers/test", post(routes::providers::test_provider))
+        .route(
+            "/providers/discover-models",
+            post(routes::providers::discover_provider_models),
+        )
         .route("/providers/test-model", post(routes::providers::test_model))
         .route("/providers/has-any", get(routes::providers::has_providers))
         .route(

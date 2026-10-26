@@ -90,7 +90,7 @@ Transport 的另一层职责是把 Owner Token 关在浏览器可见 URL 之外�
 | 资产 URL | data / http(s) 透传，绝对路径走 `convertFileSrc`。 | 识别 avatar / 附件等已知资产目录并改写到 HTTP server route（如 `/api/avatars/{file}`）；同源靠 HttpOnly Cookie，跨源换短时 resource 票据。 |
 | 打开 / 定位文件 | `openMedia` 调 OS 默认处理器，`revealMedia` 调文件管理器。 | `openMedia` 触发浏览器下载或新标签打开，`revealMedia` no-op，`supportsLocalFileOps()` 返回 `false`。 |
 | 图片选择 | 原生文件选择器，返回 Tauri asset URL。 | 隐藏 `<input type="file">`，返回 `blob:` URL 和 `File`。 |
-| 目录选择 / 浏览 | `pickLocalDirectory()` 用原生目录选择器；`listServerDirectory()` 也可走 Tauri 命令供 `@` mention 使用。 | 浏览器不能选 server 文件系统，UI 应显示 `ServerDirectoryBrowser`，由 `listServerDirectory()` 调 `/api/filesystem/list-dir`。 |
+| 目录选择 / 浏览 | `pickLocalDirectory()` 用原生目录选择器；Linux 桌面的会话工作目录和项目文件夹入口通过 `useDirectoryPicker` 显式改用仅显示目录的 `ServerDirectoryBrowser`，复用 `listServerDirectory()` 的 Tauri 命令。其他桌面入口仍默认原生。 | 浏览器不能选 server 文件系统，UI 应显示 `ServerDirectoryBrowser`，由 `listServerDirectory()` 调 `/api/filesystem/list-dir`。 |
 | 文件搜索 | `fs_search_files` Tauri 命令。 | `/api/filesystem/search-files`。 |
 | 浏览器扩展 owner 操作 | `browser_extension_status` / `browser_install_native_host_manifest` / `browser_extension_stop_control`。 | `/api/browser/extension/status` / `install-native-host` / `stop-control`。 |
 

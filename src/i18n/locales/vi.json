@@ -368,7 +368,18 @@
     "lineAccessToken": "Mã thông báo truy cập kênh",
     "lineChannelSecret": "Bí mật kênh",
     "feishuDomainFeishu": "Feishu (Trung Quốc)",
-    "feishuDomainLark": "Lark (Quốc tế)"
+    "feishuDomainLark": "Lark (Quốc tế)",
+    "pluginName_wecom": "WeCom",
+    "pluginDesc_wecom": "Văn bản trực tiếp của bot AI trong chat riêng và nhóm",
+    "wecomBotId": "Bot ID",
+    "wecomSecret": "Bot Secret",
+    "wecomSetupHint": "Lấy Bot ID và Secret từ WeCom. Mỗi bot chỉ dùng một ứng dụng khách. Xác minh đăng ký ngắn hạn và dùng lại kết nối cục bộ khỏe mạnh với cùng thông tin xác thực. Dừng tài khoản đang chạy trước khi xác minh Secret đã đổi của cùng bot.",
+    "wecomHostChanged": "Máy chủ đã thay đổi. Hãy đóng và mở lại biểu mẫu. Kiểm tra kết quả thao tác đang chờ trên máy chủ ban đầu trước khi thử lại.",
+    "wecomValidated": "Đã xác nhận xác thực",
+    "wecomValidationFailed": "Xác thực bị từ chối hoặc không kết nối được. Hãy kiểm tra thông tin và mạng.",
+    "wecomGroups": "ID nhóm chat",
+    "wecomGroupsHint": "Mỗi dòng một chatid (hoặc group:chatid). Nhóm mới cho phép văn bản không cần @. Chính sách chỉ khi được nhắc vẫn bị chặn vì giao thức chưa có cờ nhắc tên được xác minh.",
+    "wecomReplyLimit": "Bản đầu chỉ gửi văn bản cuối (20 KiB), không gửi chủ động, đa phương tiện hay thẻ. Xử lý phê duyệt và câu hỏi trong ứng dụng."
   },
   "chat": {
     "crossSession": {
@@ -958,8 +969,8 @@
     "viewSystemPrompt": "Xem lời nhắc hệ thống",
     "weeksAgo": "{{count}} tuần trước",
     "workingDir": {
-      "browserDescription": "Đường dẫn được phân giải trên máy chủ đang chạy agent.",
-      "browserTitle": "Chọn thư mục trên máy chủ",
+      "browserDescription": "Đường dẫn được phân giải trên máy chạy agent.",
+      "browserTitle": "Chọn thư mục",
       "change": "Đổi thư mục",
       "clear": "Xoá thư mục",
       "current": "Thư mục làm việc",
@@ -971,6 +982,7 @@
       "locationNotWritable": "Không thể ghi vào vị trí này. Hãy chọn thư mục chính hoặc một thư mục khác thuộc sở hữu của người dùng đang chạy Hope Agent.",
       "loadError": "Không thể liệt kê thư mục",
       "loading": "Đang tải…",
+      "noSubdirectories": "Không có thư mục con để hiển thị",
       "parent": "Lên một cấp",
       "pathPlaceholder": "Đường dẫn tuyệt đối, ví dụ /srv/projects/app",
       "remoteWritesUnavailable": "Không thể xác minh quyền ghi từ xa",
@@ -4032,7 +4044,20 @@
     "currencyCny": "Nhân dân tệ (CNY)",
     "currencyDesc": "Đơn vị tiền tệ của giá mô hình thuộc nhà cung cấp này. Nhập giá đúng như niêm yết trên trang giá của nhà cung cấp; thống kê chi phí sẽ tự động quy đổi sang USD.",
     "title": "Nhà cung cấp",
-    "waitingBrowserLogin": "Đang chờ đăng nhập trình duyệt..."
+    "waitingBrowserLogin": "Đang chờ đăng nhập trình duyệt...",
+    "discovery": {
+      "action": "Khám phá mô hình",
+      "description": "Chỉ đọc danh sách, không gửi hội thoại thử. Chọn mô hình, nhập giới hạn token rồi xác nhận để thêm vào danh sách chưa lưu. Mục mới chỉ dùng văn bản và tắt suy luận; có thể sửa khả năng khác và giá trước khi lưu.",
+      "error": "Không thể khám phá mô hình. Kiểm tra URL gốc API, thông tin xác thực và chính sách mạng hoặc thêm thủ công.",
+      "truncated": "Danh sách chưa đầy đủ. Bạn vẫn có thể thêm mô hình còn thiếu bằng tay.",
+      "search": "Tìm mô hình đã khám phá",
+      "empty": "Không có mô hình mới để thêm. Các mục hiện có được giữ nguyên.",
+      "select": "Chọn {{id}}",
+      "context": "Giới hạn ngữ cảnh của {{id}}",
+      "output": "Giới hạn đầu ra của {{id}}",
+      "confirm": "Tôi đã xác minh các mô hình đã chọn hỗ trợ trò chuyện văn bản và gọi công cụ, đồng thời kiểm tra giới hạn token với nhà cung cấp.",
+      "add": "Thêm mục đã chọn ({{count}})"
+    }
   },
   "provider_templates": {
     "anthropic": {
@@ -4080,7 +4105,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "Các mô hình dòng MiniMax M2 (tương thích Anthropic)",
+      "description": "Mô hình MiniMax M3 (tương thích Anthropic)",
       "name": "MiniMax"
     },
     "mistral": {
@@ -8786,7 +8811,10 @@
       "save": "Lưu tùy chọn",
       "saving": "Đang lưu…",
       "saved": "Đã lưu"
-    }
+    },
+    "contextCompactSummaryReasoning": "Suy luận riêng cho tóm tắt",
+    "contextCompactSummaryReasoningDefault": "Giữ chính sách hiện tại",
+    "contextCompactSummaryReasoningDesc": "Chỉ áp dụng cho tóm tắt ngữ cảnh. Mức không được hỗ trợ sẽ báo lỗi và giữ lịch sử. Khi lỗi, không tự đổi mô hình hoặc tăng giới hạn đầu ra. Mặc định giữ hành vi hiện tại."
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",
@@ -11817,7 +11845,24 @@
     "exportReviewPassed": "Đã thông qua đánh giá xuất khẩu",
     "exportReviewBlocked": "Đánh giá xuất khẩu vẫn có trình chặn",
     "guardStatus": "bảo vệ",
-    "defaultName": "Sản phẩm"
+    "defaultName": "Sản phẩm",
+    "registration": {
+      "create": "Đăng ký tệp thành sản phẩm mới",
+      "update": "Cập nhật từ tệp",
+      "description": "Chọn tệp .html, .htm, .md hoặc artifact.json phân tích để sao chép thành bản chụp được quản lý. Giữ nguyên tệp gốc. Không ghi đè theo tên; cập nhật giữ định danh và lịch sử đã chọn.",
+      "path": "Đường dẫn tuyệt đối của tệp trên máy Agent",
+      "source": "Nguồn tệp",
+      "uploadSource": "Chọn tệp để tải lên",
+      "pathSource": "Đường dẫn máy Agent",
+      "file": "Chọn tệp để đăng ký",
+      "pathHint": "Nhập theo đường dẫn chỉ trong thư mục làm việc của tiến trình Agent hoặc thư mục chính của người dùng. Với tệp ngoài phạm vi này, hãy lấy tệp rồi chọn tải lên.",
+      "failed": "Chưa thể xác nhận kết quả. Làm mới thư viện trước khi gửi lại; nếu chưa đăng ký, kiểm tra định dạng, quyền truy cập và phiên bản hiện tại.",
+      "hostChanged": "Máy Agent đã thay đổi. Đóng hộp thoại và kiểm tra kết quả trên máy ban đầu.",
+      "firstVersion": "Bản đầu tiên",
+      "updatedVersion": "Đã cập nhật",
+      "createdAt": "Đã tạo",
+      "updatedAt": "Đã cập nhật"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "Tác vụ nền",
@@ -12181,12 +12226,15 @@
       "desc": "Lấy các kiểu màu / chữ / đổ bóng đã xuất bản của tệp Figma và chưng cất thành hệ thống thiết kế thương hiệu. Token chỉ dùng cho lần nhập này và không được lưu.",
       "url": "URL hoặc key tệp Figma",
       "token": "Token truy cập cá nhân",
-      "tokenHint": "Tạo tại Figma → Settings → Security → Personal access tokens (cần quyền file_read).",
+      "tokenHint": "Tạo tại Figma → Settings → Security → Personal access tokens (cần library_content:read, file_content:read và quyền truy cập tệp).",
       "name": "Tên hệ thống (tùy chọn)",
       "namePlaceholder": "Hệ thống thiết kế Figma",
       "import": "Nhập",
       "ok": "Đã nhập hệ thống thiết kế từ Figma",
-      "err": "Nhập Figma thất bại — kiểm tra URL và token"
+      "err": "Nhập Figma thất bại — kiểm tra URL và token",
+      "permissionErr": "Figma từ chối nhập: kiểm tra hiệu lực mã, library_content:read, file_content:read và quyền truy cập tệp/tổ chức.",
+      "rateLimited": "Figma giới hạn yêu cầu. Hãy chờ trước khi thử lại; chưa rõ thời gian chờ.",
+      "retryAfter": "Figma giới hạn yêu cầu. Hãy chờ ít nhất {{seconds}} giây trước khi thử lại."
     },
     "exportHandoff": "Gói bàn giao code (ZIP)",
     "bind": {

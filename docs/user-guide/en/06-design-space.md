@@ -52,6 +52,7 @@ The Design Space home page is a large input box—one sentence gets you started,
 - **Build from a reference image**: on the home page you can multi-select / paste / drag **up to 5** reference images, and you can generate from images alone without any text. The vision model **looks at the original image directly**, faithfully reproducing its colors, layout, and typographic feel. If the current model can't read images, it automatically switches to an available vision model and tells you; if no vision model is available at all, it stops and guides you to Settings.
 - **Extract from a URL**: fetch a web page and its first-screen screenshot, and reverse-extract its brand design system.
 - **Import from Figma**: read the published color / text / effect styles in Figma and distill them into a design system (**available only on desktop / the owner interface**; the Figma token is entered per use, never written to disk, and never sent to the model).
+  The token needs `library_content:read` for published styles and `file_content:read` for file contents, plus access to the file under its organization rules. Permission failures explain these requirements. Rate limits show a validated minimum wait when available; otherwise the wait remains unknown. Retry manually after waiting. Error bodies, account details and upgrade links are not displayed, and requests are not retried automatically.
 - **Extract from an existing code project**: derive a design system from a local code project's CSS / Tailwind config / design token files.
 - **Brand kit**: generate multiple artifacts with reference images in one go.
 - **Generate an image / audio artifact**: picking the "image" or "audio" type opens a dedicated generation dialog—images let you choose an aspect ratio and a resolution, audio lets you choose the type (speech / music / sound effects), a voice, and a duration. Only the options the configured models actually support are offered, and the dialog tells you which provider / model will be used. If no model is available for that capability, it shows an empty state that links straight to the media generation settings.
@@ -107,7 +108,7 @@ Every AI generation / refinement, visual fine-tune, design-system swap, and roll
 
 ## 6.7 Export
 
-Export prefers real, browser-native capture (highest fidelity), and when the conditions aren't available it automatically falls back to a client-side approach, so it **can always export**:
+Export prefers real, browser-native capture (highest fidelity). When dependencies are missing, the interface lets you download and install them, follow manual installation instructions, or use a client-side approach. Client-side export still depends on browser capabilities.
 
 | Format | Use |
 | --- | --- |
@@ -120,7 +121,7 @@ Export prefers real, browser-native capture (highest fidelity), and when the con
 | Markdown | Low-bandwidth delivery |
 | Code delivery package | Contains HTML + source + six token-code formats + delivery notes, for the engineering side |
 
-> Video and high-fidelity PDF/PNG require Chromium and ffmpeg—these are **not bundled into the installer**. Ones already installed on the system are used directly; missing ones are downloaded on demand, and any missing piece automatically degrades to the client-side approach without hanging. Desktop export pops the native "Save to…" dialog; web / server mode goes through a browser download, and **remote mode never writes to the server disk**.
+> High-fidelity PDF/PNG require Chromium, and native video export also requires ffmpeg. These are **not bundled into the installer**. Existing system installations are used directly; if dependencies are missing, follow the interface to install them or choose the client-side approach. Failed native exports also try the client-side approach. If the browser does not support the required video encoding or export fails, an error is reported; install the dependencies and retry. Desktop export opens the native "Save to…" dialog; web / server mode uses browser downloads, and **remote mode never writes to the server disk**.
 
 ---
 

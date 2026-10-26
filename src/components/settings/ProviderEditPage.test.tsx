@@ -76,6 +76,12 @@ test.each(["wrkspc_Draft", ""])(
       expect(transport.call).toHaveBeenCalledWith("test_provider", { config: draft }),
     )
 
+    transport.call.mockResolvedValueOnce({ models: [], truncated: false })
+    fireEvent.click(screen.getByRole("button", { name: "provider.discovery.action" }))
+    await screen.findByText("provider.discovery.empty")
+    expect(transport.call).toHaveBeenCalledWith("discover_provider_models", { config: draft })
+    fireEvent.click(screen.getByRole("button", { name: "common.cancel" }))
+
     fireEvent.click(screen.getByRole("button", { name: /model.modelList/ }))
     fireEvent.click(screen.getByRole("button", { name: "test draft model" }))
     await waitFor(() =>
@@ -93,3 +99,82 @@ test.each(["wrkspc_Draft", ""])(
     expect(provider.authProfiles[0].anthropicWorkspaceId).toBeUndefined()
   },
 )
+
+test("discovered models append only after confirmation and persist with the existing model unchanged", async () => {
+  const model: ModelConfig = {
+    id: "existing",
+    name: "Saved",
+    inputTypes: ["text", "image"],
+    contextWindow: 32000,
+    maxTokens: 8000,
+    reasoning: true,
+    costInput: 2,
+    costOutput: 3,
+  }
+  const provider: ProviderConfig = {
+    id: "custom",
+    name: "Custom",
+    apiType: "openai-chat",
+    baseUrl: "https://synthetic.example/v1",
+    apiKey: "masked...key",
+    authProfiles: [],
+    models: [model],
+    enabled: true,
+    thinkingStyle: "none",
+    userAgent: "synthetic",
+  }
+  const before = structuredClone(provider)
+  transport.call.mockImplementation(async (command: string) =>
+    command === "discover_provider_models"
+      ? {
+          models: [
+            { id: "existing", name: "Remote overwrite" },
+            { id: "new", name: "New" },
+          ],
+          truncated: false,
+        }
+      : null,
+  )
+  const saved = vi.fn()
+  render(<ProviderEditPage provider={provider} onSave={saved} onCancel={vi.fn()} />)
+  fireEvent.click(screen.getByRole("button", { name: "provider.discovery.action" }))
+  fireEvent.click(await screen.findByRole("switch", { name: "provider.discovery.select" }))
+  expect(screen.queryByText("Remote overwrite")).toBeNull()
+  fireEvent.change(screen.getByRole("spinbutton", { name: "provider.discovery.context" }), {
+    target: { value: "16000" },
+  })
+  fireEvent.change(screen.getByRole("spinbutton", { name: "provider.discovery.output" }), {
+    target: { value: "2000" },
+  })
+  fireEvent.click(screen.getByRole("switch", { name: "provider.discovery.confirm" }))
+  fireEvent.click(screen.getByRole("button", { name: "provider.discovery.add" }))
+  expect(
+    transport.call.mock.calls.filter(([command]) => command === "update_provider"),
+  ).toHaveLength(0)
+  fireEvent.click(screen.getByRole("button", { name: "common.save" }))
+  await waitFor(() => expect(saved).toHaveBeenCalledOnce())
+  expect(transport.call).toHaveBeenCalledWith("update_provider", {
+    config: {
+      ...provider,
+      currency: "USD",
+      allowPrivateNetwork: false,
+      models: [
+        model,
+        {
+          id: "new",
+          name: "New",
+          inputTypes: ["text"],
+          contextWindow: 16000,
+          maxTokens: 2000,
+          reasoning: false,
+          costInput: null,
+          costOutput: null,
+        },
+      ],
+    },
+  })
+  expect(provider).toEqual(before)
+  expect(
+    transport.call.mock.calls.filter(([command]) => command === "set_active_model"),
+  ).toHaveLength(0)
+})

@@ -444,6 +444,8 @@ sequenceDiagram
 
 **Figma 导入**（owner 侧专属）：`extract::from_figma(url, token)` 经 `check_url` 拉 Figma REST API——优先读已发布 color/text/effect styles，无则回退遍历文档采样 SOLID 填充色，汇成 material 后交同一 LLM 蒸馏成 9 段系统 + tokens。**凭据红线**：Figma 个人访问令牌只走 owner 侧、按次传入、绝不落盘、绝不进模型面（`design` 工具无 Figma action），与「凭据强制留 GUI」一致。
 
+REST 导入的已发布样式端点需 `library_content:read`，节点和文件端点需 `file_content:read`；scope 不能代替文件共享或组织访问权（[官方端点](https://developers.figma.com/docs/rest-api/component-endpoints/)、[权限](https://developers.figma.com/docs/rest-api/scopes/)）。401/403 返回受控权限提示；429 仅保留单一、纯十进制且在 1–2678400 秒内的 `Retry-After` 和 `low`/`high` 限流类型，异常、重复或更长等待值保持未知，不能截短为可提前重试的时间。GUI 只展示本地翻译与校验后的秒数，不显示或记录任意传输错误；请求失败不含文件 URL，响应错误正文、套餐信息和升级链接均不回显。每次 GET 仍仅发送一次，不自动重试；原重定向拒绝、SSRF 与 12 MiB 响应上限保留。本地合成验证不代表真实账号配额或导入质量验收。
+
 ### 6.5 DESIGN.md 互通（导入 / 导出）
 
 `DESIGN.md` 既是内部落盘格式，也是**跨工具互通格式**：
@@ -623,7 +625,7 @@ PDF / PNG / 视频走「强路优先、客户端回退」两级（`design/render
   - **PDF** = `printToPDF`（矢量、文字可选可搜）
   - **PNG** = `captureScreenshot`（全保真，`backdrop-filter` / WebGL / 真实字体全捕获）
   - **视频 MP4** = 注入确定性时钟 harness → 逐帧 `__dsSeek` + 原生截图 → **ffmpeg** 编码 `libx264`
-- **客户端回退**：无浏览器后端 / 无 ffmpeg / 失败时前端自动降级——PNG/PDF 走 `html2canvas + jsPDF`，视频走 WebCodecs（`designVideo.ts`），始终可导出。
+- **客户端回退**：依赖探针明确未就绪时，前端弹出导出选择，让用户安装依赖或主动选择客户端方案；原生导出执行失败时再尝试客户端回退。PNG/PDF 走 `html2canvas + jsPDF`，视频走 WebCodecs（`designVideo.ts`）与现有 mp4-muxer；能力不可用时明确报错。SDK-11 的 Mediabunny 1.61.3 迁移保留在 `designVideoMediabunnyCandidate.ts`，仅由合成测试引用，不接生产导出图。候选逐帧等待编码/异步写入、完成封装后才返回 MP4，失败释放 encoder、输出任务和 iframe；两帧真实封装读回与失败清理已核，跨平台实际 H.264/播放验收通过后再决定切换。
 
 | 格式 | 强路 | 客户端回退 |
 | --- | --- | --- |

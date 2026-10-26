@@ -1,4 +1,4 @@
-//! IM 渠道**机器**：12 个插件 + worker 分发 + 媒体管道 + 账号生命周期。
+//! IM 渠道**机器**：13 个插件 + worker 分发 + 媒体管道 + 账号生命周期。
 //!
 //! 台账与契约留在 kernel 的 [`ha_core::channel`]（`db` / `types` / `cancel` /
 //! `config`），见 crate 根文档。
@@ -22,6 +22,7 @@ pub mod start_watchdog;
 pub mod telegram;
 pub mod webhook_server;
 pub mod wechat;
+pub mod wecom;
 pub mod whatsapp;
 pub mod worker;
 pub mod ws;

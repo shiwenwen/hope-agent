@@ -99,8 +99,11 @@ impl HookHandler for McpToolHandler {
         let remaining = deadline
             .saturating_duration_since(Instant::now())
             .max(Duration::from_secs(1));
-        match tokio::time::timeout(remaining, crate::mcp::invoke::call_tool(&name, &args, &ctx))
-            .await
+        match tokio::time::timeout(
+            remaining,
+            crate::mcp::invoke::call_tool_for_hook(&name, &args, &ctx, input.event()),
+        )
+        .await
         {
             Ok(Ok(body)) => RawHookResult {
                 exit_code: Some(0),

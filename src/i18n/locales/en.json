@@ -368,7 +368,18 @@
     "lineAccessToken": "Channel Access Token",
     "lineChannelSecret": "Channel Secret",
     "feishuDomainFeishu": "Feishu (China)",
-    "feishuDomainLark": "Lark (International)"
+    "feishuDomainLark": "Lark (International)",
+    "pluginName_wecom": "WeCom",
+    "pluginDesc_wecom": "Direct AI-bot text for DMs and groups",
+    "wecomBotId": "Bot ID",
+    "wecomSecret": "Bot Secret",
+    "wecomSetupHint": "Get the Bot ID and Secret from WeCom. Use one client per bot. Validation briefly subscribes; unchanged credentials reuse a healthy local connection. Stop the running account before validating a changed Secret for that bot.",
+    "wecomHostChanged": "The runtime changed. Close and reopen this form. Verify any pending operation on the original host before retrying.",
+    "wecomValidated": "Authentication confirmed",
+    "wecomValidationFailed": "Authentication rejected or unavailable. Check credentials and connection.",
+    "wecomGroups": "Group chat IDs",
+    "wecomGroupsHint": "One chatid (or group:chatid) per line. Adding a new group allows text without @mentions. Existing mention-only policies stay closed because this protocol has no verified mention flag.",
+    "wecomReplyLimit": "First version: final text only (20 KiB), no proactive sends, media or cards. Handle approvals/questions in the app."
   },
   "chat": {
     "crossSession": {
@@ -971,6 +982,7 @@
       "locationNotWritable": "This location is not writable. Choose your home folder or another folder owned by the Hope Agent user.",
       "loadError": "Cannot list directory",
       "loading": "Loading…",
+      "noSubdirectories": "No subdirectories to display",
       "parent": "Up one level",
       "pathPlaceholder": "Absolute path, e.g. /srv/projects/app",
       "remoteWritesUnavailable": "Cannot verify remote write access",
@@ -4032,7 +4044,20 @@
     "currencyCny": "Chinese Yuan (CNY)",
     "currencyDesc": "Currency of this provider's model prices. Enter prices exactly as listed on the vendor's pricing page; cost analytics convert them to USD automatically.",
     "title": "Providers",
-    "waitingBrowserLogin": "Waiting for browser login..."
+    "waitingBrowserLogin": "Waiting for browser login...",
+    "discovery": {
+      "action": "Discover models",
+      "description": "Read the model list without sending a test conversation. Select models, enter token limits and confirm before adding them to the unsaved list. New entries use text input with reasoning off; edit other capabilities and prices before saving.",
+      "error": "Could not discover models. Check the API base URL, credentials and network policy, or add models manually.",
+      "truncated": "This list is incomplete. You can still add missing models manually.",
+      "search": "Search discovered models",
+      "empty": "No new models to add. Existing entries are preserved.",
+      "select": "Select {{id}}",
+      "context": "Context limit for {{id}}",
+      "output": "Output limit for {{id}}",
+      "confirm": "I verified that the selected models support text chat and tool calls, and checked these token limits with the provider.",
+      "add": "Add selected ({{count}})"
+    }
   },
   "provider_templates": {
     "anthropic": {
@@ -4080,7 +4105,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "MiniMax M2 series models (Anthropic compatible)",
+      "description": "MiniMax M3 models (Anthropic compatible)",
       "name": "MiniMax"
     },
     "mistral": {
@@ -8786,7 +8811,10 @@
       "save": "Save preferences",
       "saving": "Saving…",
       "saved": "Saved"
-    }
+    },
+    "contextCompactSummaryReasoning": "Summary reasoning override",
+    "contextCompactSummaryReasoningDefault": "Keep current summary policy",
+    "contextCompactSummaryReasoningDesc": "Only affects context summaries. Unsupported levels show an error and preserve your history. Failed requests do not switch models or raise the output limit; the default keeps current behavior."
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",
@@ -11817,7 +11845,24 @@
     "exportReviewPassed": "Export review passed",
     "exportReviewBlocked": "Export review still has blockers",
     "guardStatus": "Guard",
-    "defaultName": "Artifact"
+    "defaultName": "Artifact",
+    "registration": {
+      "create": "Register file as new Artifact",
+      "update": "Update from file",
+      "description": "Select an .html, .htm, .md or analysis artifact.json file to copy into a managed snapshot. The source is preserved. New registrations never overwrite by name; updates keep the selected identity and history.",
+      "path": "Absolute file path on the Agent’s computer",
+      "source": "File source",
+      "uploadSource": "Select file to upload",
+      "pathSource": "Agent host path",
+      "file": "Select a file to register",
+      "pathHint": "Path imports are limited to the Agent process working directory or user home. For files outside these roots, obtain the file and select it for upload.",
+      "failed": "The result could not be confirmed. Refresh the library before submitting again; check the file format, path access and current version if it was not registered.",
+      "hostChanged": "The Agent’s computer changed. Close this dialog and check the result on the original computer.",
+      "firstVersion": "First version",
+      "updatedVersion": "Updated",
+      "createdAt": "Created",
+      "updatedAt": "Updated"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "Background Tasks",
@@ -12181,12 +12226,15 @@
       "desc": "Pull a Figma file's published color / text / effect styles and distill them into a brand design system. The token is used only for this import and never saved.",
       "url": "Figma file URL or key",
       "token": "Personal access token",
-      "tokenHint": "Generate one in Figma → Settings → Security → Personal access tokens (needs file_read scope).",
+      "tokenHint": "Generate one in Figma → Settings → Security → Personal access tokens (needs library_content:read, file_content:read, and file access).",
       "name": "System name (optional)",
       "namePlaceholder": "Figma design system",
       "import": "Import",
       "ok": "Imported design system from Figma",
-      "err": "Figma import failed — check the URL and token"
+      "err": "Figma import failed — check the URL and token",
+      "permissionErr": "Figma import denied: check token validity, library_content:read, file_content:read, and file / organization access.",
+      "rateLimited": "Figma is rate limited. Wait before trying again; the cooldown is unknown.",
+      "retryAfter": "Figma is rate limited. Wait at least {{seconds}} seconds before trying again."
     },
     "exportHandoff": "Dev handoff (ZIP)",
     "bind": {

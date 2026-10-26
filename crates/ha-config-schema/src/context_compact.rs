@@ -72,6 +72,19 @@ fn finite_or(value: f64, fallback: f64) -> f64 {
     }
 }
 
+/// Explicit Tier 3 request override. An absent option keeps the legacy policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SummaryReasoningEffort {
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
 /// Context compaction configuration, stored in config.json `compact` field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -144,6 +157,9 @@ pub struct CompactConfig {
     /// an unset override just means "don't use a dedicated Tier 3 model".
     #[serde(default)]
     pub model_override: Option<crate::provider::ActiveModel>,
+    /// Summary-only reasoning override; null preserves the current protocol policy.
+    #[serde(default)]
+    pub summary_reasoning_effort: Option<SummaryReasoningEffort>,
     /// Summarization trigger ratio (default: 0.85)
     #[serde(default = "default_summarization_threshold")]
     pub summarization_threshold: f64,
@@ -347,6 +363,7 @@ impl Default for CompactConfig {
             hard_clear_placeholder: default_hard_clear_placeholder(),
             summarization_model: None,
             model_override: None,
+            summary_reasoning_effort: None,
             summarization_threshold: default_summarization_threshold(),
             identifier_policy: default_identifier_policy(),
             identifier_instructions: None,
@@ -368,6 +385,25 @@ impl Default for CompactConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn summary_reasoning_override_is_opt_in_and_strictly_typed() {
+        let old: CompactConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(old.summary_reasoning_effort, None);
+        assert_eq!(CompactConfig::default().summary_reasoning_effort, None);
+        for name in ["none", "minimal", "low", "medium", "high", "xhigh", "max"] {
+            let value = serde_json::json!({"summaryReasoningEffort": name});
+            let config: CompactConfig = serde_json::from_value(value).unwrap();
+            assert_eq!(
+                serde_json::to_value(config).unwrap()["summaryReasoningEffort"],
+                name
+            );
+        }
+        assert!(serde_json::from_value::<CompactConfig>(serde_json::json!({
+            "summaryReasoningEffort": "unknown"
+        }))
+        .is_err());
+    }
 
     #[test]
     fn clamp_repairs_non_finite_and_orders_tier_thresholds() {

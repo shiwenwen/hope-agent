@@ -50,6 +50,7 @@ import {
 } from "@/components/common/AgentSelectDisplay"
 import { cn } from "@/lib/utils"
 import { formatBytes } from "@/lib/format"
+import { isLinuxDesktop } from "@/lib/platform"
 import { getTransport, useTransport } from "@/lib/transport-provider"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
@@ -348,6 +349,7 @@ export default function ProjectDialog({
     setBrowserOpen: setSourceDirBrowserOpen,
     handleBrowserSelect: handleSourceDirSelect,
   } = useDirectoryPicker({
+    preferDirectoryBrowser: isLinuxDesktop(),
     onPicked: handleSourceDirPicked,
     errorTitle: t("project.linkedDirs.invalid"),
     loggerSource: "ProjectDialog::pickSourceDir",
@@ -825,6 +827,7 @@ export default function ProjectDialog({
         </div>
 
         <ServerDirectoryBrowser
+          directoriesOnly={isLinuxDesktop()}
           open={sourceDirBrowserOpen}
           initialPath={workingDir || null}
           onOpenChange={setSourceDirBrowserOpen}

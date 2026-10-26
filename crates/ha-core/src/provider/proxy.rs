@@ -28,6 +28,19 @@ pub fn apply_proxy(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     apply_proxy_from_config(builder, &load_proxy_config())
 }
 
+/// Model requests carry credentials and private inputs. A redirect is a
+/// response to the configured endpoint, never permission to dispatch again.
+pub fn apply_model_proxy(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    model_client_from_config(builder, &load_proxy_config())
+}
+
+fn model_client_from_config(
+    builder: reqwest::ClientBuilder,
+    config: &ProxyConfig,
+) -> reqwest::ClientBuilder {
+    apply_proxy_from_config(builder.redirect(reqwest::redirect::Policy::none()), config)
+}
+
 /// Apply proxy settings for a specific target URL.
 /// Loopback destinations should always bypass the global proxy, otherwise local
 /// services like Docker-managed SearXNG or Chrome CDP can be routed into the
@@ -101,11 +114,31 @@ fn should_bypass_proxy(target_url: &str) -> bool {
     }
 }
 
+/// Blocking model requests follow the same no-redirect credential boundary.
+pub fn apply_model_proxy_blocking(
+    builder: reqwest::blocking::ClientBuilder,
+) -> reqwest::blocking::ClientBuilder {
+    model_blocking_client_from_config(builder, &load_proxy_config())
+}
+
 /// Apply proxy settings to a reqwest blocking ClientBuilder based on global config.
 pub fn apply_proxy_blocking(
     builder: reqwest::blocking::ClientBuilder,
 ) -> reqwest::blocking::ClientBuilder {
-    let config = load_proxy_config();
+    apply_proxy_blocking_from_config(builder, &load_proxy_config())
+}
+
+fn model_blocking_client_from_config(
+    builder: reqwest::blocking::ClientBuilder,
+    config: &ProxyConfig,
+) -> reqwest::blocking::ClientBuilder {
+    apply_proxy_blocking_from_config(builder.redirect(reqwest::redirect::Policy::none()), config)
+}
+
+fn apply_proxy_blocking_from_config(
+    builder: reqwest::blocking::ClientBuilder,
+    config: &ProxyConfig,
+) -> reqwest::blocking::ClientBuilder {
     match config.mode {
         ProxyMode::System => {
             let has_env_proxy = [
@@ -157,5 +190,139 @@ mod tests {
         assert!(!should_bypass_proxy("https://duckduckgo.com/?q=test"));
         assert!(!should_bypass_proxy("http://192.168.1.10:8080"));
         assert!(!should_bypass_proxy("not-a-url"));
+    }
+
+    #[test]
+    fn blocking_model_requests_do_not_follow_redirects() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::time::Duration;
+
+        let destination = TcpListener::bind("127.0.0.1:0").unwrap();
+        destination.set_nonblocking(true).unwrap();
+        let origin = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin_url = format!("http://{}/embedding", origin.local_addr().unwrap());
+        let destination_url = format!("http://{}/redirect", destination.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = origin.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut bytes = Vec::new();
+            let mut buffer = [0; 1024];
+            while !bytes.windows(4).any(|part| part == b"\r\n\r\n") {
+                let count = socket.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                bytes.extend_from_slice(&buffer[..count]);
+                assert!(bytes.len() < 8192);
+            }
+            let header_end = bytes
+                .windows(4)
+                .position(|part| part == b"\r\n\r\n")
+                .unwrap()
+                + 4;
+            let expected_body = b"synthetic-embedding-input";
+            while bytes.len() < header_end + expected_body.len() {
+                let count = socket.read(&mut buffer).unwrap();
+                assert!(count > 0);
+                bytes.extend_from_slice(&buffer[..count]);
+                assert!(bytes.len() < 8192);
+            }
+            assert_eq!(&bytes[header_end..], expected_body);
+            assert!(String::from_utf8_lossy(&bytes)
+                .to_lowercase()
+                .contains("authorization: bearer synthetic-key"));
+            socket.write_all(format!("HTTP/1.1 307 Redirect\r\nLocation: {destination_url}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).unwrap();
+        });
+        let config = super::ProxyConfig {
+            mode: super::ProxyMode::None,
+            ..Default::default()
+        };
+        let client = super::model_blocking_client_from_config(
+            reqwest::blocking::Client::builder().timeout(Duration::from_secs(2)),
+            &config,
+        )
+        .build()
+        .unwrap();
+        let response = client
+            .post(origin_url)
+            .bearer_auth("synthetic-key")
+            .body("synthetic-embedding-input")
+            .send()
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 307);
+        server.join().unwrap();
+        assert_eq!(
+            destination.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[tokio::test]
+    async fn model_requests_do_not_replay_credentials_or_body_on_redirect() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        use tokio::time::{timeout, Duration};
+
+        for status in [302, 307, 308] {
+            let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let destination_url =
+                format!("http://{}/new-endpoint", destination.local_addr().unwrap());
+            let origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let origin_url = format!("http://{}/model", origin.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = origin.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                    assert!(request.len() < 8192);
+                }
+                let header_end = request
+                    .windows(4)
+                    .position(|part| part == b"\r\n\r\n")
+                    .unwrap()
+                    + 4;
+                let expected_body = b"synthetic-private-input";
+                while request.len() < header_end + expected_body.len() {
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                    assert!(request.len() < 8192);
+                }
+                assert_eq!(&request[header_end..], expected_body);
+                let headers = String::from_utf8_lossy(&request).to_lowercase();
+                assert!(headers.contains("authorization: bearer synthetic-token"));
+                assert!(headers.contains("x-api-key: synthetic-key"));
+                socket.write_all(format!(
+                    "HTTP/1.1 {status} Redirect\r\nLocation: {destination_url}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                ).as_bytes()).await.unwrap();
+            });
+            let config = super::ProxyConfig {
+                mode: super::ProxyMode::None,
+                ..Default::default()
+            };
+            let client = super::model_client_from_config(
+                reqwest::Client::builder().timeout(Duration::from_secs(2)),
+                &config,
+            )
+            .build()
+            .unwrap();
+            let response = client
+                .post(origin_url)
+                .bearer_auth("synthetic-token")
+                .header("x-api-key", "synthetic-key")
+                .body("synthetic-private-input")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), status);
+            server.await.unwrap();
+            assert!(timeout(Duration::from_millis(50), destination.accept())
+                .await
+                .is_err());
+        }
     }
 }

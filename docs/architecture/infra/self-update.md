@@ -2,6 +2,8 @@
 
 > 关联源码：[`crates/ha-updater/src/`](../../../crates/ha-updater/src) · [`crates/ha-updater/src/tool.rs`](../../../crates/ha-updater/src/tool.rs) · [`crates/ha-core/src/tool_defs/update_tools.rs`](../../../crates/ha-core/src/tool_defs/update_tools.rs) · [`crates/ha-base/src/platform/`](../../../crates/ha-base/src/platform) · [`src-tauri/src/commands/update_bridge.rs`](../../../src-tauri/src/commands/update_bridge.rs) · [`skills/ha-self-update/SKILL.md`](../../../skills/ha-self-update/SKILL.md)
 
+2026-10-19 桌面 updater 的 Rust/JS 两端固定 2.14.0（[#839](https://github.com/shiwenwen/hope-agent/pull/839) 同步维护），应用配置显式 `allowDowngrades=false`。`check` 不接受 renderer 传入的降级覆盖；原 Minisign 验签、下载体积上限、重启确认和跨卷临时目录合同保持。未来升级或回退必须保留应用侧版本比较边界，不能把配置开放为模型可写设置。[上游禁止降级合同](https://tauri.app/release/updater/v2.12.0/)；[2.14.0 变更](https://github.com/tauri-apps/plugins-workspace/releases/tag/updater-v2.14.0) 包括安装前再次验签、macOS 失败恢复与 Linux AppImage 跨卷回退。当前仍走 `check` → `download_and_install`，不启用新增的缓存恢复接口；`requireSignedVersion` 未另行切换，签名格式与信任根保持既有配置。编译和合成检查不代表真实应用安装、降级攻击或重启验收。
+
 ## 核心思想
 
 Hope Agent 是一份 binary、三种形态（桌面 GUI / `hope-agent server` 守护进程 / `hope-agent acp`），却经由许多渠道装到用户机器上：DMG / MSI / NSIS / AppImage / Homebrew cask / Scoop / AUR / 自建 apt+dnf 源 / Docker 镜像 / 手工丢一个可执行文件。「怎么升级」在每种组合里都不一样——桌面装包要走签名安装器，brew 装的要跑 `brew upgrade`，容器里换 binary 下次 `docker pull` 就被冲掉。

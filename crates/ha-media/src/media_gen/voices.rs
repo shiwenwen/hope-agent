@@ -96,8 +96,9 @@ async fn list_elevenlabs_voices(provider_id: &str, limit: u32) -> Result<Vec<Voi
         &cfg.ssrf.trusted_hosts,
     )
     .await?;
-    let client = ha_core::provider::apply_proxy(Client::builder().timeout(Duration::from_secs(15)))
-        .build()?;
+    let client =
+        ha_core::provider::apply_model_proxy(Client::builder().timeout(Duration::from_secs(15)))
+            .build()?;
     let resp = client
         .get(&url)
         .header("xi-api-key", key)
@@ -170,8 +171,9 @@ async fn voice_request(provider_id: &str, path: &str) -> Result<(Client, String,
         &cfg.ssrf.trusted_hosts,
     )
     .await?;
-    let client = ha_core::provider::apply_proxy(Client::builder().timeout(Duration::from_secs(15)))
-        .build()?;
+    let client =
+        ha_core::provider::apply_model_proxy(Client::builder().timeout(Duration::from_secs(15)))
+            .build()?;
     Ok((client, url, key, base))
 }
 

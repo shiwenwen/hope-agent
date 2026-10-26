@@ -24,6 +24,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { toast } from "sonner"
 import type { DesignSystemMeta } from "@/types/design"
+import { figmaImportError } from "./figmaImportError"
 
 interface Props {
   open: boolean
@@ -64,8 +65,17 @@ export function DesignFigmaImport({ open, onOpenChange, onImported }: Props) {
       setToken("")
       setName("")
     } catch (e) {
-      logger.error("design", "DesignFigmaImport::run", "figma import failed", e)
-      toast.error(t("design.figma.err", "Figma 导入失败，请检查 URL 与令牌"))
+      const diagnostic = figmaImportError(e)
+      logger.error("design", "DesignFigmaImport::run", "figma import failed", diagnostic)
+      toast.error(
+        diagnostic.kind === "permission"
+          ? t("design.figma.permissionErr")
+          : diagnostic.kind === "rateLimited"
+            ? diagnostic.retryAfterSeconds
+              ? t("design.figma.retryAfter", { seconds: diagnostic.retryAfterSeconds })
+              : t("design.figma.rateLimited")
+            : t("design.figma.err", "Figma 导入失败，请检查 URL 与令牌"),
+      )
     } finally {
       setImporting(false)
     }
@@ -108,7 +118,7 @@ export function DesignFigmaImport({ open, onOpenChange, onImported }: Props) {
             <p className="text-[11px] text-muted-foreground">
               {t(
                 "design.figma.tokenHint",
-                "在 Figma → Settings → Security → Personal access tokens 生成（需 file_read 权限）。",
+                "在 Figma → Settings → Security → Personal access tokens 生成（需 library_content:read、file_content:read 及文件访问权）。",
               )}
             </p>
           </div>

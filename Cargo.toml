@@ -140,7 +140,7 @@ log = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.39", features = ["bundled", "backup"] }
-reqwest = { version = "0.12", features = ["json", "blocking", "stream", "native-tls", "multipart", "socks", "charset", "gzip", "brotli", "deflate", "zstd"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "blocking", "stream", "native-tls", "http2", "system-proxy", "query", "form", "multipart", "socks", "charset", "gzip", "brotli", "deflate", "zstd"] }
 futures-util = "0.3"
 # SSE frame parser (same crate rmcp pulls in via `client-side-sse`). Powers the
 # hand-rolled legacy MCP HTTP+SSE client transport — rmcp 1.5 dropped its own
@@ -152,7 +152,7 @@ base64 = "0.22"
 encoding_rs = "0.8"
 httpdate = "1"
 dirs = "6"
-rand = "0.9"
+rand = "0.10"
 regex = "1.12.3"
 fancy-regex = "0.17"
 url = "2"
@@ -166,7 +166,7 @@ arc-swap = "1"
 #   - client-side-sse + transport-streamable-http-client(+reqwest+native-tls):
 #     Streamable HTTP + SSE transports (Phase 4)
 #   - auth: OAuth 2.1 + PKCE client (Phase 4)
-rmcp = { version = "3.1.1", default-features = false, features = [
+rmcp = { version = "3.5.1", default-features = false, features = [
     "client",
     "macros",
     "transport-child-process",
@@ -226,3 +226,8 @@ debug = 1
 # 只优化第三方依赖（编一次后增量复用），不拖慢自身 crate 的 dev 迭代。对
 # image / pdfium / oxc / 正则等计算密集依赖的 dev 运行收益明显。
 opt-level = 2
+
+# Registry deep-link 2.6.2 fails to compile on Linux with locked rust-ini 0.21.3.
+# Pin the official minimal fix; remove after a compatible registry release.
+[patch.crates-io]
+tauri-plugin-deep-link = { git = "https://github.com/tauri-apps/plugins-workspace", rev = "463977675da7bbb257dee59669b5e122c8d681db" }

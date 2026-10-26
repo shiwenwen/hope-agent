@@ -325,7 +325,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         host
     );
 
-    let client = ha_core::provider::apply_proxy(
+    let client = ha_core::provider::apply_model_proxy(
         Client::builder()
             .connect_timeout(Duration::from_secs(30))
             .timeout(Duration::from_secs(params.timeout_secs)),

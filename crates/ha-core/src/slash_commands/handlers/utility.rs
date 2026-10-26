@@ -617,10 +617,18 @@ pub async fn handle_imreply(session_id: Option<&str>, args: &str) -> Result<Comm
                 channel_info.account_id
             )
         })?;
-    let current = account.im_reply_mode();
+    let wecom = account.channel_id == crate::channel::ChannelId::WeCom;
+    let current = if wecom {
+        crate::channel::ImReplyMode::Final
+    } else {
+        account.im_reply_mode()
+    };
     drop(cfg);
 
     let arg = args.trim();
+    if wecom {
+        return Ok(CommandResult { content: "WeCom first version supports final text replies only; split/preview and proactive notifications are unavailable.".into(), action: Some(CommandAction::DisplayOnly) });
+    }
     if arg.is_empty() {
         return Ok(CommandResult {
             content: format!(

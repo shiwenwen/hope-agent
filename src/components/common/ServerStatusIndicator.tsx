@@ -1,11 +1,7 @@
 import { useTranslation } from "react-i18next"
 import { Radio, AlertTriangle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import {
   useServerStatus,
@@ -20,32 +16,21 @@ interface ServerStatusIndicatorProps {
   className?: string
 }
 
-export default function ServerStatusIndicator({
-  onOpen,
-  className,
-}: ServerStatusIndicatorProps) {
+export default function ServerStatusIndicator({ onOpen, className }: ServerStatusIndicatorProps) {
   const { t } = useTranslation()
   const { status, loading, error } = useServerStatus(5000)
 
   const isFailed = Boolean(status?.startupError) || (!status && !loading)
   const wsTotal = status ? totalActiveConnections(status) : 0
   const wsSub = status ? formatActiveConnectionsSub(status, t) : ""
-  const chatCountsSub = status
-    ? formatActiveChatCounts(status.activeChatCounts, t)
-    : null
+  const chatCountsSub = status ? formatActiveChatCounts(status.activeChatCounts, t) : null
 
-  const dotColor = isFailed
-    ? "bg-destructive"
-    : status
-      ? "bg-green-500"
-      : "bg-muted-foreground/40"
+  const dotColor = isFailed ? "bg-destructive" : status ? "bg-green-500" : "bg-muted-foreground/40"
 
   const tooltipBody = (
     <div className="text-xs space-y-1 max-w-[260px]">
       <div className="font-medium">
-        {isFailed
-          ? t("settings.serverStartupError")
-          : t("settings.serverRuntimeStatus")}
+        {isFailed ? t("settings.serverStartupError") : t("settings.serverRuntimeStatus")}
       </div>
       {status?.startupError ? (
         <pre className="whitespace-pre-wrap break-all text-destructive opacity-90">
@@ -61,9 +46,7 @@ export default function ServerStatusIndicator({
           </div>
           <div className="text-muted-foreground">
             {t("settings.serverUptime")}:{" "}
-            <span className="text-foreground">
-              {formatServerUptime(status.uptimeSecs)}
-            </span>
+            <span className="text-foreground">{formatServerUptime(status.uptimeSecs)}</span>
           </div>
           <div className="text-muted-foreground">
             {t("settings.serverActiveWebSockets")}:{" "}
@@ -72,18 +55,12 @@ export default function ServerStatusIndicator({
           </div>
           <div className="text-muted-foreground">
             {t("settings.serverActiveChatStreams")}:{" "}
-            <span className="text-foreground">
-              {status.activeChatCounts.total}
-            </span>
-            {chatCountsSub && (
-              <span className="opacity-70"> ({chatCountsSub})</span>
-            )}
+            <span className="text-foreground">{status.activeChatCounts.total}</span>
+            {chatCountsSub && <span className="opacity-70"> ({chatCountsSub})</span>}
           </div>
         </>
       ) : (
-        <div className="text-muted-foreground">
-          {error ?? t("settings.serverNotStarted")}
-        </div>
+        <div className="text-muted-foreground">{error ?? t("settings.serverNotStarted")}</div>
       )}
     </div>
   )
@@ -96,7 +73,7 @@ export default function ServerStatusIndicator({
           size="icon"
           onClick={onOpen}
           className={cn(
-            "relative rounded-xl h-8 w-8 text-muted-foreground hover:text-foreground",
+            "relative rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5 text-muted-foreground hover:text-foreground",
             className,
           )}
           aria-label={t("settings.serverRuntimeStatus")}
@@ -115,10 +92,13 @@ export default function ServerStatusIndicator({
             )}
           />
           {!isFailed && status && wsTotal > 0 && (
-            <span className="absolute -bottom-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-primary text-primary-foreground text-[9px] font-semibold flex items-center justify-center">
+            <span className="absolute bottom-0 right-0 min-w-[14px] h-[14px] px-1 rounded-full bg-primary text-primary-foreground text-[9px] font-semibold flex items-center justify-center">
               {wsTotal > 99 ? "99+" : wsTotal}
             </span>
           )}
+          <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
+            {t("settings.server")}
+          </span>
         </Button>
       </TooltipTrigger>
       <TooltipContent side="right" className="p-2.5">

@@ -291,11 +291,11 @@ export class TauriTransport implements Transport {
     return selected;
   }
 
-  async listServerDirectory(path?: string): Promise<DirListing> {
+  async listServerDirectory(path?: string, directoriesOnly?: boolean): Promise<DirListing> {
     // The chat-input `@` mention popper needs cross-mode parity with HTTP.
     // The working-dir picker still prefers the native dialog, but it can use
     // this too when needed.
-    return invoke<DirListing>("fs_list_dir", { path: path ?? null });
+    return invoke<DirListing>("fs_list_dir", { path: path ?? null, directoriesOnly: directoriesOnly ?? false });
   }
 
   async createDirectory(path: string): Promise<DirListing> {

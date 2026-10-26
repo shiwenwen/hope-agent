@@ -68,3 +68,7 @@ Provider 未返回 usage 和真实返回 `0` 是不同状态。`ChatUsage` 分�
 | `token_accounting/part_cache.rs` | content-free bounded part cache |
 | `token_accounting/service.rs` | 唯一门面、预热与 compaction counter |
 | `agent/token_manifest.rs` | Provider request 分类诊断与 `/context` 快照 |
+
+### Kimi Basic 搜索按次入账
+
+`web_search.kimi.basic` 是独立搜索 REST 请求，`model_id` 和 Token 字段保持缺失。非空 HTTP 200 的官方计费资格、空结果、非200及未知响应分别记录，不以有效链接数量或字符数估算实际用量/费用。取消保持未知，沿用会话/子代理归属与无痕拒写。详见[工具合同](tool-system.md)。

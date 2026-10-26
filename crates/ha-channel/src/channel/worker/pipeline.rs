@@ -24,7 +24,7 @@ use super::streaming::{
 };
 use ha_core::channel::traits::ChannelPlugin;
 use ha_core::channel::types::{
-    ChannelAccountConfig, ChannelCapabilities, ChatType, ImReplyMode, ReplyAbortReason,
+    ChannelAccountConfig, ChannelCapabilities, ChannelId, ChatType, ImReplyMode, ReplyAbortReason,
     ReplyStreamPreviewPersistence, ReplyStreamTarget,
 };
 use ha_core::chat_engine::{ChannelStreamSink, EventSink, RoundOutput, RoundTextAccumulator};
@@ -451,7 +451,12 @@ fn spawn_stream_pipeline_inner(
     provider_lane: Option<ProviderLaneLease>,
     prelude: Option<StreamPipelinePrelude>,
 ) -> StreamPipeline {
-    let reply_mode = account.im_reply_mode();
+    // WeCom v1 has one terminal stream per callback, not independent round finals.
+    let reply_mode = if account.channel_id == ChannelId::WeCom {
+        ImReplyMode::Final
+    } else {
+        account.im_reply_mode()
+    };
     let mut capabilities = plugin.capabilities();
     if !account.native_reply_enabled() {
         // Account-level rollout/rollback switch. Clearing the capability once

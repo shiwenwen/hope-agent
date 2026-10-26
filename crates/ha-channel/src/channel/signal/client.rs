@@ -262,65 +262,45 @@ impl SignalClient {
     ) -> Result<()> {
         use futures_util::StreamExt;
 
-        let resp = self
-            .client
-            .get(url)
-            .header("Accept", "text/event-stream")
-            .send()
-            .await
-            .context("Failed to connect to Signal SSE endpoint")?;
+        let resp = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Ok(()),
+            response = self.client.get(url).header("Accept", "text/event-stream").send() => {
+                response.context("Failed to connect to Signal SSE endpoint")?
+            }
+        };
 
         if !resp.status().is_success() {
             anyhow::bail!("Signal SSE failed: HTTP {}", resp.status());
         }
 
         let mut stream = resp.bytes_stream();
-        let mut buffer = String::new();
-        let mut current_event = String::new();
-        let mut current_data = String::new();
+        let mut decoder = super::sse::SseDecoder::default();
 
         loop {
             tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return Ok(()),
                 chunk = stream.next() => {
                     match chunk {
                         Some(Ok(bytes)) => {
-                            buffer.push_str(&String::from_utf8_lossy(&bytes));
-
-                            // Process complete lines
-                            while let Some(line_end) = buffer.find('\n') {
-                                let line = buffer[..line_end].trim_end_matches('\r').to_string();
-                                buffer = buffer[line_end + 1..].to_string();
-
-                                if line.is_empty() {
-                                    // Empty line = event boundary
-                                    if !current_data.is_empty() {
-                                        if current_event == "receive" || current_event.is_empty() {
-                                            if let Err(e) = self.handle_sse_data(
-                                                &current_data,
-                                                account_id,
-                                                inbound_tx,
-                                            ).await {
-                                                app_warn!(
-                                                    "channel",
-                                                    "signal-sse",
-                                                    "Failed to handle SSE event: {}",
-                                                    e
-                                                );
+                            for byte in bytes {
+                                if let Some(event) = decoder.push(byte)? {
+                                    if event.event == "receive" || event.event.is_empty() {
+                                        tokio::select! {
+                                            biased;
+                                            _ = cancel.cancelled() => return Ok(()),
+                                            result = self.handle_sse_data(&event.data, account_id, inbound_tx) => {
+                                                if let Err(e) = result {
+                                                    app_warn!(
+                                                        "channel",
+                                                        "signal-sse",
+                                                        "Failed to handle SSE event: {}",
+                                                        e
+                                                    );
+                                                }
                                             }
                                         }
-                                    }
-                                    current_event.clear();
-                                    current_data.clear();
-                                } else if line.starts_with(':') {
-                                    // SSE comment, ignore
-                                } else if let Some(value) = sse_field_value(&line, "event") {
-                                    current_event = value.trim().to_string();
-                                } else if let Some(value) = sse_field_value(&line, "data") {
-                                    if current_data.is_empty() {
-                                        current_data = value.to_string();
-                                    } else {
-                                        current_data.push('\n');
-                                        current_data.push_str(value);
                                     }
                                 }
                             }
@@ -333,9 +313,6 @@ impl SignalClient {
                             anyhow::bail!("SSE stream ended unexpectedly");
                         }
                     }
-                }
-                _ = cancel.cancelled() => {
-                    return Ok(());
                 }
             }
         }
@@ -484,14 +461,6 @@ impl SignalClient {
     }
 }
 
-fn sse_field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
-    let rest = line.strip_prefix(field)?;
-    if rest.is_empty() {
-        return Some("");
-    }
-    rest.strip_prefix(':').map(|value| value.trim_start())
-}
-
 fn build_send_params(
     account: &str,
     recipient: &str,
@@ -566,6 +535,125 @@ fn is_group_id(recipient: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn receive_frame(timestamp: i64) -> String {
+        format!(
+            "event: receive\r\ndata: {{\"envelope\":\r\ndata: {{\"source\":\"+15551234567\",\"dataMessage\":{{\"timestamp\":{timestamp},\"message\":\"你好🦭\"}}}}}}\r\n\r\n"
+        )
+    }
+
+    async fn sse_server(body: String) -> wiremock::MockServer {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "text/event-stream")
+                    .set_body_string(body),
+            )
+            .mount(&server)
+            .await;
+        server
+    }
+
+    #[tokio::test]
+    async fn sse_delivers_unicode_multiline_message_and_ignores_metadata() {
+        let body = format!(
+            ":keep-alive\r\nevent: receipt\r\ndata: {{}}\r\n\r\n{}data: {{}}\n\n",
+            receive_frame(1)
+        );
+        let server = sse_server(body).await;
+        let client = SignalClient::new(1, "+10000000000".into());
+        let (tx, mut rx) = mpsc::channel(2);
+        // A finite HTTP fixture ends in EOF after the complete event.
+        assert!(client
+            .connect_sse(&server.uri(), "synthetic", &tx, &CancellationToken::new())
+            .await
+            .is_err());
+        let InboundEvent::Message(message) = rx.try_recv().unwrap() else {
+            panic!("expected message")
+        };
+        assert_eq!(message.text.as_deref(), Some("你好🦭"));
+        assert_eq!(message.account_id, "synthetic");
+        assert_eq!(message.message_id, "1");
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn sse_cancel_interrupts_full_inbound_queue() {
+        let server = sse_server(receive_frame(2)).await;
+        let client = Arc::new(SignalClient::new(1, "+10000000000".into()));
+        let (tx, mut rx) = mpsc::channel(1);
+        client
+            .handle_sse_data(
+                r#"{"source":"+15551234567","dataMessage":{"timestamp":1,"message":"queued"}}"#,
+                "synthetic",
+                &tx,
+            )
+            .await
+            .unwrap();
+        let cancel = CancellationToken::new();
+        let task = {
+            let client = client.clone();
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                client
+                    .connect_sse(&server.uri(), "synthetic", &tx, &cancel)
+                    .await
+            })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while client.quote_author_for("2").await.is_none() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        cancel.cancel();
+        tokio::time::timeout(std::time::Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(matches!(rx.try_recv(), Ok(InboundEvent::Message(_))));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn sse_cancel_interrupts_waiting_for_http_headers() {
+        use tokio::io::AsyncReadExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 1024];
+            assert!(socket.read(&mut request).await.unwrap() > 0);
+            accepted_tx.send(()).unwrap();
+            std::future::pending::<()>().await;
+            drop(socket);
+        });
+        let cancel = CancellationToken::new();
+        let (tx, _rx) = mpsc::channel(1);
+        let task = {
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                SignalClient::new(1, "+10000000000".into())
+                    .connect_sse(&url, "synthetic", &tx, &cancel)
+                    .await
+            })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(2), accepted_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        cancel.cancel();
+        tokio::time::timeout(std::time::Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        server.abort();
+    }
+
     #[test]
     fn is_group_id_recognizes_phones() {
         assert!(!is_group_id("+15551234567"));
@@ -599,24 +687,6 @@ mod tests {
     fn is_group_id_rejects_random_strings() {
         // 短而不像 group id
         assert!(!is_group_id("short"));
-    }
-
-    #[test]
-    fn sse_field_value_accepts_optional_and_extra_spaces() {
-        assert_eq!(
-            sse_field_value("data:{\"hello\":true}", "data"),
-            Some("{\"hello\":true}")
-        );
-        assert_eq!(
-            sse_field_value("data: {\"hello\":true}", "data"),
-            Some("{\"hello\":true}")
-        );
-        assert_eq!(
-            sse_field_value("data:   {\"hello\":true}", "data"),
-            Some("{\"hello\":true}")
-        );
-        assert_eq!(sse_field_value("data", "data"), Some(""));
-        assert_eq!(sse_field_value("database: nope", "data"), None);
     }
 
     #[test]

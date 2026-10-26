@@ -368,7 +368,18 @@
     "lineAccessToken": "Channel Access Token",
     "lineChannelSecret": "Channel Secret",
     "feishuDomainFeishu": "飞书（国内版）",
-    "feishuDomainLark": "Lark（国际版）"
+    "feishuDomainLark": "Lark（国际版）",
+    "pluginName_wecom": "企业微信",
+    "pluginDesc_wecom": "智能机器人直连单聊与群聊文本",
+    "wecomBotId": "Bot ID",
+    "wecomSecret": "Bot Secret",
+    "wecomSetupHint": "在企业微信取得 Bot ID 和 Secret。同一 Bot 仅使用一个客户端；校验会短暂订阅，原凭据的健康连接可复用。更改运行中 Bot 的 Secret 时，请先停止账户再校验。",
+    "wecomHostChanged": "运行主机已变化，请关闭并重新打开此表单。 如有在途操作，请先回原主机核验结果，再重试。",
+    "wecomValidated": "鉴权已确认",
+    "wecomValidationFailed": "鉴权被拒绝或连接不可用，请检查凭据与网络。",
+    "wecomGroups": "群聊 ID",
+    "wecomGroupsHint": "每行一个 chatid（或 group:chatid）。添加新群会允许无需 @ 的文本；原有仅 @ 策略保持拒绝，因为此协议没有已核验的提及标记。",
+    "wecomReplyLimit": "首版仅最终文本（20 KiB），不主动推送、发送媒体或卡片。审批与提问请在应用界面处理。"
   },
   "chat": {
     "crossSession": {
@@ -971,6 +982,7 @@
       "locationNotWritable": "当前位置不可写。请选择主目录，或 Hope Agent 运行用户拥有的其他文件夹。",
       "loadError": "无法列出目录",
       "loading": "加载中……",
+      "noSubdirectories": "没有可显示的子目录",
       "parent": "返回上一级",
       "pathPlaceholder": "绝对路径，例如 /srv/projects/app",
       "remoteWritesUnavailable": "无法确认远程写入权限",
@@ -4032,7 +4044,20 @@
     "currencyCny": "人民币 (CNY)",
     "currencyDesc": "本 Provider 模型单价的币种。单价请照厂商价目页原文填写，成本统计会自动换算为美元。",
     "title": "模型服务商",
-    "waitingBrowserLogin": "等待浏览器登录…"
+    "waitingBrowserLogin": "等待浏览器登录…",
+    "discovery": {
+      "action": "发现模型",
+      "description": "仅查询模型列表，不发送测试对话。先勾选、填写令牌上限并确认，再加入待保存列表。新条目默认纯文本且关闭推理，其他能力和价格可在保存前继续编辑。",
+      "error": "无法发现模型。请检查 API 基础地址、凭据和网络策略，或手动添加模型。",
+      "truncated": "列表未完整读取，仍可手动添加缺少的模型。",
+      "search": "搜索发现的模型",
+      "empty": "没有可新增的模型，已有条目保持不变。",
+      "select": "选择 {{id}}",
+      "context": "{{id}} 的上下文上限",
+      "output": "{{id}} 的输出上限",
+      "confirm": "我已确认所选模型支持文本对话和工具调用，并向服务商核对以上令牌上限。",
+      "add": "加入所选（{{count}}）"
+    }
   },
   "provider_templates": {
     "anthropic": {
@@ -4080,7 +4105,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "MiniMax M2 系列模型（兼容 Anthropic）",
+      "description": "MiniMax M3 模型（兼容 Anthropic）",
       "name": "MiniMax"
     },
     "mistral": {
@@ -8786,7 +8811,10 @@
       "save": "保存偏好",
       "saving": "保存中…",
       "saved": "已保存"
-    }
+    },
+    "contextCompactSummaryReasoning": "摘要专用推理覆盖",
+    "contextCompactSummaryReasoningDefault": "保持当前摘要策略",
+    "contextCompactSummaryReasoningDesc": "仅用于上下文摘要。档位不受支持时会报错并保留历史；失败后不自动换模型或增加输出上限。默认保持现状。"
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",
@@ -11817,7 +11845,24 @@
     "exportReviewPassed": "导出复核已通过",
     "exportReviewBlocked": "导出复核仍有阻塞项",
     "guardStatus": "门禁",
-    "defaultName": "产物"
+    "defaultName": "产物",
+    "registration": {
+      "create": "登记文件为新产物",
+      "update": "从文件更新产物",
+      "description": "选择 .html、.htm、.md 或分析型 artifact.json，复制为受管快照；原文件保留。新建不按同名覆盖；更新保留所选产物身份与历史。",
+      "path": "Agent 所在电脑上的文件绝对路径",
+      "source": "文件来源",
+      "uploadSource": "选择文件上传",
+      "pathSource": "Agent 主机路径",
+      "file": "选择要登记的文件",
+      "pathHint": "路径导入仅限 Agent 进程的工作目录或用户主目录。范围外的文件请先取得文件，再选择上传。",
+      "failed": "无法确认登记结果。请先刷新产物库核对；若未成功，再检查文件格式、路径权限或当前版本后提交。",
+      "hostChanged": "Agent 所在电脑已切换。请关闭此窗口，并切回原电脑核对登记结果。",
+      "firstVersion": "初版",
+      "updatedVersion": "已迭代",
+      "createdAt": "创建于",
+      "updatedAt": "更新于"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "后台任务",
@@ -12181,12 +12226,15 @@
       "desc": "拉取 Figma 文件已发布的颜色 / 文字 / 阴影样式，蒸馏成品牌设计系统。令牌仅本次使用、不会保存。",
       "url": "Figma 文件 URL 或 key",
       "token": "个人访问令牌",
-      "tokenHint": "在 Figma → Settings → Security → Personal access tokens 生成（需 file_read 权限）。",
+      "tokenHint": "在 Figma → Settings → Security → Personal access tokens 生成（需 library_content:read、file_content:read 及文件访问权）。",
       "name": "系统名称（可选）",
       "namePlaceholder": "Figma 设计系统",
       "import": "导入",
       "ok": "已从 Figma 导入设计系统",
-      "err": "Figma 导入失败，请检查 URL 与令牌"
+      "err": "Figma 导入失败，请检查 URL 与令牌",
+      "permissionErr": "Figma 导入被拒绝：请检查令牌有效性、library_content:read、file_content:read 及文件／组织访问权。",
+      "rateLimited": "Figma 请求受限，请稍后手动重试；等待时间未知。",
+      "retryAfter": "Figma 请求受限，请至少等待 {{seconds}} 秒后手动重试。"
     },
     "exportHandoff": "代码交付包 (ZIP)",
     "bind": {

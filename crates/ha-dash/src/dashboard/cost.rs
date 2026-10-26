@@ -75,6 +75,8 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("claude-opus-5-5") => (4.0, 20.0),
         m if m.contains("claude-opus-5") => (5.0, 25.0),
         m if m.contains("claude-sonnet-5") => (2.0, 10.0),
+        // Base rates up to 100K prompt tokens; configured prices still win.
+        m if m.contains("claude-haiku-5-5") => (0.10, 0.50),
         // Anthropic — Claude 4.x. Opus 4.5 onwards is $5/$25; only Opus 4/4.1 stayed $15/$75.
         m if m.contains("claude-opus-4-8")
             || m.contains("claude-opus-4-7")
@@ -131,6 +133,9 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         {
             (0.10, 0.40)
         }
+        // Gemini 4 Argon promotional Standard rate is $2/$10 through 2026-11-30.
+        // https://ai.google.dev/gemini-api/docs/pricing (2026-10-19 verified)
+        m if m.contains("gemini-4-argon") => (2.0, 10.0),
         // 3.8 / 3.7 / 3.6 Flash 标准付费层促销至 2026-12-31，之后回 $1.5/$7.5。
         // https://ai.google.dev/gemini-api/docs/pricing （2026-09-08 核验）
         m if m.contains("gemini-3.8-flash")
@@ -159,8 +164,12 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("gemini-1.5-pro") => (1.25, 5.0),
         m if m.contains("gemini-1.5-flash") => (0.075, 0.30),
         // xAI Grok. Point releases must precede the `grok-4` / `grok-3` family arms.
-        // 4.6 / 4.5 均按短上下文价入账；>200K 输入时 xAI 会对整请求翻倍，此处不建模。
-        m if m.contains("grok-4.6") || m.contains("grok-4.5") || m.contains("grok-4-5") => {
+        // 4.7 / 4.6 / 4.5 均按短上下文价入账；>200K 输入时 xAI 会对整请求翻倍，此处不建模。
+        m if m.contains("grok-4.7")
+            || m.contains("grok-4.6")
+            || m.contains("grok-4.5")
+            || m.contains("grok-4-5") =>
+        {
             (2.0, 6.0)
         }
         m if m.contains("grok-4.3") => (1.25, 2.5),
@@ -242,6 +251,8 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
             (0.6, 3.0)
         }
         // MiniMax
+        "MiniMax-M3" => (0.3, 1.2),
+        // Gateway routes keep their own pricing; do not reprice the family.
         m if m.contains("MiniMax-M3") || m.contains("minimax-m3") => (0.6, 2.4),
         m if m.contains("MiniMax-M2.7-highspeed") => (0.6, 2.4),
         m if m.contains("MiniMax") || m.contains("minimax") => (0.3, 1.2),
@@ -553,6 +564,9 @@ mod tests {
         assert_eq!(prices("claude-opus-5"), (5.0, 25.0));
         assert_eq!(prices("claude-opus-5-5"), (4.0, 20.0));
         assert_eq!(prices("claude-sonnet-5-5"), (2.0, 10.0));
+        assert_eq!(prices("claude-haiku-5-5"), (0.10, 0.50));
+        assert_eq!(prices("MiniMax-M3"), (0.3, 1.2));
+        assert_eq!(prices("hf:MiniMaxAI/MiniMax-M3"), (0.6, 2.4));
 
         // Tier suffixes differ in price from the bare family.
         assert_eq!(prices("gpt-6.1-sol"), (2.0, 10.0));
@@ -576,6 +590,7 @@ mod tests {
 
         // `grok-4` must not swallow the point releases, which are priced far below it.
         assert_eq!(prices("grok-4.6"), (2.0, 6.0));
+        assert_eq!(prices("grok-4.7"), (2.0, 6.0));
         assert_eq!(prices("grok-4.5"), (2.0, 6.0));
         assert_eq!(prices("grok-4.3"), (1.25, 2.5));
         assert_eq!(prices("grok-4"), (3.0, 15.0));
@@ -633,6 +648,8 @@ mod tests {
     /// 这几项对应 templates/*.ts 里直连厂商的价格，改模板时一并改这里。
     #[test]
     fn estimator_matches_direct_provider_template_prices() {
+        assert_eq!(prices("gemini-4-argon"), (2.0, 10.0));
+        assert_eq!(prices("google/gemini-4-argon"), (2.0, 10.0));
         assert_eq!(prices("gemini-3.8-flash"), (0.75, 3.75));
         assert_eq!(prices("google/gemini-3.8-flash"), (0.75, 3.75));
         assert_eq!(prices("deepseek-reasoner"), (0.44, 1.32));
@@ -665,16 +682,19 @@ mod tests {
             "claude-opus-5",
             "claude-sonnet-5",
             "claude-haiku-4-5-20251001",
+            "claude-haiku-5-5",
             "gpt-5.6",
             "gpt-5.5",
             "gpt-5.4",
             "gemini-3.1-pro-preview",
+            "gemini-4-argon",
             "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
             "kimi-k2.6",
             "grok-4.6",
+            "grok-4.7",
             "glm-5.3",
             "ernie-5.1",
             "ernie-5.0",

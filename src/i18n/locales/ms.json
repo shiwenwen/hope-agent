@@ -368,7 +368,18 @@
     "lineAccessToken": "Token Akses Saluran",
     "lineChannelSecret": "Rahsia Saluran",
     "feishuDomainFeishu": "Feishu (Tanah Besar China)",
-    "feishuDomainLark": "Lark (Antarabangsa)"
+    "feishuDomainLark": "Lark (Antarabangsa)",
+    "pluginName_wecom": "WeCom",
+    "pluginDesc_wecom": "Teks bot AI terus untuk mesej peribadi dan kumpulan",
+    "wecomBotId": "Bot ID",
+    "wecomSecret": "Bot Secret",
+    "wecomSetupHint": "Dapatkan Bot ID dan Secret daripada WeCom. Gunakan satu klien bagi setiap bot. Pengesahan melanggan sebentar dan menggunakan semula sambungan setempat yang sihat dengan kelayakan sama. Hentikan akaun aktif sebelum mengesahkan Secret baharu bagi bot yang sama.",
+    "wecomHostChanged": "Hos telah berubah. Tutup dan buka semula borang. Sahkan operasi tertunda pada hos asal sebelum mencuba lagi.",
+    "wecomValidated": "Pengesahan disahkan",
+    "wecomValidationFailed": "Pengesahan ditolak atau sambungan tidak tersedia. Semak kelayakan dan rangkaian.",
+    "wecomGroups": "ID sembang kumpulan",
+    "wecomGroupsHint": "Satu chatid (atau group:chatid) setiap baris. Kumpulan baharu membenarkan teks tanpa @. Dasar sebutan wajib sedia ada kekal disekat kerana protokol tiada tanda sebutan yang disahkan.",
+    "wecomReplyLimit": "Versi pertama: teks akhir sahaja (20 KiB), tanpa penghantaran proaktif, media atau kad. Urus kelulusan dan soalan dalam aplikasi."
   },
   "chat": {
     "crossSession": {
@@ -958,8 +969,8 @@
     "viewSystemPrompt": "Lihat Gesaan Sistem",
     "weeksAgo": "{{count}} minggu lalu",
     "workingDir": {
-      "browserDescription": "Laluan diselesaikan pada mesin pelayan tempat ejen berjalan.",
-      "browserTitle": "Pilih direktori pada pelayan",
+      "browserDescription": "Laluan diselesaikan pada mesin tempat ejen berjalan.",
+      "browserTitle": "Pilih direktori",
       "change": "Tukar direktori",
       "clear": "Kosongkan direktori",
       "current": "Direktori kerja",
@@ -971,6 +982,7 @@
       "locationNotWritable": "Lokasi ini tidak boleh ditulis. Pilih folder utama anda atau folder lain yang dimiliki oleh pengguna yang menjalankan Hope Agent.",
       "loadError": "Tidak dapat menyenaraikan direktori",
       "loading": "Memuatkan…",
+      "noSubdirectories": "Tiada subdirektori untuk dipaparkan",
       "parent": "Naik satu tahap",
       "pathPlaceholder": "Laluan mutlak, mis. /srv/projects/app",
       "remoteWritesUnavailable": "Tidak dapat mengesahkan akses tulis jauh",
@@ -4032,7 +4044,20 @@
     "currencyCny": "Yuan China (CNY)",
     "currencyDesc": "Mata wang harga model pembekal ini. Masukkan harga seperti yang tersenarai pada halaman harga vendor; statistik kos akan ditukar secara automatik kepada USD.",
     "title": "Penyedia",
-    "waitingBrowserLogin": "Menunggu log masuk pelayar..."
+    "waitingBrowserLogin": "Menunggu log masuk pelayar...",
+    "discovery": {
+      "action": "Temui model",
+      "description": "Baca senarai tanpa menghantar perbualan ujian. Pilih model, masukkan had token dan sahkan untuk menambahnya ke senarai yang belum disimpan. Entri baharu menggunakan teks sahaja tanpa penaakulan; keupayaan lain dan harga boleh diedit sebelum disimpan.",
+      "error": "Model tidak dapat ditemui. Semak URL asas API, kelayakan dan dasar rangkaian atau tambah model secara manual.",
+      "truncated": "Senarai tidak lengkap. Model yang tiada masih boleh ditambah secara manual.",
+      "search": "Cari model yang ditemui",
+      "empty": "Tiada model baharu untuk ditambah. Entri sedia ada dikekalkan.",
+      "select": "Pilih {{id}}",
+      "context": "Had konteks {{id}}",
+      "output": "Had output {{id}}",
+      "confirm": "Saya telah mengesahkan model terpilih menyokong sembang teks dan panggilan alat serta menyemak had token ini dengan penyedia.",
+      "add": "Tambah pilihan ({{count}})"
+    }
   },
   "provider_templates": {
     "anthropic": {
@@ -4080,7 +4105,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "Model siri MiniMax M2 (serasi dengan Anthropic)",
+      "description": "Model MiniMax M3 (serasi dengan Anthropic)",
       "name": "MiniMax"
     },
     "mistral": {
@@ -8786,7 +8811,10 @@
       "save": "Simpan keutamaan",
       "saving": "Menyimpan…",
       "saved": "Disimpan"
-    }
+    },
+    "contextCompactSummaryReasoning": "Penaakulan khusus ringkasan",
+    "contextCompactSummaryReasoningDefault": "Kekalkan dasar semasa",
+    "contextCompactSummaryReasoningDesc": "Hanya mempengaruhi ringkasan konteks. Tahap yang tidak disokong memaparkan ralat dan mengekalkan sejarah. Kegagalan tidak menukar model atau menaikkan had output secara automatik. Lalai mengekalkan tingkah laku semasa."
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",
@@ -11817,7 +11845,24 @@
     "exportReviewPassed": "Semakan eksport diluluskan",
     "exportReviewBlocked": "Semakan eksport masih mempunyai penyekat",
     "guardStatus": "Pengawal",
-    "defaultName": "Artifak"
+    "defaultName": "Artifak",
+    "registration": {
+      "create": "Daftar fail sebagai artifak baharu",
+      "update": "Kemas kini daripada fail",
+      "description": "Pilih fail .html, .htm, .md atau artifact.json analisis untuk disalin ke petikan terurus. Fail asal dikekalkan. Nama sama tidak menulis ganti; kemas kini mengekalkan identiti dan sejarah yang dipilih.",
+      "path": "Laluan mutlak fail pada komputer Agent",
+      "source": "Sumber fail",
+      "uploadSource": "Pilih fail untuk dimuat naik",
+      "pathSource": "Laluan hos Agent",
+      "file": "Pilih fail untuk didaftarkan",
+      "pathHint": "Import laluan terhad kepada direktori kerja proses Agent atau direktori utama pengguna. Dapatkan fail di luar skop ini dahulu, kemudian pilih untuk dimuat naik.",
+      "failed": "Hasil tidak dapat disahkan. Muat semula pustaka sebelum menghantar semula; jika belum didaftarkan, semak format, akses laluan dan versi semasa.",
+      "hostChanged": "Komputer Agent telah berubah. Tutup dialog ini dan semak hasil pada komputer asal.",
+      "firstVersion": "Versi pertama",
+      "updatedVersion": "Dikemas kini",
+      "createdAt": "Dicipta",
+      "updatedAt": "Dikemas kini"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "Tugas Latar Belakang",
@@ -12181,12 +12226,15 @@
       "desc": "Tarik gaya warna / teks / bayang yang diterbitkan daripada fail Figma dan sulingkannya menjadi sistem reka bentuk jenama. Token hanya digunakan untuk import ini dan tidak disimpan.",
       "url": "URL atau kunci fail Figma",
       "token": "Token akses peribadi",
-      "tokenHint": "Jana satu di Figma → Settings → Security → Personal access tokens (perlu skop file_read).",
+      "tokenHint": "Jana satu di Figma → Settings → Security → Personal access tokens (perlu library_content:read, file_content:read dan akses fail).",
       "name": "Nama sistem (pilihan)",
       "namePlaceholder": "Sistem reka bentuk Figma",
       "import": "Import",
       "ok": "Sistem reka bentuk diimport dari Figma",
-      "err": "Import Figma gagal — semak URL dan token"
+      "err": "Import Figma gagal — semak URL dan token",
+      "permissionErr": "Import Figma ditolak: semak kesahan token, library_content:read, file_content:read dan akses fail/organisasi.",
+      "rateLimited": "Permintaan Figma dihadkan. Tunggu sebelum mencuba lagi; tempoh menunggu tidak diketahui.",
+      "retryAfter": "Permintaan Figma dihadkan. Tunggu sekurang-kurangnya {{seconds}} saat sebelum mencuba lagi."
     },
     "exportHandoff": "Pakej serahan kod (ZIP)",
     "bind": {

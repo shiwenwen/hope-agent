@@ -7,7 +7,7 @@ use aes::cipher::{BlockEncrypt, KeyInit};
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use hmac::{Hmac, Mac};
-use rand::RngCore;
+use rand::Rng;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;

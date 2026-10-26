@@ -32,8 +32,11 @@ import WeChatConnectSection from "./WeChatConnectSection"
 import TelegramGroupChannelConfig from "./TelegramGroupConfig"
 import TelegramConnectionFields from "./TelegramConnectionFields"
 import SaveErrorBanner from "./SaveErrorBanner"
+import { WeComConnectionFields, WeComGroupFields } from "./WeComFields"
 import {
   getWeChatConnectionFromAccount,
+  readWeComGroups,
+  withWeComGroups,
   parseChannelSaveError,
   readTelegramApiRoot,
   withTelegramApiRoot,
@@ -77,6 +80,10 @@ export default function EditAccountDialog({
 }) {
   const { t } = useTranslation()
   const [label, setLabel] = useState("")
+  const [formTransport, setFormTransport] = useState(getTransport)
+  const [wecomBotId, setWeComBotId] = useState("")
+  const [wecomSecret, setWeComSecret] = useState("")
+  const [wecomGroupIds, setWeComGroupIds] = useState("")
   const [token, setToken] = useState("")
   const [telegramApiRoot, setTelegramApiRoot] = useState("")
   const [agentId, setAgentId] = useState("")
@@ -115,7 +122,11 @@ export default function EditAccountDialog({
   // Populate form when account changes
   useEffect(() => {
     if (account) {
+      setFormTransport(getTransport())
       setLabel(account.label)
+      setWeComBotId(String(account.credentials.botId ?? ""))
+      setWeComSecret(String(account.credentials.secret ?? ""))
+      setWeComGroupIds(readWeComGroups(account.security.groups ?? {}))
       setToken((account.credentials as Record<string, string>).token ?? "")
       setTelegramApiRoot(readTelegramApiRoot(account.settings))
       setAgentId(account.agentId ?? "")
@@ -141,9 +152,7 @@ export default function EditAccountDialog({
         ),
       )
       setKbAccessOptIn(
-        Boolean(
-          (account.settings as Record<string, unknown> | null | undefined)?.kbAccessOptIn,
-        ),
+        Boolean((account.settings as Record<string, unknown> | null | undefined)?.kbAccessOptIn),
       )
       setValidationResult(null)
       setValidationError(null)
@@ -176,6 +185,10 @@ export default function EditAccountDialog({
 
   const handleSave = async () => {
     if (!account || !label.trim()) return
+    if (account.channelId === "wecom" && getTransport() !== formTransport) {
+      setSaveError(t("channels.wecomHostChanged"))
+      return
+    }
     setSaving(true)
     setSaveError(null)
     try {
@@ -191,8 +204,8 @@ export default function EditAccountDialog({
 
       const commonSettings = {
         ...((account.settings as Record<string, unknown> | null | undefined) ?? {}),
-        imReplyMode,
-        ...((account.channelId === "telegram" || account.channelId === "slack")
+        imReplyMode: account.channelId === "wecom" ? "final" : imReplyMode,
+        ...(account.channelId === "telegram" || account.channelId === "slack"
           ? { nativeReply }
           : {}),
         ...(account.channelId === "imessage" ? { imsgProtocolV1 } : {}),
@@ -229,8 +242,13 @@ export default function EditAccountDialog({
       const originalTelegramApiRoot = readTelegramApiRoot(account.settings)
       const telegramApiRootChanged =
         account.channelId === "telegram" && telegramApiRoot.trim() !== originalTelegramApiRoot
-      const wechatChanged =
-        account.channelId === "wechat" && wechatConnection !== null
+      const wechatChanged = account.channelId === "wechat" && wechatConnection !== null
+      const groupsForSave =
+        account.channelId === "wecom" ? withWeComGroups(groups, wecomGroupIds) : groups
+      const wecomCredentialsChanged =
+        account.channelId === "wecom" &&
+        (wecomBotId.trim() !== String(account.credentials.botId ?? "") ||
+          wecomSecret.trim() !== String(account.credentials.secret ?? ""))
       const otherFieldsChanged =
         label.trim() !== account.label ||
         (agentId || "") !== (account.agentId ?? "") ||
@@ -240,6 +258,7 @@ export default function EditAccountDialog({
         token.trim() !== originalToken ||
         telegramApiRootChanged ||
         wechatChanged ||
+        wecomCredentialsChanged ||
         imReplyMode !== originalImReplyMode ||
         ((account.channelId === "telegram" || account.channelId === "slack") &&
           nativeReply !== originalNativeReply) ||
@@ -251,7 +270,13 @@ export default function EditAccountDialog({
             discordFileRequests !== originalDiscordFileRequests)) ||
         showThinking !== originalShowThinking ||
         kbAccessOptIn !== originalKbAccessOptIn ||
-        JSON.stringify({ dmPolicy, userAllowlist, groupPolicy, groups, channels }) !==
+        JSON.stringify({
+          dmPolicy,
+          userAllowlist,
+          groupPolicy,
+          groups: groupsForSave,
+          channels,
+        }) !==
           JSON.stringify({
             dmPolicy: account.security.dmPolicy,
             userAllowlist: account.security.userAllowlist,
@@ -274,7 +299,7 @@ export default function EditAccountDialog({
             userAllowlist,
             adminIds: account.security.adminIds,
             groupPolicy,
-            groups,
+            groups: groupsForSave,
             channels,
           },
         }
@@ -293,6 +318,14 @@ export default function EditAccountDialog({
           } else {
             params.settings = settingsBase
           }
+        } else if (account.channelId === "wecom") {
+          if (wecomCredentialsChanged)
+            params.credentials = {
+              ...account.credentials,
+              botId: wecomBotId.trim(),
+              secret: wecomSecret.trim(),
+            }
+          params.settings = settingsBase
         } else {
           if (token.trim() !== originalToken) {
             params.credentials = { token: token.trim() }
@@ -300,6 +333,10 @@ export default function EditAccountDialog({
           params.settings = settingsBase
         }
         await getTransport().call("channel_update_account", params)
+        if (account.channelId === "wecom" && getTransport() !== formTransport) {
+          setSaveError(t("channels.wecomHostChanged"))
+          return
+        }
       }
 
       if (autoTranscribeChanged) {
@@ -336,11 +373,26 @@ export default function EditAccountDialog({
             <Label>{t("channels.channelType")}</Label>
             <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-muted text-sm">
               <ChannelIcon channelId={account.channelId} className="h-5 w-5" />
-              <span>{t(`channels.pluginName_${account.channelId}`, plugins.find((p) => p.meta.id === account.channelId)?.meta.displayName ?? account.channelId)}</span>
+              <span>
+                {t(
+                  `channels.pluginName_${account.channelId}`,
+                  plugins.find((p) => p.meta.id === account.channelId)?.meta.displayName ??
+                    account.channelId,
+                )}
+              </span>
             </div>
           </div>
 
           {/* Telegram token + optional Bot API reverse proxy */}
+          {account.channelId === "wecom" && (
+            <WeComConnectionFields
+              botId={wecomBotId}
+              secret={wecomSecret}
+              onBotIdChange={setWeComBotId}
+              onSecretChange={setWeComSecret}
+              sourceTransport={formTransport}
+            />
+          )}
           {account.channelId === "telegram" && (
             <TelegramConnectionFields
               token={token}
@@ -437,6 +489,14 @@ export default function EditAccountDialog({
             />
           )}
 
+          {account.channelId === "wecom" && (
+            <WeComGroupFields
+              policy={groupPolicy}
+              onPolicyChange={setGroupPolicy}
+              ids={wecomGroupIds}
+              onIdsChange={setWeComGroupIds}
+            />
+          )}
           {/* Telegram-specific: Group & Channel Config */}
           {account.channelId === "telegram" && (
             <TelegramGroupChannelConfig
@@ -474,6 +534,7 @@ export default function EditAccountDialog({
               </p>
             </div>
             <Switch
+              disabled={account.channelId === "wecom"}
               checked={notifySessionEviction}
               onCheckedChange={setNotifySessionEviction}
             />
@@ -488,6 +549,7 @@ export default function EditAccountDialog({
               </p>
             </div>
             <Switch
+              disabled={account.channelId === "wecom"}
               checked={notifyStartup}
               onCheckedChange={setNotifyStartup}
             />
@@ -504,6 +566,7 @@ export default function EditAccountDialog({
               </p>
             </div>
             <Switch
+              disabled={account.channelId === "wecom"}
               checked={autoTranscribeVoice}
               onCheckedChange={setAutoTranscribeVoice}
             />
@@ -534,8 +597,12 @@ export default function EditAccountDialog({
               channels silently degrade `preview` → `final`. */}
           <div className="space-y-2">
             <Label>{t("channels.imReplyMode")}</Label>
+            {account.channelId === "wecom" && (
+              <p className="text-xs text-muted-foreground">{t("channels.wecomReplyLimit")}</p>
+            )}
             <Select
-              value={imReplyMode}
+              disabled={account.channelId === "wecom"}
+              value={account.channelId === "wecom" ? "final" : imReplyMode}
               onValueChange={(v) => setImReplyMode(v as ImReplyMode)}
             >
               <SelectTrigger>

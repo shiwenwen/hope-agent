@@ -65,6 +65,7 @@ export default function ProviderSetup({
   const [modelsExpanded, setModelsExpanded] = useState(false)
   const [thinkingStyle, setThinkingStyle] = useState<ThinkingStyleType>("openai")
   const [currency, setCurrency] = useState<Currency>("USD")
+  const [allowPrivateNetwork, setAllowPrivateNetwork] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
 
   useEffect(() => {
@@ -107,6 +108,7 @@ export default function ProviderSetup({
     setModelsExpanded(false)
     setThinkingStyle(template.thinkingStyle || "openai")
     setCurrency(template.currency ?? "USD")
+    setAllowPrivateNetwork(false)
     setMode("template-config")
   }
 
@@ -122,6 +124,7 @@ export default function ProviderSetup({
     setCustomStep(0)
     setThinkingStyle("openai")
     setCurrency("USD")
+    setAllowPrivateNetwork(false)
     setMode("custom")
   }
 
@@ -143,6 +146,7 @@ export default function ProviderSetup({
           models,
           enabled: true,
           currency,
+          allowPrivateNetwork,
         },
       })
       // The backend initializes a missing default atomically with the add.
@@ -209,6 +213,8 @@ export default function ProviderSetup({
   // Custom wizard
   return (
     <CustomWizard
+      allowPrivateNetwork={allowPrivateNetwork}
+      setAllowPrivateNetwork={setAllowPrivateNetwork}
       customStep={customStep}
       setCustomStep={setCustomStep}
       apiType={apiType}

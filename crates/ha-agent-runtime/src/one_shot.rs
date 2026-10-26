@@ -21,9 +21,12 @@
 //! `one_shot` path — and every caller of it (side_query / recap / judge) — is
 //! byte-for-byte untouched.
 
+mod summary_reasoning;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use summary_reasoning::apply_summary_reasoning;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -130,7 +133,11 @@ impl OneShotRuntime for Runtime {
         client: &reqwest::Client,
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult> {
-        as_adapter(provider).one_shot(client, req).await
+        let explicit_summary = matches!(req.mode, OneShotMode::Summary { .. });
+        as_adapter(provider)
+            .one_shot(client, req)
+            .await
+            .map_err(|error| summary_reasoning::classify_summary_error(explicit_summary, error))
     }
 
     async fn one_shot_stream(
@@ -141,9 +148,11 @@ impl OneShotRuntime for Runtime {
         cancel: &Arc<AtomicBool>,
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
+        let explicit_summary = matches!(req.mode, OneShotMode::Summary { .. });
         as_adapter(provider)
             .one_shot_stream(client, req, cancel, on_delta)
             .await
+            .map_err(|error| summary_reasoning::classify_summary_error(explicit_summary, error))
     }
 }
 
@@ -164,6 +173,13 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult> {
         let mut body = build_anthropic_body(self.model, &req);
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::Anthropic,
+            &req,
+            &mut body,
+        )?;
         super::provider_adapters::anthropic_adapter::apply_thinking_binding_policy(
             self.base_url,
             self.model,
@@ -202,6 +218,13 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
         let mut body = build_anthropic_body(self.model, &req);
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::Anthropic,
+            &req,
+            &mut body,
+        )?;
         super::provider_adapters::anthropic_adapter::apply_thinking_binding_policy(
             self.base_url,
             self.model,
@@ -238,7 +261,7 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
 }
 
 fn build_anthropic_body(model: &str, req: &OneShotRequest<'_>) -> Value {
-    if let OneShotMode::Independent { system } = req.mode {
+    if let Some(system) = req.mode.independent_system() {
         return json!({
             "model": model,
             "max_tokens": req.max_tokens,
@@ -298,6 +321,13 @@ impl<'a> LlmApiAdapter for OpenAIChatAdapter<'a> {
     ) -> Result<OneShotResult> {
         let mut body = build_openai_chat_body(self.model, &req);
         apply_astra_chat_contract(self.base_url, self.model, &mut body)?;
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::OpenAIChat,
+            &req,
+            &mut body,
+        )?;
         let api_url = build_api_url(self.base_url, "/v1/chat/completions");
         let bearer = format!("Bearer {}", self.key);
         let result =
@@ -317,6 +347,13 @@ impl<'a> LlmApiAdapter for OpenAIChatAdapter<'a> {
     ) -> Result<OneShotResult> {
         let mut body = build_openai_chat_body(self.model, &req);
         apply_astra_chat_contract(self.base_url, self.model, &mut body)?;
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::OpenAIChat,
+            &req,
+            &mut body,
+        )?;
         if let Some(obj) = body.as_object_mut() {
             obj.insert("stream".into(), json!(true));
             // Chat Completions only reports usage in the stream when asked.
@@ -346,7 +383,7 @@ impl<'a> LlmApiAdapter for OpenAIChatAdapter<'a> {
 }
 
 fn build_openai_chat_body(model: &str, req: &OneShotRequest<'_>) -> Value {
-    if let OneShotMode::Independent { system } = req.mode {
+    if let Some(system) = req.mode.independent_system() {
         return json!({
             "model": model,
             "max_tokens": req.max_tokens,
@@ -420,7 +457,14 @@ impl<'a> LlmApiAdapter for OpenAIResponsesAdapter<'a> {
         client: &reqwest::Client,
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult> {
-        let body = build_responses_body(self.model, &req, ProviderFormat::OpenAIResponses);
+        let mut body = build_responses_body(self.model, &req, ProviderFormat::OpenAIResponses);
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::OpenAIResponses,
+            &req,
+            &mut body,
+        )?;
         let api_url = build_api_url(self.base_url, "/v1/responses");
         let bearer = format!("Bearer {}", self.key);
         let result =
@@ -439,6 +483,13 @@ impl<'a> LlmApiAdapter for OpenAIResponsesAdapter<'a> {
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
         let mut body = build_responses_body(self.model, &req, ProviderFormat::OpenAIResponses);
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::OpenAIResponses,
+            &req,
+            &mut body,
+        )?;
         if let Some(obj) = body.as_object_mut() {
             obj.insert("stream".into(), json!(true));
         }
@@ -509,7 +560,14 @@ impl<'a> CodexAdapter<'a> {
         cancel: &AtomicBool,
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
-        let body = build_responses_body(self.model, &req, ProviderFormat::Codex);
+        let mut body = build_responses_body(self.model, &req, ProviderFormat::Codex);
+        apply_summary_reasoning(
+            CODEX_API_URL,
+            self.model,
+            ProviderFormat::Codex,
+            &req,
+            &mut body,
+        )?;
         let body_size = serde_json::to_string(&body).map(|s| s.len()).unwrap_or(0);
         let input_count = body
             .get("input")
@@ -668,7 +726,7 @@ fn build_responses_body(
     let stream = is_codex;
 
     let mut body = match req.mode {
-        OneShotMode::Independent { system } => json!({
+        OneShotMode::Independent { system } | OneShotMode::Summary { system, .. } => json!({
             "model": model,
             "store": false,
             "stream": stream,

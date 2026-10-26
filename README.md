@@ -51,6 +51,8 @@ https://github.com/user-attachments/assets/e1728465-0f5b-47a6-8af8-b9806067a6b4
 
 ## Contents
 
+- [Who is it for?](#who-is-it-for)
+- [One task, across devices](#one-task-across-devices)
 - [Core Capabilities](#core-capabilities)
 - [Capability Overview](#capability-overview)
 - [Quick Start](#quick-start)
@@ -66,6 +68,22 @@ https://github.com/user-attachments/assets/e1728465-0f5b-47a6-8af8-b9806067a6b4
 - [Acknowledgements](#acknowledgements)
 - [Star History](#star-history)
 - [License](#license)
+
+## Who is it for?
+
+- **Independent developers** who want to discuss a change, inspect a repository, edit files, and run checks in one desktop workspace, with tool permissions and approvals controlling execution.
+- **People working with research and documents** who want to organize sources in Knowledge Space, recall useful context across conversations, and turn a brief into a draft or design to review.
+- **NAS and self-hosting users** who want one always-on instance they can reach through a browser or a configured IM channel, with scheduled tasks and conversation history kept on that host.
+
+## One task, across devices
+
+For example, start a research brief at your desk, add a requirement from your phone, then review the draft when you return:
+
+1. **Start on desktop.** Open a conversation and ask Hope Agent to prepare a brief from sources you provide. Configure an IM channel on this same instance and hand the conversation over to your chat there.
+2. **Continue through IM.** In that chat on your phone, add a requirement or ask for progress. The attached conversation keeps its history; tool actions still follow the instance's permissions and approvals.
+3. **Return to desktop.** Open the same conversation to review the reply and any generated files, then ask for revisions.
+
+Keep the host running and connected. This example uses one instance and its session store; separate installations do not automatically synchronize. A browser can also access the same instance when remote access is configured with authentication (and HTTPS for public access). See [session handover](docs/user-guide/en/10-im-channels.md#104-session-takeover-and-handover) and [remote deployment](docs/deployment/docker.en.md).
 
 ## Core Capabilities
 
@@ -350,7 +368,7 @@ All three modes share the same `ha-core` core. Config, sessions, and memories li
 </tr>
 <tr>
   <td><b>💬 IM channels</b></td>
-  <td><b>10+</b> · Telegram · Discord · Slack · Feishu · Google Chat · LINE · QQ Bot · Signal · iMessage · IRC · WeChat · WhatsApp</td>
+  <td><b>10+</b> · Telegram · Discord · Slack · Feishu · Google Chat · LINE · QQ Bot · Signal · iMessage · IRC · WeChat · WeCom (text) · WhatsApp</td>
 </tr>
 <tr>
   <td><b>🌐 UI languages</b></td>

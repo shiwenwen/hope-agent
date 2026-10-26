@@ -189,17 +189,37 @@ async fn resolve_source(source: &PdfSource) -> Result<(Vec<u8>, String)> {
 
 /// Extract text from PDF bytes, returning per-page text.
 fn extract_text_from_bytes(data: &[u8]) -> Result<Vec<String>> {
-    // pdf_extract works on files, write to a temp file
-    let tmp = std::env::temp_dir().join(format!("oc_pdf_{}.pdf", uuid::Uuid::new_v4()));
-    std::fs::write(&tmp, data)?;
-    let result = pdf_extract::extract_text(&tmp);
-    let _ = std::fs::remove_file(&tmp);
-
-    let full_text = result.map_err(|e| anyhow!("Text extraction failed: {}", e))?;
-    let pages: Vec<String> = full_text
-        .split('\x0C')
-        .map(|p| p.trim().to_string())
-        .collect();
+    let mut document = pdf_extract::Document::load_mem(data)
+        .map_err(|_| anyhow!("Text extraction failed: PDF cannot be parsed"))?;
+    if document.is_encrypted() {
+        document
+            .decrypt("")
+            .map_err(|_| anyhow!("Text extraction failed: PDF cannot be decrypted"))?;
+    }
+    let page_ids = document.get_pages();
+    if page_ids.is_empty() {
+        return Err(anyhow!("PDF has no readable pages"));
+    }
+    let mut pages = Vec::with_capacity(page_ids.len());
+    for (page_number, page_id) in page_ids {
+        // pdf-extract's convenience iterator treats every page error as EOF.
+        // Enumerate the actual page tree and propagate a failure instead.
+        // Its content processor unwraps decoding; validate that fallible step
+        // before entering it so malformed streams return a controlled error.
+        pdf_extract::content::Content::decode_strict(
+            &document
+                .get_page_content(page_id)
+                .map_err(|_| anyhow!("PDF content on page {page_number} cannot be read"))?,
+        )
+        .map_err(|_| anyhow!("PDF content on page {page_number} is malformed"))?;
+        let mut text = String::new();
+        {
+            let mut output = pdf_extract::PlainTextOutput::new(&mut text);
+            pdf_extract::output_doc_page(&document, &mut output, page_number)
+                .map_err(|_| anyhow!("Text extraction failed on page {page_number}"))?;
+        }
+        pages.push(text.trim().to_string());
+    }
     Ok(pages)
 }
 
@@ -511,4 +531,116 @@ fn parse_page_range(spec: &str, total_pages: usize) -> Result<Vec<usize>> {
 
     pages.sort();
     Ok(pages)
+}
+
+#[cfg(test)]
+mod parser_tests {
+    use super::*;
+
+    fn synthetic_pdf(catalog_extra: &str, texts: &[&str]) -> Vec<u8> {
+        let mut objects = vec![
+            format!("<< /Type /Catalog /Pages 2 0 R {catalog_extra} >>"),
+            format!(
+                "<< /Type /Pages /Count {} /Kids [{}] >>",
+                texts.len(),
+                (0..texts.len())
+                    .map(|i| format!("{} 0 R", 4 + i * 2))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ];
+        for (index, text) in texts.iter().enumerate() {
+            let stream = format!("BT /F1 12 Tf 20 100 Td ({text}) Tj ET");
+            objects.push(format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 3 0 R >> >> /Contents {} 0 R >>", 5 + index * 2));
+            objects.push(format!(
+                "<< /Length {} >>\nstream\n{stream}\nendstream",
+                stream.len()
+            ));
+        }
+        let mut pdf = b"%PDF-1.4\n".to_vec();
+        let mut offsets = vec![0];
+        for (index, object) in objects.iter().enumerate() {
+            offsets.push(pdf.len());
+            pdf.extend_from_slice(format!("{} 0 obj\n{object}\nendobj\n", index + 1).as_bytes());
+        }
+        let xref = pdf.len();
+        pdf.extend_from_slice(
+            format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len()).as_bytes(),
+        );
+        for offset in offsets.iter().skip(1) {
+            pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        pdf.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+                offsets.len()
+            )
+            .as_bytes(),
+        );
+        pdf
+    }
+
+    #[test]
+    fn normal_pdf_text_pages_and_empty_document_remain_readable() {
+        let bytes = synthetic_pdf("", &["First synthetic page", "Second synthetic page"]);
+        let pages = extract_text_from_bytes(&bytes).unwrap();
+        assert!(pages
+            .iter()
+            .any(|page| page.contains("First synthetic page")));
+        assert!(pages
+            .iter()
+            .any(|page| page.contains("Second synthetic page")));
+        let (text, count) = extract_pdf_text_for_web_fetch(&bytes).unwrap();
+        assert_eq!(pages.len(), 2);
+        assert_eq!(count, text.chars().count());
+        assert!(text.contains("--- Page 2 ---"));
+        assert!(text.contains("First synthetic page"));
+        assert!(text.contains("Second synthetic page"));
+        let empty = extract_text_from_bytes(&synthetic_pdf("", &[""])).unwrap();
+        assert!(empty.iter().all(|page| page.trim().is_empty()));
+    }
+
+    #[test]
+    fn later_page_failure_does_not_return_a_short_successful_document() {
+        let bytes = synthetic_pdf("", &["Valid first page", ") [ ("]);
+        assert!(pdf_extract::Document::load_mem(&bytes).is_ok());
+        let error = extract_text_from_bytes(&bytes).unwrap_err();
+        assert!(error.to_string().contains("page 2"));
+        assert!(extract_pdf_text_for_web_fetch(&bytes).is_err());
+    }
+
+    #[test]
+    fn deep_pdf_returns_error_without_aborting_process() {
+        const CHILD: &str = "HA_TEST_DEEP_PDF_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let extra = format!("/X {}{}", "[".repeat(10_380), "]".repeat(10_380));
+            assert!(extract_text_from_bytes(&synthetic_pdf(&extra, &["unused"])).is_err());
+            return;
+        }
+        // A stack overflow abort cannot be caught by catch_unwind. Isolate the
+        // synthetic input so a vulnerable dependency fails this test safely.
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tools::pdf::parser_tests::deep_pdf_returns_error_without_aborting_process",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .spawn()
+            .unwrap();
+        let start = std::time::Instant::now();
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(status.success(), "PDF parser subprocess failed: {status}");
+                break;
+            }
+            if start.elapsed() > std::time::Duration::from_secs(30) {
+                child.kill().unwrap();
+                let _ = child.wait();
+                panic!("PDF parser subprocess exceeded its time limit");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
 }

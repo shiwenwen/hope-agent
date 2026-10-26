@@ -39,10 +39,11 @@ impl AssistantAgent {
         cancel: &Arc<AtomicBool>,
         on_text: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<SideQueryResult> {
-        let client =
-            crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
-                .build()
-                .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+        let client = crate::provider::apply_model_proxy(
+            reqwest::Client::builder().user_agent(&self.user_agent),
+        )
+        .build()
+        .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
         let cached = self
             .cache_safe_params
@@ -167,10 +168,11 @@ impl AssistantAgent {
         cancel: &Arc<AtomicBool>,
         on_text: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<SideQueryResult> {
-        let client =
-            crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
-                .build()
-                .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+        let client = crate::provider::apply_model_proxy(
+            reqwest::Client::builder().user_agent(&self.user_agent),
+        )
+        .build()
+        .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
         let expected_format = ProviderFormat::from(&self.provider);
         let model_id = self.provider.model();

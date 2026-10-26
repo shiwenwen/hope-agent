@@ -38,7 +38,9 @@ pub async fn build_agent_from_snapshot(
     if let Some(model_ref) = compact_config.effective_summarization_model_ref() {
         if let Some(cp) = crate::agent::build_compaction_provider(&model_ref, providers, session_id)
         {
-            agent.set_compaction_provider(Some(std::sync::Arc::new(cp)));
+            agent.set_compaction_provider(Some(std::sync::Arc::new(
+                cp.with_summary_reasoning_effort(compact_config.summary_reasoning_effort),
+            )));
         }
     }
 

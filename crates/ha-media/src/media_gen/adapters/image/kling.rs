@@ -390,7 +390,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     ha_core::security::ssrf::check_url(&submit_url, params.ssrf, &cfg.ssrf.trusted_hosts).await?;
 
     let auth = classify_auth(params.api_key);
-    let client = ha_core::provider::apply_proxy(
+    let client = ha_core::provider::apply_model_proxy(
         Client::builder()
             .connect_timeout(Duration::from_secs(30))
             .timeout(Duration::from_secs(params.timeout_secs)),

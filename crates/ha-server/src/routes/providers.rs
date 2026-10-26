@@ -75,6 +75,16 @@ pub async fn delete_provider(Path(id): Path<String>) -> Result<Json<Value>, AppE
     Ok(Json(json!({ "deleted": true })))
 }
 
+/// `POST /api/providers/discover-models` — read a bounded, untrusted model list.
+pub async fn discover_provider_models(
+    Json(config): Json<ProviderConfig>,
+) -> Result<Json<ha_core::provider::discovery::ModelDiscovery>, AppError> {
+    ha_core::provider::discovery::discover_provider_models(config)
+        .await
+        .map(Json)
+        .map_err(AppError::bad_request)
+}
+
 /// `POST /api/providers/test` — test provider connection.
 pub async fn test_provider(Json(config): Json<ProviderConfig>) -> Result<Json<Value>, AppError> {
     let payload = ha_core::provider::test::test_provider(config)

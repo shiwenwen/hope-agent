@@ -368,7 +368,18 @@
     "lineAccessToken": "Token de acesso ao canal",
     "lineChannelSecret": "Segredo do canal",
     "feishuDomainFeishu": "Feishu (China continental)",
-    "feishuDomainLark": "Lark (Internacional)"
+    "feishuDomainLark": "Lark (Internacional)",
+    "pluginName_wecom": "WeCom",
+    "pluginDesc_wecom": "Texto direto do bot de IA em conversas privadas e grupos",
+    "wecomBotId": "Bot ID",
+    "wecomSecret": "Bot Secret",
+    "wecomSetupHint": "Obtenha Bot ID e Secret no WeCom. Use um cliente por bot. A validação assina brevemente e reutiliza uma conexão local saudável com as mesmas credenciais. Pare a conta em execução antes de validar um Secret diferente do mesmo bot.",
+    "wecomHostChanged": "O servidor mudou. Feche e reabra o formulário. Confira operações pendentes no servidor original antes de tentar novamente.",
+    "wecomValidated": "Autenticação confirmada",
+    "wecomValidationFailed": "Autenticação rejeitada ou conexão indisponível. Confira credenciais e rede.",
+    "wecomGroups": "IDs de conversas em grupo",
+    "wecomGroupsHint": "Um chatid (ou group:chatid) por linha. Novos grupos permitem texto sem @. Políticas existentes que exigem menção continuam bloqueadas: não há marcador de menção verificado neste protocolo.",
+    "wecomReplyLimit": "Primeira versão: apenas texto final (20 KiB), sem envios proativos, mídia ou cartões. Trate aprovações e perguntas no aplicativo."
   },
   "chat": {
     "crossSession": {
@@ -958,8 +969,8 @@
     "viewSystemPrompt": "Ver instrução do sistema",
     "weeksAgo": "{{count}}sem atrás",
     "workingDir": {
-      "browserDescription": "Os caminhos são resolvidos na máquina onde o agente está rodando.",
-      "browserTitle": "Selecione um diretório no servidor",
+      "browserDescription": "Os caminhos são resolvidos na máquina em que o agente está em execução.",
+      "browserTitle": "Selecionar diretório",
       "change": "Trocar diretório",
       "clear": "Remover diretório",
       "current": "Diretório de trabalho",
@@ -971,6 +982,7 @@
       "locationNotWritable": "Não é possível gravar neste local. Escolha sua pasta pessoal ou outra pasta pertencente ao usuário que executa o Hope Agent.",
       "loadError": "Não é possível listar o diretório",
       "loading": "Carregando…",
+      "noSubdirectories": "Não há subdiretórios para mostrar",
       "parent": "Subir um nível",
       "pathPlaceholder": "Caminho absoluto, ex. /srv/projects/app",
       "remoteWritesUnavailable": "Não foi possível verificar o acesso de gravação remota",
@@ -4032,7 +4044,20 @@
     "currencyCny": "Yuan chinês (CNY)",
     "currencyDesc": "Moeda dos preços de modelo deste provedor. Insira os preços exatamente como listados na página de preços do fornecedor; as estatísticas de custo são convertidas automaticamente para USD.",
     "title": "Provedores",
-    "waitingBrowserLogin": "Aguardando login no navegador..."
+    "waitingBrowserLogin": "Aguardando login no navegador...",
+    "discovery": {
+      "action": "Descobrir modelos",
+      "description": "Consulta a lista sem enviar conversas de teste. Selecione modelos, informe os limites de tokens e confirme para adicioná-los à lista ainda não salva. Novos itens usam apenas texto, sem raciocínio; edite os demais recursos e preços antes de salvar.",
+      "error": "Não foi possível descobrir modelos. Verifique a URL base, as credenciais e a política de rede ou adicione modelos manualmente.",
+      "truncated": "A lista está incompleta. Você pode adicionar os modelos restantes manualmente.",
+      "search": "Pesquisar modelos encontrados",
+      "empty": "Não há novos modelos para adicionar. Os existentes são preservados.",
+      "select": "Selecionar {{id}}",
+      "context": "Limite de contexto de {{id}}",
+      "output": "Limite de saída de {{id}}",
+      "confirm": "Verifiquei que os modelos selecionados aceitam chat de texto e chamadas de ferramentas e confirmei estes limites com o provedor.",
+      "add": "Adicionar selecionados ({{count}})"
+    }
   },
   "provider_templates": {
     "anthropic": {
@@ -4080,7 +4105,7 @@
       "name": "LM Studio"
     },
     "minimax": {
-      "description": "Modelos da série MiniMax M2 (compatíveis com Anthropic)",
+      "description": "Modelos MiniMax M3 (compatíveis com Anthropic)",
       "name": "MiniMax"
     },
     "mistral": {
@@ -8786,7 +8811,10 @@
       "save": "Salvar preferências",
       "saving": "Salvando…",
       "saved": "Salvo"
-    }
+    },
+    "contextCompactSummaryReasoning": "Raciocínio dos resumos",
+    "contextCompactSummaryReasoningDefault": "Manter a política atual",
+    "contextCompactSummaryReasoningDesc": "Afeta apenas os resumos de contexto. Níveis incompatíveis geram erro e preservam o histórico. Falhas não trocam o modelo nem aumentam o limite de saída. O padrão mantém o comportamento atual."
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",
@@ -11817,7 +11845,24 @@
     "exportReviewPassed": "Revisão de exportação aprovada",
     "exportReviewBlocked": "Revisão de exportação ainda tem bloqueadores",
     "guardStatus": "Guarda",
-    "defaultName": "Artefato"
+    "defaultName": "Artefato",
+    "registration": {
+      "create": "Registrar arquivo como novo artefato",
+      "update": "Atualizar a partir de arquivo",
+      "description": "Selecione um arquivo .html, .htm, .md ou artifact.json de análise para copiar para uma cópia gerenciada. O original é preservado. Não há sobrescrita pelo nome; as atualizações mantêm a identidade e o histórico selecionados.",
+      "path": "Caminho absoluto do arquivo no computador do Agent",
+      "source": "Origem do arquivo",
+      "uploadSource": "Selecionar arquivo para enviar",
+      "pathSource": "Caminho no host do Agent",
+      "file": "Selecionar arquivo para registrar",
+      "pathHint": "A importação por caminho limita-se ao diretório de trabalho do processo Agent ou à pasta pessoal. Obtenha os arquivos fora desses limites e selecione-os para envio.",
+      "failed": "Não foi possível confirmar o resultado. Atualize a biblioteca antes de reenviar; se não foi registrado, confira formato, permissões e versão atual.",
+      "hostChanged": "O computador do Agent mudou. Feche esta janela e confira o resultado no computador original.",
+      "firstVersion": "Primeira versão",
+      "updatedVersion": "Atualizado",
+      "createdAt": "Criado",
+      "updatedAt": "Atualizado"
+    }
   },
   "backgroundJobs": {
     "panelTitle": "Tarefas em segundo plano",
@@ -12181,12 +12226,15 @@
       "desc": "Busque os estilos de cor / texto / sombra publicados de um arquivo do Figma e destile-os em um sistema de design de marca. O token é usado apenas nesta importação e nunca é salvo.",
       "url": "URL ou chave do arquivo do Figma",
       "token": "Token de acesso pessoal",
-      "tokenHint": "Gere um em Figma → Settings → Security → Personal access tokens (precisa do escopo file_read).",
+      "tokenHint": "Gere um em Figma → Settings → Security → Personal access tokens (precisa de library_content:read, file_content:read e acesso ao arquivo).",
       "name": "Nome do sistema (opcional)",
       "namePlaceholder": "Sistema de design do Figma",
       "import": "Importar",
       "ok": "Sistema de design importado do Figma",
-      "err": "Falha ao importar do Figma — verifique a URL e o token"
+      "err": "Falha ao importar do Figma — verifique a URL e o token",
+      "permissionErr": "Importação do Figma negada: verifique a validade do token, library_content:read, file_content:read e o acesso ao arquivo ou organização.",
+      "rateLimited": "O Figma limitou as solicitações. Aguarde antes de tentar novamente; o tempo de espera é desconhecido.",
+      "retryAfter": "O Figma limitou as solicitações. Aguarde pelo menos {{seconds}} segundos antes de tentar novamente."
     },
     "exportHandoff": "Pacote para devs (ZIP)",
     "bind": {

@@ -456,6 +456,7 @@ GUI 默认不显示层级和诊断清单；排障时可通过日志、调试详�
 |---|---|---|---|
 | `modelOverride` | `Option<ActiveModel>` | — | 摘要专用模型。`None` 表示使用对话自身模型。摘要始终使用独立的单次请求形态，不重复携带主历史缓存；临时失败走有界重试，不跨模型降级、不落到 `function_models.automation` |
 | `summarizationModel` | `Option<String>` | — | **已废弃**，被 `modelOverride` 取代。格式 `"providerId:modelId"`；`modelOverride` 未设时仍会被解析，GUI 不再写入 |
+| `summaryReasoningEffort` | `Option<SummaryReasoningEffort>` | `null` | 仅摘要使用的推理覆盖：`none/minimal/low/medium/high/xhigh/max`；空值保持现有协议策略，显式覆盖失败不自动改用其它模型或增加输出预算 |
 | `summarizationThreshold` | `f64` | `0.85` | 内置日常摘要高水位；达到后直接进入第 3 层，不先发布第 0/2 层 |
 | `identifierPolicy` | `String` | `"strict"` | 标识符保留策略：`strict` / `off` / `custom` |
 | `identifierInstructions` | `Option<String>` | — | 自定义标识符指令，仅 `identifierPolicy="custom"` 时生效 |
@@ -465,6 +466,19 @@ GUI 默认不显示层级和诊断清单；排障时可通过日志、调试详�
 | `maxHistoryShare` | `f64` | `0.5` | 裁剪时历史消息最大允许占窗口比例，钳 `0.10–0.90` |
 | `maxCompactionSummaryChars` | `usize` | `16000` | 摘要文本最大字节数，钳 `4000–64000`；超出即拒绝候选，不截断安装 |
 | `maxCompactionInjectedContextShare` | `f64` | `0.5` | 第 3 层联合注入预算（摘要、运行时台账和文件恢复合计占窗口的比例），运行时钳 `0.05..=maxHistoryShare` |
+
+### 摘要专用推理覆盖
+
+显式覆盖通过 `OneShotMode::Summary` 携带独立摘要系统提示、所选档位及实际模型的思考格式；专用摘要模型与跟随对话模型共用这条路径，HTTP/桌面/ACP 的统一快照构建会传播同一配置。`null` 保持原来的独立请求策略：Chat 原有省略行为、Responses/Codex 的原有 `low`，以及 Anthropic 原有绑定策略；其它 one-shot、主对话档位和模型配置不变。
+
+- Chat 的 OpenAI 格式把显式 `none` 真正写为 `reasoning_effort: "none"`，不走把它归一化成省略的通用映射。官方直连 DeepSeek 用 `thinking.type=disabled`，启用时按其公开档位映射；兼容网关仅使用用户配置的格式，不以相似模型名推断直连能力。
+- Responses 写 `reasoning.effort`；官方 GPT-6 不支持的组合在发送前拒绝。Codex OAuth 后端不推断公共 API 的关闭能力，首版显式 `none` 不支持，正档位不得静默钳位。
+- Anthropic 原生格式按已核验的直连 Claude 5 模型使用 adaptive/effort，其余预算格式要求所选预算小于原输出上限；不足时拒绝，不自动加大上限。明确支持的关闭方式发送 `thinking.type=disabled`，已知不接受 `disabled` 的直连模型拒绝关闭。
+- Qwen 格式首版只支持明确关闭 `enable_thinking=false`，不把有等级的请求伪装成布尔开启。Z.AI 格式使用 `thinking.type` 与 `reasoning_effort`，官方 GLM-5.3 系列不能关闭；未声明思考格式的模型不能静默丢弃覆盖。
+
+已知不支持的本地组合返回 `ProviderRequestContractError`。服务端通过HTTP 400/422 明确拒绝 reasoning/thinking 参数时，只在显式摘要路径将其转换为同一终止错误，丢弃不可信的原始错误回显；其它请求的分类与重试不变。其它临时失败仍在所选摘要模型内进行原有有界重试，耗尽后显式覆盖不再落到对话模型。已配置摘要模型不可用、正文为空或结构校验失败同样不替换权威历史；输出上限、凭据轮换和主对话档位不随失败改变。
+
+协议来源：[OpenAI](https://developers.openai.com/api/docs/guides/reasoning)、[DeepSeek](https://api-docs.deepseek.com/guides/thinking_mode/)、[Claude](https://platform.claude.com/docs/en/build-with-claude/thinking)、[Qwen](https://help.aliyun.com/zh/model-studio/deep-thinking/)、[Z.AI](https://docs.z.ai/guides/capabilities/thinking)。这些来源不代表第三方网关的真实兼容性验收。
 
 ### 后压缩文件恢复
 

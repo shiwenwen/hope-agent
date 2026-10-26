@@ -21,6 +21,8 @@ pub enum ChannelId {
     Telegram,
     #[serde(rename = "wechat")]
     WeChat,
+    #[serde(rename = "wecom")]
+    WeCom,
     #[serde(rename = "whatsapp")]
     WhatsApp,
     Discord,
@@ -57,6 +59,7 @@ impl std::fmt::Display for ChannelId {
         match self {
             ChannelId::Telegram => write!(f, "telegram"),
             ChannelId::WeChat => write!(f, "wechat"),
+            ChannelId::WeCom => write!(f, "wecom"),
             ChannelId::WhatsApp => write!(f, "whatsapp"),
             ChannelId::Discord => write!(f, "discord"),
             ChannelId::Irc => write!(f, "irc"),

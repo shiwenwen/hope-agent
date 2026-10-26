@@ -69,7 +69,7 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
     let url = format!("{}/tts/bytes", base);
     let body = build_body(params.model, params.prompt, voice, params.extra);
 
-    let client = ha_core::provider::apply_proxy(
+    let client = ha_core::provider::apply_model_proxy(
         Client::builder()
             .connect_timeout(Duration::from_secs(30))
             .timeout(Duration::from_secs(params.timeout_secs)),

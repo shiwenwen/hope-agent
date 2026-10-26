@@ -25,8 +25,8 @@
 //!   （execution 的 auto-approve 门消费；**trust-level 安全谓词
 //!   `server_auto_approves_config` 留 kernel**，钩子只做运行时
 //!   查表）。未接线返 `None` → auto-approve 恒 false（fail-closed）。
-//! - `call_tool`：`mcp__<server>__<tool>` 分发（execution 逃逸口 +
-//!   hooks runner）。未接线 `Err`——与 manager None 的既有报错一致。
+//! - `call_tool`：`mcp__<server>__<tool>` 分发，按调用方选择对话正文或
+//!   Hook 协议 JSON。未接线 `Err`——与 manager None 的既有报错一致。
 //! - `system_prompt_snippet`：兼容命名；返回 MCP capability data 段，
 //!   renderer 只能将其放入动态 user-data lane。未接线 `None`。
 //! - `reconcile_from_config`：settings 热更（`mcp_global` 类目）冷启用
@@ -42,6 +42,13 @@ use crate::tool_defs::ToolExecContext;
 use ha_config_schema::mcp::McpServerConfig;
 
 type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Internal consumer contract, selected by the caller rather than tool input.
+#[derive(Clone, Copy)]
+pub enum McpToolResultFormat {
+    Conversation,
+    Hook(crate::hooks::HookEvent),
+}
 
 pub struct McpHooks {
     /// 读 cached_config 并幂等 init_global；返回「MCP 已启用且完成 init」。
@@ -68,6 +75,7 @@ pub struct McpHooks {
         &'a str,
         &'a serde_json::Value,
         &'a ToolExecContext,
+        McpToolResultFormat,
     ) -> BoxFut<'a, anyhow::Result<String>>,
     /// MCP capability data 段（兼容字段名；不得提升为 system）。
     pub system_prompt_snippet: fn() -> Option<String>,

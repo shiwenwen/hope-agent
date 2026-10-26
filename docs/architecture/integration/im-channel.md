@@ -11,7 +11,7 @@
 | [`crates/ha-config-schema/src/channel.rs`](../../../crates/ha-config-schema/src/channel.rs) | 配置 wire 类型：`ChannelId` / `ChannelAccountConfig` / `SecurityConfig` / `ImReplyMode` |
 | [`crates/ha-core/src/channel/`](../../../crates/ha-core/src/channel/) | 内核侧的台账与契约：运行时类型、`ChannelPlugin` trait、会话映射 DB、注册表 |
 | [`crates/ha-core/src/channel_hooks.rs`](../../../crates/ha-core/src/channel_hooks.rs) | 内核 → 特征 crate 的唯一回调面（装配槽） |
-| [`crates/ha-channel/src/channel/`](../../../crates/ha-channel/src/channel/) | 「机器」：12 个渠道插件实现、入站分发器、启动 watchdog |
+| [`crates/ha-channel/src/channel/`](../../../crates/ha-channel/src/channel/) | 「机器」：13 个渠道插件实现、入站分发器、启动 watchdog |
 | [`src-tauri/src/commands/channel.rs`](../../../src-tauri/src/commands/channel.rs) | 桌面端 Tauri 命令 |
 | [`src/components/settings/channel-panel/`](../../../src/components/settings/channel-panel/) | 渠道设置面板 |
 
@@ -77,7 +77,7 @@ graph TB
     end
 
     subgraph machine["ha-channel（机器：插件 + 分发器）"]
-        PLUGINS["12 个渠道插件<br/>telegram/ discord/ slack/ feishu/ ..."]
+        PLUGINS["13 个渠道插件<br/>telegram/ discord/ slack/ feishu/ ..."]
         WORKER["worker/ 入站分发器"]
         WATCH["start_watchdog.rs"]
         MIRROR["im_mirror.rs GUI↔IM 镜像"]
@@ -112,7 +112,7 @@ graph TB
 
 ## 渠道支持矩阵
 
-12 个内置渠道已全部实现，`ChannelId` 还留了一个 `Custom(String)` 变体用于扩展。
+13 个内置渠道已登记（企业微信首版仅文本），`ChannelId` 还留了一个 `Custom(String)` 变体用于扩展。
 
 | 渠道 | 传输方式 | 认证 | ChatType | 特色 |
 |------|---------|------|----------|------|
@@ -122,6 +122,7 @@ graph TB
 | **飞书 / Lark** | WebSocket 事件订阅 | App ID + App Secret | DM / Group | OAuth Token 自动刷新、多域名、cardkit 卡片流式 |
 | **QQ Bot** | WebSocket Gateway | App ID + Client Secret | DM / Group / Channel | RESUME 重连、`QQBot` 认证 |
 | **微信 / WeChat** | HTTP 长轮询（iLink） | 扫码登录 | DM | AES-128 媒体加密、输入指示、发送业务码 fail-closed |
+| **企业微信 / WeCom** | 固定官方 WebSocket | Bot ID + Secret | DM / Group | 仅最终文本、allowlist、回执与锚点校验、断线退避；非完整企业租户验收 |
 | **WhatsApp** | HTTP 轮询（外部桥接） | Bridge URL + Token | DM / Group | Bridge 身份/版本/能力发现、Baileys 安全门禁、媒体支持 |
 | **Signal** | SSE + HTTP RPC（signal-cli） | 手机号 + 链接设备 | DM / Group | 实时推送、撤回/回复/输入指示、需外部 signal-cli |
 | **iMessage** | JSON-RPC over stdio（imsg CLI） | macOS 本地数据库 | DM / Group | macOS 限定、imsg 子进程管理 |
@@ -158,7 +159,7 @@ graph TB
 
 ```rust
 pub enum ChannelId {
-    Telegram, WeChat, WhatsApp, Discord, Irc, GoogleChat,
+    Telegram, WeChat, WeCom, WhatsApp, Discord, Irc, GoogleChat,
     Slack, Signal, IMessage, Line, Feishu, QqBot,
     Custom(String),   // 扩展渠道
 }
@@ -874,7 +875,7 @@ show_thinking 与 reply mode 正交，都在 round 文本层面工作，三态�
 
 ## 各渠道实现要点
 
-12 个插件共享 [`worker/`](../../../crates/ha-channel/src/channel/worker/) 分发器、[`ws.rs`](../../../crates/ha-channel/src/channel/ws.rs)（WebSocket + 重连退避）、[`webhook_server.rs`](../../../crates/ha-channel/src/channel/webhook_server.rs)（嵌入式 axum，Google Chat / LINE 共用）、[`process_manager.rs`](../../../crates/ha-channel/src/channel/process_manager.rs)（Signal / iMessage 的外部子进程）。以下只记各渠道的关键差异。
+13 个插件共享 [`worker/`](../../../crates/ha-channel/src/channel/worker/) 分发器、[`ws.rs`](../../../crates/ha-channel/src/channel/ws.rs)（WebSocket + 重连退避）、[`webhook_server.rs`](../../../crates/ha-channel/src/channel/webhook_server.rs)（嵌入式 axum，Google Chat / LINE 共用）、[`process_manager.rs`](../../../crates/ha-channel/src/channel/process_manager.rs)（Signal / iMessage 的外部子进程）。以下只记各渠道的关键差异。
 
 ### Telegram
 
@@ -946,6 +947,17 @@ ask_user / approval 的**按钮卡片**也走 schema 2.0，但**不**走 cardkit
 - **事件**：`C2C_MESSAGE_CREATE`→Dm、`GROUP_AT_MESSAGE_CREATE`→Group、`AT_MESSAGE_CREATE`→Channel、`DIRECT_MESSAGE_CREATE`→Dm。
 - **限制**：不支持 edit/unsend（API 不提供）。
 
+### 企业微信智能机器人（文本首版）
+
+入口为 `wecom/{mod,connection}.rs`；协议依据企业微信团队 [SDK 固定提交](https://github.com/WecomTeam/aibot-node-sdk/tree/80615b987ef69c6028ad764924609247c0725955) 的消息类型与 `src/ws.ts`，没有安装或执行该 SDK。生产只连 `wss://openws.work.weixin.qq.com`：HTTPS SSRF 检查、再次校验并固定 TCP 目标地址、原主机名 TLS 验证；无用户可写端点或重定向。
+
+- `aibot_subscribe` 的精确 `req_id` + 整数 `errcode=0` 后才启动 worker；鉴权失败以规范化 Bot ID/Secret 的内存指纹锁住自动重试，显式校验更正凭据后才能恢复。按 Bot ID 识别本机运行连接；同凭据健康连接的校验复用缓存。同一 Bot 存在不同凭据的运行账户时拒绝校验，要求先停止该 Bot 的本机账户，避免未保存的 Secret 草稿建立第二条订阅并顶掉旧连接；健康轮询也不新建连接。网络失败复用 1/2/5/10/30/60 秒有界退避，认证成功才重置；`disconnected_event` 停止竞争其它客户端并等待人工重启。
+- 心跳命令是 `ping`，每 30 秒一次，精确回执最多等待 5 秒。连接、TLS 与鉴权合计最多 15 秒。帧/消息上限 64 KiB，发送队列 16、锚点 512、跨重连消息/请求去重各 4096 项；源消息锚点最多保留 10 分钟，容量淘汰或重连后不可复用。队列满不等待模型，健康页保留告警。
+- 入站仅接收与 Bot ID 一致的 `text`；单聊地址 `single:<userid>`，群聊 `group:<chatid>`。不复制 `response_url`、quote、媒体/AES 字段或原始 frame，`MsgContext.raw=null`。沿通用 `TurnKernel`、准入、计量及审批处理；allowlist 在排入 dispatcher 前和通用 dispatcher 再次检查。空 allowlist 不放行；未知聊天类型、未实现 pairing、默认/显式 requireMention 均保持关闭。新建群条目仅在 owner 明确填写 ID 时设 `requireMention=false`，编辑已有条目保留原策略。SDK 未提供已核验的提及字段，绝不伪造 `was_mentioned`。拒绝日志每账号最多 30 秒一条，只含脱敏身份 ID，不记录正文或凭据。
+- 首版强制 `final`，原生能力只声明最终文本。回复以本账号 + 聊天 + 原始 message ID + 当前连接内锚点匹配 SDK 原始 callback `req_id`；一个锚点只发一个 `finish=true` 的 stream，UTF-8 正文不超过 20480 字节。写入前校验全部内容；只有精确 ACK 为零才返回成功。超时、断线、取消或不可读回执均为 `Ambiguous` 并消费锚点，不自动切到其它发送路径或重发；缺少/过期锚点拒绝，不能使用最近聊天回调代替。媒体、卡片、按钮、typing 和原生预览不声明支持。
+
+不支持主动推送、桌面镜像补发、无锚点测试消息或 IM 审批/问答通知；仍可在应用既有界面处理审批/提问，strict 门禁不改变。新账户默认关闭接管/上线通知，GUI 不开放这些不受支持的通知与语音转写开关。只完成本机合成 WS/准入/生命周期测试，未连接真实企业租户；该边界不能写成平台兼容性验收。
+
 ### WhatsApp Bridge
 
 WhatsApp 仍通过用户自部署的 HTTP Bridge 接入。`GET /api/health` 的兼容响应至少包含 `connected`，新版 Bridge 应额外返回 `accountName`、`implementation`、`version` 与 `capabilities`。
@@ -958,7 +970,9 @@ WhatsApp 仍通过用户自部署的 HTTP Bridge 接入。`GET /api/health` 的�
 ### Signal、iMessage 与 Google Chat
 
 - **Signal**：对解析后的 `signal-cli` 二进制执行 3 秒、无凭据参数的 `--version` 探测，输出只提取长度受限的版本 token。未知或低于当前观测基线 `0.14.0` 只告警、不阻断消息；账号健康页展示白名单能力快照。
+  接收端按完整UTF-8行解码SSE，支持CR、LF、CRLF、流首BOM与多行data；字段仅移除冒号后的一个ASCII空格。单连接未完成行与事件合计最多1MiB，非法UTF-8或超限时明确断连并走既有退避，未完成EOF不投递；错误只报告固定类别，不回显载荷。连接响应头、流读取和入站队列背压均可取消。默认/receive事件沿既有MsgContext入口，其他事件仍忽略；解析器随连接重建，不持久化消息或游标。`id`/`Last-Event-ID`重放尚未启用，逐账号/daemon代次、过期与乱序去重仍待独立验收，不能据解析修复宣称断线零丢失。协议格式依据[HTML SSE标准](https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation)。
 - **iMessage**：`imsgProtocolV1` 默认开启。reader 就绪后依次协商 `initialize` / `status`，保存版本与能力；旧版本仅在方法不存在或参数不支持时回退 legacy。`-32001` / `-32004` 与超时后的未知投递均禁止自动重放；`watch.overflow` 通过 `messages.after` 有界补追、GUID/rowid 去重和 cursor 重订阅，任一补追分页或重订阅瞬时失败都保持降级态，并以有上限的指数退避从已确认 cursor 持续恢复；重复 overflow 合并且不得阻塞 RPC reader。子进程退出后受控重启但不重发 mutation。重启后的子进程在 `initialize` / `status` / `watch.subscribe` 全部恢复前保持降级态，并以有上限的指数退避持续重试；每代子进程拥有独立取消令牌，退出或停止时取消旧恢复任务，禁止跨代竞态。
+- **iMessage 变更分类**：按 [imsg v0.19.0 watch 合同](https://github.com/openclaw/imsg/blob/v0.19.0/docs/watch.md)，新插入消息省略 `type`，编辑/撤回复用原 ID/GUID。`inbound_kind` 对直接载荷和 `message` 包装统一分类；`edited`、`unsent` 及任何显式未知或畸形 `type` 在插入游标和去重前丢弃，`parse_notification` 同样拒绝。实时通知、补追和重启空缓存均不能把变更转成新指令，也不占用原消息 GUID 或推进插入高水位。当前仅分类/drop，不发送带外编辑/撤回事件、不更新会话历史、不增加历史读取；ROWID 重放无法覆盖历史变更，真实设备与变更对账仍待独立验收。
   启动日志和健康探测仅用经长度/字符限制的 `status.version` 做只读安全下限诊断：明确低于 `0.15.8` 提示手工升级；未知、legacy 或不可解析版本显示未核验，不视作已修复。运行中账户通过已协商的缓存状态进入 `channel_health` / `channel_health_all`，每 10 秒设置页轮询不另启子进程；运行中缓存若在 Stop 竞态中消失，也不回退启动临时进程。停止账户的聚合状态不触发临时探测，单账户手动健康检查保留原探测路径。健康探测仍可成功、旧安装不被版本提示阻断；此判断不读取凭据、不发送消息、不自动安装二进制。macOS 实机版本与投递行为仍需独立验收。
 - **Google Chat**：`googleChatStandardMarkdown` 默认开启，仅消息创建 body 发送 `markupSyntax=MARKUP_SYNTAX_MARKDOWN`；编辑仍走旧语法，因为该字段是 create-only。标准 Markdown mention 只接受结构化 `users/...` 标识并跳过行内代码、缩进代码及围栏代码；围栏与缩进判定会先剥离引用块 / 列表容器前缀，容器内的 `<users/...>` 同样不能被编译。原始 HTML/mention 字符串不能穿透。
 
@@ -1042,7 +1056,7 @@ pub struct ChannelRegistry {
 flowchart TD
     BOOT["App 启动"]
     NEW["ChannelRegistry::new(buffer)<br/>建 registry + mpsc channel"]
-    REG["register_plugin × 12<br/>由 ha-channel::wire() 装配槽注入"]
+    REG["register_plugin × 13<br/>由 ha-channel::wire() 装配槽注入"]
     SPAWN["spawn_dispatcher(registry, db, rx)"]
     START["for account in enabled → start_account"]
     P1["plugin.start_account：启动 polling / webhook / gateway"]
@@ -1060,7 +1074,7 @@ flowchart TD
     SHUT --> STOP
 ```
 
-每个运行中账户由一个 `ChannelWorkerHandle { account_id, channel_id, cancel: CancellationToken, started_at }` 跟踪（`uptime_secs()` 由 `started_at` 算出）。停止靠取消 `CancellationToken` 让所有后台任务优雅退出。12 个插件的注册不在 app 启动代码里，而是由 `ha-channel::wire()` 通过 `channel_hooks` 的 `install_plugins` 槽注入——内核只持有 `ChannelRegistry`，不 import 任何插件实现。
+每个运行中账户由一个 `ChannelWorkerHandle { account_id, channel_id, cancel: CancellationToken, started_at }` 跟踪（`uptime_secs()` 由 `started_at` 算出）。停止靠取消 `CancellationToken` 让所有后台任务优雅退出。13 个插件的注册不在 app 启动代码里，而是由 `ha-channel::wire()` 通过 `channel_hooks` 的 `install_plugins` 槽注入——内核只持有 `ChannelRegistry`，不 import 任何插件实现。
 
 自动启动只由 desktop/server Primary（`ImDeliveryOwnership::LocalOwner`）执行：启动期先收敛 interrupted source、恢复普通 delivery claim 并立即扫一次 durable ParentInjection，再并发启动全部 enabled account。每个账号成功后发精确的 `delivery_surface_state_changed(account_id)`，只打开同账号与 unknown gate，不等待其它慢账号。listener 另有 5 秒 durable handoff sweep，使用 `MissedTickBehavior::Skip` + 进程内 single-flight；一次 SQLite walk 超过周期时不会叠加下一轮。Secondary 与 ACP/test/MCP/eval 均不自动启账号、不安装 listener、不做 startup replay。
 
@@ -1268,7 +1282,7 @@ crates/ha-channel/src/channel/{name}/
 | 飞书 | `feishu/{mod,api,auth,format,media,inbound_media,ws_event}.rs` |
 | QQ Bot | `qqbot/{mod,api,auth,format,inbound_media,gateway}.rs` |
 | IRC | `irc/{mod,client,format,protocol}.rs` |
-| Signal | `signal/{mod,client,daemon,format,media,inbound_media}.rs` |
+| Signal | `signal/{mod,client,daemon,format,media,inbound_media,sse}.rs` |
 | iMessage | `imessage/{mod,client,format,media}.rs` |
 | WhatsApp | `whatsapp/{mod,api,format,media,inbound_media,polling}.rs` |
 | Google Chat | `googlechat/{mod,api,auth,format,inbound_media,webhook}.rs` |
@@ -1278,8 +1292,8 @@ crates/ha-channel/src/channel/{name}/
 
 | 文件 | 说明 |
 |---|---|
-| `src/components/settings/channel-panel/` | 渠道设置面板（12 渠道凭据表单，`index.tsx` + 各凭据子组件） |
-| `src/components/common/ChannelIcon.tsx` | 渠道图标（12 渠道 + fallback） |
+| `src/components/settings/channel-panel/` | 渠道设置面板（13 渠道凭据表单，`index.tsx` + 各凭据子组件） |
+| `src/components/common/ChannelIcon.tsx` | 渠道图标（13 渠道 + fallback） |
 | `src-tauri/src/commands/channel.rs` | 17 个 Tauri 命令 |
 
 ### 关键依赖

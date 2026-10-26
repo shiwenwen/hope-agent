@@ -44,6 +44,16 @@ function template(
 }
 
 describe("model catalog", () => {
+  it("prefers the exact API ID case while keeping fuzzy searches case-insensitive", () => {
+    const catalog = buildModelCatalog([
+      template("relay", "Relay", [model("minimax-m3")]),
+      template("direct", "MiniMax", [model("MiniMax-M3")]),
+    ])
+    expect(searchModelCatalog(catalog, " MiniMax-M3 ")[0].id).toBe("MiniMax-M3")
+    expect(searchModelCatalog(catalog, "minimax-m3")[0].id).toBe("minimax-m3")
+    expect(searchModelCatalog(catalog, "MINIMAX-M3")).toHaveLength(2)
+  })
+
   it("makes the latest direct OpenAI and Anthropic models selectable", () => {
     for (const [id, name] of [
       ["gpt-6.1-sol", "GPT-6.1 Sol"],
@@ -51,6 +61,12 @@ describe("model catalog", () => {
       ["gpt-6-luna", "GPT-6 Luna"],
       ["claude-opus-5-5", "Claude Opus 5.5"],
       ["claude-sonnet-5-5", "Claude Sonnet 5.5"],
+      ["claude-haiku-5-5", "Claude Haiku 5.5"],
+      ["grok-4.7", "Grok 4.7"],
+      ["MiniMax-M3", "MiniMax M3"],
+      ["accounts/fireworks/models/deepseek-v4p1-flash", "DeepSeek V4.1 Flash (Fireworks)"],
+      ["accounts/fireworks/models/glm-5p3", "GLM 5.3 (Fireworks)"],
+      ["accounts/fireworks/models/glm-5p3-flash", "GLM 5.3 Flash (Fireworks)"],
     ]) {
       expect(searchModelCatalog(MODEL_CATALOG, id)[0]).toMatchObject({ id, name })
     }
