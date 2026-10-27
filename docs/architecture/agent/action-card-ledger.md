@@ -24,7 +24,7 @@ TTS/实时语音归 `02-A8`/`02-A6`，OCR 归 `02-A5`；旧映射及原历史文
 | 新成功回归 | 吸收基线 `1e0698c3` 的 191 项有界验证及 44 份日志 | 不补跑，不声称已安装稳定版、真实设备/账号或本轮改动已验收 |
 | 原门控 / `02-A8`、`02-A6`、`02-A11`、`04-A6`、`04-A11` | TTS 2027-01-06 排期、Decisions GA、Flux/Eleven 实时或视频、Rerank5/Embed5 沿旧卡 | TTS 替代需要新 Realtime 合同，不能只换 model；分类不连审批，重排不要求重建索引，维持既有索引。真实账号/数据/费用、产品及完整专项门不变 |
 
-本轮仅上述两个兼容维护包；飞书 4KiB JWT、Google Chat create/PATCH 继续排队。
+本轮两个兼容维护包见 [PR #871](https://github.com/shiwenwen/hope-agent/pull/871)；飞书 4KiB JWT、Google Chat create/PATCH 继续排队。
 FTR owner 启动合同、Vercel 已答未知后的 `pending_revalidation` 均不重复提问。
 24 项 Rust 定向检查和 2 项前端检查通过；入口夹具先复现旧比例拒绝，再验证公共 14 张/GUI/工具说明贯通及每模型上限保持。中英文手册/架构/诊断/Changelog 同步；完整逐卡状态、
 映射、优先计划及日志位于本轮 `card-status.json` / `iteration-plan.json`。
