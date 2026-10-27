@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **图像与语音预设**：Google 新建模板更新为 Nano Banana 2.1，支持宽画幅与更多参考图；xAI 和 AssemblyAI 转写预设对齐当前型号，保留已保存配置。 (#PR)
+
 ## [0.70.0] - 2026-10-27
 
 ### Added

@@ -288,6 +288,8 @@ A "speech-to-text" engine independent of the main model, used for: desktop micro
 - **IM fallback model**: dedicated to IM auto-transcription (only non-streaming models can be selected); if unset, the primary model is used.
 - **Providers**: "Add Provider" supports 10 protocols including OpenAI, Groq, ElevenLabs, xAI, DashScope (Bailian), Deepgram, AssemblyAI, Azure, iFlytek, and Volcano; local backends (whisper.cpp / faster-whisper / FunASR / sherpa-onnx) can be detected and connected in one click.
 
+New xAI providers start with `grok-voice-transcribe-2.0` for record-then-transcribe input. New AssemblyAI providers prefer `universal-3-6-pro` for streaming. Existing provider models are not changed automatically, and AssemblyAI still cannot be an IM fallback model. Actual recognition accuracy and billing for the new models have not been validated.
+
 **How to use desktop recording**: click the microphone button in the chat input box to record; you can also hold `Ctrl+Shift+H` within the app window to speak, release to transcribe, and the text is inserted at the cursor. During recording, a waveform and real-time elapsed time are shown.
 
 **IM auto-transcription**: off by default; the toggle is in the edit dialog of **each IM channel account** (not in the Speech-to-Text panel). Once enabled, voice received in IM is automatically converted to text (prefixed with `[Voice transcription]`) and injected into the conversation.
@@ -308,6 +310,8 @@ Image and audio generation share one **provider → models → per-function defa
 
 - **Audio**: ElevenLabs (TTS + music + sound effects), MiniMax (speech + music), OpenAI (TTS), Cartesia, Deepgram, Fish Audio, Hume, Volcengine Doubao Speech, Stability (sound effects), Kling
 - **Self-hosted**: "Custom (OpenAI-compatible)"
+
+New Google image templates prefer Nano Banana 2.1 (`gemini-nano-banana-2.1`), with `1:4`, `4:1`, `1:8`, and `8:1` aspect ratios and up to 14 reference images. Existing models and default chains are not changed automatically. The current integration does not support mask editing or video/PDF inputs; actual image quality and billing have not been validated.
 
 New xAI image templates keep Grok Imagine Image first and replace the old quality alias with the low-quality setting of Grok Imagine Image 2.0. Saved models and default chains are not rewritten. If you still use `grok-imagine-image-quality`, review the replacement model and pricing before its November 2, 2026 retirement. The current xAI integration supports generation only, without reference-image editing; actual image quality and billing for the new model have not been validated.
 

@@ -288,6 +288,8 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 - **IM 兜底模型**:IM 自动转写专用(只能选非流式模型);不设则用主模型。
 - **服务商**:「添加服务商」支持 OpenAI、Groq、ElevenLabs、xAI、DashScope(百炼)、Deepgram、AssemblyAI、Azure、讯飞、火山等 10 种协议;本地后端(whisper.cpp / faster-whisper / FunASR / sherpa-onnx)可一键探测接入。
 
+新建 xAI 服务商预填 `grok-voice-transcribe-2.0`，用于录完后转写；新建 AssemblyAI 服务商首选 `universal-3-6-pro`，用于流式转写。已有服务商的型号不会自动更换，AssemblyAI 仍不能作为 IM 兜底模型。新型号的真实识别率与费用尚未验收。
+
 **桌面录音怎么用**:聊天输入框的麦克风按钮点击录音;也支持在应用窗口内按住 `Ctrl+Shift+H` 说话、松开转写,文字插入到光标处。录音时显示波形和实时耗时。
 
 **IM 自动转写**:默认关闭,开关在**每个 IM 渠道账号**的编辑对话框里(不在语音识别面板)。开启后,IM 里收到的语音会自动转成文字(前面加 `[语音转录]` 前缀)注入对话。
@@ -308,6 +310,8 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 
 - **音频**:ElevenLabs(TTS + 音乐 + 音效)、MiniMax(语音 + 音乐)、OpenAI(TTS)、Cartesia、Deepgram、Fish Audio、Hume、火山豆包语音、Stability(音效)、快手可灵
 - **自建端点**:「自定义(OpenAI 兼容)」
+
+Google 的新建图像模板首选 Nano Banana 2.1（`gemini-nano-banana-2.1`），可选 `1:4`、`4:1`、`1:8`、`8:1` 宽高比，并允许最多 14 张参考图。已有模型与默认链不会自动更换；当前接入不支持蒙版重绘或视频/PDF 输入，真实画质与费用尚未验收。
 
 xAI 的新建图像模板保留 Grok Imagine Image 为首选，并将旧质量别名替换为 Grok Imagine Image 2.0 的低质量档。已保存的模型和默认链不会自动改写；仍在使用 `grok-imagine-image-quality` 的用户应在其 2026 年 11 月 2 日退役前手动核对替代型号与费用。当前 xAI 接入只支持生成，不支持参考图编辑；新型号的真实画质与费用尚未验收。
 

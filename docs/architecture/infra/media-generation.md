@@ -19,6 +19,8 @@
 
 2026-10-12 鉴权请求边界：连接探测收到3xx显示失败并提示最终Base URL，POST-only探测既有405/422兼容保持。生成提交、轮询、音色列表与探测统一使用 `provider::apply_model_proxy`，禁止自动重定向，避免把密钥、提示词或上传内容重发到未核验目标。返回的图片/音频资源由 `adapters/fetch.rs` 单独逐跳核验；SiliconFlow/智谱结果链接也走此入口，不复用鉴权客户端，合法 CDN 跳转可继续下载，每跳不携 API 密钥并保留体积上限；异步任务的未决回执、Stop、费用与用量合同不因 HTTP 依赖更新而改变。
 
+2026-10-27 Google 图像目录维护：新建模板使用 [Nano Banana 2.1](https://ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1)（`gemini-nano-banana-2.1`），替换官方建议迁移但尚无停用日的 `gemini-3.1-flash-image`。沿用 [generateContent 协议](https://ai.google.dev/gemini-api/docs/generate-content/image-generation) 和显式 `MINIMAL` 思考档；仅此预设增加 `1:4`、`4:1`、`1:8`、`8:1`，参考图上限改为 14。Pro 能力及已存配置保持各自值。请求校验覆盖四种比例与 1K/2K/4K、14/15 张边界和蒙版拒绝；回环 HTTP 夹具核对新型号路径、鉴权头、参考字节顺序、提示词、4K 宽画幅及返回解析。夹具字节不是真实图片，不能证明画质或局部编辑效果；没有启用蒙版、视频/PDF 输入、搜索落地、账户调用或费用实验。
+
 ## 1. 核心思想
 
 生成类服务商是一片碎片化的荒野：OpenAI 既能生图又能 TTS，ElevenLabs 只做语音，火山、混元、

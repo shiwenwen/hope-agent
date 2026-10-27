@@ -4,7 +4,7 @@
 //! - <https://docs.x.ai/developers/model-capabilities/audio/speech-to-text>
 //!
 //! Drives `SttProviderKind::XaiStt`. xAI ships a standalone STT API (model
-//! `grok-stt`) on its own `/v1/stt` path — multipart upload with a `model`
+//! `grok-voice-transcribe-2.0`) on its own `/v1/stt` path — multipart upload with a `model`
 //! field and Bearer auth, but NOT the OpenAI `/v1/audio/transcriptions`
 //! wire (different path + response shape), so it needs a dedicated engine.
 //! Realtime streaming (`wss://api.x.ai/v1/stt`) is a future enhancement —
@@ -190,6 +190,96 @@ fn parse_segment(value: &serde_json::Value) -> Option<TranscriptSegment> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn current_and_saved_models_keep_batch_multipart_and_response_contract() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let _config =
+            ha_core::test_support::replace_config_cache(ha_core::config::AppConfig::default());
+        for id in ["grok-voice-transcribe-2.0", "saved-custom-model"] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut raw = Vec::new();
+                let header_end = loop {
+                    let mut buf = [0; 4096];
+                    let len = socket.read(&mut buf).await.unwrap();
+                    assert_ne!(len, 0);
+                    raw.extend_from_slice(&buf[..len]);
+                    if let Some(end) = raw.windows(4).position(|b| b == b"\r\n\r\n") {
+                        break end + 4;
+                    }
+                };
+                let headers = String::from_utf8(raw[..header_end].to_vec())
+                    .unwrap()
+                    .to_ascii_lowercase();
+                assert!(headers.starts_with("post /v1/stt http/1.1"));
+                assert!(headers.contains("authorization: bearer synthetic-key\r\n"));
+                let len: usize = headers
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length: "))
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                while raw.len() < header_end + len {
+                    let mut buf = [0; 4096];
+                    let n = socket.read(&mut buf).await.unwrap();
+                    assert_ne!(n, 0);
+                    raw.extend_from_slice(&buf[..n]);
+                }
+                let body = String::from_utf8_lossy(&raw[header_end..header_end + len]);
+                assert!(body.contains(&format!("name=\"model\"\r\n\r\n{id}\r\n")));
+                let language = body.find("name=\"language\"\r\n\r\nzh\r\n").unwrap();
+                let file = body
+                    .find("name=\"file\"; filename=\"synthetic.wav\"")
+                    .unwrap();
+                assert!(body.find("name=\"model\"").unwrap() < language && language < file);
+                assert_eq!(body[file..].matches("Content-Disposition").count(), 0);
+                let response = serde_json::json!({"text":"你好 world 123","language":"zh","duration":3.45,"words":[{"text":"你好","start":0.1,"end":0.5}]}).to_string();
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",response.len(),response).as_bytes()).await.unwrap();
+            });
+            let mut provider =
+                SttProviderConfig::new("Synthetic xAI", SttProviderKind::XaiStt, &base);
+            provider.allow_private_network = true;
+            let model = SttModelConfig::new(id, id);
+            let profile = AuthProfile::new("Synthetic".into(), "synthetic-key".into(), None);
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                transcribe_batch(
+                    &provider,
+                    &model,
+                    &profile,
+                    AudioPayload::Bytes {
+                        mime_type: "audio/wav".into(),
+                        bytes: b"synthetic-audio".to_vec(),
+                        filename: "synthetic.wav".into(),
+                    },
+                    &TranscriptOptions {
+                        language: Some("zh".into()),
+                        ..Default::default()
+                    },
+                ),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(result.text, "你好 world 123");
+            assert_eq!(result.language.as_deref(), Some("zh"));
+            assert_eq!(result.duration_ms, Some(3450));
+            assert_eq!(result.model_id, id);
+            assert_eq!(result.provider_id, provider.id);
+            // Word timestamps are not segment timestamps; don't claim new
+            // alignment support from the catalog update.
+            assert!(result.segments.is_empty());
+            tokio::time::timeout(Duration::from_secs(5), server)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+    }
 
     #[test]
     fn stt_url_trims_trailing_slash() {

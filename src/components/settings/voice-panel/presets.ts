@@ -134,9 +134,9 @@ export const STT_PRESETS: SttKindPreset[] = [
     iconKey: "xai",
     defaultBaseUrl: "https://api.x.ai",
     requiresBaseUrl: false,
-    // grok-stt batch transcription (POST /v1/stt): ~25 languages, word
-    // timestamps, diarization. Realtime WS is not wired here yet.
-    defaultModels: [{ id: "grok-stt", name: "Grok STT" }],
+    // Current batch model (POST /v1/stt). The dedicated xAI wire is
+    // unchanged; realtime WS is not wired here.
+    defaultModels: [{ id: "grok-voice-transcribe-2.0", name: "Grok Voice Transcribe 2.0" }],
   },
   {
     slug: "openai-chat-completions-asr",
@@ -188,12 +188,16 @@ export const STT_PRESETS: SttKindPreset[] = [
     iconKey: "assemblyai",
     defaultBaseUrl: "wss://streaming.assemblyai.com",
     requiresBaseUrl: false,
-    // `speech_model` for the v3 streaming API — u3-rt-pro (Universal-3 Pro
-    // Streaming) is the current default; universal-streaming stays as a
-    // legacy fallback for older accounts.
+    // Explicit `speech_model` IDs from the current v3 model selection
+    // contract. Only seeds a new provider; saved/custom IDs stay intact.
     defaultModels: [
-      { id: "u3-rt-pro", name: "Universal-3 Pro Streaming" },
-      { id: "universal-streaming", name: "Universal Streaming (legacy)" },
+      { id: "universal-3-6-pro", name: "Universal-3.6 Pro Streaming" },
+      { id: "universal-3-5-pro", name: "Universal-3.5 Pro Streaming" },
+      { id: "universal-streaming-english", name: "Universal Streaming English" },
+      {
+        id: "universal-streaming-multilingual",
+        name: "Universal Streaming Multilingual",
+      },
     ],
   },
   {
@@ -248,9 +252,7 @@ export const STT_PRESETS: SttKindPreset[] = [
     // model_name is hardcoded to "bigmodel" inside the provider —
     // tier selection is via `extra.resource_id`. The row here is a
     // UI label / activation anchor only.
-    defaultModels: [
-      { id: "bigmodel", name: "豆包流式语音识别 (BigModel)" },
-    ],
+    defaultModels: [{ id: "bigmodel", name: "豆包流式语音识别 (BigModel)" }],
   },
 ]
 
@@ -268,14 +270,8 @@ export function findPreset(slug: string): SttKindPreset | undefined {
  * hostname; fall back to the first preset with the kind so the
  * dropdown always has a valid selection.
  */
-export function presetSlugFromProvider(
-  kind: SttProviderKind,
-  baseUrl: string,
-): string {
-  if (
-    kind === "openai-chat-completions-asr" &&
-    baseUrl.toLowerCase().includes("dashscope")
-  ) {
+export function presetSlugFromProvider(kind: SttProviderKind, baseUrl: string): string {
+  if (kind === "openai-chat-completions-asr" && baseUrl.toLowerCase().includes("dashscope")) {
     return "dashscope"
   }
   // Several branded presets share the generic `openai-compatible` kind
