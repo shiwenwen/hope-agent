@@ -167,3 +167,61 @@ pub(crate) async fn tool_image_generate(args: &Value, ctx: &ToolExecContext) -> 
         ctx.session_id.as_deref(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::Engine;
+
+    #[tokio::test]
+    async fn panorama_and_fourteen_references_pass_tool_admission_before_provider_resolution() {
+        let _config =
+            ha_core::test_support::replace_config_cache(ha_core::config::AppConfig::default());
+        // Distinct synthetic inline bytes avoid filesystem, network and real
+        // image data. Empty providers must fail only after admission/loading.
+        let images: Vec<_> = (0..15u8)
+            .map(|i| {
+                format!(
+                    "data:image/png;base64,{}",
+                    base64::engine::general_purpose::STANDARD.encode([i])
+                )
+            })
+            .collect();
+        for ratio in ["1:4", "4:1", "1:8", "8:1"] {
+            let error = tool_image_generate(
+                &serde_json::json!({
+                    "prompt":"synthetic panorama", "aspectRatio":ratio, "images":&images[..14]
+                }),
+                &ToolExecContext::default(),
+            )
+            .await
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("no media-generation provider configured"),
+                "{error}"
+            );
+        }
+        let error = tool_image_generate(
+            &serde_json::json!({
+                "prompt":"synthetic panorama", "aspectRatio":"8:1", "images":images
+            }),
+            &ToolExecContext::default(),
+        )
+        .await
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Too many reference images: 15 provided, maximum is 14"));
+        let error = tool_image_generate(
+            &serde_json::json!({
+                "prompt":"synthetic panorama", "aspectRatio":"7:3"
+            }),
+            &ToolExecContext::default(),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("Invalid aspectRatio"));
+    }
+}

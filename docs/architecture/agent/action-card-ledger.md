@@ -26,7 +26,7 @@ TTS/实时语音归 `02-A8`/`02-A6`，OCR 归 `02-A5`；旧映射及原历史文
 
 本轮仅上述两个兼容维护包；飞书 4KiB JWT、Google Chat create/PATCH 继续排队。
 FTR owner 启动合同、Vercel 已答未知后的 `pending_revalidation` 均不重复提问。
-18 项 Rust 定向检查和 2 项前端检查通过，中英文手册/架构/诊断/Changelog 同步；完整逐卡状态、
+24 项 Rust 定向检查和 2 项前端检查通过；入口夹具先复现旧比例拒绝，再验证公共 14 张/GUI/工具说明贯通及每模型上限保持。中英文手册/架构/诊断/Changelog 同步；完整逐卡状态、
 映射、优先计划及日志位于本轮 `card-status.json` / `iteration-plan.json`。
 普通 hooks、当前精确 head 独立复审、必需 CI、已解决线程、保护合入和远端读回齐全后才记交付。
 

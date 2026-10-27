@@ -21,6 +21,8 @@
 
 2026-10-27 Google 图像目录维护：新建模板使用 [Nano Banana 2.1](https://ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1)（`gemini-nano-banana-2.1`），替换官方建议迁移但尚无停用日的 `gemini-3.1-flash-image`。沿用 [generateContent 协议](https://ai.google.dev/gemini-api/docs/generate-content/image-generation) 和显式 `MINIMAL` 思考档；仅此预设增加 `1:4`、`4:1`、`1:8`、`8:1`，参考图上限改为 14。Pro 能力及已存配置保持各自值。请求校验覆盖四种比例与 1K/2K/4K、14/15 张边界和蒙版拒绝；回环 HTTP 夹具核对新型号路径、鉴权头、参考字节顺序、提示词、4K 宽画幅及返回解析。夹具字节不是真实图片，不能证明画质或局部编辑效果；没有启用蒙版、视频/PDF 输入、搜索落地、账户调用或费用实验。
 
+公共请求上限 `MAX_INPUT_IMAGES` 同步为 14；`VALID_ASPECT_RATIOS`、GUI 选项和两个工具的说明共用对应限制，执行时仍由每个模型的 `edit.max_input_images` 再筛选。新增入口夹具先复现旧宽高比校验失败，再确认 14 张请求到达候选解析、15 张和非法比例在入口拒绝；没有配置任何 Provider，不产生外部调用。设计空间首页的视觉对话参考图数量是另一入口的既有约束，本次不更改。
+
 ## 1. 核心思想
 
 生成类服务商是一片碎片化的荒野：OpenAI 既能生图又能 TTS，ElevenLabs 只做语音，火山、混元、
@@ -343,7 +345,7 @@ flowchart LR
 | | `resolve.rs` | 候选解析单一入口 `resolve_candidates` + `validate_image_request` |
 | `ha-media/src/media_gen` | `execute.rs` | 统一 failover 执行器 `execute_image` / `execute_audio`（全部消费方共用） |
 | | `catalog.rs` | 内置模板 + 预设模型目录（`MediaProviderTemplate`）+ `OPENAI_TTS_VOICES`；GUI-only，经命令下发不进 config |
-| | `input.rs` | 参考图加载（路径/URL/data-uri，SSRF-gated，≤5 张、坏项跳过） |
+| | `input.rs` | 参考图加载（路径/URL/data-uri，SSRF-gated，公共上限 14 张、模型能力再筛选、坏项跳过） |
 | | `overview.rs` | sanitized 可用性/能力视图（无凭据，供 design 对话框 + 工具设置提示） |
 | | `probe.rs` | 测试连接探针（轻 GET，per-vendor 端点，audio 探针 = voices/models）；结果 JSON `{success,message,url,status,latencyMs,auth}` |
 | | `voices.rs` | voice 目录（见下） |

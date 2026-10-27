@@ -1432,6 +1432,15 @@ mod tests {
         let pro = template.models[1].image.as_ref().unwrap();
         assert_eq!(pro.edit.as_ref().unwrap().max_input_images, 5);
         assert!(!pro.aspect_ratios.iter().any(|r| r == "8:1"));
+        assert!(validate_image_request(
+            Some(pro),
+            &ImageRequestSpec {
+                n: 1,
+                input_images: 14,
+                ..Default::default()
+            }
+        )
+        .is_err());
     }
 
     /// Vendors whose speech models legitimately declare `needs_voice=false`:

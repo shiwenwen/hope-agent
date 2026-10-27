@@ -399,7 +399,9 @@ pub fn get_workflow_tool() -> ToolDefinition {
 pub fn get_image_generate_tool_dynamic(
     config: &crate::media_gen::MediaGenConfig,
 ) -> ToolDefinition {
-    use crate::media_gen::{resolve_candidates, MediaFunction, MediaModality};
+    use crate::media_gen::{
+        resolve_candidates, MediaFunction, MediaModality, MAX_INPUT_IMAGES, VALID_ASPECT_RATIOS,
+    };
 
     // Chain-aware candidate list — exactly what auto mode would try.
     let candidates = resolve_candidates(config, MediaFunction::Image, None).unwrap_or_default();
@@ -503,19 +505,20 @@ pub fn get_image_generate_tool_dynamic(
     };
 
     let images_desc = if multi_image_providers.is_empty() {
-        "Array of paths/URLs for multiple reference images (max 5 total).".to_string()
+        format!("Array of paths/URLs for multiple reference images (max {MAX_INPUT_IMAGES} total, subject to model capacity).")
     } else {
         format!(
-            "Array of paths/URLs for multiple reference images (max 5 total). Supported by: {}.",
+            "Array of paths/URLs for multiple reference images (max {MAX_INPUT_IMAGES} total, subject to model capacity). Supported by: {}.",
             multi_image_providers.join(", ")
         )
     };
 
+    let ratios = VALID_ASPECT_RATIOS.join(", ");
     let ar_desc = if ar_providers.is_empty() {
-        "Aspect ratio hint: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, or 21:9.".to_string()
+        format!("Aspect ratio hint: {ratios}. Subject to model capabilities.")
     } else {
         format!(
-            "Aspect ratio hint: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, or 21:9. Supported by: {}.",
+            "Aspect ratio hint: {ratios}. Subject to model capabilities. Supported by: {}.",
             ar_providers.join(", ")
         )
     };

@@ -682,9 +682,11 @@ impl MediaGenConfig {
 // ── Request-side validation constants ─────────────────────────────
 
 pub const VALID_ASPECT_RATIOS: &[&str] = &[
-    "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9",
+    "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "1:4", "4:1", "1:8",
+    "8:1",
 ];
 
 pub const VALID_RESOLUTIONS: &[&str] = &["1K", "2K", "4K"];
 
-pub const MAX_INPUT_IMAGES: usize = 5;
+// Shared admission ceiling; each selected model's edit caps still apply.
+pub const MAX_INPUT_IMAGES: usize = 14;
