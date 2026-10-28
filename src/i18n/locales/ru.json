@@ -4196,6 +4196,10 @@
       "name": "Venice",
       "description": "Платформа инференса ИИ с приоритетом конфиденциальности"
     },
+    "obscurify": {
+      "name": "Obscurify.ai",
+      "description": "Ориентированный на приватность AI-шлюз, аккаунты без email, более 200 моделей"
+    },
     "synthetic": {
       "name": "Synthetic",
       "description": "Инференс моделей с открытым исходным кодом (совместимо с Anthropic)"

@@ -4196,6 +4196,10 @@
       "name": "Venice",
       "description": "Platform inferens AI yang mengutamakan privasi"
     },
+    "obscurify": {
+      "name": "Obscurify.ai",
+      "description": "Get laluan AI yang mengutamakan privasi, akaun tanpa e-mel, lebih 200 model"
+    },
     "synthetic": {
       "name": "Synthetic",
       "description": "Inferens model sumber terbuka (serasi dengan Anthropic)"

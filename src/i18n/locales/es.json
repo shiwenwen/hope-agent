@@ -4196,6 +4196,10 @@
       "name": "Venice",
       "description": "Plataforma de inferencia de IA centrada en la privacidad"
     },
+    "obscurify": {
+      "name": "Obscurify.ai",
+      "description": "Pasarela de IA centrada en la privacidad, cuentas sin correo, más de 200 modelos"
+    },
     "synthetic": {
       "name": "Synthetic",
       "description": "Inferencia de modelos de código abierto (compatible con Anthropic)"

@@ -414,4 +414,17 @@ describe("provider template lifecycle hygiene", () => {
     })
     expect(provider?.models.length).toBeGreaterThan(0)
   })
+  it("offers Obscurify.ai as an OpenAI Chat compatible gateway", () => {
+    const provider = PROVIDER_TEMPLATES.find((template) => template.key === "obscurify")
+    expect(provider).toMatchObject({
+      apiType: "openai-chat",
+      baseUrl: "https://obscurify.ai/v1",
+      requiresApiKey: true,
+    })
+    expect(provider?.models.find((model) => model.id === "deepseek/deepseek-v4-flash")).toMatchObject({
+      contextWindow: 1048576,
+      costInput: 0.1183,
+      costOutput: 0.2366,
+    })
+  })
 })

@@ -4196,6 +4196,10 @@
       "name": "Venice",
       "description": "Privacy-first AI inference platform"
     },
+    "obscurify": {
+      "name": "Obscurify.ai",
+      "description": "Privacy-first AI gateway, no-email accounts, 200+ models"
+    },
     "synthetic": {
       "name": "Synthetic",
       "description": "Open-source model inference (Anthropic compatible)"
