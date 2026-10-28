@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **运行时依赖兼容**：更新 MCP 客户端、异步运行时和桌面壳依赖，改善外部工具请求取消与连接清理，保留现有传输限制和授权流程。 (#866)
 - **图像与语音预设**：Google 新建模板更新为 Nano Banana 2.1，支持宽画幅与更多参考图；xAI 和 AssemblyAI 转写预设对齐当前型号，保留已保存配置。 (#871)
 
 ## [0.70.0] - 2026-10-27
