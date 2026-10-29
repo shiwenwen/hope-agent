@@ -80,24 +80,55 @@ export function inspectWorkflow(name, source) {
   }
   inspectValues(workflow)
 
-  if (name === "mirror-release-r2.yml") {
-    const installer = steps.find((step) => step.name === "Install rclone (pinned) + jq")
-    const run = typeof installer?.run === "string" ? installer.run : ""
-    const verify = run.indexOf('printf \'%s  %s\\n\' "$R2_RCLONE_SHA256" "$tmp/rclone.zip" | sha256sum --check --status')
-    const unpack = run.indexOf('unzip -q "$tmp/rclone.zip"')
-    if (!/^[a-f0-9]{64}$/.test(installer?.env?.R2_RCLONE_SHA256 ?? "")
-        || !/^v\d+\.\d+\.\d+$/.test(installer?.env?.R2_RCLONE_PIN ?? "")
-        || verify < 0 || unpack < 0 || verify > unpack) {
-      errors.push(`${name}: pinned rclone SHA-256 must be verified before unpacking/execution`)
-    }
-  }
   return errors
+}
+
+// The release paths share one reviewed installer instead of independently
+// drifting version/digest pins. This is a bounded structural guard, not a
+// general Shell analyzer.
+export function inspectRcloneWorkflow(name, source) {
+  if (!credentialSteps.has(name)) return []
+  try {
+    const workflow = parseDocument(source).toJS({ maxAliasCount: 0 })
+    const steps = Object.values(workflow.jobs ?? {}).flatMap((job) => job.steps ?? [])
+    const installers = steps.filter((step) => typeof step.run === "string"
+      && step.run.includes('bash scripts/install-rclone.sh "$RUNNER_TEMP/hope-rclone-bin"'))
+    const firstIo = steps.findIndex((step) => credentialSteps.get(name).has(step.name))
+    if (installers.length !== 1 || (firstIo >= 0 && steps.indexOf(installers[0]) >= firstIo)
+        || !installers[0].run.includes('echo "$RUNNER_TEMP/hope-rclone-bin" >> "$GITHUB_PATH"')
+        || steps.some((step) => /apt-get install[^\n]*\brclone\b/.test(step.run ?? ""))) {
+      return [`${name}: shared pinned rclone installer and PATH publication required; no distro rclone`]
+    }
+    return []
+  } catch {
+    return [`${name}: invalid rclone workflow structure`]
+  }
+}
+
+export function inspectRcloneInstaller(source) {
+  const size = source.indexOf('"$R2_RCLONE_BYTES"')
+  const verify = source.indexOf('printf \'%s  %s\\n\' "$R2_RCLONE_SHA256" "$tmp/rclone.zip" | sha256sum -c - >/dev/null')
+  const unpack = source.indexOf('unzip -q "$tmp/rclone.zip"')
+  const execute = source.indexOf('version_output="$("$binary" version)"')
+  const flags = source.indexOf('flags_help="$("$binary" help flags)"')
+  const publish = source.indexOf('mv -f "$candidate" "$destination/rclone"')
+  if (!/^R2_RCLONE_PIN=v\d+\.\d+\.\d+$/m.test(source)
+      || !/^R2_RCLONE_SHA256=[a-f0-9]{64}$/m.test(source)
+      || !/^R2_RCLONE_BYTES=[1-9]\d*$/m.test(source)
+      || size < 0 || verify <= size || unpack <= verify || execute <= unpack || flags <= execute || publish <= flags) {
+    return ["rclone SHA-256, size and executable checks must precede publication"]
+  }
+  return []
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const directory = path.join(repoRoot, ".github/workflows")
   const errors = readdirSync(directory).filter((name) => /\.ya?ml$/.test(name))
-    .flatMap((name) => inspectWorkflow(name, readFileSync(path.join(directory, name), "utf8")))
+    .flatMap((name) => {
+      const source = readFileSync(path.join(directory, name), "utf8")
+      return [...inspectWorkflow(name, source), ...inspectRcloneWorkflow(name, source)]
+    })
+  errors.push(...inspectRcloneInstaller(readFileSync(path.join(repoRoot, "scripts/install-rclone.sh"), "utf8")))
   if (errors.length) {
     console.error(errors.join("\n"))
     process.exitCode = 1
