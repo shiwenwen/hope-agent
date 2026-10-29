@@ -381,3 +381,11 @@ DOMPurify 的 [模板与 shadow root](https://github.com/cure53/DOMPurify/securi
 项目没有直接调用 webpki 或穷举其错误；`rustls` 0.23.46 经 chromiumoxide/reqwest 等传递路径使用验证器。`rustls-platform-verifier` 0.7.0 的随包根证书用于 wasm32 路线；原生平台分别使用系统信任，不因锁中包含该包就声称每个平台都使用随包根。补丁保留现有 ring/std/tls12 特征、直接 reqwest 的 native-tls 路线、SSRF、重定向守卫及证书验证策略，不写用户证书库或 Provider 配置。`webpki-root-certs` 的最低 Rust 版本由 1.70 升至 1.71，低于项目既有工具链，不新增宿主升级要求。
 
 本地编译、锁文件范围核验与隔离的上游合成证书路径测试分别留证；它们不替代真实 Provider、设备系统信任库、跨平台 TLS 或生产验收。回滚应保留受支持的已修补兼容图，不恢复上述已知受影响版本，也不通过关闭证书验证恢复连接。
+
+## 2026-10-29 测试 HTTP 依赖安全补丁
+
+[#868](https://github.com/shiwenwen/hope-agent/pull/868) 将原 npm 分组收敛为 `jsdom 29.0.2 → undici 7.30.1` 的锁文件修补，替换 7.25.0；符合 jsdom 的 `^7.24.5` 范围，Node 下限仍为 20.18.1。package.json、React、UI、ESLint 与 Hooks 规则保持基线版本；本包不承担分组中其余版本迁移。
+
+上游 [7.30.1 正式发布说明](https://github.com/nodejs/undici/releases/tag/v7.30.1) 与八项 GHSA 公告分别涉及 Agent 的 TLS 回调丢失、TLS 1.2 重协商错误、跨源重定向缓存、内容编码和解压异常、SRI 算法名大小写、EventSource 缓冲与 WebSocket PONG 背压；锁中版本匹配不等于当前应用可被远程利用。发布包 SHA-512 与 npm 元数据和锁文件一致。实际调用只在 jsdom 开发依赖链：jsdom 使用 Dispatcher、全局 dispatcher、私有 wrap/unwrap handler 和 WebSocket，因此兼容核验包含这些接口及本地 HTTP 重定向、Cookie、压缩正文和子资源加载。
+
+jsdom 自有重定向、解压与 SRI 实现不因 Undici 补丁自动获得安全验收。该补丁不替换 Node 内置 fetch 或桌面 WebView 的网络栈，也不改变 Rust 的 SSRF、证书验证、CSP 或权限守卫。隔离合成检查、普通测试与 CI 各自留证，不代表真实 Provider、生产、宿主升级或全入口攻击验收；回滚须保留已修补的兼容版本。
