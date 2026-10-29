@@ -41,6 +41,8 @@ Thirteen channels are built in, with the capabilities listed below:
 
 **Entry point**: Settings → IM Channels → Add account → pick a channel → enter that channel's credentials (for example, a Bot Token for Telegram, which can be verified instantly).
 
+If Feishu cannot obtain an access token, the error shows the HTTP status or service error code without the raw response body. Share that code when troubleshooting; do not copy your App Secret or access token.
+
 Telegram also accepts an optional **Bot API Base URL**. You can enter the root URL of a trusted HTTPS reverse proxy you operate (for example, `https://tg.example.com`); leave it empty to keep using the official API. Enter only the root—do not append `/bot<TOKEN>/getMe`. The proxy must forward both `/bot…` API requests and `/file/bot…` media downloads. A reverse proxy can see the Bot Token, messages, and media, so do not use an untrusted public proxy.
 
 **WeCom text first version:** obtain Bot ID and Secret from the WeCom AI-bot administration page and enter them only in Channel Settings. Use one client per bot. Validation briefly subscribes, or reuses an existing healthy local connection; do not run another client concurrently. Stop the running account before validating a changed Secret for the same bot. Validation of an unsaved or cancelled credential draft does not open a second connection that replaces the running account.

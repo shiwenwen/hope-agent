@@ -922,6 +922,7 @@ Bot API 的 token 天然在 URL path，所有 Telegram request error 进 watchdo
 ### 飞书 / Lark
 
 - **认证**：`appId` + `appSecret` → `tenant_access_token`（2 小时 TTL，80% 时自动刷新）；**域名**：`feishu`→`open.feishu.cn`、`lark`→`open.larksuite.com`，自定义 URL 用于私有部署；**传输**：WebSocket 事件订阅。
+- **鉴权诊断**：获取令牌的 HTTP、业务代码和 JSON 类型错误只返回固定说明及状态/代码，不回显响应正文或 `msg`，传输错误剥离 URL。失败不写令牌缓存。两个合成账号已覆盖至少 4 KiB 配置凭据往返、令牌获取、完整 Bearer 头与逐账号缓存；这只证明本地兼容性，不证明真实租户、分页/限流或其它 API 错误路径安全。
 - **格式**：飞书 text 消息不支持 Markdown，`markdown_to_native` 剥标记输出纯文本。
 - **出站附件两步**：`im/v1/images` 或 `im/v1/files` 上传换 key → `im/v1/messages`（`msg_type=image|file`）。image/file 消息**不带 caption**，同轮 `payload.text` 由 dispatcher 单独发。`MediaType` → `file_type` 映射：Video/Animation→`mp4`、Audio/Voice→`opus`、Document 按扩展名→`pdf`/`doc`/`xls`/`ppt`/`stream`。
 

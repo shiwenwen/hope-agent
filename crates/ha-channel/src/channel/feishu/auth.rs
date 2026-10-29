@@ -28,10 +28,9 @@ pub struct FeishuAuth {
 }
 
 /// Response from the tenant_access_token API.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct TokenResponse {
     code: i64,
-    msg: String,
     tenant_access_token: Option<String>,
     expire: Option<u64>,
 }
@@ -110,31 +109,25 @@ impl FeishuAuth {
             }))
             .send()
             .await
-            .map_err(|e| anyhow!("Failed to request Feishu token: {}", e))?;
+            .map_err(|e| anyhow!("Failed to request Feishu token: {}", e.without_url()))?;
 
         let status = resp.status();
         let body = resp
             .text()
             .await
-            .map_err(|e| anyhow!("Failed to read Feishu token response: {}", e))?;
+            .map_err(|e| anyhow!("Failed to read Feishu token response: {}", e.without_url()))?;
 
         if !status.is_success() {
-            return Err(anyhow!(
-                "Feishu token request failed with HTTP {}: {}",
-                status,
-                ha_core::truncate_utf8(&body, 512)
-            ));
+            return Err(anyhow!("Feishu token request failed with HTTP {}", status));
         }
 
+        // An upstream error (including a JSON type error) may reflect a
+        // credential in arbitrary text. Preserve status/code, never its body.
         let token_resp: TokenResponse = serde_json::from_str(&body)
-            .map_err(|e| anyhow!("Failed to parse Feishu token response: {}", e))?;
+            .map_err(|_| anyhow!("Failed to parse Feishu token response"))?;
 
         if token_resp.code != 0 {
-            return Err(anyhow!(
-                "Feishu token error (code={}): {}",
-                token_resp.code,
-                token_resp.msg
-            ));
+            return Err(anyhow!("Feishu token error (code={})", token_resp.code));
         }
 
         let token = token_resp
@@ -177,6 +170,104 @@ fn resolve_base_url(domain: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn token_errors_do_not_reflect_credentials() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let canary = format!("synthetic-secret-canary.{}", "x".repeat(4096));
+        for (status, body) in [
+            (
+                401,
+                serde_json::json!({"msg": canary, "tenant_access_token": canary}),
+            ),
+            (
+                200,
+                serde_json::json!({"code": 99991663, "msg": canary, "tenant_access_token": canary}),
+            ),
+            (
+                200,
+                serde_json::json!({"code": canary, "tenant_access_token": canary}),
+            ),
+        ] {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/open-apis/auth/v3/tenant_access_token/internal"))
+                .respond_with(ResponseTemplate::new(status).set_body_json(body))
+                .mount(&server)
+                .await;
+            let auth = FeishuAuth::new("cli_synthetic", &canary, &server.uri());
+            let error = auth.get_token().await.unwrap_err().to_string();
+            assert!(
+                !error.contains("synthetic-secret-canary"),
+                "credential reflection"
+            );
+            assert!(auth.cached_token.read().await.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn long_credentials_and_tokens_remain_account_scoped() {
+        use crate::channel::feishu::api::FeishuApi;
+        use ha_core::channel::types::ChannelAccountConfig;
+        use std::sync::Arc;
+        use wiremock::matchers::{body_partial_json, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let mut apis = Vec::new();
+        for id in ["a", "b"] {
+            let secret = format!("synthetic-config-{id}.{}", id.repeat(4096));
+            let token = format!("eyJhbGciOiJub25lIn0.{}.synthetic-{id}", id.repeat(4096));
+            let config: ChannelAccountConfig = serde_json::from_value(serde_json::json!({
+                "id": id, "channelId": "feishu", "label": id,
+                "credentials": {"appId": id, "appSecret": secret, "domain": server.uri()}
+            }))
+            .unwrap();
+            let config: ChannelAccountConfig =
+                serde_json::from_str(&serde_json::to_string(&config).unwrap()).unwrap();
+            assert_eq!(
+                config.credentials["appSecret"].as_str(),
+                Some(secret.as_str())
+            );
+            Mock::given(method("POST"))
+                .and(path("/open-apis/auth/v3/tenant_access_token/internal"))
+                .and(body_partial_json(
+                    serde_json::json!({"app_id": id, "app_secret": secret}),
+                ))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "code": 0, "msg": "ok", "tenant_access_token": token, "expire": 7200
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/open-apis/bot/v3/info/"))
+                .and(header("authorization", format!("Bearer {token}").as_str()))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "code": 0, "msg": "ok", "bot": {"app_name": id, "open_id": id}
+                })))
+                .expect(2)
+                .mount(&server)
+                .await;
+            apis.push((
+                id,
+                FeishuApi::new(Arc::new(FeishuAuth::new(
+                    config.credentials["appId"].as_str().unwrap(),
+                    config.credentials["appSecret"].as_str().unwrap(),
+                    config.credentials["domain"].as_str().unwrap(),
+                ))),
+            ));
+        }
+        // Interleave two accounts and then exercise each account's cache.
+        for _ in 0..2 {
+            for (id, api) in &apis {
+                assert_eq!(api.get_bot_info().await.unwrap().open_id, *id);
+            }
+        }
+        server.verify().await;
+    }
 
     #[tokio::test]
     async fn concurrent_get_token_singleflights_refresh() {
