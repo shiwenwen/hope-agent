@@ -76,7 +76,7 @@ Autocomplete works when adding or editing models without replacing your relay's 
 
 > Suggestions come from built-in templates, not an online probe of models available through your relay. The same model ID can have different context limits at different providers. Check the suggestion's source and use the ID, capabilities, and actual pricing supported by your provider.
 
-In the wizard’s model step or the provider edit page, choose **Discover models** to read the current endpoint’s online model list. Select the entries to add, enter context and maximum output token limits, and confirm that they support text chat and tool calls. Nothing is selected automatically. Existing models are neither duplicated nor overwritten. The additions remain a draft until you save the provider; new entries use text input with reasoning off, and you can edit capabilities and pricing before saving.
+In the wizard’s model step or the provider edit page, choose **Discover models** to read the current endpoint’s online model list. Select the entries to add, enter context and maximum output token limits, and confirm that they support text chat and tool calls. Nothing is selected automatically. Existing models are neither duplicated nor overwritten. Clicking outside the dialog keeps it open and preserves the draft; use Add, Cancel, the close button, or Esc to exit explicitly. The additions remain a draft until you save the provider; new entries use text input with reasoning off, and you can edit capabilities and pricing before saving.
 
 For a local or private-network Base URL, explicitly enable **Allow private network** in the wizard’s connection step before discovery. It defaults to off and is saved with the provider; discovery never enables private access automatically.
 
@@ -311,7 +311,7 @@ Image and audio generation share one **provider → models → per-function defa
 - **Audio**: ElevenLabs (TTS + music + sound effects), MiniMax (speech + music), OpenAI (TTS), Cartesia, Deepgram, Fish Audio, Hume, Volcengine Doubao Speech, Stability (sound effects), Kling
 - **Self-hosted**: "Custom (OpenAI-compatible)"
 
-New Google image templates prefer Nano Banana 2.1 (`gemini-nano-banana-2.1`), with `1:4`, `4:1`, `1:8`, and `8:1` aspect ratios and up to 14 reference images. Existing models and default chains are not changed automatically. The current integration does not support mask editing or video/PDF inputs; actual image quality and billing have not been validated.
+New Google image templates prefer Nano Banana 2.1 (`gemini-nano-banana-2.1`), with `1:4`, `4:1`, `1:8`, and `8:1` aspect ratios. The image tool and Agent image-artifact generation accept up to 14 reference images; the Design home composer still accepts up to 5. Existing models and default chains are not changed automatically. The current integration does not support mask editing or video/PDF inputs; actual image quality and billing have not been validated.
 
 New xAI image templates keep Grok Imagine Image first and replace the old quality alias with the low-quality setting of Grok Imagine Image 2.0. Saved models and default chains are not rewritten. If you still use `grok-imagine-image-quality`, review the replacement model and pricing before its November 2, 2026 retirement. The current xAI integration supports generation only, without reference-image editing; actual image quality and billing for the new model have not been validated.
 
@@ -345,7 +345,7 @@ The image and audio artifacts of the [Design Space](06-design-space.md) run on t
 
 > When adjusting settings through conversation, the AI can only change the default chains and the parameters in the table above; provider entries (including API keys) **can only be changed in the GUI**.
 
-New image templates exclude retired DALL·E 3 and Google Imagen 4 / older Gemini image presets; Google uses `gemini-3.1-flash-image` / `gemini-3-pro-image`. Choose replacements for existing configurations according to your provider’s current availability. GPT Image 1 shuts down on October 23, 2026; new OpenAI image templates now offer only GPT Image 2. Saved configurations are not migrated automatically; check replacement models and required parameters before the deadline. Direct OpenAI chat templates also stop recommending `o1` / `o1-pro` / `o3-mini` / `o4-mini`, which retire on the same date, and remove the already retired `o3-deep-research` / `o4-mini-deep-research` presets. Adjust existing models and default chains yourself. Catalog maintenance does not establish actual image quality.
+New image templates exclude retired DALL·E 3 and Google Imagen 4 / older Gemini image presets; Google uses `gemini-nano-banana-2.1` / `gemini-3-pro-image`. Choose replacements for existing configurations according to your provider’s current availability. GPT Image 1 shuts down on October 23, 2026; new OpenAI image templates now offer only GPT Image 2. Saved configurations are not migrated automatically; check replacement models and required parameters before the deadline. Direct OpenAI chat templates also stop recommending `o1` / `o1-pro` / `o3-mini` / `o4-mini`, which retire on the same date, and remove the already retired `o3-deep-research` / `o4-mini-deep-research` presets. Adjust existing models and default chains yourself. Catalog maintenance does not establish actual image quality.
 
 ---
 

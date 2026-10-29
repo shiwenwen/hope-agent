@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.71.0] - 2026-10-30
+
 ### Fixed
 
 - **飞书鉴权隐私**：获取访问令牌失败时只显示状态或错误代码，避免服务端错误正文带出敏感信息。 (#875)
