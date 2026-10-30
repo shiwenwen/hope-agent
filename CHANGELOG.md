@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **API Route 服务商模板**：预填 OpenAI Chat 兼容端点，填写 API Key 并配置模型后使用。 (#752)
+
 ### Fixed
 
 - **Google Chat 回复格式**：创建与编辑显式使用一致语法，预览定稿保持原模式，避免云端默认或中途切换造成链接和提及格式变化。 (#877)
