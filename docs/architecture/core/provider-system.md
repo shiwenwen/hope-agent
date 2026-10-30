@@ -6,6 +6,8 @@
 
 ---
 
+服务商品牌图标统一由 `src/components/common/ProviderIcon.tsx` 映射。彩色模式优先使用上游提供的 `Color` 组件；没有彩色组件或指定品牌色时使用继承主题前景色的单色图标。`@lobehub/icons` 5.22.0 的 Stepfun 仅提供单色标识，保持这一降级路径，避免强制黑色导致深色主题下不可见。
+
 ## 核心思想
 
 Hope Agent 要面对一个碎片化的现实：市面上有几十家大模型服务商，它们**协议不同**（Anthropic Messages、OpenAI Chat、OpenAI Responses、ChatGPT OAuth）、**表达"多想一会儿"的方式不同**（有的传 `reasoning_effort`，有的传 `thinking budget_tokens`，有的传 `enable_thinking`）、**流式事件格式不同**、**可靠性也参差不齐**（限流、过载、超时、上下文溢出随时可能发生）。
