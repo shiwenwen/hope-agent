@@ -4196,6 +4196,10 @@
       "name": "Venice",
       "description": "Gizliliği önceliklendiren yapay zekâ çıkarım platformu"
     },
+    "obscurify": {
+      "name": "Obscurify.ai",
+      "description": "Gizlilik odaklı yapay zekâ ağ geçidi, e-postasız hesaplar, 200+ model"
+    },
     "synthetic": {
       "name": "Synthetic",
       "description": "Açık kaynak model çıkarımı (Anthropic uyumlu)"

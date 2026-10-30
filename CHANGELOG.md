@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Obscurify.ai 服务商**：新增隐私优先的 OpenAI Chat 兼容网关模板（`https://obscurify.ai/v1`），预置 DeepSeek V4 Flash、GLM 5.3、Kimi K2 0905、Qwen3 Coder 与 Llama 3.3 70B，上下文与价格取自其公开的 `/v1/models`。
+
 ### Fixed
 
 - **Google Chat 回复格式**：创建与编辑显式使用一致语法，预览定稿保持原模式，避免云端默认或中途切换造成链接和提及格式变化。 (#877)

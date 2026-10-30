@@ -4196,6 +4196,10 @@
       "name": "Venice",
       "description": "隱私優先的 AI 推理平台"
     },
+    "obscurify": {
+      "name": "Obscurify.ai",
+      "description": "隱私優先 AI 閘道，帳號無需電子郵件，200+ 模型"
+    },
     "synthetic": {
       "name": "Synthetic",
       "description": "開源模型推理（相容 Anthropic）"
