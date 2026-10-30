@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Google Chat 回复格式**：创建与编辑显式使用一致语法，预览定稿保持原模式，避免云端默认或中途切换造成链接和提及格式变化。 (#877)
 - **服务商图标兼容**：更新品牌图标依赖，阶跃星辰在彩色模式下沿用主题前景色，兼容新版单色标识。 (#869)
 
 ## [0.71.0] - 2026-10-30

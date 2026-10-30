@@ -58,6 +58,7 @@ In the account editor you can configure:
 - **Group policy and user allowlist** — control who can use it.
 - **Auto-approve tools**, **takeover notifications**, **startup online alerts**, **automatic voice transcription**, **Knowledge Space access**, **reply mode**, **thinking display**, and more.
 - Telegram/Slack can disable native streaming per account. iMessage, Google Chat, and Discord expose protocol or rollout switches and fall back to their compatibility paths when disabled.
+- Google Chat's Standard Markdown switch applies to new replies. Preview and final edits keep the original syntax, regardless of the app's cloud default or later switch changes. After a restart, or when the original syntax is unknown, editing stops without posting a duplicate reply.
 - iMessage health checks show the reported imsg version. Versions below 0.15.8 prompt a manual update; older builds without a version show “unverified” and are neither upgraded nor blocked automatically.
 - iMessage edits, unsends, and unknown update types do not trigger a new reply. They do not currently change or delete Hope Agent's message history, and historical mutations after a disconnect are not reconciled.
 - Signal and WhatsApp account cards show detected sidecar/Bridge versions. Unknown versions are warning-only; a known-vulnerable Baileys Bridge is blocked at startup and before sends.
