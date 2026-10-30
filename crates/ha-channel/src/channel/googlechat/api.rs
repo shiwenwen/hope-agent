@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::auth::GoogleChatAuth;
+use super::format::MessageSyntax;
 
 const CHAT_API_BASE: &str = "https://chat.googleapis.com/v1";
 
@@ -10,12 +11,9 @@ fn build_message_body(
     text: &str,
     thread_key: Option<&str>,
     cards_v2: Option<&[serde_json::Value]>,
-    standard_markdown: bool,
+    syntax: MessageSyntax,
 ) -> (serde_json::Value, &'static str) {
-    let mut body = serde_json::json!({ "text": text });
-    if standard_markdown {
-        body["markupSyntax"] = serde_json::json!("MARKUP_SYNTAX_MARKDOWN");
-    }
+    let mut body = syntax.text_body(text);
     let mut reply_option_param = "";
     if let Some(thread_key) = thread_key {
         if thread_key.starts_with("spaces/") && thread_key.contains("/threads/") {
@@ -36,6 +34,7 @@ fn build_message_body(
 pub struct GoogleChatApi {
     auth: Arc<GoogleChatAuth>,
     client: reqwest::Client,
+    base_url: String,
 }
 
 impl GoogleChatApi {
@@ -47,7 +46,24 @@ impl GoogleChatApi {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
-        Self { auth, client }
+        Self {
+            auth,
+            client,
+            base_url: CHAT_API_BASE.to_string(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_test(base_url: String) -> Self {
+        Self {
+            auth: Arc::new(GoogleChatAuth::for_test()),
+            client: reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(2))
+                .build()
+                .unwrap(),
+            base_url,
+        }
     }
 
     /// Get an authorization header value.
@@ -74,7 +90,7 @@ impl GoogleChatApi {
     /// Used for credential validation (probe).
     pub async fn list_spaces(&self) -> Result<serde_json::Value> {
         let auth = self.auth_header().await?;
-        let url = format!("{}?pageSize=1", CHAT_API_BASE.to_string() + "/spaces");
+        let url = format!("{}/spaces?pageSize=1", self.base_url);
 
         let resp = self
             .client
@@ -106,17 +122,16 @@ impl GoogleChatApi {
         text: &str,
         thread_key: Option<&str>,
         cards_v2: Option<&[serde_json::Value]>,
-        standard_markdown: bool,
+        syntax: MessageSyntax,
     ) -> Result<serde_json::Value> {
         let auth = self.auth_header().await?;
 
-        // GA 2026-08-07. `markupSyntax` is a Message body field and applies
-        // only to creation. Thread resource names and custom keys keep their
-        // distinct reply-option contracts.
-        let (body, reply_option_param) =
-            build_message_body(text, thread_key, cards_v2, standard_markdown);
+        // Compile with the same syntax we declare, independently of the app's
+        // cloud default. Resource names and custom keys retain their distinct
+        // thread reply-option contracts.
+        let (body, reply_option_param) = build_message_body(text, thread_key, cards_v2, syntax);
 
-        let url = format!("{}/{}/messages{}", CHAT_API_BASE, space, reply_option_param);
+        let url = format!("{}/{}/messages{}", self.base_url, space, reply_option_param);
 
         let resp = self
             .client
@@ -144,11 +159,13 @@ impl GoogleChatApi {
         &self,
         message_name: &str,
         text: &str,
+        syntax: MessageSyntax,
     ) -> Result<serde_json::Value> {
         let auth = self.auth_header().await?;
-        let url = format!("{}/{}?updateMask=text", CHAT_API_BASE, message_name);
+        let url = format!("{}/{}?updateMask=text", self.base_url, message_name);
 
-        let body = serde_json::json!({ "text": text });
+        // markupSyntax interprets text; it is not itself an update-mask path.
+        let body = syntax.text_body(text);
 
         let resp = self
             .client
@@ -174,7 +191,7 @@ impl GoogleChatApi {
     /// DELETE /{message_name} — delete a message.
     pub async fn delete_message(&self, message_name: &str) -> Result<()> {
         let auth = self.auth_header().await?;
-        let url = format!("{}/{}", CHAT_API_BASE, message_name);
+        let url = format!("{}/{}", self.base_url, message_name);
 
         let resp = self
             .client
@@ -221,6 +238,7 @@ impl GoogleChatApi {
 #[cfg(test)]
 mod tests {
     use super::build_message_body;
+    use super::MessageSyntax;
 
     #[test]
     fn standard_markdown_is_a_create_body_field() {
@@ -228,7 +246,7 @@ mod tests {
             "**bold** [link](https://example.com)\n1. one",
             None,
             None,
-            true,
+            MessageSyntax::Markdown,
         );
         assert_eq!(body["markupSyntax"], "MARKUP_SYNTAX_MARKDOWN");
         assert_eq!(body["text"], "**bold** [link](https://example.com)\n1. one");
@@ -236,8 +254,8 @@ mod tests {
     }
 
     #[test]
-    fn legacy_body_omits_markup_syntax() {
-        let (body, _) = build_message_body("legacy", None, None, false);
-        assert!(body.get("markupSyntax").is_none());
+    fn chat_body_explicitly_overrides_cloud_default() {
+        let (body, _) = build_message_body("legacy", None, None, MessageSyntax::Chat);
+        assert_eq!(body["markupSyntax"], "MARKUP_SYNTAX_CHAT");
     }
 }

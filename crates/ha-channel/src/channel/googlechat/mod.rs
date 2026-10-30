@@ -14,9 +14,13 @@ pub mod inbound_media;
 pub mod jwt;
 pub mod webhook;
 
+#[cfg(test)]
+mod tests;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -24,8 +28,10 @@ use tokio_util::sync::CancellationToken;
 use crate::channel::webhook_server::{WebhookServer, DEFAULT_WEBHOOK_PORT};
 use api::GoogleChatApi;
 use auth::GoogleChatAuth;
+use format::MessageSyntax;
 use ha_core::channel::traits::ChannelPlugin;
 use ha_core::channel::types::*;
+use lru::LruCache;
 
 /// Global webhook server instance, shared across all webhook-based channels.
 static WEBHOOK_SERVER: tokio::sync::OnceCell<Arc<WebhookServer>> =
@@ -53,12 +59,17 @@ struct RunningAccount {
 pub struct GoogleChatPlugin {
     /// Running accounts keyed by account_id.
     accounts: Mutex<HashMap<String, RunningAccount>>,
+    /// No message content or credentials; unknown/evicted identities cannot
+    /// be edited by guessing their original mode. Keep this across restarts
+    /// of an account so an in-flight reply survives its setting changing.
+    message_syntax: Mutex<LruCache<(String, String, String), MessageSyntax>>,
 }
 
 impl GoogleChatPlugin {
     pub fn new() -> Self {
         Self {
             accounts: Mutex::new(HashMap::new()),
+            message_syntax: Mutex::new(LruCache::new(NonZeroUsize::new(4096).unwrap())),
         }
     }
 
@@ -368,26 +379,28 @@ impl ChannelPlugin for GoogleChatPlugin {
 
             let thread_key = payload.thread_id.as_deref();
             let cards_ref = cards_v2.as_deref();
-            let compiled_text = if standard_markdown {
-                format::compile_standard_markdown_mentions(text)
-            } else {
-                format::markdown_to_googlechat(text)
-            };
+            let syntax = MessageSyntax::from_standard_markdown(standard_markdown);
             let result = api
-                .send_message(
-                    chat_id,
-                    &compiled_text,
-                    thread_key,
-                    cards_ref,
-                    standard_markdown,
-                )
+                .send_message(chat_id, text, thread_key, cards_ref, syntax)
                 .await?;
 
             let msg_name = result
                 .get("name")
                 .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
+                .filter(|name| !name.is_empty())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Google Chat create acknowledgement has no message name")
+                })?
                 .to_string();
+
+            self.message_syntax.lock().await.put(
+                (
+                    account_id.to_string(),
+                    chat_id.to_string(),
+                    msg_name.clone(),
+                ),
+                syntax,
+            );
 
             return Ok(DeliveryResult::ok(msg_name));
         }
@@ -410,17 +423,29 @@ impl ChannelPlugin for GoogleChatPlugin {
     async fn edit_message(
         &self,
         account_id: &str,
-        _chat_id: &str,
+        chat_id: &str,
         message_id: &str,
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let api = self.get_api(account_id).await?;
 
         if let Some(ref text) = payload.text {
-            // `markupSyntax` is create-only. Updates keep the legacy Chat
-            // syntax regardless of the account's create-message flag.
-            let legacy_text = format::markdown_to_googlechat(text);
-            let result = api.update_message(message_id, &legacy_text).await?;
+            let syntax = self
+                .message_syntax
+                .lock()
+                .await
+                .get(&(
+                    account_id.to_string(),
+                    chat_id.to_string(),
+                    message_id.to_string(),
+                ))
+                .copied()
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Google Chat original message syntax is unavailable; edit refused"
+                    )
+                })?;
+            let result = api.update_message(message_id, text, syntax).await?;
             let msg_name = result
                 .get("name")
                 .and_then(|v| v.as_str())
@@ -435,11 +460,17 @@ impl ChannelPlugin for GoogleChatPlugin {
     async fn delete_message(
         &self,
         account_id: &str,
-        _chat_id: &str,
+        chat_id: &str,
         message_id: &str,
     ) -> Result<()> {
         let api = self.get_api(account_id).await?;
-        api.delete_message(message_id).await
+        api.delete_message(message_id).await?;
+        self.message_syntax.lock().await.pop(&(
+            account_id.to_string(),
+            chat_id.to_string(),
+            message_id.to_string(),
+        ));
+        Ok(())
     }
 
     async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth> {

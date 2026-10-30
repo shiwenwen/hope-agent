@@ -310,7 +310,8 @@ pub const SETTINGS_KEY_NATIVE_REPLY: &str = "nativeReply";
 pub const SETTINGS_KEY_IMSG_PROTOCOL_V1: &str = "imsgProtocolV1";
 
 /// Settings JSON key controlling Google Chat standard Markdown on message
-/// creation. Explicit `false` rolls an account back to the legacy Chat syntax.
+/// creation. Explicit `false` selects Chat syntax. Edits retain the mode of
+/// their original message, independently of later account setting changes.
 pub const SETTINGS_KEY_GOOGLE_CHAT_STANDARD_MARKDOWN: &str = "googleChatStandardMarkdown";
 
 /// Temporary Discord Gateway early opt-in for private-channel obfuscation.
