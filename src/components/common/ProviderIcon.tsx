@@ -101,7 +101,7 @@ const ICON_MAP: Record<string, IconEntry> = {
   deepinfra: { mono: DeepInfra, color: DeepInfra.Color },
   fireworks: { mono: Fireworks, color: Fireworks.Color },
   huggingface: { mono: HuggingFace, color: HuggingFace.Color },
-  stepfun: { mono: Stepfun, color: Stepfun.Color },
+  stepfun: { mono: Stepfun },
   tencent: { mono: Hunyuan, color: Hunyuan.Color },
   "vercel-ai-gateway": { mono: Vercel },
   // ── STT (voice input) providers ───────────────────────────────────

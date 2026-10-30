@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **服务商图标兼容**：更新品牌图标依赖，阶跃星辰在彩色模式下沿用主题前景色，兼容新版单色标识。 (#869)
+
 ## [0.71.0] - 2026-10-30
 
 ### Fixed
