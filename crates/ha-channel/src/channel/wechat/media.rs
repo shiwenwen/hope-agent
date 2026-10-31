@@ -435,16 +435,15 @@ fn md5_hex(data: &[u8]) -> String {
 /// ECB has no IV; PKCS#7 always appends a whole padding block when the
 /// input is already block-aligned (so a 16-byte input yields 32 bytes).
 pub(super) fn aes128_ecb_encrypt_pkcs7(key: &[u8; 16], plaintext: &[u8]) -> Vec<u8> {
-    use aes::cipher::generic_array::GenericArray;
-    use aes::cipher::{BlockEncrypt, KeyInit};
+    use aes::cipher::{BlockCipherEncrypt, KeyInit};
 
-    let cipher = aes::Aes128::new(GenericArray::from_slice(key));
+    let cipher = aes::Aes128::new(key.into());
     let pad = 16 - (plaintext.len() % 16); // 1..=16
     let mut buf = Vec::with_capacity(plaintext.len() + pad);
     buf.extend_from_slice(plaintext);
     buf.resize(plaintext.len() + pad, pad as u8);
     for chunk in buf.chunks_exact_mut(16) {
-        cipher.encrypt_block(GenericArray::from_mut_slice(chunk));
+        cipher.encrypt_block(chunk.try_into().expect("exact AES block"));
     }
     buf
 }
@@ -485,18 +484,17 @@ mod tests {
     /// output) byte-for-byte after dropping the openssl dependency.
     #[test]
     fn aes128_block_matches_fips197_vector() {
-        use aes::cipher::generic_array::GenericArray;
-        use aes::cipher::{BlockEncrypt, KeyInit};
+        use aes::cipher::{BlockCipherEncrypt, KeyInit};
 
         let key: [u8; 16] = [
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
             0x0e, 0x0f,
         ];
-        let mut block = GenericArray::clone_from_slice(&[
+        let mut block = aes::Block::from([
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
             0xee, 0xff,
         ]);
-        aes::Aes128::new(GenericArray::from_slice(&key)).encrypt_block(&mut block);
+        aes::Aes128::new((&key).into()).encrypt_block(&mut block);
         assert_eq!(
             hex_lower(block.as_slice()),
             "69c4e0d86a7b0430d8cdb78070b4c55a"
