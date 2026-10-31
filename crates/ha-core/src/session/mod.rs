@@ -61,7 +61,7 @@ pub use helpers::{
     auto_title, cleanup_orphan_incognito, db_path, effective_session_working_dir,
     effective_working_dir_for_meta, ensure_first_message_title, ensure_session_runtime_defaults,
     first_message_title_candidate, is_session_incognito, lookup_session_meta,
-    resolve_chat_runtime_defaults, set_session_model_preference,
+    resolve_chat_runtime_defaults, session_model_pin, set_session_model_preference,
     set_session_reasoning_effort_preference, set_session_temperature_preference,
     ChatRuntimeDefaults,
 };

@@ -218,6 +218,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
 
