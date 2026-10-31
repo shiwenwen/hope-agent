@@ -414,4 +414,15 @@ describe("provider template lifecycle hygiene", () => {
     })
     expect(provider?.models.length).toBeGreaterThan(0)
   })
+
+  it("offers Runcrate as an OpenAI Chat compatible provider", () => {
+    const provider = PROVIDER_TEMPLATES.find((template) => template.key === "runcrate")
+    expect(provider).toMatchObject({
+      apiType: "openai-chat",
+      baseUrl: "https://api.runcrate.ai/v1",
+      requiresApiKey: true,
+    })
+    expect(provider?.models[0]?.id).toBe("deepseek-ai/DeepSeek-V4.1-Flash")
+    expect(provider?.models.every((model) => model.id.includes("/"))).toBe(true)
+  })
 })

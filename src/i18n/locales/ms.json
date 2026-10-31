@@ -4156,6 +4156,10 @@
       "description": "Get laluan penghalaan multi-model, ratusan model dengan satu key",
       "name": "Requesty"
     },
+    "runcrate": {
+      "description": "Awan GPU yang menyediakan model terbuka melalui API serasi OpenAI",
+      "name": "Runcrate"
+    },
     "together": {
       "description": "Platform inferens awan untuk model sumber terbuka",
       "name": "Together AI"

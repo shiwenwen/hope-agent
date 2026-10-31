@@ -4156,6 +4156,10 @@
       "description": "Мульти-модельный шлюз маршрутизации, сотни моделей по одному ключу",
       "name": "Requesty"
     },
+    "runcrate": {
+      "description": "GPU-облако с открытыми моделями через OpenAI-совместимый API",
+      "name": "Runcrate"
+    },
     "together": {
       "description": "Облачная платформа инференса open-source моделей",
       "name": "Together AI"

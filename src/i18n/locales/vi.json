@@ -4156,6 +4156,10 @@
       "description": "Cổng định tuyến đa mô hình, hàng trăm mô hình với một key duy nhất",
       "name": "Requesty"
     },
+    "runcrate": {
+      "description": "Đám mây GPU cung cấp mô hình mở qua API tương thích OpenAI",
+      "name": "Runcrate"
+    },
     "together": {
       "description": "Nền tảng suy luận đám mây cho các mô hình mã nguồn mở",
       "name": "Together AI"
