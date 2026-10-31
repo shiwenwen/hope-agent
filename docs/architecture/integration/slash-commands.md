@@ -172,7 +172,7 @@ sequenceDiagram
 
 | 命令 | 参数 | 说明 | 副作用 (Action) |
 |---|---|---|---|
-| `/model` | `[name]` 可选 | 无参：弹模型选择器（标记当前活跃模型）；有参：模糊匹配切换模型 | 无参 `ShowModelPicker` / 有参 `SwitchModel` |
+| `/model` | `[name]` 可选 | 无参：弹模型选择器（标记当前生效模型，见下文「`✓` 的模型来源」）；有参：模糊匹配切换模型 | 无参 `ShowModelPicker` / 有参 `SwitchModel` |
 | `/models` | 无 | 列出所有可用模型（≡ `/model` 无参） | `ShowModelPicker` |
 | `/thinking` | `<level>` 必需 | 设置推理思考强度。`/think` 是静默别名（仅 dispatch 接受，菜单不展示） | `SetEffort` |
 
@@ -457,6 +457,8 @@ stateDiagram-v2
 - skill 命令：统一按 `args_optional=true` 处理（skill 默认无参可跑）
 
 **`/model` 无参的特殊处理**：返回可用模型的 inline keyboard（每行最多 2 个，当前活跃模型标 `✓`），`callback_data` 格式 `slash:model <model_name>`，最多 20 个；不支持按钮的渠道降级为文本列表 + 「用 `/model <name>` 切换」提示。
+
+**`✓` 的模型来源**：`/model` 无参的勾选与 `/status` 的 Model 行读取同一生效模型，由 dispatcher 按 `effective_session_model` 解析：会话固定优先，无固定时依次回退 Agent `model.primary` 与全局 `active_model`，与正式对话的首选模型链一致（[provider-system §7.2](../core/provider-system.md)）；引用的模型不可用时按同序跳过。
 
 ### 有 arg_options 的命令
 
