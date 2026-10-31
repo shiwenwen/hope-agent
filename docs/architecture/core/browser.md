@@ -347,7 +347,7 @@ MV3 service worker 会被 Chrome 随时驱逐，所以**重连逻辑只在扩展
 
 `tabs.open_user_tabs` / `tabs.claim` / 数字 id 的 `tabs.select` / `observe.downloads` / `control.evaluate` / `control.raw_cdp` / `control.download_cancel` 都通过统一权限引擎产生浏览器审批原因（`check_browser_chrome_access` / `check_browser_download_action` / `check_browser_evaluate` / `check_browser_raw_cdp`）。
 
-**除 `control.raw_cdp` 外**这些原因都是非 strict：Default 弹工具审批，Smart 可由 `_confidence:"high"` 或 judge model 自动放行。YOLO / Global YOLO / `auto_approve_tools` 则**对包括 raw CDP 在内的全部原因**直接放行——它们整体跳过审批闸，不受 strict 约束（见下）。异步工具重入的 `external_pre_approved` 只表示外层统一 gate 已处理过，内层不重复审批。高层 `evaluate` 的 SSRF 扫描不受这些开关影响。
+**除 `control.raw_cdp` 外**这些原因都是非 strict：Default 弹工具审批，Smart 可由 `_confidence:"high"` 或 judge model 自动放行。raw CDP 是 strict：Default / Smart 逐次弹（Smart 的自信标记与 judge 都碰不到它，见下），**YOLO / Global YOLO 同样不放过**——YOLO 短路分支对它也强制 `Ask`。`auto_approve_tools` 则对包括 raw CDP 在内的全部原因直接放行——它整体跳过审批闸（见下）。异步工具重入的 `external_pre_approved` 只表示外层统一 gate 已处理过，内层不重复审批。高层 `evaluate` 的 SSRF 扫描不受这些开关影响。
 
 ### `control.raw_cdp` 的四道闸
 
@@ -378,15 +378,14 @@ flowchart TD
 
 **② strict 审批（`AskReason::BrowserRawCdp`，永无 Allow Always）。** `BrowserRawCdp` 是 `AskReason::forbids_allow_always()` 的成员（与 `ProtectedPath` / `DangerousCommand` / `MacControlDangerousAction` / `ExternalConnectorAction` / `PlanModeAsk` 同档）。strict 语义由**引擎里的位置**兑现：
 
-- 在 `resolve()` 的非 YOLO 主路径上，`check_browser_raw_cdp` 排在 `check_protected_path` / `check_dangerous_command` 之后、`allowlist::allows_tool_call` **之前**——AllowAlways 累加器根本来不及命中，一条持久化规则换不来对已登录浏览器的常驻 DevTools 访问。
+- 在 `resolve()` 的非 YOLO 主路径上，`check_browser_raw_cdp` 排在 `check_protected_path` / `check_dangerous_command` 之后、`allowlist::allows_tool_call` **之前**——AllowAlways 累加器根本来不及命中，一条持久化规则换不来对已登录浏览器的常驻 DevTools 访问。YOLO 短路分支同样命中即返回 `Ask`（单测 `browser_raw_cdp_yolo_still_asks_strict` 锁死这一点）。
 - 同样因为排在 per-mode resolver 之前，Smart 模式的 `_confidence:"high"` 自标记走不到（单测 `browser_raw_cdp_smart_high_confidence_still_asks_strict` 锁死这一点）。
 - `resolve_async` 在 sync 结果为 `Ask` 后第一件事就是 `forbids_allow_always()` 判定，命中即原样返回——**judge model 永远看不到 raw CDP 调用**，无法把它升为 `Allow`。
 - Plan Mode 分支经 `resolve_soft_approval_layer` → `resolve_browser_control_approval_layer` → `check_browser_raw_cdp` 同样落到 Ask。
 - 审批超时同受约束：`approval_timeout_action=proceed` 只对非 strict 生效，raw CDP 超时强制 deny（见 [permission-system](../agent/permission-system.md)）。
 
-strict 约束的是**审批闸内部**的四条自动放行轴（AllowAlways / smart 自信 / judge / 超时·无人值守 proceed）。**它管不了整体跳过审批闸的两条路径**——两者都在闸之前就让 `needs_permission_engine` 返回 `false`：
+strict 约束的是**审批闸内部**的四条自动放行轴（AllowAlways / smart 自信 / judge / 超时·无人值守 proceed）。**它管不了整体跳过审批闸的 `auto_approve_tools` 路径**——它在闸之前就让 `needs_permission_engine` 返回 `false`：
 
-- **YOLO / Global YOLO**：`resolve()` 在 YOLO 短路分支里只对各原因 `log_yolo_warn` 记审计后返回 `Allow`。
 - **`auto_approve_tools`**（IM auto-approve 账号 / 技能触发的斜杠命令）：执行层直接不调引擎，但会跑一次 no-enforce 探测——命中 `forbids_allow_always` 就 `app_warn!("permission","auto_approve_bypass")`，**只记审计、调用照常执行**。即开了 auto-approve 的 IM 账号可以在无人确认下发出 raw CDP；这是已知的 opt-in 取舍，不是 strict 的漏网。
 
 **③ 形态校验 + 两道黑名单（`validate_raw_cdp_method`）。** 后端派发前（先于 `send_cdp_command`）依次跑三项：
