@@ -296,7 +296,7 @@ fn registry() -> &'static Mutex<HashMap<String, Entry>> {
 /// original stream cursor and allows duplicate UI turns to hide each other.
 pub fn begin(session_id: &str, source: ChatSource) -> Result<String, ActiveStreamError> {
     let stream_id = uuid::Uuid::new_v4().to_string();
-    let mut map = registry().lock().expect("stream_seq registry poisoned");
+    let mut map = registry().lock().unwrap_or_else(|p| p.into_inner());
     if let Some(existing) = map.get(session_id) {
         return Err(ActiveStreamError {
             session_id: session_id.to_string(),
@@ -317,7 +317,7 @@ pub fn begin(session_id: &str, source: ChatSource) -> Result<String, ActiveStrea
 
 /// Drop the session entry, marking it as no longer streaming.
 pub fn end(session_id: &str) {
-    let mut map = registry().lock().expect("stream_seq registry poisoned");
+    let mut map = registry().lock().unwrap_or_else(|p| p.into_inner());
     map.remove(session_id);
 }
 
@@ -327,7 +327,7 @@ pub fn end(session_id: &str) {
 /// a watchdog-forced stop. A stale owner must not remove a newer stream that
 /// started for the same session after the watchdog released the active turn.
 pub fn end_if_stream(session_id: &str, stream_id: &str) -> bool {
-    let mut map = registry().lock().expect("stream_seq registry poisoned");
+    let mut map = registry().lock().unwrap_or_else(|p| p.into_inner());
     let matches = map
         .get(session_id)
         .map(|entry| entry.stream_id == stream_id)
@@ -341,7 +341,7 @@ pub fn end_if_stream(session_id: &str, stream_id: &str) -> bool {
 /// Return the next `seq` for this session, or `0` if the session isn't
 /// registered (defensive — callers should [`begin`] first).
 pub fn next_seq(session_id: &str) -> u64 {
-    let map = registry().lock().expect("stream_seq registry poisoned");
+    let map = registry().lock().unwrap_or_else(|p| p.into_inner());
     if let Some(entry) = map.get(session_id) {
         entry.counter.fetch_add(1, Ordering::SeqCst) + 1
     } else {
@@ -354,7 +354,7 @@ pub fn next_seq(session_id: &str) -> u64 {
 /// takes one lock instead of two (`next_seq` + `stream_id`). Returns
 /// `(0, None)` when the session isn't registered (same as the two separately).
 pub fn next_seq_and_stream(session_id: &str) -> (u64, Option<String>) {
-    let map = registry().lock().expect("stream_seq registry poisoned");
+    let map = registry().lock().unwrap_or_else(|p| p.into_inner());
     match map.get(session_id) {
         Some(entry) => (
             entry.counter.fetch_add(1, Ordering::SeqCst) + 1,
@@ -366,7 +366,7 @@ pub fn next_seq_and_stream(session_id: &str) -> (u64, Option<String>) {
 
 /// Current value of the counter (highest issued seq).
 pub fn last_seq(session_id: &str) -> u64 {
-    let map = registry().lock().expect("stream_seq registry poisoned");
+    let map = registry().lock().unwrap_or_else(|p| p.into_inner());
     map.get(session_id)
         .map(|e| e.counter.load(Ordering::SeqCst))
         .unwrap_or(0)
@@ -374,7 +374,7 @@ pub fn last_seq(session_id: &str) -> u64 {
 
 /// Current stream id for an active session.
 pub fn stream_id(session_id: &str) -> Option<String> {
-    let map = registry().lock().expect("stream_seq registry poisoned");
+    let map = registry().lock().unwrap_or_else(|p| p.into_inner());
     map.get(session_id).map(|e| e.stream_id.clone())
 }
 
@@ -382,14 +382,14 @@ pub fn stream_id(session_id: &str) -> Option<String> {
 /// claim a generation-specific side sink must not combine separate source and
 /// id reads across a stream replacement race.
 pub fn stream_identity(session_id: &str) -> Option<(ChatSource, String)> {
-    let map = registry().lock().expect("stream_seq registry poisoned");
+    let map = registry().lock().unwrap_or_else(|p| p.into_inner());
     map.get(session_id)
         .map(|entry| (entry.source, entry.stream_id.clone()))
 }
 
 /// Whether the session is currently registered (run_chat is running).
 pub fn is_active(session_id: &str) -> bool {
-    let map = registry().lock().expect("stream_seq registry poisoned");
+    let map = registry().lock().unwrap_or_else(|p| p.into_inner());
     map.contains_key(session_id)
 }
 
@@ -408,7 +408,7 @@ pub struct ActiveChatCounts {
 /// Snapshot of in-flight chat sessions by source. Cheap: one lock + one
 /// pass over an in-memory HashMap whose size is bounded by concurrent users.
 pub fn active_counts() -> ActiveChatCounts {
-    let map = registry().lock().expect("stream_seq registry poisoned");
+    let map = registry().lock().unwrap_or_else(|p| p.into_inner());
     let mut out = ActiveChatCounts::default();
     for entry in map.values() {
         match entry.source {
@@ -437,7 +437,7 @@ pub fn active_counts() -> ActiveChatCounts {
 /// externally. Used by the desktop tray menu to enumerate "currently
 /// streaming" regular conversations without exposing the registry itself.
 pub fn active_session_ids_by_source(source: ChatSource) -> Vec<String> {
-    let map = registry().lock().expect("stream_seq registry poisoned");
+    let map = registry().lock().unwrap_or_else(|p| p.into_inner());
     map.iter()
         .filter(|(_, e)| e.source == source)
         .map(|(sid, _)| sid.clone())

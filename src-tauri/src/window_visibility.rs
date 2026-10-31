@@ -104,12 +104,18 @@ mod native {
         } {
             let handle = app.clone();
             let callback = RcBlock::new(move |_: NonNull<NSNotification>| {
-                STATE
-                    .get()
-                    .expect("visibility initialized")
-                    .lock()
-                    .expect("visibility lock")
-                    .observe(phase);
+                match STATE.get().map(|state| {
+                    state
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                }) {
+                    Some(mut visibility) => visibility.observe(phase),
+                    None => ha_core::app_warn!(
+                        "window",
+                        "main:fullscreen",
+                        "Visibility state unavailable; ignoring fullscreen transition"
+                    ),
+                }
                 ha_core::app_info!(
                     "window",
                     "main:fullscreen",
@@ -136,7 +142,10 @@ mod native {
 
     pub(super) fn cancel_pending_hide() {
         if let Some(state) = STATE.get() {
-            state.lock().expect("visibility lock").cancel();
+            state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .cancel();
         }
     }
 
@@ -165,7 +174,7 @@ mod native {
         };
         let Some(ticket) = state
             .lock()
-            .expect("visibility lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .request_hide(fullscreen)
         else {
             return;
@@ -191,10 +200,12 @@ mod native {
                 });
                 if STATE
                     .get()
-                    .expect("visibility initialized")
-                    .lock()
-                    .expect("visibility lock")
-                    .expire(ticket, fullscreen)
+                    .map(|state| {
+                        state
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    })
+                    .is_some_and(|mut visibility| visibility.expire(ticket, fullscreen))
                 {
                     ha_core::app_warn!(
                         "window",
@@ -220,11 +231,17 @@ mod native {
     }
 
     fn drive(app: &tauri::AppHandle) {
-        let action = STATE
-            .get()
-            .expect("visibility initialized")
+        let Some(state) = STATE.get() else {
+            ha_core::app_warn!(
+                "window",
+                "main:hide",
+                "Visibility state unavailable; skipping window action"
+            );
+            return;
+        };
+        let action = state
             .lock()
-            .expect("visibility lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take_action();
         let Some(action) = action else {
             return;
@@ -240,11 +257,9 @@ mod native {
         match result {
             Ok(()) => ha_core::app_info!("window", "main:hide", "Main window action: {action:?}"),
             Err(error) => {
-                STATE
-                    .get()
-                    .expect("visibility initialized")
+                state
                     .lock()
-                    .expect("visibility lock")
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .abort();
                 ha_core::app_warn!(
                     "window",
