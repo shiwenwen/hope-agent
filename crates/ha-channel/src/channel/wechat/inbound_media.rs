@@ -184,8 +184,7 @@ async fn streaming_decrypt(
 ) -> anyhow::Result<u64> {
     use anyhow::Context;
     tokio::task::spawn_blocking(move || -> anyhow::Result<u64> {
-        use aes::cipher::generic_array::GenericArray;
-        use aes::cipher::{BlockDecrypt, KeyInit};
+        use aes::cipher::{BlockCipherDecrypt, KeyInit};
         use anyhow::bail;
         use std::io::{BufReader, BufWriter, Read, Write};
 
@@ -225,7 +224,7 @@ async fn streaming_decrypt(
             if flush_blocks > 0 {
                 let cut = flush_blocks * 16;
                 for chunk in carry[..cut].chunks_exact(16) {
-                    let mut block = GenericArray::clone_from_slice(chunk);
+                    let mut block = aes::Block::try_from(chunk).expect("exact AES block");
                     cipher.decrypt_block(&mut block);
                     writer
                         .write_all(&block)
@@ -244,7 +243,7 @@ async fn streaming_decrypt(
                 carry.len()
             );
         }
-        let mut block = GenericArray::clone_from_slice(&carry);
+        let mut block = aes::Block::try_from(carry.as_slice()).expect("validated final AES block");
         cipher.decrypt_block(&mut block);
         let pad = block[15] as usize;
         if pad == 0 || pad > 16 || block[16 - pad..].iter().any(|&b| b as usize != pad) {
@@ -596,7 +595,7 @@ mod tests {
         // Cover: unaligned single chunk (17 → 32B exercises unpad), exact
         // block multiples (16/32B → full pad block), and payloads larger than
         // the 16 KiB read buffer (exercises carry retention across reads).
-        for len in [1usize, 15, 16, 17, 32, 16 * 1024, 40_000] {
+        for len in [0usize, 1, 15, 16, 17, 32, 16 * 1024, 40_000] {
             let plaintext: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
             let ciphertext = aes128_ecb_encrypt_pkcs7(&key, &plaintext);
 
@@ -614,5 +613,64 @@ mod tests {
             let recovered = tokio::fs::read(&plain_path).await.expect("read plaintext");
             assert_eq!(recovered, plaintext, "len={}", len);
         }
+    }
+
+    /// Independently generated with OpenSSL AES-128-ECB + PKCS#7. A
+    /// round-trip alone would miss a matching change in both directions.
+    #[tokio::test]
+    async fn streaming_decrypt_accepts_legacy_ciphertext_and_rejects_bad_input() {
+        use crate::channel::wechat::media::aes128_ecb_encrypt_pkcs7;
+
+        let key = [0x42u8; 16];
+        let ciphertext = [
+            0x2b, 0x40, 0x36, 0x34, 0xcf, 0x5c, 0x5f, 0xc9, 0x76, 0x61, 0x45, 0x76, 0x20, 0x78,
+            0xd8, 0xf5, 0x8d, 0x57, 0x89, 0x6a, 0xa4, 0xe0, 0x8c, 0xc9, 0x55, 0xf3, 0x26, 0x43,
+            0x15, 0x58, 0x9a, 0x57,
+        ];
+        assert_eq!(
+            aes128_ecb_encrypt_pkcs7(&key, b"legacy wechat media"),
+            ciphertext
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let enc_path = dir.path().join("legacy.enc");
+        let plain_path = dir.path().join("plain.bin");
+        tokio::fs::write(&enc_path, ciphertext).await.unwrap();
+        let n = streaming_decrypt(enc_path.clone(), plain_path.clone(), key.to_vec())
+            .await
+            .unwrap();
+        assert_eq!(n, 19);
+        assert_eq!(
+            tokio::fs::read(&plain_path).await.unwrap(),
+            b"legacy wechat media"
+        );
+
+        assert!(
+            streaming_decrypt(enc_path.clone(), plain_path.clone(), vec![0x42; 15])
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("exactly 16 bytes")
+        );
+        for len in [0, 1, 15, 17, 31] {
+            tokio::fs::write(&enc_path, &ciphertext[..len])
+                .await
+                .unwrap();
+            assert!(
+                streaming_decrypt(enc_path.clone(), plain_path.clone(), key.to_vec())
+                    .await
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Truncated or misaligned")
+            );
+        }
+        // The first block ends in ASCII 'e' (0x65), an invalid padding length.
+        tokio::fs::write(&enc_path, &ciphertext[..16])
+            .await
+            .unwrap();
+        assert!(streaming_decrypt(enc_path, plain_path, key.to_vec())
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid PKCS#7 padding"));
     }
 }

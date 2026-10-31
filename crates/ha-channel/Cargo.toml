@@ -18,7 +18,7 @@ ha-base = { path = "../ha-base" }
 ha-config-schema = { path = "../ha-config-schema" }
 ha-core = { path = "../ha-core" }
 
-aes = "0.8"
+aes = "0.9"
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = "0.8"

@@ -86,7 +86,7 @@ hmac = "0.12"
 # `memory/backup.rs` 的备份加密。（WeChat iLink 媒体 CDN 的 AES-128-ECB + MD5
 # 已随 ha-channel 迁出，`md-5` / `teloxide` / `native-tls` / `tokio-native-tls`
 # / `jsonwebtoken` 一并从 kernel 移除——它们迁出后在 ha-core 里零引用。）
-aes = "0.8"
+aes = "0.9"
 axum = "0.8"
 lru = "0.18.2"
 flate2 = "1"

@@ -542,7 +542,7 @@ sequenceDiagram
 
 **SSRF 策略：** 用户可控的 URL（Slack / Discord / QQ Bot / WhatsApp bridge）必经 `security::ssrf::check_url`；官方固定 host（飞书 / Google Chat / LINE / Telegram / 微信 CDN）跳过。共用入口 `stream_to_disk` 不内置 SSRF，调用前自行 check——新接渠道严禁自写 IP 校验。
 
-**微信的流式解密。** 微信媒体密文必须经 AES-128-ECB + PKCS#7 解密。为避免同时在内存里持有密文和明文两份 buffer（100 MB 文件峰值超 200 MB RSS），实现改成磁盘缓冲二段法：先 `stream_to_disk` 把密文落到 `.enc`，再 `spawn_blocking` 逐 16 字节块解密写出，末块留在 carry 里到 EOF 才做 PKCS#7 unpad，最后强制删除中间文件。ECB 块相互独立所以可流式，**RSS 与文件大小完全解耦**。解密用纯 Rust `aes` + `md-5` crate（不再依赖 `openssl`）；`openssl` 仅在 Linux 作为 target 依赖保留（`vendored`），用途是让 `native-tls` 静态打包 OpenSSL，使 Docker / 裸 Linux 发布包运行时无需系统 libssl。
+**微信的流式解密。** 微信媒体密文必须经 AES-128-ECB + PKCS#7 解密。为避免同时在内存里持有密文和明文两份 buffer（100 MB 文件峰值超 200 MB RSS），实现改成磁盘缓冲二段法：先 `stream_to_disk` 把密文落到 `.enc`，再 `spawn_blocking` 逐 16 字节块解密写出，末块留在 carry 里到 EOF 才做 PKCS#7 unpad，最后强制删除中间文件。ECB 块相互独立所以可流式，**RSS 与文件大小完全解耦**。加解密使用纯 Rust `aes` 0.9（`cipher` 0.5 的 `BlockCipherEncrypt` / `BlockCipherDecrypt` 与定长 `aes::Block`），保留 AES-128-ECB + PKCS#7 的协议字节和流式末块校验；摘要沿用 `md-5` crate（不再依赖 `openssl`）；`openssl` 仅在 Linux 作为 target 依赖保留（`vendored`），用途是让 `native-tls` 静态打包 OpenSSL，使 Docker / 裸 Linux 发布包运行时无需系统 libssl。
 
 ---
 
@@ -1304,6 +1304,6 @@ crates/ha-channel/src/channel/{name}/
 | `teloxide` | 0.17 | Telegram Bot API 框架 |
 | `tokio-tungstenite` | 0.29 | WebSocket 客户端（Discord / Slack / 飞书 / QQ Bot） |
 | `tokio-util` | 0.7 | `CancellationToken`（优雅关闭） |
-| `aes` + `md-5` | 0.8 / 0.10 | 微信媒体 AES-128-ECB 解密（替代 openssl） |
+| `aes` + `md-5` | 0.9 / 0.10 | 微信媒体 AES-128-ECB 解密（替代 openssl） |
 
 Discord / Slack / 飞书 / QQ Bot 不引各自的 SDK，而是复用 `tokio-tungstenite` + 共享的 `ws.rs` 直接对接各平台的 WebSocket 协议——所以新增一个 WebSocket 渠道通常不需要引入新依赖。
