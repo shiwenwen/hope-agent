@@ -270,6 +270,10 @@ Basic 每个实际尝试经 `model_usage.rs` 记录 `web_search.kimi.basic`，�
 
 每次引擎尝试经逐跳 SSRF 检查、目标代理选择和响应字节上限；结果去重、拒绝非 HTTP(S) 和携凭据链接。用量经 `model_usage.rs` 按 `keyless_search` 操作记录成功 / 失败及耗时，无痕跳过持久化，不记录查询、正文或估算 Token。上游不可用与确实没有结果仍需分开诊断，免 Key 不承诺可用率。
 
+Perplexity 仍使用已有 Sonar `chat/completions` 端点、型号与配置；请求前检查 SSRF、按目标选择代理并禁止重定向，只接受 HTTP 200 与 1 MB 内合法 JSON。沿 `citations` 顺序保留域名标题，只接受无凭据的绝对 HTTP(S) URL，去重后取最多 10 条。`search_results` 标题/摘要消费等待既有不可信信封前置 PR #765，不在本包重复实施。没有可用来源时保留明确无 URL 的旧摘要回退（最多 500 字节）；未知响应结构或上游错误不能当作空搜索成功。请求、读取、解析与取消共用一次用量收尾，保留实际返回的 Token（含真实零），缺失仍未知，不持久化响应正文或厂商错误消息。
+
+[官方迁移说明](https://docs.perplexity.ai/docs/agent-api/migrate-from-sonar/overview)于 2026-10-31 复核：Sonar 支持已于 09-27 结束，同步与流式请求仍逐步转译；这不能证明旧端点返回原生 Agent `output`。本次兼容维护只验证既有 Sonar 结构，不切换 Agent API、effort、工具或计费路径；真实账号、质量、账单与新协议迁移另验。
+
 ### 4. 记忆系统
 
 均为 internal（永不审批）。`core_memory` 及其兼容入口用本机 Markdown，其余在 SQLite + FTS5 + 向量检索后端上操作。契约详见 [memory](memory.md)。

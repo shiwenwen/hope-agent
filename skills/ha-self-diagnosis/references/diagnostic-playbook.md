@@ -239,3 +239,5 @@ gotcha that most often explains a failure. Open every DB read-only.
 ### Kimi Basic 搜索迁移
 
 排查 `web_search.kimi.basic` 时先核对既有 Key、是否设置国家/语言/时效过滤及后续已启用服务商；Basic 不支持这些过滤，明确错误不代表账号异常。固定国内 REST、SSRF 与禁止重定向失败不回退旧聊天模型。用量中模型/Token 缺失属于按次合同；`billable_call=null` 表示取消或响应未知，不能据此断言免费或自动重试。仅收集脱敏状态码与时间，不采集查询、Key、响应正文或真实账号材料。
+
+排查 `web_search.perplexity` 时区分 HTTP/重定向拒绝、限量 JSON 读取失败、协议错误和合法空结果。引用沿既有 `citations` 顺序，新增来源元数据消费尚待不可信信封前置交付；无 URL 的摘要不当作引用。旧 Sonar 端点仍沿原配置，不能把原生 Agent `output` 示例当作该端点实测回执。解析失败/取消也记一次失败调用，Token 缺失不是零；不要收集查询、Key、响应正文或用本地夹具推断真实账单。

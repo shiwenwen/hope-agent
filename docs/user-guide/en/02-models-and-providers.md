@@ -367,6 +367,8 @@ This native implementation takes inspiration from DDGS's multi-engine fallback a
 
 Kimi search uses the domestic standalone Basic REST API with your existing key. Each request returns up to 10 structured links and snippets without asking a chat model to generate search JSON or fetching full page content. Basic does not support country, language, or recency filters; when requested, Hope reports the limitation and tries subsequent enabled providers instead of silently dropping filters. The published billing rule charges successful requests with nonempty results; actual account charges and search quality still require verification.
 
+Perplexity search preserves citation order and domain titles while filtering duplicate, invalid, or credential-bearing links. A summary without sources is shown with no URL. Failures, rate limits, malformed responses, and cancellation are not recorded as successful searches. Your existing key, Sonar endpoint, and model remain in use. Perplexity is gradually translating legacy requests; this update does not migrate to the Agent API or establish real search quality or account charges.
+
 When running `hope-agent server setup`, the search-provider step also offers Free multi-engine search without asking for credentials. New configurations select it by default; existing configurations select their first enabled provider, and the order changes only after you confirm a choice.
 
 | Advanced setting | What it does |
