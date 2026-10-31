@@ -1984,7 +1984,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_UPDATE_SETTINGS.into(),
-            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Response includes `riskLevel` (low/medium/high); HIGH-risk categories MUST have explicit user confirmation before being called. Secret-bearing provider/model selections, `server`, `user.remoteApiKey`, `channels`, `mcp_servers`, and `hooks` are read-only here and must be edited in the GUI.".into(),
+            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Response includes `riskLevel` (low/medium/high). Secret-bearing provider/model selections, `server`, `user.remoteApiKey`, `channels`, `mcp_servers`, `hooks`, and the approval-policy chain (`security`, `security.ssrf`, `proxy`, `approval`, `unattended_approval`, `protected_paths`, `edit_commands`, `dangerous_commands`, `browser.extension`) are read-only here — they configure the permission engine itself, so the model must never rewrite its own supervision; they are edited in the GUI.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: false },
             internal: true,
             concurrent_safe: false,
@@ -1994,7 +1994,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Update application settings for a category. HIGH-risk categories require explicit user confirmation first; inspect get_settings(category).riskLevel and sideEffect before writing.",
+                        "description": "Update application settings for a category. Inspect get_settings(category).riskLevel and sideEffect before writing; approval-policy categories are not in this enum and must be edited in the GUI.",
                         "enum": crate::tools::settings::update_settings_categories()
                     },
                     "values": {
