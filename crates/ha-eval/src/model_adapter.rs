@@ -858,9 +858,43 @@ async fn run_hope_core_scenario(
                 Vec::new()
             };
         if let Some(trigger) = user_event_trigger {
-            let before = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
-                .await
-                .ok_or_else(|| anyhow!("pre-user-event Hope telemetry is unavailable"))?;
+            let mut before =
+                fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
+                    .await
+                    .ok_or_else(|| anyhow!("pre-user-event Hope telemetry is unavailable"))?;
+            if scripted_revision_requires_settlement(&scenario.subject.config_profile, trigger) {
+                let started_wait = Instant::now();
+                let remaining = (!unlimited_budget).then(|| {
+                    Duration::from_secs(planned_case.timeout_seconds)
+                        .saturating_sub(agent_started.elapsed())
+                });
+                before = observe_trial_completion_for_phase(
+                    before,
+                    remaining,
+                    Duration::from_millis(250),
+                    true,
+                    || fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id),
+                )
+                .await;
+                scripted_wait_ms = scripted_wait_ms.saturating_add(elapsed_ms(started_wait));
+                if !prior_scripted_work_settled(&before) {
+                    return Ok(timed_out_chat_result(
+                        &client,
+                        server_url,
+                        token.as_deref(),
+                        trial,
+                        &product_trial_id,
+                        "settling prior work before scripted revision",
+                    )
+                    .await);
+                }
+                scripted_action_checks.push(ModelCampaignCheck {
+                    id: "scripted_revision_prior_work_settled".to_string(),
+                    passed: prior_scripted_work_settled(&before), blocking: true,
+                    detail: "draft revision waits for admitted prior work and parent notifications; cancellation and restart stages retain their active-work precondition".to_string(),
+                    metric: None, artifact_hashes: Vec::new(),
+                });
+            }
             user_event_precondition_check = Some(user_event_precondition_observed(
                 trigger, &before, &workspace,
             ));
@@ -3228,6 +3262,7 @@ pub(crate) fn scenario_has_ready_control_plane(scenario: &LiveAgentScenario) -> 
             | "eval-control-plane-ready-v5"
             | "eval-control-plane-ready-v6"
             | "eval-control-plane-ready-v7"
+            | "eval-control-plane-ready-v8"
     )
 }
 
@@ -3244,7 +3279,7 @@ fn scenario_initial_goal(
             // objective. Keep historical/faulted fixtures unchanged.
             let objective = if matches!(scenario.subject.config_profile.as_str(),
                 "eval-control-plane-ready-v3" | "eval-control-plane-ready-v4"
-                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7")
+                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7" | "eval-control-plane-ready-v8")
                 && fault_profile == FaultProfile::Clean
             {
                 format!(
@@ -3290,10 +3325,39 @@ where
     telemetry
 }
 
+fn scripted_revision_requires_settlement(profile: &str, trigger: &str) -> bool {
+    profile == "eval-control-plane-ready-v8"
+        && matches!(
+            trigger,
+            "after_first_draft" | "narrow_time_range_after_draft"
+        )
+}
+
+fn prior_scripted_work_settled(telemetry: &TelemetrySnapshot) -> bool {
+    telemetry.trace.orphan_span_count == 0
+        && telemetry.active_children == 0
+        && telemetry.background_model_work == 0
+        && telemetry.pending_work == 0
+}
+
 async fn observe_trial_completion<F, Fut>(
+    telemetry: TelemetrySnapshot,
+    remaining: Option<Duration>,
+    quiet_period: Duration,
+    fetch: F,
+) -> TelemetrySnapshot
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Option<TelemetrySnapshot>>,
+{
+    observe_trial_completion_for_phase(telemetry, remaining, quiet_period, false, fetch).await
+}
+
+async fn observe_trial_completion_for_phase<F, Fut>(
     mut telemetry: TelemetrySnapshot,
     remaining: Option<Duration>,
     quiet_period: Duration,
+    require_all_prior_work: bool,
     mut fetch: F,
 ) -> TelemetrySnapshot
 where
@@ -3316,7 +3380,9 @@ where
         } else {
             0
         };
-        if telemetry.trace.orphan_span_count <= background_allowance {
+        if telemetry.trace.orphan_span_count <= background_allowance
+            && (!require_all_prior_work || prior_scripted_work_settled(&telemetry))
+        {
             let start = quiet_since.get_or_insert(now);
             if now.duration_since(*start) >= quiet_period {
                 return telemetry;
@@ -3359,6 +3425,7 @@ fn observes_trial_completion(config_profile: &str, unlimited_budget: bool) -> bo
             "eval-control-plane-ready-v5"
                 | "eval-control-plane-ready-v6"
                 | "eval-control-plane-ready-v7"
+                | "eval-control-plane-ready-v8"
         )
 }
 
@@ -4401,5 +4468,59 @@ mod tests {
             http_error_hint(b"not JSON"),
             "non-JSON or missing error detail"
         );
+    }
+    #[tokio::test]
+    async fn draft_revision_settles_prior_work_without_waiting_for_cancel_targets() {
+        assert!(scripted_revision_requires_settlement(
+            "eval-control-plane-ready-v8",
+            "narrow_time_range_after_draft"
+        ));
+        for trigger in [
+            "cancel_parent_during_child_tool",
+            "purge_before_completion",
+            "pause_resume_cancel_sequence",
+        ] {
+            assert!(!scripted_revision_requires_settlement(
+                "eval-control-plane-ready-v8",
+                trigger
+            ));
+        }
+        assert!(!scripted_revision_requires_settlement(
+            "eval-control-plane-ready-v7",
+            "narrow_time_range_after_draft"
+        ));
+        let mut initial = restart_telemetry();
+        initial.trace.orphan_span_count = 0;
+        initial.active_children = 1;
+        initial.background_model_work = 1;
+        initial.pending_work = 1;
+        let mut released = restart_telemetry();
+        released.trace.orphan_span_count = 0;
+        let mut repeated = restart_telemetry();
+        repeated.trace.orphan_span_count = 0;
+        let mut snapshots = std::collections::VecDeque::from([released, repeated]);
+        let observed = observe_trial_completion_for_phase(
+            initial,
+            None,
+            Duration::from_millis(10),
+            true,
+            || std::future::ready(snapshots.pop_front()),
+        )
+        .await;
+        assert!(prior_scripted_work_settled(&observed));
+        assert!(snapshots.is_empty());
+        let mut busy = restart_telemetry();
+        busy.trace.orphan_span_count = 0;
+        busy.pending_work = 1;
+        let timed_out = observe_trial_completion_for_phase(
+            busy,
+            Some(Duration::from_millis(10)),
+            Duration::from_millis(10),
+            true,
+            || std::future::ready(None),
+        )
+        .await;
+        assert!(!prior_scripted_work_settled(&timed_out));
+        assert_eq!(timed_out.pending_work, 1);
     }
 }

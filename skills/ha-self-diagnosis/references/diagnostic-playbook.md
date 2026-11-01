@@ -303,3 +303,7 @@ gotcha that most often explains a failure. Open every DB read-only.
 ### 取消分支被业务文件验收误判或研究范围没有数据
 
 编排 1.16.0 / 上下文 1.0.9 区分正常业务交付与取消/purge 的负向产物验收。检查 expectedByFaultProfile、expectedAbsent、真实 cancelled/killed 终态和故障激活，不能用缺失文件单独判成功。研究输入必须具有日期和引用标识，范围边界、条目数与 exactFields.citations 一同校验。一次错误反馈后的 completed 可以是恢复成功；无真实故障仍是 benchmark_defect，不能修改历史结果或宣称权限/安全完整覆盖。同一对照对 seed 相同不代表 unlimited 计算量相同。
+
+### 脚本用户修订被 active_stream 拒绝
+
+若研究范围修订的 HTTP 500 明确来自 `active_stream ... from parent_injection`，说明上一阶段的结果通知尚未释放会话流，不是 Provider 额度或模型质量证据。编排 1.17.0 / 上下文 1.0.10 在非取消的草稿修订前等待真实工作结算，再发送下一条脚本消息。取消与重启场景不等待所有目标自然结束。保留旧原始结果和已知用量，不自动重放；脱敏 HTTP 原因与清理后 callerCancelled 分开诊断。

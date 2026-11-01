@@ -54,7 +54,10 @@ pub(crate) const SERVER_TRIAL_LOCK_ENV: &str = "HA_MODEL_EVAL_SERVER_TRIAL_LOCK"
 const INVALID_TRIAL_EVIDENCE_FAILURE_CLASS: &str = "invalid_trial_evidence_after_execution";
 
 fn paired_seed_arm<'a>(profile: &str, fault: FaultProfile, arm: &'a str) -> &'a str {
-    if profile == "eval-control-plane-ready-v7" {
+    if matches!(
+        profile,
+        "eval-control-plane-ready-v7" | "eval-control-plane-ready-v8"
+    ) {
         match fault {
             FaultProfile::Clean => "paired_control",
             FaultProfile::Chaos => "paired_faulted",

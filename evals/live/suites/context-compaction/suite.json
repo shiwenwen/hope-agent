@@ -1,7 +1,7 @@
 {
   "schemaVersion": "model-campaign-suite.v1",
   "id": "context-compaction",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "capability": "context_compaction",
   "adapter": "hope_core_scenario",
   "tiers": [
@@ -37,7 +37,7 @@
   "cases": [
     {
       "id": "HA-CTX-001",
-      "scenarioPath": "scenarios/HA-CTX-001/1.0.9/scenario.json",
+      "scenarioPath": "scenarios/HA-CTX-001/1.0.10/scenario.json",
       "tags": [
         "nightly",
         "critical",
@@ -54,7 +54,7 @@
     },
     {
       "id": "HA-CTX-002",
-      "scenarioPath": "scenarios/HA-CTX-002/1.0.9/scenario.json",
+      "scenarioPath": "scenarios/HA-CTX-002/1.0.10/scenario.json",
       "tags": [
         "nightly",
         "critical",
