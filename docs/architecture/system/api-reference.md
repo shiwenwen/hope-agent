@@ -661,7 +661,7 @@ Smart Verification owner API 管理 durable 验证 run：`plan_smart_verificatio
 | `run_domain_quality` | `POST /api/domain-quality-runs/run` | ✅ |
 | `get_domain_quality_run` | `GET /api/domain-quality-runs/{runId}` | ✅ |
 
-Domain Quality owner API 管理 durable 非编码复查 / 验证 run：`run_domain_quality` 基于 Domain Workflow template、domain evidence 和 approval gates 同步生成 `domain_quality_runs/checks/events` 并回写 Goal evidence，可显式带 `templateId/templateVersion` 或 `domain`；高风险动作命中 approval gate 或 `highRiskAction=true` 时要求 `explicitUserApproval`，缺失则进入 `needs_user` 阻塞 Goal；无痕会话拒绝持久化。完整契约见 [Domain Quality 控制平面](../agent/domain-quality.md)。
+Domain Quality owner API 管理 durable 非编码复查 / 验证 run：`run_domain_quality` 基于 Domain Workflow template、domain evidence 和 approval gates 同步生成 `domain_quality_runs/checks/events` 并回写 Goal evidence，可显式带 `templateId/templateVersion` 或 `domain`；高风险动作命中 approval gate 或 `highRiskAction=true` 时要求 `explicitUserApproval`，缺失则进入 `needs_user` 阻塞 Goal；无痕会话拒绝持久化。返回的 run 可包含只读 `goalRevision`，由服务端在创建时捕获，调用输入不能指定或覆盖。完整契约见 [Domain Quality 控制平面](../agent/domain-quality.md)。
 
 ### Domain Eval / Quality Gate
 

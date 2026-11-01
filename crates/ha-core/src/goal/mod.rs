@@ -4182,7 +4182,7 @@ fn evidence_is_current_revision(snapshot: &GoalSnapshot, item: &GoalEvidenceItem
         return true;
     }
     // Never infer an unversioned Workflow's contract after an edit.
-    if evidence_has_workflow_source(item) {
+    if evidence_has_workflow_source(item) || item.source_type == "domain_quality" {
         return false;
     }
     // Legacy task/manual evidence has no revision column. Its server-owned

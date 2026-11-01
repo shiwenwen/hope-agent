@@ -63,7 +63,7 @@ flowchart TB
 
 | 表 | 说明 | 关键列 |
 | --- | --- | --- |
-| `domain_quality_runs` | 一次领域质量复核 | `id`、`session_id`、`goal_id`、`domain`、`template_id`、`template_version`、`state`、`summary`、`stats_json`、`error`、`created_at` / `updated_at` / `completed_at` |
+| `domain_quality_runs` | 一次领域质量复核 | `id`、`session_id`、`goal_id`、`goal_revision`、`domain`、`template_id`、`template_version`、`state`、`summary`、`stats_json`、`error`、`created_at` / `updated_at` / `completed_at` |
 | `domain_quality_checks` | run 下的复核项 | `run_id`、`session_id`、`seq`、`check_type`、`profile`、`title`、`body`、`severity`、`status`、`evidence_type`、`source_metadata_json` |
 | `domain_quality_events` | run 的时间线 | `run_id`、`seq`、`kind`、`payload_json`；事件 payload 落库前截断到 64KB preview |
 
@@ -214,6 +214,8 @@ run 结束后（无论 completed 还是 failed）都会写入 `goal_links`，再
 | `domain_quality_blocked` | `blocked` / 兜底 | 阻塞证据 |
 | `domain_quality_failed` | `failed` | 阻塞证据 |
 | `domain_quality_check` | 任意 | 仅对阻塞 check（P0/P1 且 failed/blocked/needs_user）逐条写入，作为细粒度阻塞证据 |
+
+领域复核在创建时由服务端捕获绑定 Goal 的 `goal_revision`，运行、started 事件及回写 Goal 的 summary/check 证据沿用这一原值。完成时间、调用方 source metadata 和结果 stats 不能改写修订归属；改约后不能把旧运行或缺少修订的历史运行算作新契约证据。旧库追加可空字段，不推测回填历史修订；初始契约仍保留旧行为兼容。
 
 因此非编程产物缺关键证据、或高风险动作缺确认时，Goal 会进入 `blocked`，不会被错误标记为完成。Goal 本身没有独立的 `needs_user` 态，所以「需用户确认」这层语义保留在 DomainQualityRun 状态与 Goal evidence 的 metadata 里。
 

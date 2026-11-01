@@ -319,3 +319,5 @@ gotcha that most often explains a failure. Open every DB read-only.
 编排 1.23.0 区分显式 killed 和 owner 会话 Stop 的 interrupted/session_paused；仅其他 interrupted 或正常 completed 不能冒充取消。核对 scripted_owner_stop 捕获的具体目标、同会话归属、Stop 后逐目标终态及无遗留工作，不能只用 stopped=true 或任意历史 killed 行证明成功。
 
 Goal 改约后 LSP 错误无法被后续 clean diagnostics 或 validation 清除时，核对 diagnostic 的 metadata.runId、source id 前缀及持久化 Workflow 的 Goal/session/criterion/revision。诊断本身未携带 goalRevision 不代表无法归属；必须经真实 run 解析，不能用外部修订字段或创建时间跨修订消除阻塞。历史同修订内修复保留，但不能满足当前新契约。
+
+领域质量复核无法清除同修订旧错误时，检查 domain_quality_runs.goal_revision 及回写 summary/check 的 goalRevision。该可空列由旧库兼容迁移追加，历史 NULL 不回填猜测；旧运行在改约后完成、用户 source metadata 或完成 stats 携带新修订都不能覆盖创建时归属。
