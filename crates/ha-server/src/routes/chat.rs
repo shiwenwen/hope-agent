@@ -1927,6 +1927,8 @@ fn map_chat_admission_error(error: ha_core::turn_kernel::TurnFailure) -> AppErro
             ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE,
             error.to_string(),
         )
+    } else if error.is_pre_dispatch_admission_busy() {
+        AppError::conflict_with_code("chat_admission_busy", error.to_string())
     } else if error.is_invalid_request() {
         AppError::bad_request(error.to_string())
     } else {
@@ -2710,6 +2712,17 @@ mod tests {
                 None
             );
         }
+    }
+
+    #[test]
+    fn untyped_active_stream_text_does_not_authorize_http_readmission() {
+        let error = ha_core::turn_kernel::TurnFailure::new(
+            ha_core::turn_kernel::TurnFailureKind::Infrastructure,
+            "active_stream: session fixture already has active stream x from parent_injection",
+        );
+        let mapped = map_chat_admission_error(error);
+        assert_eq!(mapped.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(mapped.code.is_none());
     }
 
     #[test]

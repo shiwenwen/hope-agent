@@ -631,7 +631,7 @@ async fn run_hope_core_scenario(
     let scenario_dir = scenario_path
         .parent()
         .ok_or_else(|| anyhow!("scenario path has no parent"))?;
-    validate_scripted_user_flow(scenario_dir, scenario)?;
+    validate_harness_preconditions(scenario_dir, scenario)?;
     let setup_started = Instant::now();
     let workspace = provision_workspace(scenario_dir, scenario)?;
     let environment_setup_ms = elapsed_ms(setup_started);
@@ -951,34 +951,42 @@ async fn run_hope_core_scenario(
                         "reasoningEffort": model.reasoning_effort,
                         "evalContext": continuation_eval_context.clone(),
                     });
-                    let mut request = client
-                        .post(format!("{server_url}/api/chat"))
-                        .header("x-hope-eval-trial", &product_trial_id)
-                        .header("x-hope-eval-case", &trial.case_id)
-                        .json(&body);
-                    if let Some(token) = token.as_deref().filter(|value| !value.is_empty()) {
-                        request = request.bearer_auth(token);
-                    }
-                    let response = match request.send().await {
-                        Ok(response) => response,
-                        Err(error) if error.is_timeout() => {
-                            return Ok(timed_out_chat_result(
-                                &client,
-                                server_url,
-                                token.as_deref(),
-                                trial,
-                                &product_trial_id,
-                                "Hope scripted user turn",
-                            )
-                            .await);
-                        }
-                        Err(error) => return Err(error).context("calling Hope scripted user turn"),
-                    };
-                    let status = response.status();
-                    let bytes = response
-                        .bytes()
+                    let (status, bytes, admission_rejections, admission_wait_ms) =
+                        match send_scripted_user_turn(
+                            &client,
+                            server_url,
+                            token.as_deref(),
+                            &body,
+                            &chat.session_id,
+                            &product_trial_id,
+                            &trial.case_id,
+                        )
                         .await
-                        .context("reading Hope scripted user turn response")?;
+                        {
+                            Ok(response) => response,
+                            Err(error)
+                                if error
+                                    .downcast_ref::<reqwest::Error>()
+                                    .is_some_and(reqwest::Error::is_timeout) =>
+                            {
+                                return Ok(timed_out_chat_result(
+                                    &client,
+                                    server_url,
+                                    token.as_deref(),
+                                    trial,
+                                    &product_trial_id,
+                                    "Hope scripted user turn",
+                                )
+                                .await);
+                            }
+                            Err(error) => return Err(error),
+                        };
+                    scripted_wait_ms = scripted_wait_ms.saturating_add(admission_wait_ms);
+                    scripted_action_checks.push(ModelCampaignCheck {
+                        id: format!("scripted_admission_{}", scripted_action_checks.len()), passed:true, blocking:true,
+                        detail:format!("session admission idle; {admission_rejections} typed pre-dispatch rejections retried; no admitted or ambiguous model request replayed"),
+                        metric:Some(f64::from(admission_rejections)),artifact_hashes:Vec::new(),
+                    });
                     if expected_scripted_cancellation(
                         status,
                         &bytes,
@@ -1380,6 +1388,109 @@ async fn run_hope_core_scenario(
     })
 }
 
+/// Observe only the parent Session's admission. Children remain active for
+/// cancellation/rejection scenarios. A retry requires a typed response minted
+/// before durable user-message admission; transport failures and 500s never retry.
+async fn send_scripted_user_turn(
+    client: &Client,
+    server_url: &str,
+    token: Option<&str>,
+    body: &Value,
+    session_id: &str,
+    product_trial_id: &str,
+    case_id: &str,
+) -> Result<(StatusCode, Vec<u8>, u32, u64)> {
+    if session_id.is_empty()
+        || session_id.len() > 128
+        || !session_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        bail!("scripted admission has an invalid Session identity");
+    }
+    let deadline = Instant::now() + Duration::from_secs(TRIAL_CLEANUP_SAFETY_FUSE_SECONDS);
+    let mut rejections = 0;
+    let mut wait_ms = 0u64;
+    loop {
+        let wait_started = Instant::now();
+        let mut quiet_since = None;
+        loop {
+            if Instant::now() >= deadline {
+                bail!("scripted Session admission did not become idle; no further user request dispatched");
+            }
+            let mut request = client
+                .get(format!(
+                    "{server_url}/api/sessions/{session_id}/stream-state"
+                ))
+                .timeout(Duration::from_secs(2));
+            if let Some(token) = token.filter(|v| !v.is_empty()) {
+                request = request.bearer_auth(token);
+            }
+            let response = request
+                .send()
+                .await
+                .context("observing scripted Session admission")?;
+            let status = response.status();
+            let bytes = response.bytes().await?;
+            if !status.is_success() {
+                bail!(
+                    "scripted admission observation returned HTTP {status}; body sha256:{}",
+                    sha256_bytes(&bytes)
+                );
+            }
+            let value: Value = serde_json::from_slice(&bytes)?;
+            let idle = match (
+                value.get("active").and_then(Value::as_bool),
+                value.get("admissionActive").and_then(Value::as_bool),
+            ) {
+                (Some(active), Some(admission)) => !active && !admission,
+                _ => bail!("scripted admission observation omitted authoritative state"),
+            };
+            if idle {
+                let since = quiet_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= Duration::from_millis(250) {
+                    break;
+                }
+            } else {
+                quiet_since = None;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        wait_ms = wait_ms.saturating_add(elapsed_ms(wait_started));
+        let dispatch_started = Instant::now();
+        let mut request = client
+            .post(format!("{server_url}/api/chat"))
+            .header("x-hope-eval-trial", product_trial_id)
+            .header("x-hope-eval-case", case_id)
+            .json(body);
+        if let Some(token) = token.filter(|v| !v.is_empty()) {
+            request = request.bearer_auth(token);
+        }
+        let response = request
+            .send()
+            .await
+            .context("calling Hope scripted user turn")?;
+        let status = response.status();
+        let bytes = response
+            .bytes()
+            .await
+            .context("reading Hope scripted user turn response")?
+            .to_vec();
+        if status == StatusCode::CONFLICT
+            && serde_json::from_slice::<Value>(&bytes)
+                .ok()
+                .and_then(|v| v.get("code").and_then(Value::as_str).map(str::to_owned))
+                .as_deref()
+                == Some("chat_admission_busy")
+        {
+            rejections += 1;
+            wait_ms = wait_ms.saturating_add(elapsed_ms(dispatch_started));
+            continue;
+        }
+        return Ok((status, bytes, rejections, wait_ms));
+    }
+}
+
 async fn apply_scripted_goal_revision(
     client: &Client,
     server_url: &str,
@@ -1481,12 +1592,16 @@ fn process_restart_phase_instruction(trigger: &str) -> &'static str {
 }
 
 fn user_event_phase_instruction(trigger: &str, profile: &str) -> &'static str {
-    if profile == "eval-control-plane-ready-v9"
-        && matches!(
-            trigger,
-            "after_first_draft" | "narrow_time_range_after_draft"
-        )
-    {
+    if profile == "eval-control-plane-ready-v10" && trigger == "cancel_parent_during_child_tool" {
+        return "\n\n评测用户事件阶段：启动真实 Subagent/Team 子任务，让至少一个子执行器用 exec 运行有界等待（例如 Python time.sleep(300)），作为必须被取消的真实工具进程。确认它仍在执行后立即回复 WAITING_FOR_USER_EVENT；不要等待或消费子结果，不要创建最终交付物。后续用户消息会要求取消父任务和全部子执行。";
+    }
+    if matches!(
+        profile,
+        "eval-control-plane-ready-v9" | "eval-control-plane-ready-v10"
+    ) && matches!(
+        trigger,
+        "after_first_draft" | "narrow_time_range_after_draft"
+    ) {
         return "\n\n评测用户事件阶段：本轮只创建草稿（如 drafts/research.json），不要创建最终 deliverables/result.json，也不要请求完成 Goal。若创建 Workflow，只让它真实读取并验证草稿，验证成功后正常 finish；不要为了等待用户而制造 blocked/等待审批的 Workflow 运行。Goal 保持未完成并登记草稿 checkpoint。回复 WAITING_FOR_USER_EVENT，用户将通过控制面修改 Goal 契约，随后按新的真实 revision 交付。";
     }
     match trigger {
@@ -1537,7 +1652,8 @@ fn process_restart_trigger_observed(
                 && (telemetry.orchestration.checkpoints > 0 || has_event("workflow.checkpoint"))
         }
         "executor_crash_after_checkpoint" => {
-            telemetry.orchestration.spawned_agents > 0
+            telemetry.active_children > 0
+                && telemetry.orchestration.spawned_agents > 0
                 && (has_signal("subagent") || has_signal("team"))
                 && has_event("subagent.run")
         }
@@ -1577,7 +1693,8 @@ fn user_event_precondition_observed(
                 && final_artifact_absent
         }
         "cancel_parent_during_child_tool" => {
-            telemetry.orchestration.spawned_agents > 0
+            telemetry.active_children > 0
+                && telemetry.orchestration.spawned_agents > 0
                 && (has_signal("subagent") || has_signal("team"))
                 && final_artifact_absent
         }
@@ -2237,10 +2354,17 @@ fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<Scripted
     Ok(steps)
 }
 
-pub(crate) fn validate_scripted_user_flow(
+pub(crate) fn validate_harness_preconditions(
     scenario_dir: &Path,
     scenario: &LiveAgentScenario,
 ) -> Result<()> {
+    if scenario_has_ready_control_plane(scenario)
+        && scenario.faults.iter().any(|fault| {
+            fault.kind == FaultKind::EnvironmentEvent && fault.trigger == "after_loop_iteration_3"
+        })
+    {
+        bail!("read-only Loop setup cannot activate a third-iteration fault; register executable owner setup or a reachable tool-feedback scenario");
+    }
     if !matches!(
         scenario.user_simulator.kind,
         UserSimulatorKind::ScriptedFsm | UserSimulatorKind::Replay
@@ -2251,11 +2375,13 @@ pub(crate) fn validate_scripted_user_flow(
     if steps
         .iter()
         .any(|step| matches!(step, ScriptedUserStep::UpdateGoal { .. }))
-        && (scenario.subject.config_profile != "eval-control-plane-ready-v9"
-            || !scenario
-                .capabilities
-                .iter()
-                .any(|value| value.eq_ignore_ascii_case("goal"))
+        && (!matches!(
+            scenario.subject.config_profile.as_str(),
+            "eval-control-plane-ready-v9" | "eval-control-plane-ready-v10"
+        ) || !scenario
+            .capabilities
+            .iter()
+            .any(|value| value.eq_ignore_ascii_case("goal"))
             || !scenario.faults.iter().any(|fault| {
                 fault.kind == FaultKind::UserEvent
                     && matches!(
@@ -3445,6 +3571,7 @@ pub(crate) fn scenario_has_ready_control_plane(scenario: &LiveAgentScenario) -> 
             | "eval-control-plane-ready-v7"
             | "eval-control-plane-ready-v8"
             | "eval-control-plane-ready-v9"
+            | "eval-control-plane-ready-v10"
     )
 }
 
@@ -3461,7 +3588,7 @@ fn scenario_initial_goal(
             // objective. Keep historical/faulted fixtures unchanged.
             let objective = if matches!(scenario.subject.config_profile.as_str(),
                 "eval-control-plane-ready-v3" | "eval-control-plane-ready-v4"
-                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7" | "eval-control-plane-ready-v8" | "eval-control-plane-ready-v9")
+                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7" | "eval-control-plane-ready-v8" | "eval-control-plane-ready-v9" | "eval-control-plane-ready-v10")
                 && fault_profile == FaultProfile::Clean
             {
                 format!(
@@ -3510,7 +3637,9 @@ where
 fn scripted_revision_requires_settlement(profile: &str, trigger: &str) -> bool {
     matches!(
         profile,
-        "eval-control-plane-ready-v8" | "eval-control-plane-ready-v9"
+        "eval-control-plane-ready-v8"
+            | "eval-control-plane-ready-v9"
+            | "eval-control-plane-ready-v10"
     ) && matches!(
         trigger,
         "after_first_draft" | "narrow_time_range_after_draft"
@@ -3611,6 +3740,7 @@ fn observes_trial_completion(config_profile: &str, unlimited_budget: bool) -> bo
                 | "eval-control-plane-ready-v7"
                 | "eval-control-plane-ready-v8"
                 | "eval-control-plane-ready-v9"
+                | "eval-control-plane-ready-v10"
         )
 }
 
@@ -4788,5 +4918,89 @@ mod tests {
             server.abort();
             let _ = server.await;
         }
+    }
+    #[tokio::test]
+    async fn scripted_readmission_requires_typed_pre_dispatch_proof_and_leaves_children_active() {
+        use axum::{
+            routing::{get, post},
+            Json, Router,
+        };
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        for (first_status, code, missing_state, expected_posts) in [
+            (409, "chat_admission_busy", false, 2),
+            (500, "chat_admission_busy", false, 1),
+            (409, "unrelated_conflict", false, 1),
+            (402, "insufficient_quota", false, 1),
+            (409, "chat_admission_busy", true, 0),
+        ] {
+            let posts = Arc::new(AtomicUsize::new(0));
+            let count = posts.clone();
+            let app=Router::new()
+                .route("/api/sessions/session-fixture/stream-state",get(move ||async move {
+                    Json(if missing_state {json!({"active":false})} else {json!({"active":false,"admissionActive":false,"activeChildren":2,"pendingWork":3})})
+                }))
+                .route("/api/chat",post(move |headers:axum::http::HeaderMap,Json(body):Json<Value>| {
+                    let count=count.clone();async move {
+                        assert_eq!(headers.get("authorization").unwrap(),"Bearer test-owner");
+                        assert_eq!(body,json!({"sessionId":"session-fixture","message":"cancel only when admitted"}));
+                        if count.fetch_add(1,Ordering::SeqCst)==0 {
+                            (axum::http::StatusCode::from_u16(first_status).unwrap(),Json(json!({"code":code,"error":"active_stream: text alone cannot prove pre-dispatch rejection"})))
+                        } else {(axum::http::StatusCode::OK,Json(json!({"accepted":true})))}
+                    }
+                }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let client = Client::builder().no_proxy().build().unwrap();
+            let result = send_scripted_user_turn(
+                &client,
+                &url,
+                Some("test-owner"),
+                &json!({"sessionId":"session-fixture","message":"cancel only when admitted"}),
+                "session-fixture",
+                "trial",
+                "case",
+            )
+            .await;
+            if missing_state {
+                assert!(result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("omitted authoritative state"));
+            } else {
+                let (status, _, rejections, wait_ms) = result.unwrap();
+                assert_eq!(rejections, u32::from(expected_posts == 2));
+                assert_eq!(
+                    status.as_u16(),
+                    if expected_posts == 2 {
+                        200
+                    } else {
+                        first_status
+                    }
+                );
+                assert!(wait_ms >= 250);
+            }
+            assert_eq!(posts.load(Ordering::SeqCst), expected_posts);
+            server.abort();
+            let _ = server.await;
+        }
+    }
+
+    #[test]
+    fn read_only_loop_fixture_rejects_unreachable_iteration_fault_before_dispatch() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/live/scenarios/HA-GL-003");
+        let historical: LiveAgentScenario = read_json(&root.join("1.18.0/scenario.json")).unwrap();
+        assert!(
+            validate_harness_preconditions(&root.join("1.18.0"), &historical)
+                .unwrap_err()
+                .to_string()
+                .contains("read-only Loop setup")
+        );
+        let repaired: LiveAgentScenario = read_json(&root.join("1.19.0/scenario.json")).unwrap();
+        validate_harness_preconditions(&root.join("1.19.0"), &repaired).unwrap();
     }
 }

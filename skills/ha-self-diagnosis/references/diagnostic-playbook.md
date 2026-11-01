@@ -309,3 +309,5 @@ gotcha that most often explains a failure. Open every DB read-only.
 若研究范围修订的 HTTP 500 明确来自 `active_stream ... from parent_injection`，说明上一阶段的结果通知尚未释放会话流，不是 Provider 额度或模型质量证据。编排 1.17.0 / 上下文 1.0.10 在非取消的草稿修订前等待真实工作结算，再发送下一条脚本消息。取消与重启场景不等待所有目标自然结束。保留旧原始结果和已知用量，不自动重放；脱敏 HTTP 原因与清理后 callerCancelled 分开诊断。
 
 若草稿修订后文件检查通过但 Goal 仍引用旧契约，先核对脚本是否真正经过 owner 控制面修订，而非仅发送模型无权执行的改约文字。编排 1.18.0 / 上下文 1.0.11 记录 `scripted_owner_goal_revision` 和严格修订号检查；不要放宽完成审计或忽略审批、取消及阻塞历史来消除失败。
+
+编排 1.19.0 / 上下文 1.0.12 的取消、拒绝审批脚本只等待父会话接纳权，不清空子任务。检查 `scripted_admission_*`、真实活动子任务及终态：只有类型化 `409 chat_admission_busy` 可重新接纳；500 中的 active_stream 文字本身不是自动重放依据。旧 HA-GL-003 的第三轮 Loop 故障与只读设置矛盾，预览应拒绝；新版只验证状态观测和一次实际工具环境反馈，不能据此宣称多轮 Loop 验收。

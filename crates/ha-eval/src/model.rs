@@ -59,6 +59,7 @@ fn paired_seed_arm<'a>(profile: &str, fault: FaultProfile, arm: &'a str) -> &'a 
         "eval-control-plane-ready-v7"
             | "eval-control-plane-ready-v8"
             | "eval-control-plane-ready-v9"
+            | "eval-control-plane-ready-v10"
     ) {
         match fault {
             FaultProfile::Clean => "paired_control",
@@ -529,7 +530,7 @@ fn load_scenario(root: &Path, relative: &str) -> Result<(PathBuf, LiveAgentScena
         .parent()
         .ok_or_else(|| anyhow!("scenario path has no parent"))?;
     validate_scenario(&scenario, scenario_dir)?;
-    crate::model_adapter::validate_scripted_user_flow(scenario_dir, &scenario)?;
+    crate::model_adapter::validate_harness_preconditions(scenario_dir, &scenario)?;
     Ok((path, scenario))
 }
 

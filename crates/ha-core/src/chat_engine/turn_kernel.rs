@@ -1554,7 +1554,7 @@ async fn admit_interactive(
     let title_attachments_meta = admission.user_message.attachments_meta.clone();
 
     let stream_id = crate::chat_engine::stream_seq::begin(&params.session_id, source)
-        .map_err(|error| TurnFailure::new(TurnFailureKind::Infrastructure, error.to_string()))?;
+        .map_err(TurnFailure::admission_busy)?;
     let run_id = uuid::Uuid::new_v4().to_string();
     let create = crate::session::CreateStreamRun {
         run_id,
@@ -2128,6 +2128,64 @@ mod tests {
         let error = admit_model_selection(&mut params, selection, None)
             .expect_err("production source must not admit fixture-selected models");
         assert!(error.to_string().contains("forbidden for production turns"));
+    }
+
+    #[tokio::test]
+    async fn busy_stream_rejection_precedes_durable_user_turn_and_model_dispatch() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .unwrap(),
+        );
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let turn_id = "not-admitted-busy-turn".to_string();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let foreground = crate::chat_engine::active_turn::begin_durable_foreground_request(
+            db.as_ref(),
+            Some(&session.id),
+        )
+        .unwrap();
+        let lease = TurnKernel::begin_desktop(
+            foreground,
+            &session.id,
+            turn_id.clone(),
+            None,
+            cancel.clone(),
+        )
+        .unwrap();
+        let request = interactive_request(db.clone(), session.id.clone(), turn_id.clone(), cancel);
+        let admission = InteractiveAdmission::desktop(
+            lease,
+            crate::session::NewMessage::user("must not persist"),
+            None,
+            None,
+            None,
+            false,
+            false,
+        );
+        let stream_id =
+            crate::chat_engine::stream_seq::begin(&session.id, ChatSource::ParentInjection)
+                .unwrap();
+        let mut submission = TurnSubmission::desktop(request, admission);
+        let admission = submission.interactive.take().unwrap();
+        let failure = admit_interactive(&mut submission.params, admission)
+            .await
+            .unwrap_err();
+        assert!(failure.is_pre_dispatch_admission_busy());
+        assert!(db.load_session_messages(&session.id).unwrap().is_empty());
+        assert!(db.get_chat_turn(&turn_id).unwrap().is_none());
+        assert!(db.latest_stream_run(&session.id).unwrap().is_none());
+        assert!(crate::chat_engine::stream_seq::end_if_stream(
+            &session.id,
+            &stream_id
+        ));
+        assert!(
+            !TurnFailure::new(TurnFailureKind::ProviderExhausted, failure.to_string())
+                .is_pre_dispatch_admission_busy()
+        );
     }
 
     #[tokio::test]

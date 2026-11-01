@@ -840,6 +840,8 @@ Loop owner API 管理 session-scoped 重复触发器：`create_loop_schedule` �
 | `update_task_status` | `PATCH /api/tasks/{id}/status` | ✅ TaskProgressPanel 用户控件 |
 | `delete_task` | `DELETE /api/tasks/{id}` | ✅ TaskProgressPanel 用户控件 |
 
+交互轮次接纳时若已有会话流，HTTP 返回 `409` 和 `code: "chat_admission_busy"`。此代码仅由持久化用户消息和轮次、模型派发之前的类型化流冲突生成，不从错误文字推断。调用方可先观察 `stream-state` 再重新请求接纳；其他失败不具备该未派发证明。
+
 `get_session_stream_state` 和 `chat:stream_end` 的 `interruptReason` 共用 `ChatTurnInterruptReason`。其中 `provider_blocked`、`request_contract`、`retry_deferred` 分别表示服务商明确阻断、请求契约拒绝和服务端最短等待超出恢复预算；这三类原因独立于 `error` 文本持久化，客户端不得从错误消息重新推断。
 
 `chat` 的可选 `clientRequestId` 是前端生成的不透明请求 id。Bundled HTTP UI 把它和 payload
