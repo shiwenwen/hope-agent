@@ -908,6 +908,31 @@ async fn run_hope_core_scenario(
             user_event_precondition_check = Some(user_event_precondition_observed(
                 trigger, &before, &workspace,
             ));
+            if user_event_precondition_check
+                .as_ref()
+                .is_some_and(|(passed, _)| !passed)
+            {
+                let (mut telemetry, cleanup_error) = cleanup_after_failed_chat(
+                    &client,
+                    server_url,
+                    token.as_deref(),
+                    trial,
+                    &product_trial_id,
+                )
+                .await;
+                telemetry.milestones.push(ModelCampaignCheck {
+                    id: "user_event_precondition_observed".into(),
+                    passed: false,
+                    blocking: true,
+                    detail: user_event_precondition_check
+                        .as_ref()
+                        .map(|(_, detail)| detail.clone())
+                        .unwrap_or_default(),
+                    metric: None,
+                    artifact_hashes: Vec::new(),
+                });
+                return Ok(ObservedTrial{outcome:ModelCampaignOutcome::BenchmarkDefect,failure_class:Some("user_event_precondition_not_met".into()),telemetry,artifacts:Vec::new(),error:Some(format_failure_with_cleanup(format!("scripted user event {trigger} was not dispatched because its real setup preconditions were missing"),cleanup_error))});
+            }
         }
         if process_restart_fault {
             let before = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
@@ -1687,6 +1712,9 @@ fn process_restart_phase_instruction(trigger: &str) -> &'static str {
 }
 
 fn user_event_phase_instruction(trigger: &str, profile: &str) -> &'static str {
+    if profile == "eval-control-plane-ready-v12" && trigger == "cancel_parent_during_child_tool" {
+        return "\n\n评测用户事件阶段：先在父会话启动一个真实后台作业（例如 exec 的 background 模式执行 Python time.sleep(300)），确保 Job 已进入实际运行；再启动真实 Subagent/Team，让至少一个子执行器在前台阻塞工具调用中运行有界等待 time.sleep(300)。子执行器禁止 background/异步提交，等待期间不能返回完成。确认父后台作业与子执行器都已运行后立即回复 WAITING_FOR_USER_EVENT；不要等待/消费这些结果，不写最终产物。Runner 将通过现有 owner Stop 取消当前父会话及其后台工作、子执行，随后独立核验。";
+    }
     if profile == "eval-control-plane-ready-v11" && trigger == "cancel_parent_during_child_tool" {
         return "\n\n评测用户事件阶段：启动真实 Subagent/Team 子任务，令至少一个子执行器在前台阻塞工具调用中运行有界等待（例如 Python time.sleep(300)）。禁止 background/异步提交，子 Agent 在等待期间不能自行返回完成。确认子执行器仍为 running 后立即回复 WAITING_FOR_USER_EVENT，不等待或消费子结果，不写最终交付物。Runner 将通过用户控制面的 Stop 取消当前父会话及其子执行，不会要求模型再发起一轮自取消对话。";
     }
@@ -1698,6 +1726,7 @@ fn user_event_phase_instruction(trigger: &str, profile: &str) -> &'static str {
         "eval-control-plane-ready-v9"
             | "eval-control-plane-ready-v10"
             | "eval-control-plane-ready-v11"
+            | "eval-control-plane-ready-v12"
     ) && matches!(
         trigger,
         "after_first_draft" | "narrow_time_range_after_draft"
@@ -1794,6 +1823,8 @@ fn user_event_precondition_observed(
         }
         "cancel_parent_during_child_tool" => {
             telemetry.active_children > 0
+                && telemetry.orchestration.async_jobs > 0
+                && has_signal("async_jobs")
                 && telemetry.orchestration.spawned_agents > 0
                 && (has_signal("subagent") || has_signal("team"))
                 && final_artifact_absent
@@ -1806,9 +1837,10 @@ fn user_event_precondition_observed(
     (
         passed,
         format!(
-            "user event {trigger}: signals={:?}, asyncJobs={}, spawnedAgents={}, finalArtifactAbsent={final_artifact_absent}",
+            "user event {trigger}: signals={:?}, asyncJobs={}, activeChildren={}, spawnedAgents={}, finalArtifactAbsent={final_artifact_absent}",
             telemetry.observed_signals,
             telemetry.orchestration.async_jobs,
+            telemetry.active_children,
             telemetry.orchestration.spawned_agents,
         ),
     )
@@ -2483,11 +2515,13 @@ pub(crate) fn validate_harness_preconditions(
     if steps
         .iter()
         .any(|step| matches!(step, ScriptedUserStep::StopParent { .. }))
-        && (scenario.subject.config_profile != "eval-control-plane-ready-v11"
-            || !scenario
-                .capabilities
-                .iter()
-                .any(|value| matches!(value.to_ascii_lowercase().as_str(), "subagent" | "team"))
+        && (!matches!(
+            scenario.subject.config_profile.as_str(),
+            "eval-control-plane-ready-v11" | "eval-control-plane-ready-v12"
+        ) || !scenario
+            .capabilities
+            .iter()
+            .any(|value| matches!(value.to_ascii_lowercase().as_str(), "subagent" | "team"))
             || !scenario.faults.iter().any(|fault| {
                 fault.kind == FaultKind::UserEvent
                     && fault.trigger == "cancel_parent_during_child_tool"
@@ -2497,12 +2531,42 @@ pub(crate) fn validate_harness_preconditions(
     }
     if steps
         .iter()
+        .any(|step| matches!(step, ScriptedUserStep::StopParent { .. }))
+    {
+        let expects_jobs = scenario
+            .capabilities
+            .iter()
+            .any(|capability| capability.eq_ignore_ascii_case("async_jobs"));
+        for verifier in &scenario.verifiers {
+            if verifier.handler != "signal_observed" {
+                continue;
+            }
+            if let Some(path) = verifier.config_path.as_deref() {
+                let config: Value = read_json(&resolve_contained(scenario_dir, path)?)?;
+                let verifies_jobs =
+                    config
+                        .get("signals")
+                        .and_then(Value::as_array)
+                        .is_some_and(|signals| {
+                            signals
+                                .iter()
+                                .any(|signal| signal.as_str() == Some("async_jobs"))
+                        });
+                if verifies_jobs != expects_jobs {
+                    bail!("owner Stop signals disagree with declared async_jobs capability");
+                }
+            }
+        }
+    }
+    if steps
+        .iter()
         .any(|step| matches!(step, ScriptedUserStep::UpdateGoal { .. }))
         && (!matches!(
             scenario.subject.config_profile.as_str(),
             "eval-control-plane-ready-v9"
                 | "eval-control-plane-ready-v10"
                 | "eval-control-plane-ready-v11"
+                | "eval-control-plane-ready-v12"
         ) || !scenario
             .capabilities
             .iter()
@@ -3698,6 +3762,7 @@ pub(crate) fn scenario_has_ready_control_plane(scenario: &LiveAgentScenario) -> 
             | "eval-control-plane-ready-v9"
             | "eval-control-plane-ready-v10"
             | "eval-control-plane-ready-v11"
+            | "eval-control-plane-ready-v12"
     )
 }
 
@@ -3714,7 +3779,7 @@ fn scenario_initial_goal(
             // objective. Keep historical/faulted fixtures unchanged.
             let objective = if matches!(scenario.subject.config_profile.as_str(),
                 "eval-control-plane-ready-v3" | "eval-control-plane-ready-v4"
-                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7" | "eval-control-plane-ready-v8" | "eval-control-plane-ready-v9" | "eval-control-plane-ready-v10" | "eval-control-plane-ready-v11")
+                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7" | "eval-control-plane-ready-v8" | "eval-control-plane-ready-v9" | "eval-control-plane-ready-v10" | "eval-control-plane-ready-v11" | "eval-control-plane-ready-v12")
                 && fault_profile == FaultProfile::Clean
             {
                 format!(
@@ -3767,6 +3832,7 @@ fn scripted_revision_requires_settlement(profile: &str, trigger: &str) -> bool {
             | "eval-control-plane-ready-v9"
             | "eval-control-plane-ready-v10"
             | "eval-control-plane-ready-v11"
+            | "eval-control-plane-ready-v12"
     ) && matches!(
         trigger,
         "after_first_draft" | "narrow_time_range_after_draft"
@@ -3869,6 +3935,7 @@ fn observes_trial_completion(config_profile: &str, unlimited_budget: bool) -> bo
                 | "eval-control-plane-ready-v9"
                 | "eval-control-plane-ready-v10"
                 | "eval-control-plane-ready-v11"
+                | "eval-control-plane-ready-v12"
         )
 }
 
@@ -5210,5 +5277,50 @@ mod tests {
             server.abort();
             let _ = server.await;
         }
+    }
+    #[test]
+    fn foreground_stop_signal_contract_is_validated_before_model_dispatch() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/live/scenarios/HA-ST-005");
+        let old: LiveAgentScenario = read_json(&root.join("1.21.0/scenario.json")).unwrap();
+        assert!(validate_harness_preconditions(&root.join("1.21.0"), &old)
+            .unwrap_err()
+            .to_string()
+            .contains("signals disagree"));
+        let fixed: LiveAgentScenario = read_json(&root.join("1.22.0/scenario.json")).unwrap();
+        validate_harness_preconditions(&root.join("1.22.0"), &fixed).unwrap();
+    }
+    #[test]
+    fn cancellation_setup_requires_the_declared_parent_job_and_active_child() {
+        let mut telemetry = restart_telemetry();
+        telemetry.active_children = 1;
+        let workspace = tempfile::tempdir().unwrap();
+        assert!(
+            !user_event_precondition_observed(
+                "cancel_parent_during_child_tool",
+                &telemetry,
+                workspace.path()
+            )
+            .0
+        );
+        telemetry.orchestration.async_jobs = 1;
+        telemetry.observed_signals.push("async_jobs".into());
+        assert!(
+            user_event_precondition_observed(
+                "cancel_parent_during_child_tool",
+                &telemetry,
+                workspace.path()
+            )
+            .0
+        );
+        telemetry.active_children = 0;
+        assert!(
+            !user_event_precondition_observed(
+                "cancel_parent_during_child_tool",
+                &telemetry,
+                workspace.path()
+            )
+            .0
+        );
     }
 }

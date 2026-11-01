@@ -1,7 +1,7 @@
 {
   "schemaVersion": "model-campaign-suite.v1",
   "id": "hope-core-orchestration",
-  "version": "1.20.0",
+  "version": "1.22.0",
   "capability": "core_orchestration",
   "adapter": "hope_core_scenario",
   "tiers": [
@@ -543,7 +543,7 @@
     },
     {
       "id": "HA-ST-005",
-      "scenarioPath": "scenarios/HA-ST-005/1.20.0/scenario.json",
+      "scenarioPath": "scenarios/HA-ST-005/1.22.0/scenario.json",
       "tags": [
         "nightly",
         "weekly",

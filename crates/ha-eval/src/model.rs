@@ -61,6 +61,7 @@ fn paired_seed_arm<'a>(profile: &str, fault: FaultProfile, arm: &'a str) -> &'a 
             | "eval-control-plane-ready-v9"
             | "eval-control-plane-ready-v10"
             | "eval-control-plane-ready-v11"
+            | "eval-control-plane-ready-v12"
     ) {
         match fault {
             FaultProfile::Clean => "paired_control",

@@ -313,3 +313,5 @@ gotcha that most often explains a failure. Open every DB read-only.
 编排 1.19.0 / 上下文 1.0.12 的取消、拒绝审批脚本只等待父会话接纳权，不清空子任务。检查 `scripted_admission_*`、真实活动子任务及终态：只有类型化 `409 chat_admission_busy` 可重新接纳；500 中的 active_stream 文字本身不是自动重放依据。旧 HA-GL-003 的第三轮 Loop 故障与只读设置矛盾，预览应拒绝；新版只验证状态观测和一次实际工具环境反馈，不能据此宣称多轮 Loop 验收。
 
 编排 1.20.0 的子执行取消通过无参数 `stop_parent` 用户步骤调用既有 owner Stop，并先检查真实 running 子执行归属。仅留下后台进程但子 Agent 已返回 completed，不构成“取消正在执行的子 Agent”的前置条件。若 Goal 改约后旧 runtime_error 再度阻塞，核对失败与其原修订成功验证是否已经匹配；已解决的历史不能复活，旧成功也不能替代当前修订验收，审批/取消边界不放宽。
+
+编排 1.22.0 的取消前置条件同时要求父会话真实后台作业与活动子执行。前台子执行和父后台作业独立核验，二者成立后才派发 owner Stop；缺少前置条件记录 benchmark_defect，Loader 同时校验能力与信号声明。保留 killed 子执行和无遗留工作的独立验收。
