@@ -508,6 +508,8 @@ SSE 事件处理：
 `crates/ha-agent-runtime/src/provider_adapters/codex_adapter.rs`（SSE 解析复用 Responses 的 `parse_openai_sse`）。请求/响应格式与 Responses API 相同，额外特性集中在**认证、模型目录与失败策略**：
 
 - **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` 头
+- **采样参数**：GPT-6 的 Codex 订阅请求省略 `temperature`，包括配置值 `0`；其他既有型号继续遵循对应适配契约。Codex 基线报告必须注明这一协议差异，不能把配置温度当作实际生效参数。
+- **可选工具参数**：Codex 的 function 工具在请求与 Token 计量中统一显式设置 `strict: false`，与 Responses 适配器一致，保留 schema 中字段可省略的契约。
 - **终端登录**：`hope-agent auth codex login` 复用同一 PKCE loopback 流程，成功后写 `~/.hope-agent/credentials/auth.json` 并调 `ensure_codex_provider_persisted(...)`；`--no-open` 只打印 URL，适合 SSH/headless 配合 `ssh -L 1455:127.0.0.1:1455 <host>`
 - **内置模型目录三处必须同步**：`agent::config::get_codex_models()` / `provider::helpers::default_codex_models()` / `provider::crud::default_codex_model_ids()`（id 集合 + 顺序一致，单测锁长度）。`DEFAULT_CODEX_MODEL_ID` 当前是 `gpt-5.6-terra`——**不是**列表里的旗舰 `gpt-5.6-sol`。原因：GPT-5.6 按 ChatGPT 套餐分级（Free/Go 只有 Terra，Sol 需付费套餐），而这个常量会通过 `ActiveModelUpdate::Always` 套到每个新登录账号，必须选所有 Codex 账号都有的那一档
 - **GPT-6 目录与参数**：三份内建目录按相同顺序补齐 `gpt-6.1-sol`、`gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`。Codex CLI 内建目录列出 272000 `context_window` / 872000 `max_context_window`，但当前 [ChatGPT Work 与 Codex 官方说明](https://help.openai.com/en/articles/20001275-chatgpt-work-and-codex) 将 GPT-6.1 Sol 的默认上下文明确为 500000；OAuth 模板采用这个产品级默认，其他 GPT-6 仍取 CLI 目录的 272000，不把 872000 当默认预算。API Responses 保持独立的 1.05M 上下文。Codex 模型使用 text/image 与订阅估算价 0，保留既有 16384 输出预留（Codex 不接收 `max_output_tokens`）。已有用户保存的上下文值不自动覆盖；补齐缺失模型仍由既有 `ensure_codex_provider` / CRUD 写入口执行，并保留用户已选模型、限制、其它条目和禁用状态。GPT-6.1 Sol 只向符合套餐、工作区设置及上线资格的账号开放，ChatGPT 登录消耗计划用量；自带 API Key 则按 API 价格计费。

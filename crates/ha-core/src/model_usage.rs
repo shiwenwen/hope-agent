@@ -89,6 +89,125 @@ impl ModelUsageEvent {
     }
 }
 
+/// One admitted Provider attempt. Arm only at the adapter call boundary;
+/// dropping a dispatched future cannot silently turn its unknown usage into
+/// zero. The caller retains the evaluation identity until this guard settles.
+pub(crate) struct ModelUsageAttemptGuard {
+    event: Option<ModelUsageEvent>,
+    started: std::time::Instant,
+    armed: bool,
+}
+
+impl ModelUsageAttemptGuard {
+    pub(crate) fn new(event: ModelUsageEvent) -> Self {
+        Self {
+            event: Some(event),
+            started: std::time::Instant::now(),
+            armed: false,
+        }
+    }
+
+    pub(crate) fn arm(&mut self) {
+        self.started = std::time::Instant::now();
+        self.armed = true;
+    }
+
+    pub(crate) fn mark_caller_cancelled(&mut self) {
+        if let Some(event) = self.event.as_mut() {
+            let metadata = event.metadata.get_or_insert_with(|| serde_json::json!({}));
+            if let Some(metadata) = metadata.as_object_mut() {
+                metadata.insert("callerCancelled".to_string(), true.into());
+                metadata.insert("dispatchOutcome".to_string(), "unknown".into());
+            }
+        }
+    }
+
+    pub(crate) fn settle(
+        mut self,
+        usage: Option<&crate::agent::types::ChatUsage>,
+        error: Option<&anyhow::Error>,
+    ) -> Option<ModelUsageEvent> {
+        if !self.armed {
+            self.event.take();
+            return None;
+        }
+        self.armed = false;
+        let mut event = self.event.take()?;
+        event.duration_ms = Some(self.started.elapsed().as_millis() as u64);
+        event.success = error.is_none();
+        event.error = error.map(ToString::to_string);
+        if error.is_some_and(|error| {
+            error
+                .downcast_ref::<crate::agent::ProviderDispatchUnknown>()
+                .is_some()
+        }) {
+            let metadata = event.metadata.get_or_insert_with(|| serde_json::json!({}));
+            if let Some(metadata) = metadata.as_object_mut() {
+                metadata.insert("dispatchOutcome".to_string(), "unknown".into());
+            }
+        }
+        if let Some(usage) = usage {
+            if usage.input_coverage.is_present() {
+                event.input_tokens = Some(usage.input_tokens);
+                event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
+                event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+            }
+            if usage.output_coverage.is_present() {
+                event.output_tokens = Some(usage.output_tokens);
+            }
+        }
+        Some(event)
+    }
+
+    pub(crate) fn finish(
+        self,
+        usage: Option<&crate::agent::types::ChatUsage>,
+        error: Option<&anyhow::Error>,
+    ) {
+        if let Some(event) = self.settle(usage, error) {
+            record_model_usage_best_effort(event);
+        }
+    }
+}
+
+impl Drop for ModelUsageAttemptGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let Some(mut event) = self.event.take() else {
+            return;
+        };
+        event.duration_ms = Some(self.started.elapsed().as_millis() as u64);
+        event.success = false;
+        event.error = Some(
+            "provider request dispatch outcome is unknown: one-shot caller cancelled before usage settlement"
+                .to_string(),
+        );
+        let metadata = event.metadata.get_or_insert_with(|| serde_json::json!({}));
+        if let Some(metadata) = metadata.as_object_mut() {
+            metadata.insert("callerCancelled".to_string(), true.into());
+            metadata.insert("dispatchOutcome".to_string(), "unknown".into());
+        }
+        record_model_usage_best_effort(event);
+    }
+}
+
+/// A transport failure after entering the adapter is not proof that a paid
+/// request was unsent. Keep the shared failover executor from replaying it.
+pub(crate) fn one_shot_transport_error(error: anyhow::Error) -> anyhow::Error {
+    let uncertain_transport = error.chain().any(|cause| {
+        cause
+            .downcast_ref::<reqwest::Error>()
+            .is_some_and(|error| !error.is_builder() && !error.is_status())
+    });
+    if uncertain_transport {
+        crate::agent::ProviderDispatchUnknown(format!("one-shot transport: {error}")).into()
+    } else {
+        error
+    }
+}
+
 fn opt_i64(v: Option<u64>) -> Option<i64> {
     v.map(|n| n.min(i64::MAX as u64) as i64)
 }
@@ -240,6 +359,16 @@ impl SessionDB {
                 match incognito {
                     Some(0) => Some(session_id),
                     Some(_) => return Ok(false),
+                    None if uuid::Uuid::parse_str(session_id).is_ok()
+                        && event
+                            .metadata
+                            .as_ref()
+                            .and_then(|metadata| metadata.get("callerCancelled"))
+                            .and_then(serde_json::Value::as_bool)
+                            == Some(true) =>
+                    {
+                        return Ok(false)
+                    }
                     None => None,
                 }
             }
@@ -515,6 +644,49 @@ mod tests {
             !inserted,
             "an incognito session's usage must not be recorded"
         );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn cancelled_deleted_session_does_not_restore_private_usage_as_an_orphan() {
+        let (db, path) = open_test_db();
+        let event = ModelUsageEvent {
+            session_id: Some(uuid::Uuid::new_v4().to_string()),
+            metadata: Some(
+                serde_json::json!({ "callerCancelled": true, "dispatchOutcome": "unknown" }),
+            ),
+            ..ModelUsageEvent::new(KIND_SIDE_QUERY)
+        };
+        assert!(!db.insert_model_usage_event(&event).unwrap());
+        cleanup(&path);
+    }
+
+    #[tokio::test]
+    async fn one_shot_network_uncertainty_keeps_the_terminal_dispatch_marker() {
+        let error = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_millis(50))
+            .build()
+            .unwrap()
+            .get("http://127.0.0.1:0")
+            .send()
+            .await
+            .unwrap_err();
+        let error = one_shot_transport_error(error.into());
+        assert!(error
+            .downcast_ref::<crate::agent::ProviderDispatchUnknown>()
+            .is_some());
+    }
+
+    #[test]
+    fn cancelled_synthetic_background_key_keeps_aggregate_unknown_usage() {
+        let (db, path) = open_test_db();
+        let event = ModelUsageEvent {
+            session_id: Some("automation:cancelled-background".to_string()),
+            metadata: Some(serde_json::json!({ "callerCancelled": true })),
+            ..ModelUsageEvent::new(KIND_SIDE_QUERY)
+        };
+        assert!(db.insert_model_usage_event(&event).unwrap());
         cleanup(&path);
     }
 }

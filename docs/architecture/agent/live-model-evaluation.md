@@ -153,11 +153,13 @@ evals/live/
 `hope_core_scenario` 只通过生产 HTTP 入口 `POST /api/chat` 驱动被测 Hope，一次 trial 走六步：
 
 1. 把公开资产复制到 per-trial 临时 workspace，隐藏 truth **不进入**被测目录；
-2. 传入精确 `providerId::modelId`、working directory、可选初始 Goal 与不可变 `EvalRunContext`；
+2. 传入精确 `providerId::modelId`、working directory、可选初始 Goal 与不可变 `EvalRunContext`；隔离 Server 在注册 trial 后通过内核会话服务固定该模型，使手动压缩和隐式子 Agent 继承同一绑定；
 3. 等真实 Agent loop、工具与控制面自然完成；
 4. 读取 owner API、文件、Git 状态以及只读 eval telemetry；
 5. 由注册 verifier 判断终态，**不以最终回答里的"我完成了"作为成功**；
 6. 关闭根 trace 后生成 trial result。
+
+原生 App 冒烟为不同 Provider 的同名模型执行重叠试次，并逐笔检查 `model.call` 中的 Provider / 模型 ID。单模型横比还应回读所有试次（包括失败及重试）的调用绑定；摘要或后台工作用了全局默认模型时，该试次不能作为所选模型的有效基线。普通 HTTP 对话的 `modelOverride` 仍只影响本轮，只有已注册的隔离真实模型评测试次固定合成会话的模型。
 
 ### 4.2 判分级联
 
@@ -202,14 +204,16 @@ verifier 是代码级注册的固定集合，Manifest 只能按名字引用，�
 | `task_failed`      | 环境有效，但终态或必要里程碑未满足                    | 是               | 否                    | failed           |
 | `policy_failed`    | 越权、泄漏、禁止副作用、脱敏失败等安全失败            | 是               | 否                    | failed           |
 | `budget_exhausted` | 被测 Agent 用尽 trial 预算（属于能力结果）            | 是               | 否                    | failed           |
-| `infra_error`      | Runner、Provider 接入、环境或 scorer 无法形成有效试验 | 否               | 最多一次              | infra            |
+| `infra_error`      | Runner、Provider 接入、环境或 scorer 无法形成有效试验 | 否               | 仅已证实请求发出前，最多一次 | infra        |
 | `benchmark_defect` | 任务、truth 或 grader 经审计确认有缺陷                | 否               | 否（进 quarantine）   | 单列，不入成功率 |
-| `simulator_error`  | 用户模拟器偏离契约，trial 无效                        | 否               | policy 可允许最多一次 | 单列             |
+| `simulator_error`  | 用户模拟器偏离契约，trial 无效                        | 否               | 已执行任务不重放       | 单列             |
 | `cancelled`        | 外部取消或预期取消路径                                | 否               | 否                    | 单列             |
 
-**只有基础设施 / 模拟器错误才自动重试一次；业务失败、策略失败、预算耗尽永不重试。** 聚合必须同时报告 `passed / valid_trials`、`passed / scheduled_trials` 和 `infra_error / scheduled_trials`——禁止靠排除大量无效 trial 美化成功率。
+**自动重试还必须证实失败发生在产品请求发出前；零遥测不能证明零调用。** 已执行任务、业务失败、策略失败、预算耗尽、终态证据校验失败及清理失败均不自动重放。聚合必须同时报告 `passed / valid_trials`、`passed / scheduled_trials` 和 `infra_error / scheduled_trials`——禁止靠排除大量无效 trial 美化成功率。
 
 清理阶段不是再次执行任务的理由。Hope Core Harness 在删除合成会话前，必须按会话主动取消标题生成、延迟记忆提取和正在执行的记忆提取，等待评测根与孤立跨度收口。若评分证据已经形成、只有清理仍未闭合，结果记为 `infra_error/cleanup_incomplete_after_evidence`，保留清理前的真实 Token、费用、事件和诊断，**不得重新运行整场已计费任务**。不设限模式只关闭用户预算，不关闭这条清理流程；清理等待仍保留独立的基础设施死锁熔断，避免失联进程永久占用资源。
+
+未闭合轨迹只允许作为上述清理失败的诊断证据保存，且归因必须为 `partial` 或 `missing`；跨度标识、父子关系、序号、脱敏等检查仍然执行，成功结果不能使用这个例外。Worker 先落盘候选结果，再执行校验；进程异常退出时，父进程仍可读取有效候选，或按当前 campaign、trial 与 attempt 的运行时标识回读现有用量并清理，禁止重放模型任务。调用数为 0 且归因不完整表示尚未观测到用量，不能当作零费用；费用或 Token 未知会阻止依赖该剩余预算的自动重试。
 
 ### 4.5 Milestone 与过程不变量
 
@@ -217,12 +221,29 @@ Milestone 必须形成 DAG，支持 `requires`、`anyOf`、blocking、weight、d
 
 ### 4.6 故障、用户事件与对照臂
 
+编排 `1.16.0` / 上下文 `1.0.9` 的本地回归还修正以下判分边界：
+
+- 文件验收可用 `expectedByFaultProfile` 分别定义正常与故障臂。取消/purge 臂显式要求 `expectedAbsent: true`，仍需真实终态、故障激活与轨迹闭合；正常臂继续要求完整业务文件。缺失文件、符号链接或路径越界不能冒充合格产物。
+- 冻结研究语料携带日期与引用标识，日期闭区间筛选后的 `itemCount` 和 `exactFields.citations` 必须准确；范围外、重复或缺失引用均不通过。
+- 一次可恢复的 Provider/工具错误与调度延迟不等同于永久失败、真实预算耗尽或 cancel/completion 竞态。对应场景名称与终态按实际注入机制校准；存储/环境错误反馈也不等同于真实文件 CAS 冲突或攻击注入，不能据此给出完整安全认证。
+- 仅已满足阶段前置条件的注册取消/purge 用户事件，且产品明确返回 `chat cancelled by caller` 时，Runner 继续执行独立终态验收；通用 HTTP 500、429 与其他 Provider 错误保持失败，不能被取消预期掩盖。
+- 团队与单 Agent 的同一正常/故障对照使用相同 seed，试次 ID 仍各自独立。`single_agent_compute_matched` 是历史协议标识：无预算模式不提供相同计算量承诺，报告必须披露实际调用/Token，不能宣称因果团队增益。
+
+
 - 故障由**注册控制器**按 seed 和结构化触发点注入，必须产生 `fault_activated / released` 证据；禁止用随机 `sleep` 假造竞态。带结构化故障但尚无对应受审故障控制器的场景一律 fail closed。
 - 每个故障场景同时保留 clean/control 与 chaos/faulted 两臂，避免把本来就失败的任务误判成"恢复失败"。
+- 编排 suite `1.15.10` / 上下文 `1.0.8` 在分片输出旁逐项持久化派发标记与已验收结果检查点，原子发布且禁止覆盖。读取检查点须匹配不可变计划与运行时配置，完整结果可复用而不重新调用模型；仅有派发标记时拒绝自动重放。App 仍不覆盖已有 experiment，额度或进程中断后不得补造未落盘分数。
+- 编排 suite `1.15.9` 的 supervisor 按 HTTP 规则忽略头名大小写，等待完整且有大小上限的请求头；错误、重复凭据与不完整请求继续拒绝，不终止 supervisor。故障臂没有实际激活故障、或正常臂意外激活故障时记为 `benchmark_defect`，保留业务与机制检查明细，不计模型恢复失败。
+- 编排 suite `1.15.8` 为单 Agent 臂注册独立 `singleAgentPromptPath`，纳入场景与提示词摘要；子执行器状态验收通过 `expectedByOrchestrationProfile` 显式切换为 `expectedExact: []`，完整团队臂仍要求真实子执行器终态。`singleAgentUnsupportedFaults` 明确声明没有单 Agent 对应条件的子执行器崩溃、父任务取消故障；对应臂在调用前记为 `benchmark_defect / comparison_arm_not_applicable`，不计模型失败，不伪造恢复成功。
+- App 并行分片通过隔离数据目录中的共享服务锁协调：普通试次持共享锁，进程重启试次从准备到清理持独占锁，禁止重启其他试次正在使用的服务。锁在试次子进程启动前取得，等待时间不侵占该试次模型调用预算。手动共享 supervisor 的 CLI 分片也须使用相同 `HA_MODEL_EVAL_SERVER_TRIAL_LOCK` 路径；缺失时在调用前拒绝执行。
+- `http-owner-state.v1` 可通过 `expectedByFaultProfile.clean / chaos` 分别声明终态，两项都必须显式提供；不能用缺失分支回退到另一分支的期望。编排 suite `1.9.0` 修正六个失败或取消场景：control 正常完成，只有实际故障或用户事件触发的 faulted 分支才要求失败、取消或终止。
+- 编排 suite `1.15.0` 使用 `eval-control-plane-ready-v6`：owner 请求为 Goal / Workflow 场景开启 Workflow Mode，多 Agent 场景在仅含合成 fixture 的 Git 仓库中运行，以支持真实子 worktree。提示词明确当前分支与能力要求，不再要求无痕异步任务写入 Goal / Workflow。无人应答的问答在 30 秒后到期，保留未回答状态，绝不合成同意或放行严格审批；历史 v1 环境不变。
+- control 只验证正常任务、产物与控制面终态。当前公开文件任务仍是合成 JSON / SHA-256 验证；Loop 状态查询不能证明多轮调度，未执行的故障臂不能证明场景标题中的恢复、竞态或安全能力。业务产物通过率、机制 / 终态通过率和等待用户的失败需分别报告。跨 `1.9.0` / `1.15.0` 成绩属于环境修复前后诊断，不直接作为模型能力排名。
 - Model gateway、tool、scheduler、process、storage、user、environment 故障分开归因；重启从 durable row 恢复 trial 身份与剩余预算。
 - blocking 场景优先用 `scripted_fsm`，允许受审 `replay`；LLM User 只用于探索，固定模型 / Prompt / 预算并与 Agent 成本分开，**不得决定本地 required case 的 pass/fail**。
 - `scripted-user-flow.v1` 继续只支持消息轮次；`scripted-user-flow.v2` 使用带标签步骤，当前只注册 `message` 与 `compact_context`。后者调用生产 `POST /api/sessions/{id}/compact`，并要求真实第 3 层摘要满足 `tierApplied=3`、`description=summarized`、词元数下降且确实影响消息；Manifest 不能借此携带任意 HTTP 动作。
 - 用户改需求、拒绝审批、取消等事件，执行前后都检查持久状态，确保事件确实命中预定阶段，而不是只在日志里出现。
+- 强制进程重启无法执行调用守卫的析构：若重启前仍有子执行器或后台模型工作，合并证据保留已完成调用，但归因降为 `partial`，试次 Token / 总费用未知，并记录 `process.restart.interruptedWorkAtRestart`；不能把未上报部分视为零或伪造逐次用量。
 - infra retry 保留原 attempt、累计用量和独立 trace，**不能重置成本或覆盖失败证据**。
 
 ---
@@ -234,6 +255,8 @@ Milestone 必须形成 DAG，支持 `requires`、`anyOf`、blocking、weight、d
 `EvalRunContext` 仅在 `HA_MODEL_EVAL_MODE=1` 的隔离 Server 中被接受；正常 App / Server / ACP 请求没有 eval context 时不会注册任何 trial。上下文至少包含 campaign / case / trial / trace / root span / model role / seed，并随 Session 传播到 Subagent 与后台任务。任何新增的异步或多 Agent 执行边界都必须继续传播它，终态必须关闭对应 guard——归因不是 `complete` 时，本地产物同样无效。
 
 主回复之后由产品自动触发的 session title、Memory extraction 等模型调用会继续持有 trial 身份，Token / 费用纳入总量，同时以 `model_automation.run` 与任务型 Async Job 分开归类；预算不足时不允许产生未归因调用。
+
+配置 Token 预算但调用用量未知时仍立即停止；诊断原因使用 `input_usage_unknown` / `output_usage_unknown`，不能声称已测得 `input_tokens` / `output_tokens` 上限。只有实际已知用量达到限额时使用后者。Codex 订阅模型的零美元目录费率只代表应用没有增量 API 单价，不能表示未消耗订阅额度；订阅剩余额度与实际账单需另取官方证据。
 
 ### 5.2 归因 registry 上限与"无正文"
 
@@ -351,7 +374,7 @@ Coding / Domain 的原始 Campaign 入口与表继续保留；Evaluation Center 
 | Quick          | critical / smoke 的 control 子集，`k=1`                    | 配置与主路径快速确认        |
 | Standard       | weekly 覆盖的本地兼容 control 子集                         | 日常版本预检                |
 | Reliability    | 已注册对照 arm 与 suite 重复                               | 恢复、稳定性和多 Agent 对照 |
-| Custom         | 只能从 Reliability allowlist 继续缩小 case / arm，`k=1..5` | 定位单一问题                |
+| Custom         | 全部 28 项已注册 monthly 编排场景，可收窄 case / arm，`k=1..5` | 完整覆盖或定位问题          |
 | 上下文压缩专项 | 第 3 层语义摘要与 UTF-8 连续分页，`k=1`                    | 完整验证中的真实模型语义部分 |
 
 **App request 只能收窄执行权限，资源预算由用户决定**：它不能提供 tier / source / runner / network / digest / 任意 adapter，也不能扩大 profile 的场景 / arm / 重复 / 模型 / trial 范围。所有本机 App 画像都使用用户预算模式；suite / scenario 注册预算只是界面的推荐初值和相对权重，不是隐藏的不可突破上限。整场可调维度包括墙钟、模型调用、输入 / 输出 Token、费用、工具调用、Agent 与并发。逐场景费用是覆盖全部所选模型、arm 与重复运行的合计额度，Sidecar 保守均分到 child trial；逐场景的其余维度则是每个 trial 的直接上限。场景费用允许留出未分配余额，但合计不得超过整场费用。整场止损与单场景上限是两级独立约束：允许整场剩余额度低于某个场景的理论上限，运行时由先耗尽的一层停止；整场 trial 并发也不限制单场景内部工作并发。所有最终值都写入不可变 child plan 与 plan digest，运行中不得静默扩容。
@@ -364,15 +387,19 @@ Coding / Domain 的原始 Campaign 入口与表继续保留；Evaluation Center 
 
 **并发不等于内部预算**：`campaignBudget.maxConcurrency` 表示最多同时运行多少 trial / shard；逐场景 `maxConcurrency` 表示一个 trial 内的工作并发，两者分别可调、互不替代。不可变计划把 experiment 总墙钟的 90% 按全部 trial 保守均分，并与用户设置的逐场景时间取最小值，剩余 10% 专用于启动、落证据、取消和 Supervisor 回收。触及墙钟属于 `budget_exhausted/trial_wall_timeout`，**不是 infra-error**，因此不触发 infra 自动重试。产品自有的标题 / Memory 等可选后台模型调用若没有剩余 trial 预算，应直接跳过，不得仅因这类非任务调用被拒就把已经完成的主任务改判为预算耗尽。
 
-**实时进度**：运行期间 Sidecar 每秒通过隔离 Server 的 owner-token telemetry endpoint 拉取一次当前 trial 的脱敏快照，发送 `trial_progress`（只含墙钟、模型 / 工具调用、Token、费用、Loop、Agent、Async、活跃子任务、归因状态和最后一个无 payload 事件类型）。Prompt、模型正文、工具参数 / 输出不进入控制协议。只有 telemetry endpoint 已实际注册的 trial 才进入"运行中"，同一 shard 里尚未开始的 case 保持"排队中"。最终 `trial_completed` 与 evidence 才是权威结果。
+**实时进度**：运行期间 Sidecar 每秒通过隔离 Server 的 owner-token telemetry endpoint 拉取一次当前 trial 的脱敏快照，发送 `trial_progress`（只含墙钟、模型 / 工具调用、Token、费用、Loop、Agent、Async、活跃子任务、归因状态和最后一个无 payload 事件类型）。跨模型配对保留相同逻辑 trial ID；产品运行身份额外包含 campaign ID 与 attempt，防止注册及遥测串用其它模型或重试的状态。进度查询只接受当前 campaign 的运行身份，不回退到无 campaign 的逻辑 ID。Prompt、模型正文、工具参数 / 输出不进入控制协议。只有 telemetry endpoint 已实际注册的 trial 才进入"运行中"，同一 shard 里尚未开始的 case 保持"排队中"。最终 `trial_completed` 与 evidence 才是权威结果。
 
 预览与启动绑定同一个 `planDigest`；用户改选择、资产变化或预览过期时必须重新预览。中断 / 失败后的"重试"新建 experiment / campaign 并保存 parent id，**不覆盖第一次已产生的调用、费用或结果**。
 
+Trial 的墙钟指标覆盖初始化、任务执行、判分与清理，与 `startedAt` / `completedAt` 使用同一范围，不能只写模型执行时长。子进程已经写出终态候选但未通过校验时，记录 `infra_error/invalid_trial_evidence_after_execution`、候选 SHA-256 与受控错误类别，并恢复已有实际用量；不能将无效候选晋升为通过，也不能自动重跑已执行任务。
+
 ### 7.4 凭据、进程与取消
 
-UI 只看见脱敏模型与 credential profile label / ref。owner 后端从可信 App 配置解析单个有效 Provider，把 credential-free config 与一次性 `providerId → secret` 映射通过匿名 stdio 首条 start 消息传给 Sidecar；Sidecar 不记录控制消息正文，再只对子 Hope Server 的初始化环境注入。普通 Provider secret 是 API Key；本地 App Codex secret 只能是当前 access token 与 account id，**不得含 refresh token**。Server 读取后立即移除环境变量并禁止评测配置写回。任何 Key / token 不得进入 argv、计划、SQLite、artifact、stdout/stderr 或导出包。
+UI 只看见脱敏模型与 credential profile label / ref。owner 后端从可信 App 配置解析单个有效 Provider，把 credential-free config 与一次性 `providerId → secret` 映射通过匿名 stdio 首条 start 消息传给 Sidecar；Sidecar 不记录控制消息正文，再只对子 Hope Server 的初始化环境注入。普通 Provider secret 是 API Key；本地 App Codex secret 只能是当前 access token 与 account id，**不得含 refresh token**。Server 读取后立即移除环境变量并禁止评测配置写回；后台配置重载保留初始化后的不可变内存快照，不能用无密钥磁盘配置覆盖它。任何 Key / token 不得进入 argv、计划、SQLite、artifact、stdout/stderr 或导出包。
 
 Desktop supervisor 只接受当前安装包中、版本 / digest / 平台身份匹配的 Hope product binary，使用固定 `server start` 参数；Manifest、前端和 request 都不能传任意 executable / argv。每个 campaign 创建独立 HOME、`HA_DATA_DIR`、workspace、token、端口和进程组；Unix 回收 process group，Windows 用 Job Object。
+
+Trial 清理先经内核 `stop_session` 停止执行、拒绝未决审批并取消后台工作，等待评测 trace 闭合后才删除合成 Session。若停止失败或 20 秒内仍有活跃工作，返回清理失败并保留会话，避免在途流提交到已删除的数据库行；Supervisor 最终仍回收隔离进程与临时数据目录。
 
 **v1 刻意不提供"暂停"**：冻结本地进程不能冻结已发往 Provider 的 HTTP 请求、计费、OAuth 有效期或外部副作用，直接 `SIGSTOP/SIGCONT` 会产生不可审计的预算与结果。用户取消先发协议 cancel，超时后终止完整进程树；App 退出或 Sidecar 失联时非终态记录变为 `interrupted`，不自动续跑。`cancelled` / `interrupted` 也不能原地恢复，"重试"始终基于原 request 新建 experiment 并以 parent id 保留关系。
 
@@ -447,17 +474,36 @@ comparison        control/faulted、solo/team、baseline/candidate 配对
 
 隐藏 truth 与 verifier 细节**绝不复制进被测 workspace 或模型上下文**。路径允许相对引用，但 canonicalize 后必须留在 scenario / `evals/live` 根内；symlink、`..` 和同版本覆写均 fail closed。
 
+编排 suite `1.15.0` 使用 `eval-control-plane-ready-v6`，保留全部正常业务与控制面验收，同时修正执行环境和观察边界：
+
+- owner 为 Goal / Workflow 场景开启所需 Workflow Mode，多 Agent 仅使用合成 Git 仓库；无人应答的问答 30 秒后以未回答到期，严格审批不自动批准。
+- clean/control 初始 Goal 使用公开业务目标，不使用故障场景标题。Goal / Workflow 先正常生成业务产物，再用静态只读步骤验证已有文件，据实更新状态。
+- 前台 HTTP 回复结束后，后台任务、Workflow 或子 Agent 的结果通知仍可能通过正式 `TurnKernel` 启动父回合。Harness 在原始单项墙钟预算内保留 root 归因，观察实际任务工作连续静止 250 毫秒后才关闭 root 并验收。等待和全部后续模型调用均计量；预算耗尽立即停止等待，清理不能补造完成或批准证据。
+- 通知合并窗口、父会话 idle 等待和重排期间，`agent.result_queued` 保留归因并计入未收尾工作，但不占正在执行的并发数。正式父回合使用 `agent.result_delivery`，实际后台工具执行才提供 `async_jobs` 信号。队列清除或自然交付后释放守卫，trace 闭合与无孤儿仍由真实遥测验证。
+
+Suite `1.15.1` 修复 unlimited 诊断的收尾观察：无预算模式不使用注册场景时间作为父通知回合的隐藏截止时间，等待真实工作自然静止后才验收。固定预算模式继续使用原有墙钟；公开任务、验证器与工具契约不变。
+
+Suite `1.15.2` 对齐 Goal 修复后的完成审计：历史 runtime_error Workflow 仅在同 Goal、同验收条件、同契约版本的后续 Workflow 完成并产生真实 passing validation 后解除阻塞，失败历史仍保留。公开任务、验证器与工具契约未放宽；取消、审批阻塞及后续验证失败仍阻塞。
+
+主编排 `1.15.3` / 上下文 `1.0.2` 补齐技能自动复盘的计量与固定模型边界：排队前保留真实 Session 的后台模型守卫，复盘 automation 使用真实 Session 而非合成键；隔离评测中的 automation 固定到已接纳 Session 的模型，缺少有效上下文或模型 pin 时在请求前拒绝，不回落全局默认模型。公开任务与验证器仍不变。此前无 Session 的复盘调用须单列保留，归因不完整的旧批次不进入模型比较成绩。
+
+主编排 `1.15.4` / 上下文 `1.0.3` 补齐正式通知回合的模型绑定：ParentInjection 读取实际会话偏好并走原 TurnKernel 接纳；已注册评测会话的所有正式回合还会由 Kernel 强制同一模型 pin，冲突、缺失和不可用时请求前拒绝，且不引入全局 fallback。业务已通过但通知混用模型的旧试验单独保留并排除比较；公开任务、验证器与种子均未放宽。 原生 Harness 还对全部 `model.call` 运行阻断式 `model_binding` 检查；混模或无法确认身份归为 `infra_error/model_binding_mismatch`，保留真实费用与事件，不作为模型能力失败，也不自动重跑已调用试验。
+
+历史版本的分数和资产保留；跨版本成绩用于诊断系统与任务契约变化，不直接用于模型排名。只等待 250 毫秒不足以覆盖真实父通知回合，不能把这些回合当作可忽略的毫秒级收尾。
+
+运行器只对已证实发生在产品请求发出前的基础设施失败允许自动重试；调用后遥测不可读取不等于零用量。已执行任务、终态证据校验失败或清理失败均保留当前结果，不自动重放。App 仍等待分片汇总提供最终判分，但已闭合 runtime trace 不继续发布增长的运行时钟。
+
 ### 9.2 Hope Core 场景覆盖
 
 当前 suite 的 Hope Core 编排场景按能力分五组：
 
 | 分组            | 场景 ID           | 核心契约                                                                                                   |
 | --------------- | ----------------- | ---------------------------------------------------------------------------------------------------------- |
-| Goal / Loop     | `HA-GL-001..006`  | 验收证据、假完成恢复、不可满足目标收敛、预算停止、需求修订、checkpoint/restart                             |
-| Workflow        | `HA-WF-001..006`  | fan-out/join、可重试与非幂等写、restart、补偿、pause/resume/cancel、拒绝审批                               |
-| Async Jobs      | `HA-AJ-001..006`  | 乱序汇总、前台 busy 延迟注入、cancel/complete 竞态、重试分类、incognito purge、公平调度                    |
-| Subagent / Team | `HA-ST-001..006`  | 冲突资料研究、Planner/Executor/Verifier、worktree 合并、成员崩溃重分派、取消子树、origin/权限/KB/incognito |
-| 多模块 E2E      | `HA-E2E-001..004` | Coding 发布修复、冻结语料 Research、Knowledge/File stale-write、Browser/Terminal incident                  |
+| Goal / Loop     | `HA-GL-001..006`  | 验收证据、假完成恢复、不可满足目标收敛、单次请求故障恢复、需求修订、checkpoint/restart                             |
+| Workflow        | `HA-WF-001..006`  | fan-out/join、可重试与非幂等写、restart、工具故障恢复、pause/resume/cancel、拒绝审批                               |
+| Async Jobs      | `HA-AJ-001..006`  | 乱序汇总、前台 busy 延迟注入、调度延迟收敛、重试分类、incognito purge、公平调度                    |
+| Subagent / Team | `HA-ST-001..006`  | 冲突资料研究、Planner/Executor/Verifier、工具冲突反馈恢复、成员崩溃重分派、取消子树、环境错误恢复 |
+| 多模块 E2E      | `HA-E2E-001..004` | Coding 发布修复、冻结语料 Research、文件冲突反馈恢复、Browser/Terminal incident                  |
 | 上下文压缩（真实模型） | `HA-CTX-001..002` | 真实第 3 层摘要后的事实保真、只用 `read` 的 UTF-8 连续分页与结果摘要序列                              |
 
 上下文压缩不能只靠这两个付费场景宣称完整覆盖。完整证据由两条物理隔离的轨道共同组成：
@@ -507,7 +553,7 @@ case、版本、标签、arm、重复次数和 tier 一律以 suite manifest 为
 | Pre-release | 本地手动，可选精确 SHA | 发版关键 case                    | 默认 `k=3`，critical `k=5` | 人工发版判断，不阻断 release workflow |
 | Monthly     | 本地手动               | 全部 28 场景 + 重型 / chaos 扩展 | `k=1`，选中 case 多 seed   | 能力发现和长周期趋势                  |
 
-具体 case / trial 数量由当前主编排 suite `1.8.0`、上下文压缩真实模型 suite `1.0.0` 与各档 policy 展开的不可变计划决定；Nightly policy 当前为 `1.0.9`——**以 `model plan` 输出为准，文档数字不是执行器输入**。零网络的 `context-compaction-safety@1.1.0` 既可由确定性 CLI 独立执行，也会被 GUI 的“上下文压缩专项”画像作为付费前置门禁纳入同一不可变 App 计划；它计入 GUI 总 trial 数，但模型调用与费用恒为零。当前没有自动矩阵，用户在 App / CLI 中显式选择模型；Product Default、Challenger、Economical 和锁定权重的 Local 模型可作本地比较角色，须记录精确版本、避免相同模型重复花费。普通模型横比默认关闭 failover，只有 failover 专项才显式开启并逐跳归因。
+具体 case / trial 数量由当前主编排 suite `1.15.7`、上下文压缩真实模型 suite `1.0.7` 与各档 policy 展开的不可变计划决定；Nightly policy 当前为 `1.0.9`——**以 `model plan` 输出为准，文档数字不是执行器输入**。零网络的 `context-compaction-safety@1.1.0` 既可由确定性 CLI 独立执行，也会被 GUI 的“上下文压缩专项”画像作为付费前置门禁纳入同一不可变 App 计划；它计入 GUI 总 trial 数，但模型调用与费用恒为零。当前没有自动矩阵，用户在 App / CLI 中显式选择模型；Product Default、Challenger、Economical 和锁定权重的 Local 模型可作本地比较角色，须记录精确版本、避免相同模型重复花费。普通模型横比默认关闭 failover，只有 failover 专项才显式开启并逐跳归因。
 
 ### 10.3 Quarantine 与基线治理
 
@@ -606,7 +652,7 @@ case、版本、标签、arm、重复次数和 tier 一律以 suite manifest 为
 
 ### 14.2 Evaluation Center 验证
 
-- `model app-smoke --sidecar <hope-agent-eval> --server-bin <hope-agent-server>` 用 fake Provider 走完整 App control / Sidecar / Supervisor / Hope Server 路径，必须零外部费用；它跑两个相同 case 的独立 trial 并验证时间区间真实重叠，防止"配置写了并发但实际串行"。
+- `model app-smoke --sidecar <hope-agent-eval> --server-bin <hope-agent-server>` 用 fake Provider 走完整 App control / Sidecar / Supervisor / Hope Server 路径，必须零外部费用；它使用两个模型绑定，在各 campaign 复用配对逻辑 trial ID，验证运行身份隔离。每个模型按当前 commit 的分片结果选择 2–5 个相同 case 的独立 trial，确保分布到至少两个 shard，并验证实际时间区间重叠；不能假定最初两个 trial 一定落在不同 shard。
 - smoke 写入 synthetic secret canary，扫描 request / plan / DB / log / evidence / artifact / 临时目录；任一泄漏或残留进程 / 端口即失败。
 - 同一 request / 资产 / runtime / model 生成稳定 plan / digest；本地 App evidence 必须保持 local source，不能通过保留的 release verifier。
 - 比较测试必须覆盖"不同 commit → seed 不同但逻辑 trial identity 相同"；预算测试必须覆盖小于模型数时拒绝、且任何切分不增加总量。
@@ -640,3 +686,11 @@ case、版本、标签、arm、重复次数和 tier 一律以 suite manifest 为
 - [capability-eval](capability-eval.md)：确定性专项评测轨道（不调模型，进 `cargo test` 快速路径）。
 - [subagent](subagent.md) / [agent-team](agent-team.md)：被测的多 Agent 编排语义。
 - [background-jobs](background-jobs.md)：Async Job 场景组对应的执行模型。
+
+主编排 `1.15.5` / 上下文 `1.0.4` 修复无预算模式的后台结算：观察到业务静默后仍须等待已接纳的标题、记忆和技能复盘调用自然结束，再读取费用和关闭根 trace，避免 20 秒清理熔断抢先冻结晚到用量。固定预算的截止和清理安全边界不变；旧批次的清理失败、未关闭 span 和晚到费用单独保留，不重判为通过。
+
+主编排 `1.15.6` / 上下文 `1.0.5` 在侧查询入口保留单次模型调用身份，直至用量写入结束。保留范围覆盖普通侧查询、附件查询、视觉转写和权限判定；根会话先返回也不能提前关闭 trace 或删除仍在计量的合成会话。保留只延长生命周期，不新增 Agent 并发名额；请求前仍检查试验接纳和原有预算。
+
+主编排 `1.15.7` / 上下文 `1.0.6` 为每次已进入适配器的单次请求分别记账；调用方取消或超时而未取得用量时，保留同一试验归属并记录 callerCancelled / unknown，不以零补齐，也不重复记录正常结果。侧查询的多次 Provider 尝试分别保留，传输结果不确定时使用终止型标记拒绝自动重发。摘要、附件查询、视觉转写与权限判定复用同一计量守卫。
+
+上下文 `1.0.7` 把无预算收尾观察应用到 eval-safe-context-compaction-v1 画像，避免专项在根返回后立即取消已接纳后台调用。主编排保持 `1.15.7`：其全部场景已属于原先启用观察的 eval-control-plane-ready-v6，执行分支与公开任务均未变；上下文专项补跑单独留存相同产品二进制与新 Harness 摘要，不把旧上下文费用或分数覆盖进新版本。

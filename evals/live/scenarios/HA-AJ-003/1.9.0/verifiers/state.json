@@ -1,0 +1,15 @@
+{
+  "path": "/api/sessions/{sessionId}/background-jobs",
+  "expectedByFaultProfile": {
+    "clean": {
+      "anyItemSubset": {
+        "status": "completed"
+      }
+    },
+    "chaos": {
+      "anyItemSubset": {
+        "status": "cancelled"
+      }
+    }
+  }
+}

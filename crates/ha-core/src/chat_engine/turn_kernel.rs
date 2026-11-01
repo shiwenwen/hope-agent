@@ -857,16 +857,47 @@ impl TurnKernel {
                     "Imported Codex conversations are read-only",
                 ));
             }
-            admit_model_selection(
-                &mut submission.params,
+            let evaluation_pin = if submission.params.source != ChatSource::Eval
+                && crate::eval_context::context_for_session(&submission.params.session_id).is_some()
+            {
+                let session = submission.params.session_id.clone();
+                Some(
+                    submission
+                        .params
+                        .session_db
+                        .run(move |db| db.get_session_model_preference(&session))
+                        .await
+                        .map_err(|error| {
+                            TurnFailure::new(TurnFailureKind::Infrastructure, error.to_string())
+                        })?
+                        .map(|(provider, model)| format!("{provider}::{model}"))
+                        .ok_or_else(|| {
+                            TurnFailure::invalid_request(
+                                "registered evaluation Session has no model pin",
+                            )
+                        })?,
+                )
+            } else {
+                None
+            };
+            let selection = pin_registered_evaluation_selection(
                 submission.model_selection.take().ok_or_else(|| {
                     TurnFailure::new(
                         TurnFailureKind::Infrastructure,
                         "turn submission has no model-selection capability",
                     )
                 })?,
+                evaluation_pin.as_deref(),
+            )?;
+            admit_model_selection(
+                &mut submission.params,
+                selection,
                 submission.routing_config.as_deref(),
             )?;
+            if evaluation_pin.is_some() {
+                // A fixed-model comparison cannot acquire global fallbacks.
+                submission.params.model_chain.truncate(1);
+            }
             admit_provider_lease(&submission.params)?;
             if let Some(proof) = submission.source_proof.take() {
                 admit_source_proof(&mut submission.params, proof).await?;
@@ -1015,6 +1046,37 @@ fn admitted_route_all_codex(params: &ChatEngineParams) -> bool {
                 .find(|provider| provider.id == model.provider_id)
                 .is_some_and(|provider| provider.api_type.is_codex())
         })
+}
+
+fn pin_registered_evaluation_selection(
+    selection: ModelSelection,
+    required: Option<&str>,
+) -> Result<ModelSelection, TurnFailure> {
+    let Some(required) = required else {
+        return Ok(selection);
+    };
+    match selection {
+        ModelSelection::Configured {
+            preferred_model, ..
+        } => {
+            if preferred_model
+                .as_deref()
+                .is_some_and(|preferred| preferred != required)
+            {
+                return Err(TurnFailure::invalid_request(
+                    "turn model preference conflicts with the registered evaluation Session",
+                ));
+            }
+            Ok(ModelSelection::Configured {
+                preferred_model: Some(required.to_string()),
+                strict_preference: true,
+            })
+        }
+        ModelSelection::Evaluation(_) => Err(TurnFailure::new(
+            TurnFailureKind::Infrastructure,
+            "production evaluation Session cannot bypass configured model admission",
+        )),
+    }
 }
 
 fn admit_model_selection(
@@ -1979,6 +2041,44 @@ mod tests {
             db.get_chat_turn(&turn_id).unwrap().unwrap().status,
             crate::session::ChatTurnStatus::Running
         );
+    }
+
+    #[test]
+    fn registered_evaluation_parent_turn_inherits_pin_and_rejects_model_switch() {
+        let selection = pin_registered_evaluation_selection(
+            ModelSelection::Configured {
+                preferred_model: None,
+                strict_preference: false,
+            },
+            Some("provider::preview"),
+        )
+        .unwrap();
+        assert!(
+            matches!(selection, ModelSelection::Configured { preferred_model: Some(ref pin), strict_preference: true } if pin == "provider::preview")
+        );
+        assert!(pin_registered_evaluation_selection(
+            ModelSelection::Configured {
+                preferred_model: Some("provider::stable".into()),
+                strict_preference: false,
+            },
+            Some("provider::preview")
+        )
+        .is_err());
+        let ordinary = pin_registered_evaluation_selection(
+            ModelSelection::Configured {
+                preferred_model: None,
+                strict_preference: false,
+            },
+            None,
+        )
+        .unwrap();
+        assert!(matches!(
+            ordinary,
+            ModelSelection::Configured {
+                preferred_model: None,
+                strict_preference: false
+            }
+        ));
     }
 
     #[test]

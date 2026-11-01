@@ -574,6 +574,11 @@ pub struct ScenarioComparison {
     pub budget_mode: Option<String>,
     #[serde(default)]
     pub ablations: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub single_agent_prompt_path: Option<String>,
+    /// Child-executor faults have no honest single-Agent counterpart.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub single_agent_unsupported_faults: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -858,11 +863,37 @@ pub fn validate_model_trace(
     events: &[ModelCampaignEvent],
     label: &str,
 ) -> Result<()> {
+    validate_model_trace_inner(trace, events, label, false)
+}
+
+/// Failed cleanup evidence must preserve the observed, unfinished graph and
+/// paid usage. This exception never makes an open trace valid for success.
+pub fn validate_trial_trace(
+    trace: &TraceSummary,
+    events: &[ModelCampaignEvent],
+    outcome: ModelCampaignOutcome,
+    failure_class: Option<&str>,
+    attribution: AttributionCompleteness,
+    label: &str,
+) -> Result<()> {
+    let diagnostic = outcome == ModelCampaignOutcome::InfraError
+        && failure_class == Some("cleanup_incomplete_after_evidence")
+        && attribution != AttributionCompleteness::Complete;
+    validate_model_trace_inner(trace, events, label, diagnostic)
+}
+
+fn validate_model_trace_inner(
+    trace: &TraceSummary,
+    events: &[ModelCampaignEvent],
+    label: &str,
+    allow_incomplete: bool,
+) -> Result<()> {
     if events.len() > 4_096
         || !valid_trace_identifier(&trace.trace_id, "trace_")
         || !valid_trace_identifier(&trace.root_span_id, "span_")
-        || trace.orphan_span_count > 0
-        || !trace.closed
+        || trace.orphan_span_count > trace.span_count
+        || (trace.closed && trace.orphan_span_count > 0)
+        || (!allow_incomplete && (trace.orphan_span_count > 0 || !trace.closed))
     {
         bail!("{label} contains an invalid or open trace");
     }
@@ -933,7 +964,10 @@ pub fn validate_model_trace(
         if records.len() > 2 {
             bail!("{label} span {span_id} has too many lifecycle events");
         }
-        if records.len() == 1 && records[0].status == "started" {
+        if records.len() == 1
+            && records[0].status == "started"
+            && !(allow_incomplete && !trace.closed)
+        {
             bail!("{label} span {span_id} has no terminal lifecycle event");
         }
         if records.len() == 2 {
@@ -1870,6 +1904,12 @@ pub fn validate_scenario(scenario: &LiveAgentScenario, scenario_dir: &Path) -> R
         if comparison.budget_mode.as_deref().is_none_or(str::is_empty) {
             bail!("comparison requires budgetMode");
         }
+        let mut unsupported = BTreeSet::new();
+        for id in &comparison.single_agent_unsupported_faults {
+            if !unsupported.insert(id) || !scenario.faults.iter().any(|fault| &fault.id == id) {
+                bail!("singleAgentUnsupportedFaults must name unique registered faults");
+            }
+        }
     }
     Ok(())
 }
@@ -1987,6 +2027,13 @@ fn reject_unsafe_manifest_keys(value: &Value, location: &str) -> Result<()> {
 pub fn scenario_asset_paths(scenario: &LiveAgentScenario) -> Vec<String> {
     let mut paths = scenario.environment.assets.clone();
     paths.push(scenario.task.prompt_path.clone());
+    if let Some(path) = scenario
+        .comparison
+        .as_ref()
+        .and_then(|c| c.single_agent_prompt_path.as_ref())
+    {
+        paths.push(path.clone());
+    }
     if let Some(path) = &scenario.task.hidden_truth_path {
         paths.push(path.clone());
     }
@@ -2070,10 +2117,21 @@ pub fn scenario_component_digests(
         "spec": scenario.verifiers,
         "assets": digest_asset_map(scenario_dir, verifier_paths)?,
     });
-    let prompt_digest = digest_file(&resolve_contained(
+    let primary_prompt_digest = digest_file(&resolve_contained(
         scenario_dir,
         &scenario.task.prompt_path,
     )?)?;
+    let prompt_digest = match scenario
+        .comparison
+        .as_ref()
+        .and_then(|c| c.single_agent_prompt_path.as_deref())
+    {
+        Some(path) => sha256_bytes(&canonical_json(&serde_json::json!({
+            "primary": primary_prompt_digest,
+            "singleAgent": digest_file(&resolve_contained(scenario_dir, path)?)?,
+        }))?),
+        None => primary_prompt_digest,
+    };
     let tool_schema_digest = match &scenario.subject.tool_schema_path {
         Some(path) => digest_file(&resolve_contained(scenario_dir, path)?)?,
         None => sha256_bytes(b"no-tool-schema-asset"),
@@ -2605,12 +2663,6 @@ pub fn validate_evidence_shape(evidence: &ModelCampaignEvidence) -> Result<()> {
                 result.trial_id
             );
         }
-        if result.trace.orphan_span_count > 0 || !result.trace.closed {
-            bail!(
-                "model trial {} has an open or orphaned trace",
-                result.trial_id
-            );
-        }
         if result
             .runtime_config_digest
             .as_deref()
@@ -2628,9 +2680,12 @@ pub fn validate_evidence_shape(evidence: &ModelCampaignEvidence) -> Result<()> {
             &result.orchestration,
             &format!("model trial {}", result.trial_id),
         )?;
-        validate_model_trace(
+        validate_trial_trace(
             &result.trace,
             &result.trace_events,
+            result.outcome,
+            result.failure_class.as_deref(),
+            result.attribution,
             &format!("model trial {}", result.trial_id),
         )?;
         for attempt in &result.prior_attempts {
@@ -2654,9 +2709,12 @@ pub fn validate_evidence_shape(evidence: &ModelCampaignEvidence) -> Result<()> {
                     result.trial_id, attempt.attempt
                 ),
             )?;
-            validate_model_trace(
+            validate_trial_trace(
                 &attempt.trace,
                 &attempt.trace_events,
+                attempt.outcome,
+                attempt.failure_class.as_deref(),
+                attempt.attribution,
                 &format!(
                     "model trial {} prior attempt {}",
                     result.trial_id, attempt.attempt
@@ -2756,6 +2814,81 @@ mod tests {
     fn percentile_uses_nearest_rank_upper_bound() {
         assert_eq!(percentile(&[1.0, 2.0, 3.0, 4.0], 0.5), Some(3.0));
         assert_eq!(percentile(&[1.0, 2.0, 3.0, 4.0], 0.95), Some(4.0));
+    }
+
+    #[test]
+    fn failed_cleanup_trace_preserves_open_work_without_permitting_success() {
+        let mut trace = TraceSummary {
+            trace_id: "trace_cleanup".to_string(),
+            root_span_id: "span_root".to_string(),
+            span_count: 2,
+            orphan_span_count: 1,
+            closed: false,
+        };
+        let events = vec![ModelCampaignEvent {
+            seq: 1,
+            event: "async_job.run".to_string(),
+            timestamp_ms: 1,
+            span_id: "span_job".to_string(),
+            parent_span_id: "span_root".to_string(),
+            key: Some("job".to_string()),
+            status: "started".to_string(),
+            duration_ms: 0,
+            attributes: BTreeMap::new(),
+        }];
+        assert!(validate_trial_trace(
+            &trace,
+            &events,
+            ModelCampaignOutcome::InfraError,
+            Some("cleanup_incomplete_after_evidence"),
+            AttributionCompleteness::Partial,
+            "cleanup"
+        )
+        .is_ok());
+        for outcome in [
+            ModelCampaignOutcome::Passed,
+            ModelCampaignOutcome::TaskFailed,
+            ModelCampaignOutcome::BudgetExhausted,
+        ] {
+            assert!(validate_trial_trace(
+                &trace,
+                &events,
+                outcome,
+                Some("cleanup_incomplete_after_evidence"),
+                AttributionCompleteness::Partial,
+                "outcome"
+            )
+            .is_err());
+        }
+        assert!(validate_trial_trace(
+            &trace,
+            &events,
+            ModelCampaignOutcome::InfraError,
+            Some("trial_subprocess_failed"),
+            AttributionCompleteness::Partial,
+            "wrong class"
+        )
+        .is_err());
+        assert!(validate_trial_trace(
+            &trace,
+            &events,
+            ModelCampaignOutcome::InfraError,
+            Some("cleanup_incomplete_after_evidence"),
+            AttributionCompleteness::Complete,
+            "false complete"
+        )
+        .is_err());
+        trace.closed = true;
+        trace.orphan_span_count = 0;
+        assert!(validate_trial_trace(
+            &trace,
+            &events,
+            ModelCampaignOutcome::InfraError,
+            Some("cleanup_incomplete_after_evidence"),
+            AttributionCompleteness::Partial,
+            "false closed"
+        )
+        .is_err());
     }
 
     #[test]

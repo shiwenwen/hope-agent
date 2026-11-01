@@ -93,14 +93,18 @@ struct CompactContextResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct TelemetrySnapshot {
+pub(crate) struct TelemetrySnapshot {
     attribution: AttributionCompleteness,
     #[serde(default)]
     #[allow(dead_code)]
     active_children: u32,
     #[serde(default)]
     background_model_work: u32,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pending_work: u32,
     #[serde(default)]
     budget_exhausted: bool,
     #[serde(default)]
@@ -136,6 +140,35 @@ pub async fn run_registered_trial(
 ) -> ModelTrialResult {
     let started_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let started = Instant::now();
+    if single_agent_fault_not_applicable(scenario, trial) {
+        let mut result = empty_failure_result(
+            trial, attempt, started_at, Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+            elapsed_ms(started), ModelCampaignOutcome::BenchmarkDefect,
+            "comparison_arm_not_applicable",
+            "registered fault targets a child executor; the single-Agent arm forbids children, so no model call was dispatched",
+        );
+        result.attribution = AttributionCompleteness::Complete;
+        result.tokens.input = Some(0);
+        result.tokens.output = Some(0);
+        result.tokens.cache_read = Some(0);
+        result.tokens.cache_write = Some(0);
+        result.tokens.usage_source = Some("not_dispatched".to_string());
+        result.cost.total_usd = Some(0.0);
+        result.cost.agent_usd = Some(0.0);
+        result.warnings =
+            vec!["not applicable: proven pre-dispatch rejection, not a model failure".to_string()];
+        result.invariants.push(ModelCampaignCheck {
+            id: "model_binding".to_string(),
+            passed: true,
+            blocking: true,
+            detail:
+                "no Provider dispatch: unsupported comparison arm rejected before product setup"
+                    .to_string(),
+            metric: Some(0.0),
+            artifact_hashes: Vec::new(),
+        });
+        return result;
+    }
     if scenario.user_simulator.kind == UserSimulatorKind::Llm {
         let completed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
         return empty_failure_result(
@@ -191,16 +224,18 @@ pub async fn run_registered_trial(
     let completed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let wall_ms = elapsed_ms(started);
 
-    match execution {
+    let mut result = match execution {
         Ok(mut observed) => {
-            if observed.telemetry.timings.wall_ms == 0 {
-                observed.telemetry.timings.wall_ms = wall_ms;
-            }
+            // The full trial includes setup, grading and cleanup. Agent-only
+            // telemetry can otherwise disagree with terminal timestamps and
+            // turn valid paid evidence into a subprocess failure/retry.
+            observed.telemetry.timings.wall_ms = wall_ms;
             if observed.telemetry.timings.critical_path_ms == 0 {
                 observed.telemetry.timings.critical_path_ms = wall_ms;
             }
             let exceeded = exceeded_budgets(planned_case, &observed.telemetry);
-            if observed.telemetry.budget_exhausted
+            if observed.failure_class.as_deref() != Some(CLEANUP_INCOMPLETE_FAILURE_CLASS)
+                && observed.telemetry.budget_exhausted
                 && !matches!(
                     observed.outcome,
                     ModelCampaignOutcome::PolicyFailed
@@ -276,25 +311,164 @@ pub async fn run_registered_trial(
                 error: observed.error,
             }
         }
-        Err(error) => empty_failure_result(
-            trial,
-            attempt,
-            started_at,
-            completed_at,
-            wall_ms,
+        Err(error) => {
+            let mut result = empty_failure_result(
+                trial,
+                attempt,
+                started_at,
+                completed_at,
+                wall_ms,
+                if adapter == ModelCampaignAdapter::HopeCoreScenario {
+                    ModelCampaignOutcome::InfraError
+                } else {
+                    ModelCampaignOutcome::BenchmarkDefect
+                },
+                if adapter == ModelCampaignAdapter::HopeCoreScenario {
+                    "harness_unavailable"
+                } else {
+                    "adapter_not_installed"
+                },
+                &format!("{error:#}"),
+            );
             if adapter == ModelCampaignAdapter::HopeCoreScenario {
-                ModelCampaignOutcome::InfraError
-            } else {
-                ModelCampaignOutcome::BenchmarkDefect
-            },
-            if adapter == ModelCampaignAdapter::HopeCoreScenario {
-                "harness_unavailable"
-            } else {
-                "adapter_not_installed"
-            },
-            &format!("{error:#}"),
-        ),
+                recover_failed_trial_usage(trial, attempt, &mut result).await;
+                result.completed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+                result.timings.wall_ms = elapsed_ms(started);
+                result.timings.critical_path_ms =
+                    result.timings.critical_path_ms.min(result.timings.wall_ms);
+            }
+            result
+        }
+    };
+    let binding = model_binding_check(model, &result.trace_events);
+    if !binding.passed {
+        result.outcome = ModelCampaignOutcome::InfraError;
+        result.failure_class = Some("model_binding_mismatch".to_string());
+        result.warnings.push(binding.detail.clone());
     }
+    result.invariants = merge_checks(result.invariants, vec![binding]);
+    result
+}
+
+fn model_binding_check(model: &ModelProfile, events: &[ModelCampaignEvent]) -> ModelCampaignCheck {
+    let calls: Vec<_> = events
+        .iter()
+        .filter(|event| event.event == "model.call")
+        .collect();
+    let mismatches = calls
+        .iter()
+        .filter(|event| {
+            event.attributes.get("providerId").and_then(Value::as_str)
+                != Some(model.provider_id.as_str())
+                || event.attributes.get("modelId").and_then(Value::as_str)
+                    != Some(model.model_id.as_str())
+        })
+        .count();
+    ModelCampaignCheck {
+        id: "model_binding".to_string(),
+        passed: mismatches == 0,
+        blocking: true,
+        detail: format!(
+            "{} actual model calls checked against {}::{}; {} mismatched or unverified",
+            calls.len(),
+            model.provider_id,
+            model.model_id,
+            mismatches
+        ),
+        metric: Some(mismatches as f64),
+        artifact_hashes: Vec::new(),
+    }
+}
+
+/// Recover real usage from the authenticated product registry when a worker
+/// or harness fails. This only observes/cancels the existing trial; it never
+/// dispatches a model request or reruns the task.
+pub(crate) async fn recover_failed_trial_usage(
+    trial: &PlannedModelTrial,
+    attempt: u8,
+    result: &mut ModelTrialResult,
+) {
+    let recovery = async {
+        let server_url = std::env::var(SERVER_URL_ENV).ok()?;
+        let token = std::env::var(SERVER_TOKEN_ENV).ok();
+        let id = crate::model::product_trial_id(&trial.campaign_id, &trial.id, attempt);
+        recover_trial_snapshot(&server_url, token.as_deref(), &id).await
+    };
+    match tokio::time::timeout(Duration::from_secs(110), recovery).await {
+        Ok(Some((telemetry, cleanup_error))) => {
+            apply_recovered_telemetry(result, telemetry, cleanup_error);
+        }
+        _ => result
+            .warnings
+            .push("failed-worker telemetry unavailable; model usage remains unknown".to_string()),
+    }
+}
+
+async fn recover_trial_snapshot(
+    server_url: &str,
+    token: Option<&str>,
+    id: &str,
+) -> Option<(TelemetrySnapshot, Option<String>)> {
+    let url = reqwest::Url::parse(server_url).ok()?;
+    if url.scheme() != "http"
+        || url.port().is_none()
+        || !url.host_str().is_some_and(|host| {
+            host == "localhost"
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        })
+    {
+        return None;
+    }
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .ok()?;
+    let before = fetch_telemetry(&client, server_url, token, id).await?;
+    match cleanup_and_wait_for_trial(&client, server_url, token, id).await {
+        Ok(after) => Some((after, None)),
+        Err(error) => {
+            let last = fetch_telemetry(&client, server_url, token, id)
+                .await
+                .unwrap_or(before);
+            Some((last, Some(sanitize_error(&format!("{error:#}")))))
+        }
+    }
+}
+
+fn apply_recovered_telemetry(
+    result: &mut ModelTrialResult,
+    telemetry: TelemetrySnapshot,
+    cleanup_error: Option<String>,
+) {
+    if cleanup_error.is_some() || !telemetry.trace.closed || telemetry.trace.orphan_span_count > 0 {
+        result.outcome = ModelCampaignOutcome::InfraError;
+        result.failure_class = Some(CLEANUP_INCOMPLETE_FAILURE_CLASS.to_string());
+        result.error = Some(format_failure_with_cleanup(
+            result
+                .error
+                .take()
+                .unwrap_or_else(|| "trial worker failed".to_string()),
+            cleanup_error,
+        ));
+    }
+    result.attribution = telemetry.attribution;
+    result.tokens = telemetry.tokens;
+    result.cost = telemetry.cost;
+    result.tools = telemetry.tools;
+    result.orchestration = telemetry.orchestration;
+    result.trace = telemetry.trace;
+    result.trace_events = telemetry.events;
+    result.milestones = telemetry.milestones;
+    result.invariants = telemetry.invariants;
+    result.timings.model_active_ms = telemetry.timings.model_active_ms;
+    result.timings.tool_active_ms = telemetry.timings.tool_active_ms;
+    result.timings.ttft_ms = telemetry.timings.ttft_ms;
+    result.warnings.extend(telemetry.warnings);
+    result.warnings.push(
+        "actual product telemetry preserved after worker failure; task was not rerun".to_string(),
+    );
 }
 
 fn exceeded_budgets(
@@ -435,10 +609,10 @@ async fn run_hope_core_scenario(
     let server_url = std::env::var(SERVER_URL_ENV)
         .with_context(|| format!("{SERVER_URL_ENV} is required for hope_core_scenario"))?;
     let server_url = server_url.trim_end_matches('/');
-    // A runner retry is a new product execution attempt. The evidence model
-    // keeps the stable planned trial ID, while the in-process product registry
-    // must not reuse an earlier attempt's root Session or still-closing work.
-    let product_trial_id = format!("{}-attempt-{attempt}", trial.id);
+    // Paired models share a logical trial ID. Runtime identities must also
+    // include the campaign so neither another model nor a retry can reuse a
+    // previous root Session or still-closing work.
+    let product_trial_id = crate::model::product_trial_id(&trial.campaign_id, &trial.id, attempt);
     if !server_url.starts_with("http://127.0.0.1:")
         && !server_url.starts_with("http://localhost:")
         && !server_url.starts_with("https://")
@@ -455,11 +629,17 @@ async fn run_hope_core_scenario(
     let setup_started = Instant::now();
     let workspace = provision_workspace(scenario_dir, scenario)?;
     let environment_setup_ms = elapsed_ms(setup_started);
-    let prompt_path = resolve_contained(scenario_dir, &scenario.task.prompt_path)?;
+    let prompt_path = resolve_contained(scenario_dir, trial_prompt_path(scenario, trial)?)?;
     let mut prompt = std::fs::read_to_string(&prompt_path)
         .with_context(|| format!("reading scenario prompt {}", prompt_path.display()))?;
     if prompt.trim().is_empty() {
         bail!("scenario prompt is empty");
+    }
+    if scenario_has_ready_control_plane(scenario) {
+        prompt.push_str(match trial.fault_profile {
+            FaultProfile::Clean => "\n\n本轮是 clean/control 正常路径：场景名称描述的是专项能力，并不表示本轮已注入故障。不要主动制造失败、取消、重启或审批拒绝；完成公开任务并验证正常终态。",
+            FaultProfile::Chaos => "\n\n本轮是 chaos/faulted 分支：只响应实际注入的故障或明确收到的用户事件，不能自行伪造故障、审批答案或恢复证据。",
+        });
     }
     match trial.orchestration_profile.as_deref() {
         Some(profile) if profile.starts_with("single_agent") => {
@@ -581,16 +761,7 @@ async fn run_hope_core_scenario(
                 .collect::<Vec<_>>(),
         )?;
     }
-    let initial_goal = scenario
-        .capabilities
-        .iter()
-        .any(|capability| capability.eq_ignore_ascii_case("goal"))
-        .then(|| {
-            json!({
-                "objective": scenario.task.success_summary,
-                "completionCriteria": "Complete the task, record real validation evidence, evaluate the Goal, and only then request Goal completion."
-            })
-        });
+    let initial_goal = scenario_initial_goal(scenario, trial.fault_profile);
     let body = json!({
         "message": prompt,
         "incognito": scenario.id == "HA-AJ-005",
@@ -599,6 +770,7 @@ async fn run_hope_core_scenario(
         "reasoningEffort": model.reasoning_effort,
         "workingDir": workspace,
         "initialGoal": initial_goal,
+        "workflowMode": scenario_workflow_mode(scenario),
         "evalContext": initial_eval_context,
     });
     let mut request = client
@@ -714,7 +886,7 @@ async fn run_hope_core_scenario(
             scripted_steps.insert(
                 0,
                 ScriptedUserStep::Message {
-                    message: "Hope 已按评测计划重启。请从持久化状态恢复，不要重复已经提交的副作用；检查 Goal/Workflow checkpoint，只继续尚未完成的工作并重新验证终态。".to_string(),
+                    message: "Hope 已按评测计划重启。请从持久化状态恢复，不要重复已经提交的副作用；检查 Goal/Workflow checkpoint，只继续尚未完成的工作并重新验证终态。对于 Team，先查询原团队状态和成员结果；只有 paused 状态可 resume，若仍为 active 则先 pause 并确认旧成员执行已终止，再 resume；不得重复已完成工作。".to_string(),
                     delay_ms: 0,
                 },
             );
@@ -763,6 +935,22 @@ async fn run_hope_core_scenario(
                         .bytes()
                         .await
                         .context("reading Hope scripted user turn response")?;
+                    if expected_scripted_cancellation(
+                        status,
+                        &bytes,
+                        user_event_trigger,
+                        user_event_precondition_check
+                            .as_ref()
+                            .is_some_and(|(passed, _)| *passed),
+                    ) {
+                        response_hashes.push(sha256_bytes(&bytes));
+                        scripted_action_checks.push(ModelCampaignCheck {
+                            id: "scripted_cancellation_transport".to_string(), passed: true, blocking: true,
+                            detail: "registered cancellation reached the product; independent terminal-state and absent-artifact verifiers remain mandatory".to_string(),
+                            metric: None, artifact_hashes: vec![sha256_bytes(&bytes)],
+                        });
+                        break;
+                    }
                     if !status.is_success() {
                         let (telemetry, cleanup_error) = cleanup_after_failed_chat(
                             &client,
@@ -881,6 +1069,29 @@ async fn run_hope_core_scenario(
             }
         }
     }
+    let completion_wait_started = Instant::now();
+    if observes_trial_completion(&scenario.subject.config_profile, unlimited_budget) {
+        // A durable job/Workflow may finish before its queued parent-result
+        // turn starts. Keep the root identity open and observe real follow-up
+        // work within the same immutable case budget. Cleanup must not cut
+        // that turn off merely because the foreground HTTP reply returned.
+        let remaining = (!unlimited_budget).then(|| {
+            Duration::from_secs(
+                planned_case
+                    .timeout_seconds
+                    .saturating_sub(TRIAL_CLEANUP_GRACE_SECONDS),
+            )
+            .saturating_sub(setup_started.elapsed())
+        });
+        let initial = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
+            .await
+            .ok_or_else(|| anyhow!("Hope model-eval telemetry endpoint is unavailable"))?;
+        let _ = observe_trial_completion(initial, remaining, Duration::from_millis(250), || {
+            fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
+        })
+        .await;
+    }
+    let completion_wait_ms = elapsed_ms(completion_wait_started);
     finish_trial_for_scoring(&client, server_url, token.as_deref(), &product_trial_id).await?;
     let agent_wall_ms = elapsed_ms(agent_started);
     let response_hash = response_hashes
@@ -890,6 +1101,15 @@ async fn run_hope_core_scenario(
     let mut telemetry = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
         .await
         .ok_or_else(|| anyhow!("Hope model-eval telemetry endpoint is unavailable"))?;
+    if scenario.subject.config_profile == "eval-control-plane-ready-v4" {
+        // Post-turn runtime finalizers can hold a span for a few milliseconds
+        // after the HTTP response. Observe their natural teardown before
+        // grading; do not cancel work or invent terminal evidence here.
+        telemetry = settle_response_snapshot(telemetry, Duration::from_millis(250), || {
+            fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
+        })
+        .await;
+    }
     let active_work_at_response =
         telemetry.trace.orphan_span_count > u64::from(telemetry.background_model_work);
     let mut checks = scripted_action_checks;
@@ -965,6 +1185,10 @@ async fn run_hope_core_scenario(
     telemetry = final_telemetry;
     telemetry.timings.environment_setup_ms = environment_setup_ms;
     telemetry.timings.environment_cleanup_ms = environment_cleanup_ms;
+    telemetry.timings.environment_wait_ms = telemetry
+        .timings
+        .environment_wait_ms
+        .saturating_add(completion_wait_ms);
     telemetry.timings.wall_ms = agent_wall_ms;
     if let Some(pre_restart) = pre_restart_telemetry {
         merge_restart_telemetry(pre_restart, &mut telemetry, restart_wait_ms);
@@ -1053,6 +1277,11 @@ async fn run_hope_core_scenario(
         (
             ModelCampaignOutcome::PolicyFailed,
             Some("request_blocked".to_string()),
+        )
+    } else if let Some(reason) = experiment_arm_failure(trial.fault_profile, fault_observed) {
+        (
+            ModelCampaignOutcome::BenchmarkDefect,
+            Some(reason.to_string()),
         )
     } else if benchmark_defect {
         (
@@ -1492,6 +1721,21 @@ fn merge_restart_telemetry(
     after: &mut TelemetrySnapshot,
     restart_wait_ms: u64,
 ) {
+    let interrupted_work = before.active_children > 0 || before.background_model_work > 0;
+    let restart_attributes = std::collections::BTreeMap::from([
+        (
+            "interruptedWorkAtRestart".to_string(),
+            json!(interrupted_work),
+        ),
+        (
+            "preRestartActiveChildren".to_string(),
+            json!(before.active_children),
+        ),
+        (
+            "preRestartBackgroundModelWork".to_string(),
+            json!(before.background_model_work),
+        ),
+    ]);
     fn add_exact(target: &mut Option<u64>, previous: Option<u64>) {
         *target = match (*target, previous) {
             (Some(current), Some(previous)) => Some(current.saturating_add(previous)),
@@ -1668,7 +1912,7 @@ fn merge_restart_telemetry(
         key: Some("hope-agent-server".to_string()),
         status: "completed".to_string(),
         duration_ms: restart_wait_ms,
-        attributes: std::collections::BTreeMap::new(),
+        attributes: restart_attributes,
     });
     let post_restart_events = std::mem::take(&mut after.events);
     let renamed_spans = post_restart_events
@@ -1715,6 +1959,16 @@ fn merge_restart_telemetry(
     after
         .warnings
         .push("telemetry merged across an authenticated Hope process restart".to_string());
+    if interrupted_work || before.attribution != AttributionCompleteness::Complete {
+        // SIGKILL cannot run a Provider guard's Drop. Completed calls remain
+        // inspectable in the merged trace, but an interrupted child/request
+        // can have unreported upstream usage; never certify a zero remainder.
+        after.attribution = AttributionCompleteness::Partial;
+        after.tokens = TokenMetrics::default();
+        after.cost.total_usd = None;
+        after.cost.agent_usd = None;
+        after.warnings.push("process restart interrupted active work; unobserved Provider usage may exist in addition to known completed trace calls".to_string());
+    }
 }
 
 fn close_restart_interrupted_spans(events: &mut Vec<ModelCampaignEvent>, timestamp_ms: u64) {
@@ -2081,15 +2335,11 @@ async fn evaluate_registered_verifier(
             } else {
                 let value: Value = serde_json::from_slice(&bytes)
                     .with_context(|| format!("parsing Hope state verifier HTTP {status}"))?;
-                let passed = if let Some(expected) = config.get("expectedSubset") {
-                    json_subset(expected, &value)
-                } else if let Some(expected) = config.get("anyItemSubset") {
-                    value
-                        .as_array()
-                        .is_some_and(|items| items.iter().any(|item| json_subset(expected, item)))
-                } else {
-                    bail!("hope_state_subset requires expectedSubset or anyItemSubset");
-                };
+                let config = orchestration_state_expectation(
+                    &config,
+                    trial.orchestration_profile.as_deref(),
+                );
+                let passed = owner_state_matches(config, &value, trial.fault_profile)?;
                 (
                     passed,
                     if passed {
@@ -2169,32 +2419,7 @@ async fn evaluate_registered_verifier(
         (VerifierKind::FileAssertion, "file_json_subset") => {
             let config = read_verifier_config(verifier, scenario_dir)?;
             let path = workspace_file(workspace, &config)?;
-            let expected = config
-                .get("expectedSubset")
-                .ok_or_else(|| anyhow!("file_json_subset requires expectedSubset"))?;
-            match safe_workspace_regular_file(workspace, &path) {
-                Ok(Some(path)) => match read_json::<Value>(&path) {
-                    Ok(actual) => (
-                        json_subset(expected, &actual),
-                        "workspace JSON must contain expected subset".to_string(),
-                    ),
-                    Err(error) => (
-                        false,
-                        format!(
-                            "workspace JSON is invalid: {}",
-                            sanitize_error(&error.to_string())
-                        ),
-                    ),
-                },
-                Ok(None) => (false, "verifier target is missing".to_string()),
-                Err(error) => (
-                    false,
-                    format!(
-                        "workspace file rejected: {}",
-                        sanitize_error(&error.to_string())
-                    ),
-                ),
-            }
+            file_json_expectation(workspace, &path, &config, trial.fault_profile)?
         }
         (VerifierKind::GitAssertion, "git_changed_paths") => {
             let config = read_verifier_config(verifier, scenario_dir)?;
@@ -2243,10 +2468,14 @@ async fn evaluate_registered_verifier(
                 .iter()
                 .cloned()
                 .collect::<std::collections::BTreeSet<_>>();
-            let missing = expected.difference(&observed).count();
+            let missing = expected.difference(&observed).cloned().collect::<Vec<_>>();
             (
-                missing == 0,
-                format!("{missing} required telemetry signal(s) missing"),
+                missing.is_empty(),
+                if missing.is_empty() {
+                    "all required telemetry signals observed".to_string()
+                } else {
+                    format!("missing required telemetry signals: {}", missing.join(", "))
+                },
             )
         }
         (
@@ -2417,7 +2646,72 @@ fn provision_workspace(
             )
         })?;
     }
+    if scenario_has_ready_control_plane(scenario)
+        && scenario.capabilities.iter().any(|capability| {
+            matches!(
+                capability.to_ascii_lowercase().as_str(),
+                "subagent" | "team"
+            )
+        })
+    {
+        provision_synthetic_git_workspace(&workspace)?;
+    }
     Ok(workspace)
+}
+
+fn provision_synthetic_git_workspace(workspace: &Path) -> Result<()> {
+    // Only synthetic fixtures enter this repository. Suppress owner Git config,
+    // templates and hooks so child worktrees have no access to owner state.
+    for args in [
+        vec!["init", "--quiet", "--template=", "--initial-branch=eval"],
+        vec!["add", "--", "fixtures"],
+        vec!["commit", "--quiet", "-m", "🦭 synthetic evaluation fixture"],
+    ] {
+        let mut command = std::process::Command::new("git");
+        for name in [
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_COMMON_DIR",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+        ] {
+            command.env_remove(name);
+        }
+        let output = command
+            .args([
+                "-c",
+                "core.hooksPath=",
+                "-c",
+                "user.name=Hope Evaluation",
+                "-c",
+                "user.email=eval@hope.invalid",
+                "-c",
+                "commit.gpgSign=false",
+            ])
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                if cfg!(windows) { "NUL" } else { "/dev/null" },
+            )
+            .current_dir(workspace)
+            .output()
+            .context("provisioning isolated synthetic Git workspace")?;
+        if !output.status.success() {
+            bail!(
+                "synthetic Git workspace initialization failed; stderr sha256:{}",
+                sha256_bytes(&output.stderr)
+            );
+        }
+    }
+    Ok(())
 }
 
 fn workspace_file(workspace: &Path, config: &Value) -> Result<std::path::PathBuf> {
@@ -2440,6 +2734,24 @@ fn safe_workspace_regular_file(
     workspace: &Path,
     candidate: &Path,
 ) -> Result<Option<std::path::PathBuf>> {
+    let relative = candidate
+        .strip_prefix(workspace)
+        .map_err(|_| anyhow!("workspace artifact escapes the isolated trial workspace"))?;
+    let mut ancestor = workspace.to_path_buf();
+    for component in relative.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            bail!("workspace artifact path is not contained");
+        }
+        ancestor.push(component);
+        match std::fs::symlink_metadata(&ancestor) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                bail!("workspace artifact path contains a symlink")
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        }
+    }
     let metadata = match std::fs::symlink_metadata(candidate) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -2537,6 +2849,184 @@ fn json_subset(expected: &Value, actual: &Value) -> bool {
     }
 }
 
+fn experiment_arm_failure(profile: FaultProfile, fault_observed: bool) -> Option<&'static str> {
+    match (profile, fault_observed) {
+        (FaultProfile::Chaos, false) => Some("fault_not_activated"),
+        (FaultProfile::Clean, true) => Some("unexpected_fault_activation"),
+        _ => None,
+    }
+}
+
+pub(crate) fn single_agent_fault_not_applicable(
+    scenario: &LiveAgentScenario,
+    trial: &PlannedModelTrial,
+) -> bool {
+    trial.fault_profile == FaultProfile::Chaos
+        && trial
+            .orchestration_profile
+            .as_deref()
+            .is_some_and(|p| p.starts_with("single_agent"))
+        && scenario
+            .comparison
+            .as_ref()
+            .is_some_and(|c| !c.single_agent_unsupported_faults.is_empty())
+}
+
+pub(crate) fn trial_prompt_path<'a>(
+    scenario: &'a LiveAgentScenario,
+    trial: &PlannedModelTrial,
+) -> Result<&'a str> {
+    if trial
+        .orchestration_profile
+        .as_deref()
+        .is_some_and(|p| p.starts_with("single_agent"))
+    {
+        return scenario
+            .comparison
+            .as_ref()
+            .and_then(|c| c.single_agent_prompt_path.as_deref())
+            .ok_or_else(|| {
+                anyhow!("single-Agent comparison requires a registered singleAgentPromptPath")
+            });
+    }
+    Ok(&scenario.task.prompt_path)
+}
+
+fn orchestration_state_expectation<'a>(config: &'a Value, profile: Option<&str>) -> &'a Value {
+    profile
+        .and_then(|profile| config.get("expectedByOrchestrationProfile")?.get(profile))
+        .unwrap_or(config)
+}
+
+fn fault_profile_expectation(config: &Value, profile: FaultProfile) -> Result<&Value> {
+    let Some(profiles) = config.get("expectedByFaultProfile") else {
+        return Ok(config);
+    };
+    if [
+        "expectedSubset",
+        "expectedExact",
+        "anyItemSubset",
+        "expectedAbsent",
+        "exactFields",
+    ]
+    .iter()
+    .any(|key| config.get(key).is_some())
+    {
+        bail!("verifier cannot combine shared and fault-profile expectations");
+    }
+    let key = match profile {
+        FaultProfile::Clean => "clean",
+        FaultProfile::Chaos => "chaos",
+    };
+    profiles
+        .get(key)
+        .ok_or_else(|| anyhow!("verifier has no expectation for {key}"))
+}
+
+fn file_json_expectation(
+    workspace: &Path,
+    path: &Path,
+    config: &Value,
+    profile: FaultProfile,
+) -> Result<(bool, String)> {
+    let expectation = fault_profile_expectation(config, profile)?;
+    let absent = expectation.get("expectedAbsent").and_then(Value::as_bool) == Some(true);
+    if absent
+        && (expectation.get("expectedSubset").is_some() || expectation.get("exactFields").is_some())
+    {
+        bail!("file verifier cannot require both absence and content");
+    }
+    let expected = if absent {
+        None
+    } else {
+        Some(expectation.get("expectedSubset").ok_or_else(|| {
+            anyhow!("file_json_subset requires expectedSubset or expectedAbsent=true")
+        })?)
+    };
+    match safe_workspace_regular_file(workspace, path) {
+        Ok(None) => Ok((
+            absent,
+            if absent {
+                "cancelled or purged trial has no final artifact"
+            } else {
+                "verifier target is missing"
+            }
+            .to_string(),
+        )),
+        Ok(Some(_)) if absent => Ok((
+            false,
+            "cancelled or purged trial must not publish a final artifact".to_string(),
+        )),
+        Ok(Some(path)) => match read_json::<Value>(&path) {
+            Ok(actual) => {
+                let exact = match expectation.get("exactFields") {
+                    Some(fields) => fields
+                        .as_object()
+                        .ok_or_else(|| anyhow!("exactFields must be an object"))?
+                        .iter()
+                        .all(|(key, expected)| actual.get(key) == Some(expected)),
+                    None => true,
+                };
+                Ok((
+                    json_subset(
+                        expected.expect("content expectation was validated"),
+                        &actual,
+                    ) && exact,
+                    "workspace JSON must match its arm's subset and exact fields".to_string(),
+                ))
+            }
+            Err(error) => Ok((
+                false,
+                format!(
+                    "workspace JSON is invalid: {}",
+                    sanitize_error(&error.to_string())
+                ),
+            )),
+        },
+        Err(error) => Ok((
+            false,
+            format!(
+                "workspace file rejected: {}",
+                sanitize_error(&error.to_string())
+            ),
+        )),
+    }
+}
+
+fn expected_scripted_cancellation(
+    status: StatusCode,
+    bytes: &[u8],
+    trigger: Option<&str>,
+    precondition: bool,
+) -> bool {
+    precondition
+        && status == StatusCode::INTERNAL_SERVER_ERROR
+        && matches!(
+            trigger,
+            Some("cancel_parent_during_child_tool" | "purge_before_completion")
+        )
+        && serde_json::from_slice::<Value>(bytes)
+            .ok()
+            .is_some_and(|body| {
+                body.get("error").and_then(Value::as_str) == Some("chat cancelled by caller")
+            })
+}
+
+fn owner_state_matches(config: &Value, actual: &Value, profile: FaultProfile) -> Result<bool> {
+    let expectation = fault_profile_expectation(config, profile)?;
+    if let Some(expected) = expectation.get("expectedExact") {
+        Ok(expected == actual)
+    } else if let Some(expected) = expectation.get("expectedSubset") {
+        Ok(json_subset(expected, actual))
+    } else if let Some(expected) = expectation.get("anyItemSubset") {
+        Ok(actual
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| json_subset(expected, item))))
+    } else {
+        bail!("hope_state_subset requires expectedSubset or anyItemSubset");
+    }
+}
+
 fn json_exact(expected: &Value, actual: &Value) -> bool {
     expected == actual
 }
@@ -2567,16 +3057,14 @@ fn fallback_telemetry(trial: &PlannedModelTrial, span_count: u64) -> TelemetrySn
         attribution: AttributionCompleteness::Partial,
         active_children: 0,
         background_model_work: 0,
+        pending_work: 0,
         budget_exhausted: false,
         budget_exhaustion_reasons: Vec::new(),
         timings: TimingMetrics::default(),
         tokens: TokenMetrics::default(),
         cost: CostMetrics::default(),
         tools: ToolMetrics::default(),
-        orchestration: OrchestrationMetrics {
-            model_calls: 1,
-            ..Default::default()
-        },
+        orchestration: OrchestrationMetrics::default(),
         trace: TraceSummary {
             trace_id: format!("trace_{}", trial.id),
             root_span_id: format!("span_{}", &trial.id[trial.id.len().saturating_sub(16)..]),
@@ -2699,6 +3187,164 @@ fn dedicated_source() -> bool {
         || std::env::var("HA_MODEL_EVAL_DEDICATED_RUNNER").as_deref() == Ok("1")
 }
 
+fn scenario_workflow_mode(
+    scenario: &LiveAgentScenario,
+) -> Option<ha_core::workflow_mode::WorkflowMode> {
+    // Owner-only autonomy must be explicitly part of the versioned fixture.
+    // Preserve the historical v1 setup, including its missing-mode diagnosis.
+    (scenario_has_ready_control_plane(scenario)
+        && scenario.capabilities.iter().any(|capability| {
+            matches!(
+                capability.to_ascii_lowercase().as_str(),
+                "goal" | "workflow"
+            )
+        }))
+    .then_some(ha_core::workflow_mode::WorkflowMode::On)
+}
+
+pub(crate) fn scenario_has_ready_control_plane(scenario: &LiveAgentScenario) -> bool {
+    matches!(
+        scenario.subject.config_profile.as_str(),
+        "eval-control-plane-ready-v2"
+            | "eval-control-plane-ready-v3"
+            | "eval-control-plane-ready-v4"
+            | "eval-control-plane-ready-v5"
+            | "eval-control-plane-ready-v6"
+            | "eval-control-plane-ready-v7"
+    )
+}
+
+fn scenario_initial_goal(
+    scenario: &LiveAgentScenario,
+    fault_profile: FaultProfile,
+) -> Option<Value> {
+    scenario
+        .capabilities
+        .iter()
+        .any(|capability| capability.eq_ignore_ascii_case("goal"))
+        .then(|| {
+            // A fault-oriented scenario title is not the clean arm's business
+            // objective. Keep historical/faulted fixtures unchanged.
+            let objective = if matches!(scenario.subject.config_profile.as_str(),
+                "eval-control-plane-ready-v3" | "eval-control-plane-ready-v4"
+                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7")
+                && fault_profile == FaultProfile::Clean
+            {
+                format!(
+                    "完成 {} 的公开合成文件任务，验证原始输入 SHA-256、产物字段和条目数量，登记实际工具验证证据并据实完成 Goal；只响应实际注入的故障或用户事件。",
+                    scenario.id
+                )
+            } else {
+                scenario.task.success_summary.clone()
+            };
+            json!({
+                "objective": objective,
+                "completionCriteria": "Complete the task, record real validation evidence, evaluate the Goal, and only then request Goal completion."
+            })
+        })
+}
+
+async fn settle_response_snapshot<F, Fut>(
+    mut telemetry: TelemetrySnapshot,
+    grace: Duration,
+    mut fetch: F,
+) -> TelemetrySnapshot
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Option<TelemetrySnapshot>>,
+{
+    let deadline = Instant::now() + grace;
+    while telemetry.trace.orphan_span_count > u64::from(telemetry.background_model_work) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        tokio::time::sleep(remaining.min(Duration::from_millis(25))).await;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, fetch()).await {
+            Ok(Some(snapshot)) => telemetry = snapshot,
+            Ok(None) => {}
+            Err(_) => break,
+        }
+    }
+    telemetry
+}
+
+async fn observe_trial_completion<F, Fut>(
+    mut telemetry: TelemetrySnapshot,
+    remaining: Option<Duration>,
+    quiet_period: Duration,
+    mut fetch: F,
+) -> TelemetrySnapshot
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Option<TelemetrySnapshot>>,
+{
+    let deadline = remaining.map(|remaining| Instant::now() + remaining);
+    let mut quiet_since = None;
+    loop {
+        if telemetry.budget_exhausted {
+            return telemetry;
+        }
+        let now = Instant::now();
+        // Unlimited evaluation must also settle product-owned model work.
+        // Otherwise scoring races late review usage and the cleanup endpoint's
+        // short cancellation fuse becomes an accidental model-call deadline.
+        // Bounded campaigns retain their case deadline and cleanup policy.
+        let background_allowance = if deadline.is_some() {
+            u64::from(telemetry.background_model_work)
+        } else {
+            0
+        };
+        if telemetry.trace.orphan_span_count <= background_allowance {
+            let start = quiet_since.get_or_insert(now);
+            if now.duration_since(*start) >= quiet_period {
+                return telemetry;
+            }
+        } else {
+            quiet_since = None;
+        }
+        let remaining = deadline.map(|deadline| deadline.saturating_duration_since(now));
+        if remaining.is_some_and(|remaining| remaining.is_zero()) {
+            return telemetry;
+        }
+        tokio::time::sleep(remaining.map_or(Duration::from_millis(100), |remaining| {
+            remaining.min(Duration::from_millis(100))
+        }))
+        .await;
+        let observation = if let Some(deadline) = deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return telemetry;
+            }
+            match tokio::time::timeout(remaining, fetch()).await {
+                Ok(snapshot) => snapshot,
+                Err(_) => return telemetry,
+            }
+        } else {
+            fetch().await
+        };
+        match observation {
+            Some(snapshot) => telemetry = snapshot,
+            // An unavailable observation cannot establish continuous quiet.
+            None => quiet_since = None,
+        }
+    }
+}
+
+fn observes_trial_completion(config_profile: &str, unlimited_budget: bool) -> bool {
+    unlimited_budget
+        || matches!(
+            config_profile,
+            "eval-control-plane-ready-v5"
+                | "eval-control-plane-ready-v6"
+                | "eval-control-plane-ready-v7"
+        )
+}
+
 fn evaluation_source() -> &'static str {
     if std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true") {
         "github_actions"
@@ -2724,13 +3370,361 @@ fn elapsed_ms(started: Instant) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn missing_or_unexpected_fault_is_a_benchmark_defect() {
+        assert_eq!(
+            super::experiment_arm_failure(FaultProfile::Chaos, false),
+            Some("fault_not_activated")
+        );
+        assert_eq!(
+            super::experiment_arm_failure(FaultProfile::Clean, true),
+            Some("unexpected_fault_activation")
+        );
+        assert_eq!(
+            super::experiment_arm_failure(FaultProfile::Chaos, true),
+            None
+        );
+        assert_eq!(
+            super::experiment_arm_failure(FaultProfile::Clean, false),
+            None
+        );
+    }
+    #[test]
+    fn crash_does_not_certify_known_cost_when_active_work_can_lose_usage() {
+        let mut before = restart_telemetry();
+        before.background_model_work = 1;
+        let mut after = restart_telemetry();
+        super::merge_restart_telemetry(before, &mut after, 1);
+        assert_eq!(after.attribution, AttributionCompleteness::Partial);
+        assert_eq!(after.tokens.input, None);
+        assert_eq!(after.cost.total_usd, None);
+        assert!(after.events.iter().any(|e| e.event == "process.restart"
+            && e.attributes.get("interruptedWorkAtRestart") == Some(&serde_json::json!(true))));
+    }
+    #[test]
+    fn single_agent_state_requires_empty_children_without_weakening_team_state() {
+        let config = serde_json::json!({
+            "anyItemSubset": {"status":"completed"},
+            "expectedByOrchestrationProfile": {
+                "single_agent_compute_matched": {"expectedExact":[]}
+            }
+        });
+        let solo =
+            super::orchestration_state_expectation(&config, Some("single_agent_compute_matched"));
+        assert!(super::owner_state_matches(
+            solo,
+            &serde_json::json!([]),
+            ha_eval_spec::model::FaultProfile::Clean
+        )
+        .unwrap());
+        assert!(!super::owner_state_matches(
+            solo,
+            &serde_json::json!([{"status":"completed"}]),
+            ha_eval_spec::model::FaultProfile::Clean
+        )
+        .unwrap());
+        assert!(!super::owner_state_matches(
+            &config,
+            &serde_json::json!([]),
+            ha_eval_spec::model::FaultProfile::Clean
+        )
+        .unwrap());
+        assert!(super::owner_state_matches(
+            &config,
+            &serde_json::json!([{"status":"completed"}]),
+            ha_eval_spec::model::FaultProfile::Clean
+        )
+        .unwrap());
+    }
     use super::*;
+
+    #[tokio::test]
+    async fn response_settling_observes_natural_teardown_and_preserves_background_usage() {
+        let mut active = restart_telemetry();
+        active.trace.orphan_span_count = 2;
+        active.background_model_work = 1;
+        let mut pending = std::collections::VecDeque::from([
+            None,
+            Some({
+                let mut settled = restart_telemetry();
+                settled.trace.orphan_span_count = 1;
+                settled.background_model_work = 1;
+                settled
+            }),
+        ]);
+        let settled = settle_response_snapshot(active, Duration::from_millis(150), || {
+            std::future::ready(pending.pop_front().flatten())
+        })
+        .await;
+        assert_eq!(settled.trace.orphan_span_count, 1);
+        assert_eq!(settled.background_model_work, 1);
+        assert_eq!(settled.tokens.input, Some(100));
+        assert!(!settled.trace.closed);
+    }
+
+    #[tokio::test]
+    async fn response_settling_keeps_unfinished_children_failed_at_the_deadline() {
+        let mut active = restart_telemetry();
+        active.trace.orphan_span_count = 2;
+        active.background_model_work = 1;
+        let retained = settle_response_snapshot(active, Duration::from_millis(30), || {
+            let mut pending = restart_telemetry();
+            pending.trace.orphan_span_count = 2;
+            pending.background_model_work = 1;
+            std::future::ready(Some(pending))
+        })
+        .await;
+        assert_eq!(retained.trace.orphan_span_count, 2);
+        assert!(!retained.trace.closed);
+    }
+
+    #[tokio::test]
+    async fn completion_observation_waits_for_parent_followup_and_keeps_its_usage() {
+        let mut initial = restart_telemetry();
+        initial.trace.orphan_span_count = 0;
+        let mut snapshots = std::collections::VecDeque::from([
+            {
+                let mut s = restart_telemetry();
+                s.trace.orphan_span_count = 1;
+                s
+            },
+            {
+                let mut s = restart_telemetry();
+                s.tokens.input = Some(200);
+                s
+            },
+        ]);
+        let observed = observe_trial_completion(
+            initial,
+            Some(Duration::from_millis(650)),
+            Duration::from_millis(150),
+            || {
+                let snapshot = snapshots.pop_front().unwrap_or_else(|| {
+                    let mut s = restart_telemetry();
+                    s.tokens.input = Some(200);
+                    s
+                });
+                std::future::ready(Some(snapshot))
+            },
+        )
+        .await;
+        assert!(snapshots.is_empty());
+        assert_eq!(observed.trace.orphan_span_count, 0);
+        assert_eq!(observed.tokens.input, Some(200));
+    }
+
+    #[tokio::test]
+    async fn completion_observation_preserves_busy_work_at_budget_or_deadline() {
+        for exhausted in [false, true] {
+            let mut initial = restart_telemetry();
+            initial.trace.orphan_span_count = 1;
+            initial.budget_exhausted = exhausted;
+            let observed = observe_trial_completion(
+                initial,
+                Some(Duration::from_millis(30)),
+                Duration::from_millis(10),
+                || std::future::ready(None),
+            )
+            .await;
+            assert_eq!(observed.trace.orphan_span_count, 1);
+            assert_eq!(observed.budget_exhausted, exhausted);
+        }
+    }
+
+    #[tokio::test]
+    async fn completion_observation_unlimited_waits_for_natural_completion() {
+        let mut initial = restart_telemetry();
+        initial.trace.orphan_span_count = 1;
+        let started = Instant::now();
+        let observed = tokio::time::timeout(
+            Duration::from_secs(2),
+            observe_trial_completion(initial, None, Duration::from_millis(20), || {
+                let mut snapshot = restart_telemetry();
+                snapshot.trace.orphan_span_count =
+                    u64::from(started.elapsed() < Duration::from_millis(350));
+                snapshot.tokens.input = Some(900_001);
+                std::future::ready(Some(snapshot))
+            }),
+        )
+        .await
+        .expect("test observation did not converge");
+        assert!(started.elapsed() >= Duration::from_millis(350));
+        assert_eq!(observed.trace.orphan_span_count, 0);
+        assert_eq!(observed.tokens.input, Some(900_001));
+        assert!(!observed.budget_exhausted);
+    }
+
+    #[tokio::test]
+    async fn completion_observation_unlimited_settles_late_background_usage() {
+        let mut initial = restart_telemetry();
+        initial.trace.orphan_span_count = 3;
+        initial.background_model_work = 3;
+        let started = Instant::now();
+        let observed = tokio::time::timeout(
+            Duration::from_secs(2),
+            observe_trial_completion(initial, None, Duration::from_millis(20), || {
+                let mut snapshot = restart_telemetry();
+                let pending = started.elapsed() < Duration::from_millis(350);
+                snapshot.trace.orphan_span_count = if pending { 3 } else { 0 };
+                snapshot.background_model_work = if pending { 3 } else { 0 };
+                snapshot.tokens.input = Some(if pending { 100 } else { 6_730 });
+                snapshot.tokens.output = Some(if pending { 10 } else { 4_868 });
+                std::future::ready(Some(snapshot))
+            }),
+        )
+        .await
+        .expect("background settlement did not converge");
+        assert!(started.elapsed() >= Duration::from_millis(350));
+        assert_eq!(observed.trace.orphan_span_count, 0);
+        assert_eq!(observed.background_model_work, 0);
+        assert_eq!(observed.tokens.input, Some(6_730));
+        assert_eq!(observed.tokens.output, Some(4_868));
+    }
+
+    #[test]
+    fn completion_observation_includes_unlimited_context_profile() {
+        assert!(observes_trial_completion(
+            "eval-safe-context-compaction-v1",
+            true
+        ));
+        assert!(!observes_trial_completion(
+            "eval-safe-context-compaction-v1",
+            false
+        ));
+        for profile in ["eval-control-plane-ready-v5", "eval-control-plane-ready-v6"] {
+            assert!(observes_trial_completion(profile, true));
+            assert!(observes_trial_completion(profile, false));
+        }
+    }
+
+    #[test]
+    fn queued_work_wire_contract_preserves_open_trace_and_actual_usage() {
+        let mut wire = serde_json::to_value(restart_telemetry()).unwrap();
+        wire["pendingWork"] = json!(2);
+        wire["trace"]["orphanSpanCount"] = json!(2);
+        let parsed: TelemetrySnapshot = serde_json::from_value(wire).unwrap();
+        assert_eq!(parsed.pending_work, 2);
+        assert_eq!(parsed.trace.orphan_span_count, 2);
+        assert_eq!(parsed.tokens.input, Some(100));
+    }
+
+    #[test]
+    fn clean_goal_objective_uses_public_task_instead_of_fault_title() {
+        let live = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/live/scenarios");
+        let mut scenario: LiveAgentScenario =
+            read_json(&live.join("HA-GL-004/1.9.0/scenario.json")).unwrap();
+        let historical = scenario_initial_goal(&scenario, FaultProfile::Clean).unwrap();
+        assert_eq!(historical["objective"], scenario.task.success_summary);
+        scenario.subject.config_profile = "eval-control-plane-ready-v3".to_string();
+        let clean = scenario_initial_goal(&scenario, FaultProfile::Clean).unwrap();
+        assert!(clean["objective"]
+            .as_str()
+            .unwrap()
+            .contains("公开合成文件任务"));
+        assert_ne!(clean["objective"], scenario.task.success_summary);
+        assert_eq!(
+            scenario_initial_goal(&scenario, FaultProfile::Chaos).unwrap()["objective"],
+            historical["objective"]
+        );
+        assert_eq!(
+            scenario_workflow_mode(&scenario),
+            Some(ha_core::workflow_mode::WorkflowMode::On)
+        );
+    }
+
+    #[test]
+    fn synthetic_git_workspace_supports_child_worktrees_without_changing_fixture() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        std::fs::create_dir_all(workspace.join("fixtures")).unwrap();
+        let fixture = workspace.join("fixtures/task-state.json");
+        std::fs::write(&fixture, b"{\"synthetic\":true}\n").unwrap();
+        let before = std::fs::read(&fixture).unwrap();
+        provision_synthetic_git_workspace(&workspace).unwrap();
+        let child = root.path().join("child");
+        let status = std::process::Command::new("git")
+            .args(["worktree", "add", "--quiet", "--detach"])
+            .arg(&child)
+            .current_dir(&workspace)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(
+            std::fs::read(child.join("fixtures/task-state.json")).unwrap(),
+            before
+        );
+        assert_eq!(std::fs::read(fixture).unwrap(), before);
+    }
+
+    #[test]
+    fn versioned_owner_setup_enables_workflow_for_goal_and_workflow_cases_only() {
+        let live = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/live/scenarios");
+        for (id, version, expected) in [
+            (
+                "HA-WF-002",
+                "1.8.0",
+                Some(ha_core::workflow_mode::WorkflowMode::On),
+            ),
+            (
+                "HA-GL-004",
+                "1.9.0",
+                Some(ha_core::workflow_mode::WorkflowMode::On),
+            ),
+            ("HA-AJ-005", "1.9.0", None),
+            ("HA-ST-002", "1.8.0", None),
+        ] {
+            let mut scenario: LiveAgentScenario =
+                read_json(&live.join(id).join(version).join("scenario.json")).unwrap();
+            assert_eq!(
+                scenario_workflow_mode(&scenario),
+                None,
+                "historical setup: {id}"
+            );
+            scenario.subject.config_profile = "eval-control-plane-ready-v2".to_string();
+            let mode = scenario_workflow_mode(&scenario);
+            assert_eq!(mode, expected, "versioned setup: {id}");
+            let request: ha_server::routes::chat::ChatRequest = serde_json::from_value(json!({
+                "message": "synthetic fixture task",
+                "workflowMode": mode,
+            }))
+            .unwrap();
+            assert_eq!(
+                request.workflow_mode, expected,
+                "production owner wire: {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn model_binding_fixture_checks_background_and_parent_calls() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/model-call-bindings.v1.json"
+        ))
+        .unwrap();
+        let model: ModelProfile = serde_json::from_value(fixture["expected"].clone()).unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let events = case["calls"].as_array().unwrap().iter().enumerate().map(|(i, attributes)| {
+                serde_json::from_value(json!({
+                    "seq":i+1,"event":"model.call","timestampMs":i,"spanId":format!("span_{i}"),"parentSpanId":"root","status":"succeeded","durationMs":1,"attributes":attributes
+                })).unwrap()
+            }).collect::<Vec<ModelCampaignEvent>>();
+            let check = model_binding_check(&model, &events);
+            assert_eq!(
+                check.passed,
+                case["expectedMatch"].as_bool().unwrap(),
+                "{}",
+                case["id"]
+            );
+            assert!(check.blocking);
+        }
+    }
 
     fn restart_telemetry() -> TelemetrySnapshot {
         TelemetrySnapshot {
             attribution: AttributionCompleteness::Complete,
             active_children: 0,
             background_model_work: 0,
+            pending_work: 0,
             budget_exhausted: false,
             budget_exhaustion_reasons: Vec::new(),
             timings: TimingMetrics {
@@ -2785,6 +3779,125 @@ mod tests {
                 attributes: std::collections::BTreeMap::new(),
             }],
         }
+    }
+
+    #[test]
+    fn registered_control_expectations_are_completed_and_fault_outcomes_stay_strict() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/live/scenarios");
+        for case in [
+            "HA-GL-004",
+            "HA-WF-004",
+            "HA-WF-005",
+            "HA-AJ-003",
+            "HA-AJ-005",
+            "HA-ST-005",
+        ] {
+            let config: Value =
+                read_json(&root.join(case).join("1.9.0/verifiers/state.json")).unwrap();
+            let field = if case == "HA-GL-004" {
+                "state"
+            } else if case.starts_with("HA-WF") {
+                "state"
+            } else {
+                "status"
+            };
+            let completed = if case == "HA-GL-004" {
+                json!({"goal":{"state":"completed"}})
+            } else {
+                json!([{field:"completed"}])
+            };
+            assert!(
+                owner_state_matches(&config, &completed, FaultProfile::Clean).unwrap(),
+                "{case}"
+            );
+            assert!(
+                !owner_state_matches(&config, &completed, FaultProfile::Chaos).unwrap(),
+                "{case}"
+            );
+            let faulted = if case == "HA-GL-004" {
+                json!({"goal":{"state":"failed"}})
+            } else {
+                json!([config["expectedByFaultProfile"]["chaos"]["anyItemSubset"].clone()])
+            };
+            assert!(
+                owner_state_matches(&config, &faulted, FaultProfile::Chaos).unwrap(),
+                "{case}"
+            );
+            assert!(
+                !owner_state_matches(&config, &faulted, FaultProfile::Clean).unwrap(),
+                "{case}"
+            );
+        }
+        let incomplete = json!({"expectedByFaultProfile":{"clean":{"expectedSubset":{}}}});
+        assert!(owner_state_matches(&incomplete, &json!({}), FaultProfile::Chaos).is_err());
+    }
+
+    #[tokio::test]
+    async fn failed_worker_recovery_reads_scoped_usage_and_cancels_existing_work() {
+        use axum::{
+            extract::{Path as ApiPath, State},
+            http::HeaderMap,
+            routing::{get, post},
+            Json, Router,
+        };
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        async fn snapshot(
+            ApiPath(id): ApiPath<String>,
+            State(done): State<Arc<AtomicBool>>,
+            headers: HeaderMap,
+        ) -> Result<Json<Value>, axum::http::StatusCode> {
+            if id != "campaign-b-paired-trial-attempt-1"
+                || headers.get("authorization").and_then(|v| v.to_str().ok())
+                    != Some("Bearer synthetic-owner-token")
+            {
+                return Err(axum::http::StatusCode::NOT_FOUND);
+            }
+            let mut telemetry = restart_telemetry();
+            telemetry.cost.agent_usd = Some(0.25);
+            telemetry.trace.closed = done.load(Ordering::SeqCst);
+            Ok(Json(serde_json::to_value(telemetry).unwrap()))
+        }
+        async fn cleanup(State(done): State<Arc<AtomicBool>>) -> Json<Value> {
+            done.store(true, Ordering::SeqCst);
+            Json(json!({"ok":true}))
+        }
+        let done = Arc::new(AtomicBool::new(false));
+        let router = Router::new()
+            .route("/api/eval/model/trials/{id}", get(snapshot))
+            .route("/api/eval/model/trials/{id}/cleanup", post(cleanup))
+            .with_state(done.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let url = format!("http://{address}");
+        assert!(recover_trial_snapshot(
+            &url,
+            Some("synthetic-owner-token"),
+            "campaign-a-paired-trial-attempt-1"
+        )
+        .await
+        .is_none());
+        assert!(!done.load(Ordering::SeqCst));
+        let (telemetry, error) = recover_trial_snapshot(
+            &url,
+            Some("synthetic-owner-token"),
+            "campaign-b-paired-trial-attempt-1",
+        )
+        .await
+        .unwrap();
+        assert!(error.is_none());
+        assert!(telemetry.trace.closed);
+        assert_eq!(telemetry.orchestration.model_calls, 3);
+        assert_eq!(telemetry.tokens.input, Some(100));
+        assert_eq!(telemetry.tokens.output, Some(25));
+        assert_eq!(telemetry.cost.agent_usd, Some(0.25));
+        assert!(done.load(Ordering::SeqCst));
+        server.abort();
     }
 
     #[test]
@@ -3051,6 +4164,7 @@ mod tests {
                 attribution: AttributionCompleteness::Complete,
                 active_children: 0,
                 background_model_work: 0,
+                pending_work: 0,
                 budget_exhausted: false,
                 budget_exhaustion_reasons: Vec::new(),
                 timings: TimingMetrics {
@@ -3119,5 +4233,131 @@ mod tests {
         assert!(after.events.iter().any(|event| {
             event.span_id == "span_interrupted_automation" && event.status == "cancelled"
         }));
+    }
+    #[test]
+    fn cancelled_artifact_expectations_do_not_weaken_control() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("result.json");
+        let config = json!({"expectedByFaultProfile": {
+            "clean": {"expectedSubset": {"status":"verified"}},
+            "chaos": {"expectedAbsent":true}
+        }});
+        assert!(
+            file_json_expectation(dir.path(), &path, &config, FaultProfile::Chaos)
+                .unwrap()
+                .0
+        );
+        assert!(
+            !file_json_expectation(dir.path(), &path, &config, FaultProfile::Clean)
+                .unwrap()
+                .0
+        );
+        std::fs::write(&path, r#"{"status":"verified"}"#).unwrap();
+        assert!(
+            file_json_expectation(dir.path(), &path, &config, FaultProfile::Clean)
+                .unwrap()
+                .0
+        );
+        assert!(
+            !file_json_expectation(dir.path(), &path, &config, FaultProfile::Chaos)
+                .unwrap()
+                .0
+        );
+        let conflicting = json!({"expectedSubset": {}, "expectedByFaultProfile":{"chaos":{"expectedAbsent":true}}});
+        assert!(
+            file_json_expectation(dir.path(), &path, &conflicting, FaultProfile::Chaos).is_err()
+        );
+    }
+
+    #[test]
+    fn research_exact_citations_reject_out_of_range_or_duplicate_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("result.json");
+        let config = json!({"expectedSubset":{"itemCount":2}, "exactFields":{"citations":["fixture:A","fixture:B"]}});
+        for (citations, expected) in [
+            (json!(["fixture:A", "fixture:B"]), true),
+            (json!(["fixture:A", "fixture:B", "fixture:C"]), false),
+            (json!(["fixture:A", "fixture:A"]), false),
+            (json!(["fixture:A"]), false),
+        ] {
+            std::fs::write(
+                &path,
+                json!({"itemCount":2,"citations":citations}).to_string(),
+            )
+            .unwrap();
+            assert_eq!(
+                file_json_expectation(dir.path(), &path, &config, FaultProfile::Chaos)
+                    .unwrap()
+                    .0,
+                expected
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn absent_artifact_rejects_dangling_and_ancestor_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let config = json!({"expectedAbsent":true});
+        let path = dir.path().join("result.json");
+        std::os::unix::fs::symlink(outside.path().join("missing.json"), &path).unwrap();
+        assert!(
+            !file_json_expectation(dir.path(), &path, &config, FaultProfile::Chaos)
+                .unwrap()
+                .0
+        );
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("escaped")).unwrap();
+        assert!(
+            !file_json_expectation(
+                dir.path(),
+                &dir.path().join("escaped/missing.json"),
+                &config,
+                FaultProfile::Chaos
+            )
+            .unwrap()
+            .0
+        );
+    }
+
+    #[test]
+    fn expected_cancellation_never_masks_generic_provider_errors() {
+        let cancelled = br#"{"error":"chat cancelled by caller"}"#;
+        assert!(expected_scripted_cancellation(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            cancelled,
+            Some("cancel_parent_during_child_tool"),
+            true
+        ));
+        for (status, body, trigger, ready) in [
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                cancelled.as_slice(),
+                Some("after_first_draft"),
+                true,
+            ),
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                cancelled.as_slice(),
+                Some("cancel_parent_during_child_tool"),
+                false,
+            ),
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                cancelled.as_slice(),
+                Some("cancel_parent_during_child_tool"),
+                true,
+            ),
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                br#"{"error":"Provider failed"}"#.as_slice(),
+                Some("cancel_parent_during_child_tool"),
+                true,
+            ),
+        ] {
+            assert!(!expected_scripted_cancellation(
+                status, body, trigger, ready
+            ));
+        }
     }
 }

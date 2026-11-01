@@ -18,15 +18,15 @@ use ha_eval_spec::model::{
     reject_embedded_secrets, scenario_component_digests, scenario_digest, stable_trial_id,
     stable_trial_seed, strictest_budget, validate_campaign_budget, validate_evidence_shape,
     validate_model_policy, validate_model_suite, validate_model_trace, validate_scenario,
-    AttributionCompleteness, CampaignBudget, CostMetrics, ExecutionMode, FaultProfile,
-    LiveAgentScenario, ModelCampaignAdapter, ModelCampaignCaseSpec, ModelCampaignEvidence,
-    ModelCampaignOutcome, ModelCampaignPlan, ModelCampaignPolicy, ModelCampaignSource,
-    ModelCampaignSuite, ModelCampaignTier, ModelCampaignWaiver, ModelPolicySuite, ModelProfile,
-    ModelShardResult, ModelTrialResult, NetworkPolicy, OrchestrationMetrics, PlannedModelCase,
-    PlannedModelSuite, PlannedModelTrial, RunnerClass, TimingMetrics, TokenMetrics, ToolMetrics,
-    TraceSummary, UserSimulatorKind, EVIDENCE_SCHEMA_VERSION, PLAN_SCHEMA_VERSION,
-    POLICY_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION, SHARD_SCHEMA_VERSION, SUITE_SCHEMA_VERSION,
-    TRIAL_SCHEMA_VERSION, WAIVER_SCHEMA_VERSION,
+    validate_trial_trace, AttributionCompleteness, CampaignBudget, CostMetrics, ExecutionMode,
+    FaultProfile, LiveAgentScenario, ModelCampaignAdapter, ModelCampaignCaseSpec,
+    ModelCampaignEvidence, ModelCampaignOutcome, ModelCampaignPlan, ModelCampaignPolicy,
+    ModelCampaignSource, ModelCampaignSuite, ModelCampaignTier, ModelCampaignWaiver,
+    ModelPolicySuite, ModelProfile, ModelShardResult, ModelTrialResult, NetworkPolicy,
+    OrchestrationMetrics, PlannedModelCase, PlannedModelSuite, PlannedModelTrial, RunnerClass,
+    TimingMetrics, TokenMetrics, ToolMetrics, TraceSummary, UserSimulatorKind,
+    EVIDENCE_SCHEMA_VERSION, PLAN_SCHEMA_VERSION, POLICY_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
+    SHARD_SCHEMA_VERSION, SUITE_SCHEMA_VERSION, TRIAL_SCHEMA_VERSION, WAIVER_SCHEMA_VERSION,
 };
 use ha_eval_spec::{
     case_digest, digest_file, digest_serializable, read_json, resolve_contained, sha256_bytes,
@@ -50,6 +50,34 @@ const APP_PLAN_ENV: &str = "HA_MODEL_EVAL_APP_PLAN";
 const EFFECTIVE_BUDGET_ENV: &str = "HA_MODEL_EVAL_EFFECTIVE_BUDGET_JSON";
 const EFFECTIVE_TIMEOUT_ENV: &str = "HA_MODEL_EVAL_EFFECTIVE_TIMEOUT_SECONDS";
 const APP_SHARD_AGENT_BUDGET_ENV: &str = "HA_MODEL_EVAL_APP_SHARD_AGENT_BUDGET";
+pub(crate) const SERVER_TRIAL_LOCK_ENV: &str = "HA_MODEL_EVAL_SERVER_TRIAL_LOCK";
+const INVALID_TRIAL_EVIDENCE_FAILURE_CLASS: &str = "invalid_trial_evidence_after_execution";
+
+fn paired_seed_arm<'a>(profile: &str, fault: FaultProfile, arm: &'a str) -> &'a str {
+    if profile == "eval-control-plane-ready-v7" {
+        match fault {
+            FaultProfile::Clean => "paired_control",
+            FaultProfile::Chaos => "paired_faulted",
+        }
+    } else {
+        arm
+    }
+}
+
+fn trial_can_retry_before_evidence(result: &ModelTrialResult) -> bool {
+    matches!(
+        result.outcome,
+        ModelCampaignOutcome::InfraError | ModelCampaignOutcome::SimulatorError
+    ) && matches!(
+        result.failure_class.as_deref(),
+        // This check happens before the adapter sends any product request.
+        // Missing telemetry after a dispatched request is not proof of zero
+        // billed work, even if a fallback result has zero model/tool counters.
+        Some("process_restart_supervisor_unavailable")
+    ) && result.orchestration.model_calls == 0
+        && result.tools.attempted == 0
+        && result.trace_events.is_empty()
+}
 
 #[derive(Debug, Subcommand)]
 pub enum ModelCommands {
@@ -715,7 +743,7 @@ fn validate_version_lock(
             let locked = actual
                 .get(versioned_id)
                 .and_then(Value::as_str)
-                .ok_or_else(|| anyhow!("model version lock has no entry for {versioned_id}"))?;
+                .ok_or_else(|| anyhow!("model version lock has no entry for {section}.{versioned_id}; expected sha256:{digest}"))?;
             if locked != digest {
                 bail!(
                     "{versioned_id} content changed without a version bump; restore it or append a new version-lock entry"
@@ -923,7 +951,11 @@ fn build_plan_with_policy(
                                 &suite.id,
                                 &case.id,
                                 &role,
-                                arm,
+                                paired_seed_arm(
+                                    &scenario.subject.config_profile,
+                                    *fault_profile,
+                                    arm,
+                                ),
                                 trial_index,
                             ),
                             model_role: role.clone(),
@@ -2288,7 +2320,11 @@ fn validate_local_child_assets(
                                 &suite.id,
                                 &case.id,
                                 "anchor",
-                                arm,
+                                paired_seed_arm(
+                                    &scenario.subject.config_profile,
+                                    *fault_profile,
+                                    arm,
+                                ),
                                 trial_index,
                             ),
                             model_role: "anchor".to_string(),
@@ -2494,6 +2530,32 @@ async fn command_smoke(root: &Path, server_bin: Option<&Path>, output: &Path) ->
     Ok(())
 }
 
+pub(crate) fn product_trial_id(campaign_id: &str, trial_id: &str, attempt: u8) -> String {
+    format!("{campaign_id}-{trial_id}-attempt-{attempt}")
+}
+
+fn app_smoke_repetitions(
+    reference: &str,
+    suite_id: &str,
+    case_id: &str,
+    shards: u16,
+) -> Result<u16> {
+    for repetitions in 2..=5 {
+        let distinct_shards = (0..repetitions)
+            .map(|index| {
+                stable_shard(
+                    &stable_trial_id(reference, suite_id, case_id, "anchor", "control", index),
+                    shards,
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        if distinct_shards.len() >= 2 {
+            return Ok(repetitions);
+        }
+    }
+    bail!("App-control smoke cannot select repetitions on distinct registered shards");
+}
+
 async fn command_app_control_smoke(
     root: &Path,
     sidecar: Option<&Path>,
@@ -2533,7 +2595,10 @@ async fn command_app_control_smoke(
         .canonicalize()
         .with_context(|| "canonicalizing App-control smoke Hope server")?;
     let product_binary_digest = digest_file(&server_bin)?;
-    let config = crate::model_fake::smoke_config(&fake_provider.base_url);
+    let mut config = crate::model_fake::smoke_config(&fake_provider.base_url);
+    let mut second_provider = config.providers[0].clone();
+    second_provider.id = "eval-anchor-secondary".to_string();
+    config.providers.push(second_provider);
     let provider = config
         .providers
         .iter()
@@ -2554,7 +2619,7 @@ async fn command_app_control_smoke(
             .then(|| config.reasoning_effort.clone()),
         max_output_tokens: Some(u64::from(model_config.max_tokens)),
     };
-    let resolved_models = vec![AppResolvedModelBinding {
+    let mut resolved_models = vec![AppResolvedModelBinding {
         model,
         provider_config_digest: digest_serializable(provider)?,
         credential_config_digest: digest_serializable(&serde_json::json!({
@@ -2562,6 +2627,22 @@ async fn command_app_control_smoke(
             "providerId": provider.id,
         }))?,
     }];
+    let mut second_model = resolved_models[0].model.clone();
+    second_model.provider_id = config.providers[1].id.clone();
+    resolved_models.push(AppResolvedModelBinding {
+        model: second_model,
+        provider_config_digest: digest_serializable(&config.providers[1])?,
+        credential_config_digest: digest_serializable(&serde_json::json!({
+            "kind": "fake_provider_smoke",
+            "providerId": config.providers[1].id,
+        }))?,
+    });
+    let repetitions = app_smoke_repetitions(
+        &reference,
+        &smoke_suite.id,
+        &smoke_case.id,
+        smoke_suite.shards,
+    )?;
     let mut smoke_resource_budget = smoke_case.budget.clone();
     smoke_resource_budget.max_cost_usd = None;
     let request = EvalAppRunRequest {
@@ -2572,10 +2653,8 @@ async fn command_app_control_smoke(
             suite_id: smoke_suite.id.clone(),
             case_ids: vec![smoke_case.id.clone()],
             arms: vec!["control".to_string()],
-            // Two repetitions land on different stable shards for this fixture.  Running them
-            // together proves that the App concurrency control schedules real trial work rather
-            // than merely accepting and persisting `maxConcurrency`.
-            repetitions: Some(2),
+            // Trial IDs depend on the commit; two fixed repetitions can collide.
+            repetitions: Some(repetitions),
         }],
         case_cost_budgets: vec![],
         case_resource_budgets: vec![AppCaseResourceBudget {
@@ -2583,13 +2662,16 @@ async fn command_app_control_smoke(
             case_id: smoke_case.id.clone(),
             budget: smoke_resource_budget,
         }],
-        models: vec![AppModelSelection {
-            provider_id: provider.id.clone(),
-            model_id: model_config.id.clone(),
-            credential_profile_ref: None,
-            reasoning_effort: None,
-            max_output_tokens: None,
-        }],
+        models: resolved_models
+            .iter()
+            .map(|binding| AppModelSelection {
+                provider_id: binding.model.provider_id.clone(),
+                model_id: binding.model.model_id.clone(),
+                credential_profile_ref: None,
+                reasoning_effort: None,
+                max_output_tokens: None,
+            })
+            .collect(),
         campaign_budget: CampaignBudget {
             max_wall_seconds: Some(300),
             max_model_calls: Some(100),
@@ -2622,7 +2704,14 @@ async fn command_app_control_smoke(
     let isolated = tempfile::tempdir().context("creating App-control smoke directory")?;
     let output_root = isolated.path().join("outputs");
     fs::create_dir_all(&output_root)?;
-    let provider_secrets_b64 = crate::model_fake::provider_secrets_b64()?;
+    let provider_secrets_b64 =
+        base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&BTreeMap::from([
+            (provider.id.as_str(), crate::model_fake::FAKE_PROVIDER_KEY),
+            (
+                config.providers[1].id.as_str(),
+                crate::model_fake::FAKE_PROVIDER_KEY,
+            ),
+        ]))?);
 
     let mut sidecar_command = tokio::process::Command::new(&sidecar);
     sidecar_command
@@ -2729,13 +2818,15 @@ async fn command_app_control_smoke(
             bail!("App-control smoke preview response missing");
         };
         validate_app_plan(&plan)?;
-        if plan.campaigns.len() != 1
-            || plan.campaigns[0].resolved_plan.trials.len() != 2
-            || plan.campaigns[0]
-                .resolved_plan
-                .trials
-                .iter()
-                .any(|trial| trial.case_id != "HA-GL-001")
+        if plan.campaigns.len() != 2
+            || plan.campaigns.iter().any(|campaign| {
+                campaign.resolved_plan.trials.len() != usize::from(repetitions)
+                    || campaign
+                        .resolved_plan
+                        .trials
+                        .iter()
+                        .any(|trial| trial.case_id != "HA-GL-001")
+            })
         {
             bail!("App-control smoke preview did not resolve the requested repetitions");
         }
@@ -2797,16 +2888,21 @@ async fn command_app_control_smoke(
                 _ => {}
             }
         };
-        if evidence_paths.len() != 1 {
+        if evidence_paths.len() != 2 {
             bail!("App-control smoke produced an unexpected evidence count");
         }
-        let evidence_path = PathBuf::from(&evidence_paths[0]);
+        let mut model_calls = 0;
+        let mut tool_calls = 0;
+        let mut input_tokens = 0;
+        let mut output_tokens = 0;
+        for evidence_path in &evidence_paths {
+        let evidence_path = PathBuf::from(evidence_path);
         let evidence: ModelCampaignEvidence = read_json(&evidence_path)?;
         validate_evidence_shape(&evidence)?;
         if evidence.source != ModelCampaignSource::LocalApp
             || evidence.execution_profile != Some(AppExecutionProfile::LocalNativeDiagnostic)
             || evidence.app_plan_digest.as_deref() != Some(plan.plan_digest.as_str())
-            || evidence.trial_results.len() != 2
+            || evidence.trial_results.len() != usize::from(repetitions)
         {
             bail!("App-control smoke evidence identity is incomplete");
         }
@@ -2839,38 +2935,71 @@ async fn command_app_control_smoke(
         {
             bail!("App-control smoke evidence telemetry is incomplete");
         }
-        let first = &evidence.trial_results[0];
-        let second = &evidence.trial_results[1];
-        let first_started = parse_timestamp(&first.started_at, "first App smoke trial startedAt")?;
-        let first_completed =
-            parse_timestamp(&first.completed_at, "first App smoke trial completedAt")?;
-        let second_started =
-            parse_timestamp(&second.started_at, "second App smoke trial startedAt")?;
-        let second_completed =
-            parse_timestamp(&second.completed_at, "second App smoke trial completedAt")?;
-        if first_started >= second_completed || second_started >= first_completed {
+        let expected_model = evidence
+            .models
+            .first()
+            .context("App-control smoke model binding missing")?;
+        for trial in &evidence.trial_results {
+            for event in trial.trace_events.iter().chain(
+                trial
+                    .prior_attempts
+                    .iter()
+                    .flat_map(|attempt| &attempt.trace_events),
+            ) {
+                if event.event == "model.call"
+                    && (event.attributes.get("providerId").and_then(Value::as_str)
+                        != Some(expected_model.provider_id.as_str())
+                        || event.attributes.get("modelId").and_then(Value::as_str)
+                            != Some(expected_model.model_id.as_str()))
+                {
+                    bail!(
+                        "App-control smoke mixed model bindings in {}: expected {}::{}, observed {:?}",
+                        trial.case_id,
+                        expected_model.provider_id,
+                        expected_model.model_id,
+                        event.attributes
+                    );
+                }
+            }
+        }
+        let intervals = evidence
+            .trial_results
+            .iter()
+            .map(|trial| {
+                Ok((
+                    parse_timestamp(&trial.started_at, "App smoke trial startedAt")?,
+                    parse_timestamp(&trial.completed_at, "App smoke trial completedAt")?,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if !intervals.iter().enumerate().any(|(index, first)| {
+            intervals[index + 1..]
+                .iter()
+                .any(|second| first.0 < second.1 && second.0 < first.1)
+        }) {
             bail!("App-control smoke repetitions did not overlap at maxConcurrency=2");
         }
-        let model_calls = evidence
+        model_calls += evidence
             .trial_results
             .iter()
             .map(|trial| trial.orchestration.model_calls)
             .sum::<u64>();
-        let tool_calls = evidence
+        tool_calls += evidence
             .trial_results
             .iter()
             .map(|trial| trial.tools.attempted)
             .sum::<u64>();
-        let input_tokens = evidence
+        input_tokens += evidence
             .trial_results
             .iter()
             .map(|trial| trial.tokens.input.unwrap_or(0))
             .sum::<u64>();
-        let output_tokens = evidence
+        output_tokens += evidence
             .trial_results
             .iter()
             .map(|trial| trial.tokens.output.unwrap_or(0))
             .sum::<u64>();
+        }
         let experiment_root = output_root.join(&experiment_id);
         if experiment_root.join("runtime").exists() {
             bail!("App-control smoke runtime secrets directory was not removed");
@@ -3174,6 +3303,11 @@ fn command_run(
     let mut results = Vec::with_capacity(selected.len());
     let mut stop_reason: Option<String> = None;
     for trial in selected {
+        if let Some(result) = load_trial_checkpoint(output, trial)? {
+            results.push(result);
+            stop_reason = campaign_budget_stop_reason(&shard_budget, &results, 0.90);
+            continue;
+        }
         if let Some(reason) = &stop_reason {
             let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
             results.push(failed_trial_result(
@@ -3199,6 +3333,7 @@ fn command_run(
             case_with_remaining_shard_agents(planned_case, &shard_budget, &results)
                 .ok_or_else(|| anyhow!("model shard has no proven residual Agent budget"))?
         };
+        mark_trial_dispatch(output, trial)?;
         let mut result = run_trial_subprocess(
             root,
             &plan_path,
@@ -3207,12 +3342,7 @@ fn command_run(
             1,
             unlimited_budget,
         )?;
-        if matches!(
-            result.outcome,
-            ModelCampaignOutcome::InfraError | ModelCampaignOutcome::SimulatorError
-        ) && result.failure_class.as_deref()
-            != Some(crate::model_adapter::CLEANUP_INCOMPLETE_FAILURE_CLASS)
-        {
+        if trial_can_retry_before_evidence(&result) {
             let mut consumed = results.clone();
             consumed.push(result.clone());
             if unlimited_budget {
@@ -3259,6 +3389,7 @@ fn command_run(
             }
         }
         validate_trial_result(trial, &result)?;
+        persist_trial_checkpoint(output, trial, &result)?;
         results.push(result);
         stop_reason = campaign_budget_stop_reason(&shard_budget, &results, 0.90);
     }
@@ -3403,10 +3534,12 @@ fn merge_retry_usage(
         (None, None) => None,
     };
 
-    // A subprocess/HTTP failure before any model call has exactly zero model
-    // usage even though the fallback attempt record carries null fields. Do
-    // not turn a fully priced retry into unknown cost in that case.
-    if prior.orchestration.model_calls > 0 {
+    // Zero observed calls with incomplete attribution does not prove zero
+    // dispatches. Preserve unknown usage across retries instead of erasing it.
+    if prior.orchestration.model_calls > 0
+        || (prior.attribution != AttributionCompleteness::Complete
+            && prior.outcome != ModelCampaignOutcome::Cancelled)
+    {
         merge_optional_u64(&mut result.tokens.input, prior.tokens.input);
         merge_optional_u64(&mut result.tokens.output, prior.tokens.output);
         merge_optional_u64(&mut result.tokens.cache_read, prior.tokens.cache_read);
@@ -3588,6 +3721,17 @@ impl RetryBudgetUsage {
         self.spawned_agents = self
             .spawned_agents
             .saturating_add(result.orchestration.spawned_agents);
+        if model_usage_may_be_missing(result) {
+            if result.tokens.input.is_none() {
+                self.input_tokens = None;
+            }
+            if result.tokens.output.is_none() {
+                self.output_tokens = None;
+            }
+            if result.cost.total_usd.is_none() {
+                self.cost_usd = None;
+            }
+        }
         Self::add_exact(
             &mut self.input_tokens,
             result.tokens.input,
@@ -3859,25 +4003,132 @@ fn campaign_budget_violations(
     if budget.max_input_tokens.is_some()
         && results
             .iter()
-            .any(|result| result.orchestration.model_calls > 0 && result.tokens.input.is_none())
+            .any(|result| model_usage_may_be_missing(result) && result.tokens.input.is_none())
     {
         violations.push("input_tokens_unknown".to_string());
     }
     if budget.max_output_tokens.is_some()
         && results
             .iter()
-            .any(|result| result.orchestration.model_calls > 0 && result.tokens.output.is_none())
+            .any(|result| model_usage_may_be_missing(result) && result.tokens.output.is_none())
     {
         violations.push("output_tokens_unknown".to_string());
     }
     if budget.max_cost_usd.is_some()
         && results
             .iter()
-            .any(|result| result.orchestration.model_calls > 0 && result.cost.total_usd.is_none())
+            .any(|result| model_usage_may_be_missing(result) && result.cost.total_usd.is_none())
     {
         violations.push("cost_unknown".to_string());
     }
     violations
+}
+
+fn model_usage_may_be_missing(result: &ModelTrialResult) -> bool {
+    result.orchestration.model_calls > 0
+        || (result.attribution != AttributionCompleteness::Complete
+            && result.outcome != ModelCampaignOutcome::Cancelled)
+}
+
+fn trial_checkpoint_paths(output: &Path, trial: &PlannedModelTrial) -> Result<(PathBuf, PathBuf)> {
+    let filename = output
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow!("trial checkpoint requires a UTF-8 shard output filename"))?;
+    let directory = output
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!("{filename}.trials"));
+    let key = sha256_bytes(trial.id.as_bytes());
+    Ok((
+        directory.join(format!("{key}.started.json")),
+        directory.join(format!("{key}.result.json")),
+    ))
+}
+
+fn persist_checkpoint_without_overwrite(path: &Path, value: &impl serde::Serialize) -> Result<()> {
+    use std::io::Write as _;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("checkpoint has no parent"))?;
+    fs::create_dir_all(parent)?;
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
+    serde_json::to_writer_pretty(&mut file, value)?;
+    file.write_all(b"\n")?;
+    file.as_file().sync_all()?;
+    if let Err(error) = file.persist_noclobber(path) {
+        let cause = error.error;
+        let retained = error
+            .file
+            .keep()
+            .context("retaining unpublished checkpoint candidate")?
+            .1;
+        bail!("checkpoint was not published; existing evidence was not overwritten; candidate retained at {}: {cause}", retained.display());
+    }
+    Ok(())
+}
+
+fn mark_trial_dispatch(output: &Path, trial: &PlannedModelTrial) -> Result<()> {
+    let (marker, _) = trial_checkpoint_paths(output, trial)?;
+    persist_checkpoint_without_overwrite(
+        &marker,
+        &serde_json::json!({
+            "schemaVersion":"model-trial-dispatch-marker.v1", "trialId":trial.id,
+            "campaignId":trial.campaign_id, "planDigest":trial.plan_digest,
+            "createdAt":Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+        }),
+    )
+}
+
+fn load_trial_checkpoint(
+    output: &Path,
+    trial: &PlannedModelTrial,
+) -> Result<Option<ModelTrialResult>> {
+    let (marker, checkpoint) = trial_checkpoint_paths(output, trial)?;
+    if checkpoint.exists() {
+        if !marker.exists() {
+            bail!("trial checkpoint has no dispatch provenance marker");
+        }
+        let result: ModelTrialResult = read_json(&checkpoint)?;
+        validate_trial_result(trial, &result)
+            .context("trial checkpoint does not match immutable plan")?;
+        if result.runtime_config_digest != current_runtime_config_digest() {
+            bail!("trial checkpoint runtime configuration differs; refusing mixed-condition execution");
+        }
+        return Ok(Some(result));
+    }
+    if marker.exists() {
+        bail!("trial dispatch marker exists without settled evidence; dispatch outcome may be unknown, refusing automatic replay");
+    }
+    Ok(None)
+}
+
+fn persist_trial_checkpoint(
+    output: &Path,
+    trial: &PlannedModelTrial,
+    result: &ModelTrialResult,
+) -> Result<()> {
+    validate_trial_result(trial, result)?;
+    let (_, path) = trial_checkpoint_paths(output, trial)?;
+    persist_checkpoint_without_overwrite(&path, result)
+}
+
+fn lock_trial_server(path: &Path, exclusive: bool) -> Result<fs::File> {
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .context("opening shared model-eval server lock")?;
+    if exclusive {
+        file.lock()
+            .context("acquiring exclusive restart trial server lock")?;
+    } else {
+        file.lock_shared()
+            .context("acquiring shared trial server lock")?;
+    }
+    Ok(file)
 }
 
 fn run_trial_subprocess(
@@ -3888,6 +4139,25 @@ fn run_trial_subprocess(
     attempt: u8,
     unlimited_budget: bool,
 ) -> Result<ModelTrialResult> {
+    // Shards share the supervised product process. A process-restart fault
+    // must own that process exclusively from setup through final cleanup.
+    let _server_guard = match std::env::var_os(SERVER_TRIAL_LOCK_ENV) {
+        Some(path) => {
+            let (_, scenario) = load_scenario(root, &planned_case.scenario_path)?;
+            let exclusive = trial.fault_profile == FaultProfile::Chaos
+                && scenario
+                    .faults
+                    .iter()
+                    .any(|fault| fault.kind == ha_eval_spec::model::FaultKind::ProcessRestart);
+            Some(lock_trial_server(Path::new(&path), exclusive)?)
+        }
+        None if std::env::var(APP_CONTROL_ENV).as_deref() == Ok("1")
+            || std::env::var_os("HA_MODEL_EVAL_SUPERVISOR_URL").is_some() =>
+        {
+            bail!("supervised trial is missing its shared server isolation lock")
+        }
+        None => None,
+    };
     let temp = tempfile::tempdir().context("creating model trial subprocess directory")?;
     let result_path = temp.path().join("trial-result.json");
     let trial_home = temp.path().join("home");
@@ -3973,13 +4243,27 @@ fn run_trial_subprocess(
         }
         thread::sleep(Duration::from_millis(100));
     };
-    if process_status.is_some_and(|status| status.success()) && result_path.is_file() {
-        let result: ModelTrialResult = read_json(&result_path)?;
-        validate_trial_attempt_result(trial, &result)?;
-        return Ok(result);
+    let mut invalid_candidate = None;
+    if result_path.is_file() {
+        // A worker can fail after writing its terminal evidence. Never replace
+        // valid usage/diagnostics with an empty subprocess-exit fallback.
+        invalid_candidate = Some(match read_json::<ModelTrialResult>(&result_path) {
+            Ok(result) => match validate_trial_attempt_result(trial, &result) {
+                Ok(()) => return Ok(result),
+                Err(error) if error.to_string().contains("wall timing") => "wall_timing",
+                Err(_) => "terminal_contract",
+            },
+            Err(_) => "terminal_decode",
+        });
     }
     let completed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-    let (outcome, failure_class, error) = if process_status.is_none() {
+    let (outcome, failure_class, error) = if let Some(category) = invalid_candidate {
+        (
+            ModelCampaignOutcome::InfraError,
+            INVALID_TRIAL_EVIDENCE_FAILURE_CLASS,
+            format!("worker terminal evidence failed {category} validation; candidate sha256:{}; existing product usage will be recovered without rerunning the task", digest_file(&result_path)?),
+        )
+    } else if process_status.is_none() {
         (
             ModelCampaignOutcome::BudgetExhausted,
             "trial_wall_timeout",
@@ -3995,7 +4279,7 @@ fn run_trial_subprocess(
             format!("model trial subprocess exited with {process_status:?}"),
         )
     };
-    Ok(failed_trial_result(
+    let mut result = failed_trial_result(
         trial,
         attempt,
         &started_at,
@@ -4004,7 +4288,36 @@ fn run_trial_subprocess(
         failure_class,
         &error,
         started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-    ))
+    );
+    // This synchronous runner may already be inside a Tokio runtime. Recover
+    // owner telemetry and cancel orphan work on a separate bounded runtime.
+    let recovered = thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?
+                    .block_on(crate::model_adapter::recover_failed_trial_usage(
+                        trial,
+                        attempt,
+                        &mut result,
+                    ));
+                Ok::<_, anyhow::Error>(())
+            })
+            .join()
+    });
+    if !matches!(recovered, Ok(Ok(()))) {
+        result.warnings.push(
+            "failed-worker telemetry recovery was unavailable; usage remains unknown".to_string(),
+        );
+    }
+    result.completed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+    result.timings.wall_ms = wall_duration_ms(
+        parse_timestamp(&result.started_at, "recovered trial startedAt")?,
+        parse_timestamp(&result.completed_at, "recovered trial completedAt")?,
+    )?;
+    result.timings.critical_path_ms = result.timings.critical_path_ms.min(result.timings.wall_ms);
+    Ok(result)
 }
 
 async fn command_run_trial(
@@ -4081,9 +4394,11 @@ async fn command_run_trial(
         unlimited_budget,
     )
     .await;
+    // Preserve the actual evidence even if validation diagnoses a bad graph.
+    write_json(output, &result)?;
     validate_trial_attempt_result(trial, &result)?;
     validate_output_schema(root, "trial", &result)?;
-    write_json(output, &result)
+    Ok(())
 }
 
 fn validate_trial_result(planned: &PlannedModelTrial, result: &ModelTrialResult) -> Result<()> {
@@ -4175,9 +4490,6 @@ fn validate_trial_result_inner(
             result.trial_id
         );
     }
-    if result.trace.orphan_span_count > 0 || !result.trace.closed {
-        bail!("model trial {} trace is open or orphaned", result.trial_id);
-    }
     let blocking_failed = result
         .milestones
         .iter()
@@ -4190,7 +4502,14 @@ fn validate_trial_result_inner(
             result.trial_id
         );
     }
-    validate_trace_events(&result.trial_id, &result.trace, &result.trace_events)?;
+    validate_trial_trace(
+        &result.trace,
+        &result.trace_events,
+        result.outcome,
+        result.failure_class.as_deref(),
+        result.attribution,
+        &format!("model trial {}", result.trial_id),
+    )?;
     let mut artifact_paths = BTreeSet::new();
     for artifact in &result.artifacts {
         validate_relative_artifact(artifact, "model trial artifact")?;
@@ -4214,12 +4533,17 @@ fn validate_attempt_record(
     if attempt.timings.wall_ms.abs_diff(wall) > 5_000
         || attempt.tools.succeeded + attempt.tools.failed + attempt.tools.cancelled
             != attempt.tools.attempted
-        || attempt.trace.orphan_span_count > 0
-        || !attempt.trace.closed
     {
         bail!("model trial {trial_id} has an invalid prior attempt record");
     }
-    validate_trace_events(trial_id, &attempt.trace, &attempt.trace_events)?;
+    validate_trial_trace(
+        &attempt.trace,
+        &attempt.trace_events,
+        attempt.outcome,
+        attempt.failure_class.as_deref(),
+        attempt.attribution,
+        &format!("model trial {trial_id} prior attempt"),
+    )?;
     let mut artifacts = BTreeSet::new();
     for artifact in &attempt.artifacts {
         validate_relative_artifact(artifact, "prior model attempt artifact")?;
@@ -4228,14 +4552,6 @@ fn validate_attempt_record(
         }
     }
     Ok(())
-}
-
-fn validate_trace_events(
-    trial_id: &str,
-    trace: &TraceSummary,
-    events: &[ha_eval_spec::model::ModelCampaignEvent],
-) -> Result<()> {
-    validate_model_trace(trace, events, &format!("model trial {trial_id}"))
 }
 
 fn validate_relative_artifact(artifact: &ArtifactDigest, label: &str) -> Result<()> {
@@ -5325,7 +5641,261 @@ fn assert_protocol_constants_are_distinct() {
 
 #[cfg(test)]
 mod tests {
+    fn checkpoint_result(trial: &PlannedModelTrial) -> ModelTrialResult {
+        failed_trial_result(
+            trial,
+            1,
+            "2026-10-15T00:00:00.000Z",
+            "2026-10-15T00:00:00.000Z",
+            ModelCampaignOutcome::Cancelled,
+            "fixture_cancelled",
+            "synthetic checkpoint fixture",
+            0,
+        )
+    }
+
+    #[test]
+    fn settled_checkpoint_is_reused_without_overwriting_paid_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("shard.json");
+        let trial = planned_trial();
+        assert!(load_trial_checkpoint(&output, &trial).unwrap().is_none());
+        mark_trial_dispatch(&output, &trial).unwrap();
+        let result = checkpoint_result(&trial);
+        persist_trial_checkpoint(&output, &trial, &result).unwrap();
+        let (_, path) = trial_checkpoint_paths(&output, &trial).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        let retained = load_trial_checkpoint(&output, &trial).unwrap().unwrap();
+        assert_eq!(retained.trial_id, trial.id);
+        assert!(persist_trial_checkpoint(&output, &trial, &result).is_err());
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+    }
+
+    #[test]
+    fn unsettled_dispatch_marker_prevents_automatic_replay() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("shard.json");
+        let trial = planned_trial();
+        mark_trial_dispatch(&output, &trial).unwrap();
+        assert!(load_trial_checkpoint(&output, &trial)
+            .unwrap_err()
+            .to_string()
+            .contains("refusing automatic replay"));
+        assert!(mark_trial_dispatch(&output, &trial).is_err());
+    }
+
+    #[test]
+    fn checkpoint_with_wrong_plan_is_rejected_before_dispatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("shard.json");
+        let trial = planned_trial();
+        mark_trial_dispatch(&output, &trial).unwrap();
+        persist_trial_checkpoint(&output, &trial, &checkpoint_result(&trial)).unwrap();
+        let (_, path) = trial_checkpoint_paths(&output, &trial).unwrap();
+        let mut value: Value = read_json(&path).unwrap();
+        value["planDigest"] = Value::String("b".repeat(64));
+        write_json(&path, &value).unwrap();
+        assert!(load_trial_checkpoint(&output, &trial).is_err());
+    }
+
+    #[test]
+    fn checkpoint_with_different_runtime_is_rejected_before_dispatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("shard.json");
+        let trial = planned_trial();
+        mark_trial_dispatch(&output, &trial).unwrap();
+        let mut result = checkpoint_result(&trial);
+        result.runtime_config_digest = if current_runtime_config_digest().is_some() {
+            None
+        } else {
+            Some("b".repeat(64))
+        };
+        persist_trial_checkpoint(&output, &trial, &result).unwrap();
+        assert!(load_trial_checkpoint(&output, &trial)
+            .unwrap_err()
+            .to_string()
+            .contains("mixed-condition"));
+    }
+    #[tokio::test]
+    async fn child_only_fault_rejects_solo_before_any_product_or_provider_call() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let plan = build_plan(
+            &root,
+            ModelCampaignTier::Monthly,
+            "09d10653efff383eedee2c17fb5211b1db22954b",
+        )
+        .unwrap();
+        for id in ["HA-ST-004", "HA-ST-005"] {
+            let trial = plan
+                .trials
+                .iter()
+                .find(|t| t.case_id == id && t.arm == "single_agent_compute_matched_faulted")
+                .unwrap();
+            let case = plan
+                .suites
+                .iter()
+                .flat_map(|s| &s.cases)
+                .find(|c| c.id == id)
+                .unwrap();
+            let (path, scenario) = load_scenario(&root, &case.scenario_path).unwrap();
+            let model = plan
+                .models
+                .iter()
+                .find(|m| m.role == trial.model_role)
+                .unwrap();
+            let result = crate::model_adapter::run_registered_trial(
+                &root,
+                ModelCampaignAdapter::HopeCoreScenario,
+                &path,
+                &scenario,
+                case,
+                trial,
+                model,
+                1,
+                true,
+            )
+            .await;
+            assert_eq!(result.outcome, ModelCampaignOutcome::BenchmarkDefect);
+            assert_eq!(
+                result.failure_class.as_deref(),
+                Some("comparison_arm_not_applicable")
+            );
+            assert_eq!(result.orchestration.model_calls, 0);
+            assert_eq!(result.tools.attempted, 0);
+            assert!(result.trace_events.is_empty());
+            assert_eq!(result.tokens.input, Some(0));
+            assert_eq!(result.cost.total_usd, Some(0.0));
+            assert_eq!(result.attribution, AttributionCompleteness::Complete);
+        }
+    }
+    #[test]
+    fn single_agent_faults_and_prompts_are_explicit_before_dispatch() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut trial = planned_trial();
+        trial.orchestration_profile = Some("single_agent_compute_matched".to_string());
+        trial.fault_profile = FaultProfile::Chaos;
+        for id in ["HA-ST-004", "HA-ST-005"] {
+            let (_, scenario) =
+                load_scenario(&root, &format!("scenarios/{id}/1.15.8/scenario.json")).unwrap();
+            assert!(crate::model_adapter::single_agent_fault_not_applicable(
+                &scenario, &trial
+            ));
+            trial.fault_profile = FaultProfile::Clean;
+            assert!(!crate::model_adapter::single_agent_fault_not_applicable(
+                &scenario, &trial
+            ));
+            trial.fault_profile = FaultProfile::Chaos;
+        }
+        let (_, mut scenario) =
+            load_scenario(&root, "scenarios/HA-ST-001/1.15.8/scenario.json").unwrap();
+        assert!(!crate::model_adapter::single_agent_fault_not_applicable(
+            &scenario, &trial
+        ));
+        assert_eq!(
+            crate::model_adapter::trial_prompt_path(&scenario, &trial).unwrap(),
+            "fixtures/task.single-agent.zh-CN.md"
+        );
+        scenario
+            .comparison
+            .as_mut()
+            .unwrap()
+            .single_agent_prompt_path = None;
+        assert!(crate::model_adapter::trial_prompt_path(&scenario, &trial).is_err());
+        trial.orchestration_profile = Some("team_full".to_string());
+        assert_eq!(
+            crate::model_adapter::trial_prompt_path(&scenario, &trial).unwrap(),
+            scenario.task.prompt_path
+        );
+    }
+
+    #[test]
+    fn single_agent_prompt_changes_its_frozen_identity() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let (path, scenario) =
+            load_scenario(&root, "scenarios/HA-ST-001/1.15.8/scenario.json").unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        for relative in ha_eval_spec::model::scenario_asset_paths(&scenario) {
+            let target = temp.path().join(&relative);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::copy(path.parent().unwrap().join(&relative), target).unwrap();
+        }
+        let before = scenario_component_digests(&scenario, temp.path()).unwrap();
+        let all_before = scenario_digest(&scenario, temp.path()).unwrap();
+        let solo = scenario
+            .comparison
+            .as_ref()
+            .unwrap()
+            .single_agent_prompt_path
+            .as_ref()
+            .unwrap();
+        fs::write(temp.path().join(solo), "changed single-Agent task").unwrap();
+        let after = scenario_component_digests(&scenario, temp.path()).unwrap();
+        assert_eq!(before.0, after.0);
+        assert_eq!(before.1, after.1);
+        assert_ne!(before.2, after.2);
+        assert_eq!(before.3, after.3);
+        assert_ne!(all_before, scenario_digest(&scenario, temp.path()).unwrap());
+    }
+    #[test]
+    fn restart_trial_lock_excludes_other_shards_and_releases_on_drop() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.lock");
+        let reader_one = super::lock_trial_server(&path, false).unwrap();
+        let reader_two = super::lock_trial_server(&path, false).unwrap();
+        let candidate = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        assert!(matches!(
+            candidate.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
+        drop(reader_one);
+        assert!(matches!(
+            candidate.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
+        drop(reader_two);
+        candidate.try_lock().unwrap();
+        let other = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        assert!(matches!(
+            other.try_lock_shared(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
+        drop(candidate);
+        other.try_lock_shared().unwrap();
+    }
     use super::*;
+
+    #[test]
+    fn app_smoke_handles_commit_dependent_shard_collisions() {
+        let reference = "09d10653efff383eedee2c17fb5211b1db22954b";
+        assert_eq!(
+            app_smoke_repetitions(reference, "hope-core-orchestration", "HA-GL-001", 4)
+                .expect("distinct smoke shards"),
+            3
+        );
+        assert!(
+            app_smoke_repetitions(reference, "hope-core-orchestration", "HA-GL-001", 1).is_err()
+        );
+    }
+
+    #[test]
+    fn product_trial_identity_is_scoped_to_campaign_and_attempt() {
+        assert_ne!(
+            product_trial_id("campaign-a", "paired-trial", 1),
+            product_trial_id("campaign-b", "paired-trial", 1)
+        );
+        assert_ne!(
+            product_trial_id("campaign-a", "paired-trial", 1),
+            product_trial_id("campaign-a", "paired-trial", 2)
+        );
+    }
 
     fn planned_trial() -> PlannedModelTrial {
         PlannedModelTrial {
@@ -5367,6 +5937,122 @@ mod tests {
             EVIDENCE_SCHEMA_VERSION,
             ha_eval_spec::EVIDENCE_SCHEMA_VERSION
         );
+    }
+
+    #[test]
+    fn failed_cleanup_evidence_retains_usage_and_does_not_become_empty_fallback() {
+        let trial = planned_trial();
+        let mut result = failed_trial_result(
+            &trial,
+            1,
+            "2026-10-11T00:00:00.000Z",
+            "2026-10-11T00:00:01.000Z",
+            ModelCampaignOutcome::InfraError,
+            "cleanup_incomplete_after_evidence",
+            "cleanup timeout",
+            1_000,
+        );
+        result.attribution = AttributionCompleteness::Partial;
+        result.tokens.input = Some(207_495);
+        result.tokens.output = Some(9_563);
+        result.cost.total_usd = Some(0.59046);
+        result.cost.agent_usd = Some(0.59046);
+        result.orchestration.model_calls = 11;
+        result.trace.closed = false;
+        result.trace.orphan_span_count = 1;
+        result.trace.span_count = 2;
+        result
+            .trace_events
+            .push(ha_eval_spec::model::ModelCampaignEvent {
+                seq: 1,
+                event: "async_job.run".to_string(),
+                timestamp_ms: 1,
+                span_id: "span_active_job".to_string(),
+                parent_span_id: result.trace.root_span_id.clone(),
+                key: Some("job".to_string()),
+                status: "started".to_string(),
+                duration_ms: 0,
+                attributes: BTreeMap::new(),
+            });
+        validate_trial_attempt_result(&trial, &result).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("result.json");
+        write_json(&path, &result).unwrap();
+        let saved: ModelTrialResult = read_json(&path).unwrap();
+        validate_trial_attempt_result(&trial, &saved).unwrap();
+        assert_eq!(saved.orchestration.model_calls, 11);
+        assert_eq!(saved.cost.agent_usd, Some(0.59046));
+        assert!(!saved.trace.closed);
+        result.outcome = ModelCampaignOutcome::Passed;
+        assert!(validate_trial_attempt_result(&trial, &result).is_err());
+    }
+
+    #[test]
+    fn missing_worker_attribution_cannot_be_treated_as_zero_cost_for_retry() {
+        let trial = planned_trial();
+        let first = failed_trial_result(
+            &trial,
+            1,
+            "2026-10-11T00:00:00.000Z",
+            "2026-10-11T00:00:01.000Z",
+            ModelCampaignOutcome::InfraError,
+            "trial_subprocess_failed",
+            "worker lost",
+            1_000,
+        );
+        let mut usage = RetryBudgetUsage::default();
+        usage.add(&first);
+        assert!(usage.cost_usd.is_none());
+        assert!(usage.input_tokens.is_none());
+        let budget = CampaignBudget {
+            max_cost_usd: Some(1.0),
+            max_input_tokens: Some(100),
+            ..Default::default()
+        };
+        assert!(
+            campaign_budget_violations(&budget, std::slice::from_ref(&first), 0.90, None)
+                .contains(&"cost_unknown".to_string())
+        );
+        let mut retry = first.clone();
+        retry.cost.total_usd = Some(0.25);
+        retry.tokens.input = Some(20);
+        retry.tokens.output = Some(5);
+        retry.attribution = AttributionCompleteness::Complete;
+        merge_retry_usage(&mut retry, &first.as_attempt_record()).unwrap();
+        assert!(retry.cost.total_usd.is_none());
+        assert!(retry.tokens.input.is_none());
+    }
+
+    #[test]
+    fn invalid_terminal_evidence_never_replays_a_paid_trial() {
+        let trial = planned_trial();
+        let mut result = failed_trial_result(
+            &trial,
+            1,
+            "2026-10-11T00:00:00.000Z",
+            "2026-10-11T00:00:01.000Z",
+            ModelCampaignOutcome::InfraError,
+            INVALID_TRIAL_EVIDENCE_FAILURE_CLASS,
+            "terminal evidence failed wall timing validation",
+            1_000,
+        );
+        result.orchestration.model_calls = 17;
+        result.tokens.input = Some(193_006);
+        result.tokens.output = Some(2_473);
+        result.cost.total_usd = Some(0.0);
+        assert!(!trial_can_retry_before_evidence(&result));
+        result.failure_class = Some("model_binding_mismatch".to_string());
+        assert!(!trial_can_retry_before_evidence(&result));
+        result.failure_class = Some("temporary_runtime_unavailable".to_string());
+        assert!(!trial_can_retry_before_evidence(&result));
+        result.failure_class =
+            Some(crate::model_adapter::CLEANUP_INCOMPLETE_FAILURE_CLASS.to_string());
+        assert!(!trial_can_retry_before_evidence(&result));
+        result.orchestration.model_calls = 0;
+        result.failure_class = Some("harness_unavailable".to_string());
+        assert!(!trial_can_retry_before_evidence(&result));
+        result.failure_class = Some("process_restart_supervisor_unavailable".to_string());
+        assert!(trial_can_retry_before_evidence(&result));
     }
 
     #[test]
@@ -5563,5 +6249,41 @@ mod tests {
         assert_eq!(summary, 4_000_000);
         assert_eq!(paging, 6_000_000);
         assert_eq!(summary * 2 + paging, 14_000_000);
+    }
+    #[test]
+    fn versioned_comparison_pairs_share_seeds_without_rewriting_history() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let plan = build_plan(
+            &root,
+            ModelCampaignTier::Monthly,
+            "33d1c63dd5ea12255f9c147a81be70fa19d3a19a",
+        )
+        .unwrap();
+        let trials = &plan.trials;
+        for case in ["HA-ST-001", "HA-E2E-002"] {
+            for (team, solo) in [
+                ("team_full_control", "single_agent_compute_matched_control"),
+                ("team_full_faulted", "single_agent_compute_matched_faulted"),
+            ] {
+                let team = trials
+                    .iter()
+                    .find(|t| t.case_id == case && t.arm == team)
+                    .unwrap();
+                let solo = trials
+                    .iter()
+                    .find(|t| t.case_id == case && t.arm == solo)
+                    .unwrap();
+                assert_ne!(team.id, solo.id);
+                assert_eq!(team.seed, solo.seed);
+            }
+        }
+        assert_eq!(
+            paired_seed_arm(
+                "eval-control-plane-ready-v6",
+                FaultProfile::Clean,
+                "team_full_control"
+            ),
+            "team_full_control"
+        );
     }
 }

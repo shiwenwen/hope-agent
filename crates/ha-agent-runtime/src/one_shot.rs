@@ -34,7 +34,9 @@ use std::sync::Arc;
 use super::config::{build_api_url, CODEX_API_URL};
 use super::errors::parse_error_response;
 use super::provider_adapters::anthropic_adapter::parse_anthropic_sse;
-use super::provider_adapters::codex_adapter::{apply_codex_headers, codex_user_agent};
+use super::provider_adapters::codex_adapter::{
+    apply_codex_headers, codex_tool_schemas, codex_user_agent,
+};
 use super::provider_adapters::openai_chat_adapter::parse_chat_completions_sse;
 use super::provider_adapters::openai_responses_adapter::parse_openai_sse;
 #[cfg(test)]
@@ -745,7 +747,11 @@ fn build_responses_body(
                     "stream": stream,
                     "instructions": &params.system_prompt,
                     "input": input,
-                    "tools": &params.tool_schemas,
+                    "tools": if is_codex {
+                        codex_tool_schemas(&params.tool_schemas)
+                    } else {
+                        params.tool_schemas.clone()
+                    },
                 })
             } else {
                 json!({
@@ -1424,6 +1430,32 @@ mod tests {
             !instructions.trim().is_empty(),
             "Codex rejects one-shot requests without instructions"
         );
+    }
+
+    #[test]
+    fn codex_cached_side_query_preserves_optional_tool_arguments() {
+        let mut params = cached_codex();
+        let parameters = json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "limit": {"type": "integer"}
+            },
+            "required": ["path"]
+        });
+        params.tool_schemas = vec![json!({
+            "type": "function", "name": "read", "parameters": parameters
+        })];
+        let request = OneShotRequest {
+            instruction: "summarize the cached conversation",
+            max_tokens: 100,
+            mode: OneShotMode::Cached(&params),
+            user_content: None,
+        };
+        let body = build_responses_body("gpt-6.1-sol", &request, ProviderFormat::Codex);
+        assert_eq!(body["tools"][0]["strict"], false);
+        assert_eq!(body["tools"][0]["parameters"], parameters);
+        assert!(params.tool_schemas[0].get("strict").is_none());
     }
 
     #[test]

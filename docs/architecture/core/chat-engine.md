@@ -867,3 +867,7 @@ flowchart TB
 | `crates/ha-agent-runtime/src/vision_bridge.rs` | opt-in 视觉桥；只改 API messages 副本 |
 | `crates/ha-agent-runtime/src/one_shot.rs` | 一次性 Provider 网络执行，受 core port 注册约束 |
 | `crates/ha-channel/src/im_mirror.rs` | GUI/HTTP turn → IM live 流式镜像 |
+
+### 评测会话的正式回合绑定
+
+已注册 EvalRunContext 的生产来源回合（HTTP、ParentInjection 等）在 TurnKernel 接纳期经类型化异步 SessionDB 读取模型 pin。显式偏好与 pin 冲突、pin 缺失或模型不可用时接纳失败；已接纳链只保留该模型，不吸收 Agent/全局 fallback。普通会话和隔离 Eval 来源原有模型接纳边界保持有效。

@@ -568,6 +568,10 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 
 `set_session_model` 接受 `{ providerId, modelId }`，把模型固定到当前会话（写 `sessions.provider_id` / `provider_name` / `model_id`），不写 `AppConfig.active_model`——v0.2.1 起这是「会话内切模型」的唯一合法入口。`get_active_model` / `POST /api/models/active` 仍然存在，但**只该被 Settings 「模型」面板 / onboarding wizard / 本地 LLM 安装路径**调用，用来修改应用全局默认；任何 chat 内或 IM 内的"切模型"语义都必须落到 session 级。TurnKernel admission 解析优先级 `plan_model > 本轮 model_override > sessions.provider_id > agent.model.primary > AppConfig.active_model`（详见 [`provider-system.md` § 7.2](../core/provider-system.md#72-模型链解析)），并在同一份配置快照内冻结 provider lease。写入后 emit `session:model_updated`，桌面 GUI 仅在 `sessionId == currentSessionId` 时同步 ModelPicker。
 
+隔离真实模型评测中，`POST /api/chat` 同时携带已注册 `evalContext` 和 `modelOverride` 时，通过内核会话模型服务固定合成会话的模型，供后续手动压缩和隐式子 Agent 继承；此分支只在 `HA_MODEL_EVAL_MODE=1` 接受。普通请求中的 `modelOverride` 保持本轮覆盖语义。
+
+隔离评测专用的 owner 鉴权接口 `GET /api/eval/model/trials/{trialId}` 返回脱敏遥测，`pendingWork` 表示尚未交付的通知排队工作，计入 trace 未收尾数量但不计入运行并发；`POST .../finish` 关闭 root 供判分；`POST .../cleanup` 先调用内核 Stop 并等待 trace 闭合，再删除合成会话。停止失败或 20 秒内未收敛时返回错误并保留会话，由 Harness 保留实际用量和清理诊断。普通 Server 模式固定拒绝这些接口，它们不扩展远程评测启动或审批权限。
+
 `get_execution_mode` / `set_execution_mode` 是会话级执行模式入口，对应 `/mode off|guarded|deep|autonomous` 与 Workspace/Workflow 面板中的 Execution Mode 控件，写 `sessions.execution_mode`。该值会在下一轮以 trusted run instruction 提供给模型，控制长任务的观察、计划、验证、修复和停止策略，但不改变稳定 system 前缀；它不是 `/loop`，也不负责定时、重复触发或条件轮询。
 
 ### Managed Worktrees

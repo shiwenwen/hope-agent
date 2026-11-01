@@ -1999,7 +1999,7 @@
         },
         "custom": {
           "title": "自定义诊断",
-          "description": "从已注册 weekly 场景和对照组中选择有界子集运行。"
+          "description": "从全部已注册 Hope Core 场景和对照组中选择有界子集运行。"
         }
       },
       "profileLimits": "≤{{trials}} 个场景运行 · ≤{{models}} 个模型",

@@ -207,6 +207,22 @@ gotcha that most often explains a failure. Open every DB read-only.
 - State: `sessions.db` (ACP shares SessionDB), `config.json`, `credentials/auth.json`. Config: `auto_update.*`, `permission.global_yolo`.
 - Grep: `category IN ('self_update','acp','slash_cmd')`; config writes emit no log but fire the `config:changed` event.
 - Gotcha: "UI save not taking effect until restart" class bugs ← a write that bypassed `mutate_config`. Binary swap must use `platform::atomic_replace_binary` + `--version` smoke test + auto-rollback. `MINISIGN_PUBKEY_BASE64` must equal `tauri.conf.json#plugins.updater.pubkey` or desktop startup panics. Headless auto-update loop only runs when `!is_desktop()`.
+- Gotcha: isolated model evaluations keep Provider credentials only in the initialized process snapshot; `HA_MODEL_EVAL_MODE=1` rejects config writes and preserves that snapshot on reload. Repeated 401 errors after a background refresh require checking this boundary, without writing the test key to disk.
+- Gotcha: Codex subscription requests reject `temperature`, including zero. A 400 before any tool execution is a request compatibility failure; the Codex adapter must omit the field even when the conversation/evaluation config sets it. Keep this protocol difference in baseline reports.
+- Codex 的可选工具参数反复被填为空值时，检查请求和 Token 计量的 function schema 是否均显式携带 `strict: false`；不得在工具处理器里将任意无效参数吞掉。
+- Workflow 因动态预览停在审批门时，检查脚本是否使用 `workflow.tool({ name, args })`；位置参数形式不属于 Host API 契约。按需 guide 必须提供完整格式，严格审批不能由测试脚本代答。
+- 编排 suite `1.15.0` 的 `eval-control-plane-ready-v6` 由 owner 开启所需 Workflow Mode，为多 Agent 提供合成 Git 仓库，并把无人应答的问答限制为 30 秒后未回答到期。旧版模型停在 `enter_plan_mode`、缺少 Workflow 工具或无法创建子 worktree 时，先归因环境，再看模型任务；不得补造审批答案。control 的业务产物、机制与终态分开统计，不能把未跑故障臂当成恢复能力证据。
+- 评测预算诊断中 `input_usage_unknown` / `output_usage_unknown` 表示调用用量未知而停止，只有实际已知累计用量达到上限才是 `input_tokens` / `output_tokens`。Codex 订阅的目录美元成本为零仍会消耗订阅额度。
+- 终态墙钟必须包含初始化、判分与清理。`invalid_trial_evidence_after_execution` 表示已执行候选未通过契约校验，检查候选摘要和受控错误类别，保留用量且禁止自动重跑。当前 suite 的 Workflow 验证只读现有业务产物，需要审批的执行继续保持未批准。
+- 清理时出现 `Query returned no rows` 先检查是否在途工作尚未停止就删除了合成 Session；隔离 cleanup 必须走正常 Stop、等待 trace 闭合后才删除，收敛失败则保留会话并报告清理失败。当前 suite 的 clean 初始 Goal 使用公开业务目标，不能把故障场景标题当成正常目标。
+- 前台结束后仍有任务 span 时，核对实际父 Agent 结果通知回合。当前 suite 在原始单项预算内保持 root 归因，等待实际任务自然完成，连续静止 250 毫秒后才验收；等待及后续调用均计量。不能把通知回合当作 cosmetic 工作，或靠清理提升为通过；固定 250 毫秒等待不足以覆盖真实父回合。
+- suite `1.15.1` 的 unlimited 诊断不使用注册时间截断回复后的父通知回合；排查提前收尾时同时检查请求超时、试次子进程与自然收尾观察三处，不能仅把预算对象清空。
+- suite `1.15.0` / v6 的 `agent.result_queued` 在通知合并、idle 和重排时保留评测归因，排队不占运行并发；`agent.result_delivery` 只表示父通知回合，实际后台工具执行才计入 `asyncJobs` 和 `async_jobs` 信号。调查遗漏调用时同时检查这两种 span，不能只检查运行中的子 Agent。
+- Gotcha: paired logical trial IDs are shared across models, while product runtime IDs include campaign and attempt. Registration conflicts or progress from an already finished model require checking this namespace; never use another campaign's telemetry as evidence for the current model.
+- Gotcha: per-turn model overrides alone do not bind manual compaction or implicit children. Registered isolated evaluation sessions pin the selected model through the kernel Session service before any work starts. Check every `model.call` Provider/model binding, including summaries and earlier failed attempts; mixed-model evidence cannot validate the selected model.
+- Gotcha: pre-compaction Memory Extract follows Agent/global extraction overrides and otherwise captures the current conversation Provider/model; it must never choose the first configured Provider/model. A mixed `agent.side_query` immediately before `context.dedicated_summarize` requires checking this flush path separately from the summarizer.
+- Gotcha: a session-not-found error with digits such as `403` in its UUID is not an HTTP auth rejection. Check numeric error classification before blaming the Provider when unrelated trials suddenly report no auth profile; only explicit HTTP/status context or a leading standard HTTP reason phrase may activate status-code cooldowns.
+- Gotcha: cleanup failures must preserve observed usage and open diagnostic traces as `infra_error/cleanup_incomplete_after_evidence`; never replay an already billed task. A crashed worker can recover only its own campaign/attempt telemetry. Zero observed calls with incomplete attribution is unknown usage, not free execution, and must block unsafe budget-based retries. Control owner-state expectations use `expectedByFaultProfile.clean`; actual faulted events use `chaos`.
 
 ## Self-Study
 
@@ -241,3 +257,49 @@ gotcha that most often explains a failure. Open every DB read-only.
 排查 `web_search.kimi.basic` 时先核对既有 Key、是否设置国家/语言/时效过滤及后续已启用服务商；Basic 不支持这些过滤，明确错误不代表账号异常。固定国内 REST、SSRF 与禁止重定向失败不回退旧聊天模型。用量中模型/Token 缺失属于按次合同；`billable_call=null` 表示取消或响应未知，不能据此断言免费或自动重试。仅收集脱敏状态码与时间，不采集查询、Key、响应正文或真实账号材料。
 
 排查 `web_search.perplexity` 时区分 HTTP/重定向拒绝、限量 JSON 读取失败、协议错误和合法空结果。引用沿既有 `citations` 顺序，新增来源元数据消费尚待不可信信封前置交付；无 URL 的摘要不当作引用。旧 Sonar 端点仍沿原配置，不能把原生 Agent `output` 示例当作该端点实测回执。解析失败/取消也记一次失败调用，Token 缺失不是零；不要收集查询、Key、响应正文或用本地夹具推断真实账单。
+
+### Goal 历史 Workflow 修复后仍阻塞
+
+检查 Goal final audit 的 blockers、ruleGate.hardBlockers 与 criteriaStatus，并保留失败和后续 run 的台账。`runtime_error` 失败只由失败后新建的同 Goal/session/criterion/revision 的 completed run 加其真实 validation_passed 解除；取消、审批阻塞、跨版本证据和后续 validation_failed 不解除。主编排专项 `1.15.2` 对齐此规则，历史结果不得重判或混作同版本比较。
+
+### 评测中出现无归因的技能复盘费用
+
+检查隔离 sessions.db 的 model_usage_events：skills.auto_review 必须具备实际 session_id 与 metadata.eval，并匹配所属试验模型。合成 automation:skills_auto_review 键可能导致 session_id 被置空、漏出试验费用及使用全局默认模型；不得把只核验已进入 trace 的调用当成全量证明。主编排 1.15.3 / 上下文 1.0.2 接入真实 Session、排队前后台守卫与 automation 模型 pin；未注册接纳的请求在网络前拒绝。保存中止批次与已知额外费用，不覆盖旧结果。
+
+### 前台模型正确但通知回合混模
+
+按试验逐一核对所有 model.call，包括前台结束后的 agent.result_delivery。ParentInjection 必须提交父会话 preferred model，评测 Kernel 再核对其模型 pin 并拒绝回退。业务验收通过不等于绑定有效；混模试验保留真实调用和费用，排除能力横比，参考主编排 1.15.4 / 上下文 1.0.3。
+
+原生结果的 model_binding 阻断检查覆盖前台、自动调用与父通知所有 model.call；失败为 infra_error/model_binding_mismatch。业务 passed 不能覆盖绑定失败；费用与 trace 原样保留且不得自动重跑。
+
+### 无预算评测清理超时且有晚到复盘费用
+
+核对 cleanup HTTP 500、未关闭 model_automation.run span 和随后写入的 skills.auto_review 用量。主编排 1.15.5 / 上下文 1.0.4 在无预算模式等待所有已接纳后台模型调用自然结束后才取最终费用快照；不得通过缩短守卫生命周期、删除未结束会话或把缺失用量置零伪造闭环。旧 trial 的 infra_error 和晚到费用单独保留。
+
+### 上下文专项结束后出现无归属 side_query
+
+同时核对 Native trial completedAt 与隔离 model_usage_events 的 agent.side_query 时间；有成功用量但 session_id / metadata.eval 为空，说明侧查询存活超过根身份。主编排 1.15.6 / 上下文 1.0.5 在单次调用入口持有身份至用量落账，并在锁内拒绝已结束身份；不可把额外费用并入旧分数或声称已全量入账。保留诊断批次和已知费用，修复后先核对上下文专项，再推进完整组。
+
+### 单次请求已开始但取消后没有用量
+
+核对 model.call_scope 与 Provider 调用计量。主编排 1.15.7 / 上下文 1.0.6 对实际进入适配器的每个尝试持有独立用量守卫；调用方取消产生 callerCancelled=true、dispatchOutcome=unknown 且 token 为缺失值，不能填零或直接归因模型能力失败。正常完成不重复写入，未发送的准备工作不虚构请求；不确定传输拒绝自动重发。保留已中止诊断与费用下界，勿与新版本分数混合。
+
+### 确定性专项评测的装配与样本前置条件
+
+正式轨道包含 7 个套件、71 个用例。Dreaming 自动规划返回空集合时先检查独立 adapter 是否经 `ha_server::wire_features()` 装配；不得降低预期分组。语义检索准确率为零时检查合成嵌入模型是否已注册、selection 是否指向该模型及向量 v2 签名是否一致。领域 trace 中 `issues` / `duplicates` / `gaps` / `checks` / `attendees` 必须为数组。晋升样本须携带有效 suite、基础 fixture 与追加式版本锁，目标存在时继续拒绝覆盖。`verify-evidence --allow-local` 仅在没有 release tag 时容许 dirty 的 local 诊断，默认发布检查仍拒绝。
+
+### 单 Agent 对照全部失败或重启故障造成其他试次报错
+
+先核对提示词和 owner-state 验收是否同时禁止子 Agent 又要求 completed/killed 子执行器；编排 1.15.8 使用独立单 Agent 提示词和空子执行器精确验收。子执行器专属的崩溃、取消故障在单 Agent 臂标记不适用，调用数必须为零，不计作模型能力失败。强制重启前还有子执行器或后台请求时，核对 process.restart 的 interruptedWorkAtRestart；已完成调用仍保留，试次总费用须未知。进程重启必须持有共享服务独占锁；其他普通试次持共享锁，不能让同一 supervisor 的四个分片互相终止。修复前已付费或不确定请求单独保留，不能修改旧分数或补零费用。
+
+### 重启控制器返回 401 或故障未激活
+
+先区分 supervisor 的本地 HTTP 401 与 Provider 账户错误。1.15.9 修复 Authorization 头名大小写和 TCP 分段读取，仍拒绝错误或重复凭据。未激活故障不能证明恢复失败，应保留业务检查并归为 benchmark_defect；旧版 task_failed 原始记录不覆写，只在分析中解释其评测失效原因。
+
+### 额度或进程中断后分片没有完整结果
+
+先保留已发布 shard、逐项检查点和已脱敏用量。1.15.10 在 shard.json.trials 目录先持久化派发标记，再逐项原子发布结果；有有效结果时可在同一计划、同一运行时配置下复用，无结果但有派发标记时拒绝自动重放。旧版分片只在结束时写盘，不能由调用进度、聊天摘要或 SQL token 反推未保存的验收成绩。
+
+### 取消分支被业务文件验收误判或研究范围没有数据
+
+编排 1.16.0 / 上下文 1.0.9 区分正常业务交付与取消/purge 的负向产物验收。检查 expectedByFaultProfile、expectedAbsent、真实 cancelled/killed 终态和故障激活，不能用缺失文件单独判成功。研究输入必须具有日期和引用标识，范围边界、条目数与 exactFields.citations 一同校验。一次错误反馈后的 completed 可以是恢复成功；无真实故障仍是 benchmark_defect，不能修改历史结果或宣称权限/安全完整覆盖。同一对照对 seed 相同不代表 unlimited 计算量相同。
