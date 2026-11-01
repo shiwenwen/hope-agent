@@ -1071,6 +1071,7 @@ async fn run_hope_core_scenario(
                     }
                 }
                 ScriptedUserStep::StopParent { .. } => {
+                    let owner_wait_started = Instant::now();
                     scripted_action_checks.push(
                         apply_scripted_owner_stop(
                             &client,
@@ -1080,6 +1081,8 @@ async fn run_hope_core_scenario(
                         )
                         .await?,
                     );
+                    scripted_wait_ms =
+                        scripted_wait_ms.saturating_add(elapsed_ms(owner_wait_started));
                     break;
                 }
                 ScriptedUserStep::UpdateGoal {
@@ -1535,6 +1538,29 @@ async fn apply_scripted_owner_stop(
     token: Option<&str>,
     session_id: &str,
 ) -> Result<ModelCampaignCheck> {
+    apply_scripted_owner_stop_with_settlement(
+        client,
+        server_url,
+        token,
+        session_id,
+        Duration::from_secs(TRIAL_CLEANUP_SAFETY_FUSE_SECONDS),
+    )
+    .await
+}
+
+fn stopped_child_matches(run: &Value) -> bool {
+    run.get("status").and_then(Value::as_str) == Some("killed")
+        || (run.get("status").and_then(Value::as_str) == Some("interrupted")
+            && run.get("terminalReason").and_then(Value::as_str) == Some("session_paused"))
+}
+
+async fn apply_scripted_owner_stop_with_settlement(
+    client: &Client,
+    server_url: &str,
+    token: Option<&str>,
+    session_id: &str,
+    settlement_timeout: Duration,
+) -> Result<ModelCampaignCheck> {
     let token = token
         .filter(|v| !v.is_empty())
         .ok_or_else(|| anyhow!("scripted Stop requires owner authentication"))?;
@@ -1550,6 +1576,7 @@ async fn apply_scripted_owner_stop(
         .get(format!("{server_url}/api/subagent/runs"))
         .query(&[("sessionId", session_id)])
         .bearer_auth(token)
+        .timeout(Duration::from_secs(2))
         .send()
         .await?;
     let status = response.status();
@@ -1572,8 +1599,8 @@ async fn apply_scripted_owner_stop(
                     Some("running" | "spawning")
                 )
         })
-        .count();
-    if active == 0 {
+        .collect::<Vec<_>>();
+    if active.is_empty() {
         return Ok(ModelCampaignCheck {
             id: "scripted_owner_stop".into(),
             passed: false,
@@ -1585,6 +1612,16 @@ async fn apply_scripted_owner_stop(
             artifact_hashes: vec![sha256_bytes(&before)],
         });
     }
+    let targets = active
+        .iter()
+        .map(|run| {
+            run.get("runId")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| anyhow!("scripted Stop child lookup omitted a running target identity"))?;
     let response = client
         .post(format!("{server_url}/api/chat/stop"))
         .bearer_auth(token)
@@ -1600,15 +1637,64 @@ async fn apply_scripted_owner_stop(
         );
     }
     let result: Value = serde_json::from_slice(&bytes)?;
-    let passed = result.get("scope").and_then(Value::as_str) == Some("session")
+    let mut passed = result.get("scope").and_then(Value::as_str) == Some("session")
         && result.get("stopped").and_then(Value::as_bool) == Some(true)
         && result.get("turnMismatch").and_then(Value::as_bool) == Some(false)
         && result
             .get("runtimeCancellationError")
             .is_none_or(Value::is_null);
-    Ok(ModelCampaignCheck{id:"scripted_owner_stop".into(),passed,blocking:true,
-        detail:format!("owner Stop targeted only current Session with {active} running children; independent killed-child, absent-artifact and closed-trace checks remain mandatory"),
-        metric:Some(active as f64),artifact_hashes:vec![sha256_bytes(&before),sha256_bytes(&bytes)]})
+    let mut hashes = vec![sha256_bytes(&before), sha256_bytes(&bytes)];
+    if passed {
+        let deadline = Instant::now() + settlement_timeout;
+        loop {
+            let response = client
+                .get(format!("{server_url}/api/subagent/runs"))
+                .query(&[("sessionId", session_id)])
+                .bearer_auth(token)
+                .timeout(Duration::from_secs(2))
+                .send()
+                .await?;
+            let status = response.status();
+            let after = response.bytes().await?;
+            if !status.is_success() {
+                bail!(
+                    "scripted Stop settlement lookup returned HTTP {status}; body sha256:{}",
+                    sha256_bytes(&after)
+                );
+            }
+            let value: Value = serde_json::from_slice(&after)?;
+            let items = value
+                .as_array()
+                .ok_or_else(|| anyhow!("scripted Stop settlement is not a list"))?;
+            let settled = targets.iter().all(|target| {
+                items.iter().any(|run| {
+                    run.get("runId").and_then(Value::as_str) == Some(target.as_str())
+                        && run.get("parentSessionId").and_then(Value::as_str) == Some(session_id)
+                        && stopped_child_matches(run)
+                })
+            });
+            if settled || Instant::now() >= deadline {
+                passed = settled;
+                hashes.push(sha256_bytes(&after));
+                break;
+            }
+            tokio::time::sleep(
+                Duration::from_millis(100).min(deadline.saturating_duration_since(Instant::now())),
+            )
+            .await;
+        }
+    }
+    Ok(ModelCampaignCheck {
+        id: "scripted_owner_stop".into(),
+        passed,
+        blocking: true,
+        detail: format!(
+            "owner Stop targeted current Session; all {} captured running children must become killed or interrupted/session_paused; completed, crash-interrupted and missing targets cannot satisfy cancellation",
+            targets.len()
+        ),
+        metric: Some(targets.len() as f64),
+        artifact_hashes: hashes,
+    })
 }
 
 async fn apply_scripted_goal_revision(
@@ -3544,7 +3630,10 @@ fn expected_scripted_cancellation(
 }
 
 fn owner_state_matches(config: &Value, actual: &Value, profile: FaultProfile) -> Result<bool> {
-    let expectation = fault_profile_expectation(config, profile)?;
+    owner_expectation_matches(fault_profile_expectation(config, profile)?, actual)
+}
+
+fn owner_expectation_matches(expectation: &Value, actual: &Value) -> Result<bool> {
     if let Some(expected) = expectation.get("expectedExact") {
         Ok(expected == actual)
     } else if let Some(expected) = expectation.get("expectedSubset") {
@@ -3553,8 +3642,19 @@ fn owner_state_matches(config: &Value, actual: &Value, profile: FaultProfile) ->
         Ok(actual
             .as_array()
             .is_some_and(|items| items.iter().any(|item| json_subset(expected, item))))
+    } else if let Some(alternatives) = expectation.get("anyOf") {
+        let alternatives = alternatives
+            .as_array()
+            .filter(|items| !items.is_empty())
+            .ok_or_else(|| anyhow!("owner expectation anyOf requires nonempty alternatives"))?;
+        let mut passed = false;
+        for alternative in alternatives {
+            let matched = owner_expectation_matches(alternative, actual)?;
+            passed |= matched;
+        }
+        Ok(passed)
     } else {
-        bail!("hope_state_subset requires expectedSubset or anyItemSubset");
+        bail!("hope_state_subset requires expectedSubset, anyItemSubset or anyOf");
     }
 }
 
@@ -5231,18 +5331,142 @@ mod tests {
             atomic::{AtomicUsize, Ordering},
             Arc,
         };
-        for (parent, status, expected) in [
-            ("session-fixture", "running", true),
-            ("session-fixture", "completed", false),
-            ("foreign-session", "running", false),
+        let row = |id: &str, parent: &str, status: &str, reason: Option<&str>| json!({"runId":id,"parentSessionId":parent,"status":status,"terminalReason":reason});
+        let active = row("target-run", "session-fixture", "running", None);
+        let killed = row(
+            "target-run",
+            "session-fixture",
+            "killed",
+            Some("user_stopped"),
+        );
+        let paused = row(
+            "target-run",
+            "session-fixture",
+            "interrupted",
+            Some("session_paused"),
+        );
+        let completed = row(
+            "target-run",
+            "session-fixture",
+            "completed",
+            Some("success"),
+        );
+        for (name, before, after, expected_post, expected_pass) in [
+            ("killed", json!([active]), json!([killed]), true, true),
+            (
+                "session pause",
+                json!([active]),
+                json!([paused]),
+                true,
+                true,
+            ),
+            (
+                "crash interruption",
+                json!([active]),
+                json!([row(
+                    "target-run",
+                    "session-fixture",
+                    "interrupted",
+                    Some("process_interrupted")
+                )]),
+                true,
+                false,
+            ),
+            (
+                "normal completion",
+                json!([active]),
+                json!([completed]),
+                true,
+                false,
+            ),
+            (
+                "already completed",
+                json!([completed]),
+                json!([completed]),
+                false,
+                false,
+            ),
+            (
+                "foreign active run",
+                json!([row("target-run", "foreign-session", "running", None)]),
+                json!([killed]),
+                false,
+                false,
+            ),
+            ("missing target", json!([active]), json!([]), true, false),
+            (
+                "different target killed",
+                json!([active]),
+                json!([row(
+                    "other-run",
+                    "session-fixture",
+                    "killed",
+                    Some("user_stopped")
+                )]),
+                true,
+                false,
+            ),
+            (
+                "target changed owner",
+                json!([active]),
+                json!([row(
+                    "target-run",
+                    "foreign-session",
+                    "killed",
+                    Some("user_stopped")
+                )]),
+                true,
+                false,
+            ),
+            (
+                "all targets stopped",
+                json!([
+                    active,
+                    row("second-run", "session-fixture", "running", None)
+                ]),
+                json!([
+                    paused,
+                    row(
+                        "second-run",
+                        "session-fixture",
+                        "killed",
+                        Some("user_stopped")
+                    )
+                ]),
+                true,
+                true,
+            ),
+            (
+                "second target still running",
+                json!([
+                    active,
+                    row("second-run", "session-fixture", "running", None)
+                ]),
+                json!([
+                    killed,
+                    row("second-run", "session-fixture", "running", None)
+                ]),
+                true,
+                false,
+            ),
         ] {
             let posts = Arc::new(AtomicUsize::new(0));
+            let for_read = posts.clone();
             let count = posts.clone();
             let app = Router::new()
                 .route(
                     "/api/subagent/runs",
-                    get(move || async move {
-                        Json(json!([{"parentSessionId":parent,"status":status}]))
+                    get(move || {
+                        let for_read = for_read.clone();
+                        let before = before.clone();
+                        let after = after.clone();
+                        async move {
+                            Json(if for_read.load(Ordering::SeqCst) > 0 {
+                                after
+                            } else {
+                                before
+                            })
+                        }
                     }),
                 )
                 .route(
@@ -5267,17 +5491,29 @@ mod tests {
             let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
             let client = Client::builder().no_proxy().build().unwrap();
             assert_eq!(
-                apply_scripted_owner_stop(&client, &url, Some("test-owner"), "session-fixture")
-                    .await
-                    .unwrap()
-                    .passed,
-                expected
+                apply_scripted_owner_stop_with_settlement(
+                    &client,
+                    &url,
+                    Some("test-owner"),
+                    "session-fixture",
+                    Duration::from_millis(30)
+                )
+                .await
+                .unwrap()
+                .passed,
+                expected_pass,
+                "{name}"
             );
-            assert_eq!(posts.load(Ordering::SeqCst), usize::from(expected));
+            assert_eq!(
+                posts.load(Ordering::SeqCst),
+                usize::from(expected_post),
+                "{name}"
+            );
             server.abort();
             let _ = server.await;
         }
     }
+
     #[test]
     fn foreground_stop_signal_contract_is_validated_before_model_dispatch() {
         let root =
@@ -5322,5 +5558,40 @@ mod tests {
             )
             .0
         );
+    }
+    #[test]
+    fn owner_stop_state_accepts_session_pause_but_rejects_crash_or_completion() {
+        let expectation = json!({"anyOf":[{"anyItemSubset":{"status":"killed"}},{"anyItemSubset":{"status":"interrupted","terminalReason":"session_paused"}}]});
+        for (actual, expected) in [
+            (json!([]), false),
+            (json!([{"status":"killed"}]), true),
+            (
+                json!([{"status":"interrupted","terminalReason":"session_paused"}]),
+                true,
+            ),
+            (
+                json!([{"status":"interrupted","terminalReason":"process_interrupted"}]),
+                false,
+            ),
+            (json!([{"status":"interrupted"}]), false),
+            (
+                json!([{"status":"completed","terminalReason":"success"}]),
+                false,
+            ),
+        ] {
+            assert_eq!(
+                owner_state_matches(&expectation, &actual, FaultProfile::Chaos).unwrap(),
+                expected
+            );
+        }
+        assert!(
+            owner_state_matches(&json!({"anyOf":[]}), &json!([]), FaultProfile::Chaos).is_err()
+        );
+        assert!(owner_state_matches(
+            &json!({"anyOf":[{"expectedExact":[]},{}]}),
+            &json!([]),
+            FaultProfile::Chaos
+        )
+        .is_err());
     }
 }

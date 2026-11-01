@@ -709,3 +709,5 @@ case、版本、标签、arm、重复次数和 tier 一律以 suite manifest 为
 上下文 `1.0.7` 把无预算收尾观察应用到 eval-safe-context-compaction-v1 画像，避免专项在根返回后立即取消已接纳后台调用。主编排保持 `1.15.7`：其全部场景已属于原先启用观察的 eval-control-plane-ready-v6，执行分支与公开任务均未变；上下文专项补跑单独留存相同产品二进制与新 Harness 摘要，不把旧上下文费用或分数覆盖进新版本。
 
 编排 `1.22.0` 明确分开取消场景的父会话后台作业和前台子执行准备，保留原有 async_jobs 声明与验收。两类工作真实成立后才应用 owner Stop；缺少实际前置条件时停止脚本派发，记录 benchmark_defect 并保留已观测用量。Loader 在付费派发前核对 Stop 用例的信号与能力声明一致。旧原始结果与未派发中间版本锁项保留，不改写。
+
+编排 `1.23.0` 按生产 Stop 的实际终态验收：显式 kill 为 killed，用户会话 Stop 可为 interrupted 且 terminalReason=session_paused。Owner 步骤捕获 Stop 前真实活动目标 ID，并观察这些同会话目标逐一进入上述取消终态；completed、缺失记录和其他崩溃原因不通过。取消控制面的等待单列环境等待时间，后台工作结算和产物不存在检查保持有效。旧全量原始结果不改写，修复后的相关测试臂另行完整补测。
