@@ -386,6 +386,18 @@ impl SessionDB {
         let id = format!("dqr_{}", uuid::Uuid::new_v4().simple());
         {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            if let Some(goal_id) = context.goal_id.as_deref() {
+                let (session_id, revision): (String, i64) = conn.query_row(
+                    "SELECT session_id, revision FROM goals WHERE id = ?1",
+                    [goal_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                if session_id != context.session_id || Some(revision) != context.goal_revision {
+                    return Err(anyhow!(
+                        "domain quality context no longer matches the owning Goal revision; prepare a fresh context"
+                    ));
+                }
+            }
             conn.execute(
                 "INSERT INTO domain_quality_runs (
                     id, session_id, goal_id, domain, template_id, template_version, state, summary,

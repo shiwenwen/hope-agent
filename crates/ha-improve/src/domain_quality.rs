@@ -1187,6 +1187,23 @@ mod tests {
                 workflow_task_type: None,
             })
             .unwrap();
+            assert!(
+                db.create_domain_quality_run(&context).is_err(),
+                "owner edit must reject a prepared stale context before creating another run"
+            );
+            assert_eq!(
+                db.list_domain_quality_runs_for_session(&session.id, 100)
+                    .unwrap()
+                    .len(),
+                1,
+                "stale creation must not persist a run"
+            );
+            let mut foreign = resolve_quality_context(&db, input.clone()).unwrap();
+            foreign.session_id = db.create_session("ha-main").unwrap().id;
+            assert!(
+                db.create_domain_quality_run(&foreign).is_err(),
+                "kernel rejects a foreign-session prepared context"
+            );
             let finished = db
                 .complete_domain_quality_run(
                     &old.id,
