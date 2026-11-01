@@ -4121,6 +4121,13 @@ fn evidence_workflow_run<'a>(
     let run_id = match item.source_type.as_str() {
         "workflow_run" => item.source_id.as_str(),
         "validation" => item.source_id.split_once(':')?.0,
+        "diagnostic" => {
+            let run_id = item.metadata.get("runId")?.as_str()?;
+            if item.source_id.split_once(':')?.0 != run_id {
+                return None;
+            }
+            run_id
+        }
         _ => return None,
     };
     snapshot.workflow_runs.iter().find(|run| {
@@ -4137,14 +4144,17 @@ fn workflow_audit_revision(snapshot: &GoalSnapshot, run: &WorkflowRun) -> Option
         .or_else(|| (snapshot.goal.revision == 1).then_some(1))
 }
 
+fn evidence_has_workflow_source(item: &GoalEvidenceItem) -> bool {
+    item.source_type == "workflow_run"
+        || (matches!(item.source_type.as_str(), "validation" | "diagnostic")
+            && (item.source_id.starts_with("wfr_") || item.metadata.get("runId").is_some()))
+}
+
 fn evidence_audit_scope<'a>(
     snapshot: &'a GoalSnapshot,
     item: &'a GoalEvidenceItem,
 ) -> Option<(Option<&'a str>, i64)> {
-    if item.source_type == "workflow_run"
-        || (item.source_type == "validation"
-            && (item.source_id.starts_with("wfr_") || item.metadata.get("runId").is_some()))
-    {
+    if evidence_has_workflow_source(item) {
         let run = evidence_workflow_run(snapshot, item)?;
         return Some((
             run.goal_criterion_id.as_deref(),
@@ -4172,10 +4182,7 @@ fn evidence_is_current_revision(snapshot: &GoalSnapshot, item: &GoalEvidenceItem
         return true;
     }
     // Never infer an unversioned Workflow's contract after an edit.
-    if item.source_type == "workflow_run"
-        || (item.source_type == "validation"
-            && (item.source_id.starts_with("wfr_") || item.metadata.get("runId").is_some()))
-    {
+    if evidence_has_workflow_source(item) {
         return false;
     }
     // Legacy task/manual evidence has no revision column. Its server-owned
@@ -6958,6 +6965,113 @@ mod tests {
     }
 
     #[test]
+    fn workflow_diagnostic_scope_uses_run_ownership_and_revision() {
+        let (_dir, db) = temp_db();
+        let (mut snapshot, failed_id, repair_id) = repaired_goal_snapshot(&db);
+        snapshot.goal.revision = 2;
+        for run in &mut snapshot.workflow_runs {
+            run.goal_revision = Some(2);
+        }
+        let mut failed = snapshot
+            .evidence
+            .iter()
+            .find(|item| item.relation == "validation_passed")
+            .unwrap()
+            .clone();
+        failed.id = "failed-diagnostic".into();
+        failed.source_type = "diagnostic".into();
+        failed.source_id = format!("{failed_id}:lsp:error");
+        failed.relation = "diagnostic_result".into();
+        failed.created_at = "2000-01-01T00:00:00Z".into();
+        failed.metadata = json!({"runId":failed_id,"goalRevision":999,"goalCriterionId":"untrusted-criterion","status":"failed","severity":"error","path":"/repo/src/lib.rs"});
+        let mut clean = failed.clone();
+        clean.id = "clean-diagnostic".into();
+        clean.source_id = format!("{repair_id}:lsp:summary");
+        clean.created_at = "2001-01-01T00:00:00Z".into();
+        clean.metadata = json!({"runId":repair_id,"goalRevision":2,"status":"passed","errors":0,"path":"/repo/src/lib.rs"});
+        snapshot.evidence = vec![failed.clone(), clean.clone()];
+        assert_eq!(
+            evidence_audit_scope(&snapshot, &failed),
+            Some((None, 2)),
+            "persisted run overrides forged metadata"
+        );
+        assert!(newer_matching_evidence(
+            &snapshot,
+            &failed,
+            diagnostic_result_is_clean
+        ));
+        assert!(active_blocking_evidence(&snapshot).is_empty());
+        for boundary in [
+            "goal",
+            "session",
+            "criterion",
+            "revision",
+            "missing_revision",
+            "missing_run",
+            "run_metadata",
+            "source_id",
+            "missing_metadata",
+        ] {
+            let mut other = snapshot.clone();
+            let run = other
+                .workflow_runs
+                .iter_mut()
+                .find(|run| run.id == repair_id)
+                .unwrap();
+            match boundary {
+                "goal" => run.goal_id = Some("foreign-goal".into()),
+                "session" => run.session_id = "foreign-session".into(),
+                "criterion" => run.goal_criterion_id = Some("foreign-criterion".into()),
+                "revision" => run.goal_revision = Some(3),
+                "missing_revision" => run.goal_revision = None,
+                "missing_run" => other.workflow_runs.retain(|run| run.id != repair_id),
+                "run_metadata" => other.evidence[1].metadata["runId"] = json!(failed_id),
+                "source_id" => other.evidence[1].source_id = "wfr_other:lsp:summary".into(),
+                "missing_metadata" => {
+                    other.evidence[1]
+                        .metadata
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("runId");
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                !newer_matching_evidence(&other, &failed, diagnostic_result_is_clean),
+                "{boundary}"
+            );
+            if boundary != "criterion" {
+                assert!(
+                    !evidence_is_current_revision(&other, &other.evidence[1]),
+                    "must not fall back to supplied revision metadata: {boundary}"
+                );
+            }
+        }
+        snapshot.goal.revision = 3;
+        assert!(
+            newer_matching_evidence(&snapshot, &failed, diagnostic_result_is_clean),
+            "same historical revision repair stays resolved"
+        );
+        assert!(
+            !evidence_is_current_revision(&snapshot, &clean),
+            "historical clean result cannot satisfy current owner revision"
+        );
+        snapshot.goal.revision = 1;
+        for run in &mut snapshot.workflow_runs {
+            run.goal_revision = None;
+        }
+        assert!(
+            newer_matching_evidence(&snapshot, &failed, diagnostic_result_is_clean),
+            "initial legacy run can be inferred"
+        );
+        snapshot.goal.revision = 2;
+        assert!(
+            !newer_matching_evidence(&snapshot, &failed, diagnostic_result_is_clean),
+            "unversioned run cannot be inferred after owner edit"
+        );
+    }
+
+    #[test]
     fn goal_workflow_repair_rejects_other_scope_old_parallel_run_and_authority_failures() {
         let (_dir, db) = temp_db();
         let (snapshot, failed_id, repair_id) = repaired_goal_snapshot(&db);
@@ -7334,10 +7448,39 @@ mod tests {
 
     #[test]
     fn workflow_lsp_diagnostics_link_goal_blocker_until_clean_result() {
+        assert_workflow_lsp_diagnostic_repair(false, false);
+    }
+
+    #[test]
+    fn workflow_lsp_diagnostics_after_owner_revision_accept_clean_result() {
+        assert_workflow_lsp_diagnostic_repair(true, false);
+    }
+
+    #[test]
+    fn workflow_lsp_diagnostics_after_owner_revision_accept_validation() {
+        assert_workflow_lsp_diagnostic_repair(true, true);
+    }
+
+    fn assert_workflow_lsp_diagnostic_repair(owner_revision: bool, validation_repair: bool) {
         let (_dir, db) = temp_db();
         let session = db.create_session("ha-main").expect("create session");
         let goal = create_goal_for_session(&db, &session.id);
+        let goal = if owner_revision {
+            db.update_goal(UpdateGoalInput {
+                goal_id: goal.goal.id,
+                objective: Some("revised owner contract with diagnostics".into()),
+                completion_criteria: None,
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+            })
+            .expect("owner edits Goal before Workflow diagnostics")
+        } else {
+            goal
+        };
         let run = create_workflow(&db, &session.id, Some(goal.goal.id.clone()));
+        assert_eq!(run.goal_revision, Some(if owner_revision { 2 } else { 1 }));
 
         db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test_start"))
             .expect("start run");
@@ -7441,31 +7584,35 @@ mod tests {
                 .is_some_and(|text| text.contains("mismatched types"))
         }));
 
-        db.upsert_workflow_op_started(UpsertWorkflowOpInput {
-            run_id: run.id.clone(),
-            op_key: "lsp-3".to_string(),
-            op_type: "tool:lsp".to_string(),
-            effect_class: WorkflowEffectClass::Pure,
-            input: json!({
-                "name": "lsp",
-                "args": { "action": "diagnostics" },
-            }),
-            child_handle: None,
-        })
-        .expect("start workspace clean lsp op");
-        db.complete_workflow_op(
-            &run.id,
-            "lsp-3",
-            Value::String(
-                json!({
-                    "action": "diagnostics",
-                    "workspaceRoot": "/repo",
-                    "diagnostics": [],
-                })
-                .to_string(),
-            ),
-        )
-        .expect("complete workspace clean diagnostics");
+        if validation_repair {
+            record_repair_validation(&db, &run, "diagnostic-repair-validation", true);
+        } else {
+            db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+                run_id: run.id.clone(),
+                op_key: "lsp-3".to_string(),
+                op_type: "tool:lsp".to_string(),
+                effect_class: WorkflowEffectClass::Pure,
+                input: json!({
+                    "name": "lsp",
+                    "args": { "action": "diagnostics" },
+                }),
+                child_handle: None,
+            })
+            .expect("start workspace clean lsp op");
+            db.complete_workflow_op(
+                &run.id,
+                "lsp-3",
+                Value::String(
+                    json!({
+                        "action": "diagnostics",
+                        "workspaceRoot": "/repo",
+                        "diagnostics": [],
+                    })
+                    .to_string(),
+                ),
+            )
+            .expect("complete workspace clean diagnostics");
+        }
 
         let clean = db
             .evaluate_goal(&goal.goal.id)
