@@ -4227,8 +4227,8 @@ fn active_blocking_evidence(snapshot: &GoalSnapshot) -> Vec<&GoalEvidenceItem> {
             "validation_failed" => !newer_matching_evidence(snapshot, item, |candidate| {
                 candidate.relation == "validation_passed"
             }),
-            "workflow_failed" => !evidence_workflow_run(snapshot, item)
-                .is_some_and(|run| completed_workflow_repair(snapshot, run).is_some()),
+            "workflow_failed" => evidence_workflow_run(snapshot, item)
+                .is_none_or(|run| completed_workflow_repair(snapshot, run).is_none()),
             "workflow_blocked" | "workflow_cancelled" => true,
             "review_finding" => review_finding_is_blocking(item),
             "domain_quality_failed" | "domain_quality_blocked" | "domain_quality_needs_user" => {

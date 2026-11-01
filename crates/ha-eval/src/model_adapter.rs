@@ -827,8 +827,9 @@ async fn run_hope_core_scenario(
             artifacts: Vec::new(),
             error: Some(format_failure_with_cleanup(
                 format!(
-                    "Hope server returned HTTP {}; body sha256:{}",
+                    "Hope server returned HTTP {}; reason: {}; body sha256:{}",
                     status,
+                    http_error_hint(&bytes),
                     sha256_bytes(&bytes)
                 ),
                 cleanup_error,
@@ -977,8 +978,8 @@ async fn run_hope_core_scenario(
                             artifacts: Vec::new(),
                             error: Some(format_failure_with_cleanup(
                                 format!(
-                                    "Hope scripted turn returned HTTP {status}; body sha256:{}",
-                                    sha256_bytes(&bytes)
+                                    "Hope scripted turn returned HTTP {status}; reason: {}; body sha256:{}",
+                                    http_error_hint(&bytes), sha256_bytes(&bytes)
                                 ),
                                 cleanup_error,
                             )),
@@ -3144,11 +3145,28 @@ fn empty_failure_result(
     }
 }
 
+fn http_error_hint(bytes: &[u8]) -> String {
+    let value = serde_json::from_slice::<Value>(bytes).ok();
+    let message = value
+        .as_ref()
+        .and_then(|v| v.get("error"))
+        .and_then(Value::as_str);
+    message
+        .map(sanitize_error)
+        .unwrap_or_else(|| "non-JSON or missing error detail".to_string())
+}
+
 fn sanitize_error(error: &str) -> String {
     let lower = error.to_ascii_lowercase();
     if [
         "bearer ",
         "sk-",
+        "sk_",
+        "eyj",
+        "access_token",
+        "refresh_token",
+        "password",
+        "secret",
         "api_key",
         "apikey",
         "token=",
@@ -3162,9 +3180,8 @@ fn sanitize_error(error: &str) -> String {
             sha256_bytes(error.as_bytes())
         );
     }
-    let mut output = error.replace(['\r', '\n'], " ");
-    output.truncate(2_000);
-    output
+    let output = ha_core::logging::redact_sensitive(&error.replace(['\r', '\n'], " "));
+    ha_core::truncate_utf8(&output, 2_000).to_string()
 }
 
 fn merge_checks(
@@ -4359,5 +4376,30 @@ mod tests {
                 status, body, trigger, ready
             ));
         }
+    }
+    #[test]
+    fn http_error_hints_preserve_diagnostics_without_credentials_or_utf8_panics() {
+        assert_eq!(
+            http_error_hint(br#"{"error":"synthetic admission conflict"}"#),
+            "synthetic admission conflict"
+        );
+        for message in [
+            "Bearer synthetic-credential",
+            "sk_synthetic_credential",
+            "eyJsynthetic.jwt.value",
+            "access_token=sensitive",
+        ] {
+            let value = serde_json::to_vec(&json!({"error":message})).unwrap();
+            let hint = http_error_hint(&value);
+            assert!(hint.starts_with("[REDACTED"));
+            assert!(!hint.contains(message));
+        }
+        let value = serde_json::to_vec(&json!({"error":"评测错误".repeat(1000)})).unwrap();
+        let hint = http_error_hint(&value);
+        assert!(hint.len() <= 2000);
+        assert_eq!(
+            http_error_hint(b"not JSON"),
+            "non-JSON or missing error detail"
+        );
     }
 }

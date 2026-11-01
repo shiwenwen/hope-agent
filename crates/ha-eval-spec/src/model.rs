@@ -966,7 +966,7 @@ fn validate_model_trace_inner(
         }
         if records.len() == 1
             && records[0].status == "started"
-            && !(allow_incomplete && !trace.closed)
+            && (!allow_incomplete || trace.closed)
         {
             bail!("{label} span {span_id} has no terminal lifecycle event");
         }
