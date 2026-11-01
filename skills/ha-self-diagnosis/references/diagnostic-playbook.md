@@ -311,3 +311,5 @@ gotcha that most often explains a failure. Open every DB read-only.
 若草稿修订后文件检查通过但 Goal 仍引用旧契约，先核对脚本是否真正经过 owner 控制面修订，而非仅发送模型无权执行的改约文字。编排 1.18.0 / 上下文 1.0.11 记录 `scripted_owner_goal_revision` 和严格修订号检查；不要放宽完成审计或忽略审批、取消及阻塞历史来消除失败。
 
 编排 1.19.0 / 上下文 1.0.12 的取消、拒绝审批脚本只等待父会话接纳权，不清空子任务。检查 `scripted_admission_*`、真实活动子任务及终态：只有类型化 `409 chat_admission_busy` 可重新接纳；500 中的 active_stream 文字本身不是自动重放依据。旧 HA-GL-003 的第三轮 Loop 故障与只读设置矛盾，预览应拒绝；新版只验证状态观测和一次实际工具环境反馈，不能据此宣称多轮 Loop 验收。
+
+编排 1.20.0 的子执行取消通过无参数 `stop_parent` 用户步骤调用既有 owner Stop，并先检查真实 running 子执行归属。仅留下后台进程但子 Agent 已返回 completed，不构成“取消正在执行的子 Agent”的前置条件。若 Goal 改约后旧 runtime_error 再度阻塞，核对失败与其原修订成功验证是否已经匹配；已解决的历史不能复活，旧成功也不能替代当前修订验收，审批/取消边界不放宽。

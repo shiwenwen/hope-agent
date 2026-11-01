@@ -227,6 +227,10 @@ Milestone 必须形成 DAG，支持 `requires`、`anyOf`、blocking、weight、d
 
 编排 `1.19.0` / 上下文 `1.0.12` 在脚本消息前读取真实 `stream-state`，仅等待父会话接纳权空闲，不等待取消目标子任务自然结束。若发生竞态，只有生产接纳边界在用户消息、轮次持久化及模型派发前返回的 `409 + code=chat_admission_busy` 可重新尝试接纳；普通 500、429、传输异常和已接纳调用不自动重放。接纳等待计入环境等待时间，采用有界死锁熔断。取消用例要求存在活动子任务，并以有界真实工具等待作为取消目标。
 
+编排 `1.20.0` 更新 Goal 改约和子执行取消场景。`stop_parent` 是不带参数的单独用户步骤：Runner 先确认当前会话仍有真实 running 子执行，再调用既有 owner `POST /api/chat/stop`，不再启动模型自取消对话。只在隔离评测进程、注册根会话和对应故障上记录真实 owner Stop 事件；清理不能冒充用户取消。子执行须保持前台阻塞，不能先返回完成再只留下后台进程。独立的 killed 子执行、产物不存在和工作结算验收继续有效。
+
+Goal 历史运行错误与真实成功验证仍必须属于同一 Goal、会话、完成条件和修订。用户改约后，这一历史修复关系继续有效，但旧修订的成功不充当当前修订的完成证据；审批、取消及没有可靠版本归属的阻塞仍沿原规则处理。
+
 HA-GL-003 的真实模型用例改为“Loop 控制面观测与一次工具环境反馈恢复”：既有 owner 配置只允许查询 Loop，不能声称验证第三轮 Loop 的无进展收敛。新版改用可达的工作区工具反馈故障；读取旧版这类不具备执行前置条件的场景时，预览即拒绝派发。Loop 无进展规则由 `no_progress_backoff_then_blocks_after_threshold` 等确定性单元检查覆盖；本用例不构成多轮真实模型验收。
 
 
@@ -250,7 +254,7 @@ HA-GL-003 的真实模型用例改为“Loop 控制面观测与一次工具环�
 - control 只验证正常任务、产物与控制面终态。当前公开文件任务仍是合成 JSON / SHA-256 验证；Loop 状态查询不能证明多轮调度，未执行的故障臂不能证明场景标题中的恢复、竞态或安全能力。业务产物通过率、机制 / 终态通过率和等待用户的失败需分别报告。跨 `1.9.0` / `1.15.0` 成绩属于环境修复前后诊断，不直接作为模型能力排名。
 - Model gateway、tool、scheduler、process、storage、user、environment 故障分开归因；重启从 durable row 恢复 trial 身份与剩余预算。
 - blocking 场景优先用 `scripted_fsm`，允许受审 `replay`；LLM User 只用于探索，固定模型 / Prompt / 预算并与 Agent 成本分开，**不得决定本地 required case 的 pass/fail**。
-- `scripted-user-flow.v1` 继续只支持消息轮次；`scripted-user-flow.v2` 使用带标签步骤，当前注册 `message`、`compact_context` 与受限 `update_goal`。后者调用生产 `POST /api/sessions/{id}/compact`，并要求真实第 3 层摘要满足 `tierApplied=3`、`description=summarized`、词元数下降且确实影响消息；Manifest 不能借此携带任意 HTTP 动作。
+- `scripted-user-flow.v1` 继续只支持消息轮次；`scripted-user-flow.v2` 使用带标签步骤，当前注册 `message`、`compact_context`、受限 `update_goal` 与 `stop_parent`。其中 `compact_context` 调用生产 `POST /api/sessions/{id}/compact`，并要求真实第 3 层摘要满足 `tierApplied=3`、`description=summarized`、词元数下降且确实影响消息；Manifest 不能借此携带任意 HTTP 动作。
 - 用户改需求、拒绝审批、取消等事件，执行前后都检查持久状态，确保事件确实命中预定阶段，而不是只在日志里出现。
 - 强制进程重启无法执行调用守卫的析构：若重启前仍有子执行器或后台模型工作，合并证据保留已完成调用，但归因降为 `partial`，试次 Token / 总费用未知，并记录 `process.restart.interruptedWorkAtRestart`；不能把未上报部分视为零或伪造逐次用量。
 - infra retry 保留原 attempt、累计用量和独立 trace，**不能重置成本或覆盖失败证据**。

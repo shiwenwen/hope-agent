@@ -2348,14 +2348,23 @@ pub async fn stop_chat(
             already_signalled,
         )
         .await;
-        return Ok(Json(StopChatResult::from_session_outcome(
+        let result = StopChatResult::from_session_outcome(
             if body.session_id.is_some() {
                 "session"
             } else {
                 "request"
             },
             outcome,
-        )));
+        );
+        if body.session_id.is_some()
+            && body.turn_id.is_none()
+            && body.client_request_id.is_none()
+            && result.stopped
+            && !result.turn_mismatch
+        {
+            ha_core::eval_context::record_scripted_owner_stop(sid);
+        }
+        return Ok(Json(result));
     }
 
     if !global_stop {

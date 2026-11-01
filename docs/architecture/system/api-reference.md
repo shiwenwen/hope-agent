@@ -854,6 +854,8 @@ Loop owner API 管理 session-scoped 重复触发器：`create_loop_schedule` �
 封住 active-turn 注册前的竞态，已有 `turnId` 后以精确 turn 为准；session 与 request
 绑定不一致时不得跨会话取消。`sessionId` 与 `clientRequestId` 都缺失才表示全局停止。
 
+隔离评测中的 owner 会话 Stop 仍调用此生产入口；只有实际 stopped、无 turnMismatch、已注册根会话及匹配的取消故障才记录无载荷用户事件。普通运行、子会话、全局 Stop 与评测清理不会由此制造取消证据。
+
 三种入口在定位 session 后共用 core Stop 编排：先同步发出 cancel/`cancelling`/watchdog，再以
 有界等待并行收敛 DB、审批、`ask_user` 与 session-owned runtime；响应超时不取消已经启动的
 后台清理。全局停止同样走 core `stop_all_sessions`，HTTP / Tauri 只先翻转 transport-local

@@ -1849,6 +1849,44 @@ fn activate_passive_faults(
     }
 }
 
+/// Owner HTTP Stop is a user action, not a model turn. Cleanup does not call
+/// this entry, and ordinary processes cannot manufacture evaluation evidence.
+#[doc(hidden)]
+pub fn record_scripted_owner_stop(session_id: &str) {
+    if model_eval_mode_enabled() {
+        record_registered_owner_stop(session_id);
+    }
+}
+
+fn record_registered_owner_stop(session_id: &str) {
+    with_trial_for_session(session_id, |trial, parent_span_id| {
+        if trial.root_closed
+            || trial.root_session_id != session_id
+            || !trial.context.faults.iter().any(|fault| {
+                fault.kind == EvalFaultKind::UserEvent
+                    && fault.trigger == "cancel_parent_during_child_tool"
+                    && trial.fault_activations.get(&fault.id).copied().unwrap_or(0)
+                        < fault.max_activations
+            })
+        {
+            return;
+        }
+        activate_passive_faults(
+            trial,
+            EvalFaultKind::UserEvent,
+            Some("cancel_parent_during_child_tool"),
+            &parent_span_id,
+        );
+        trial.push_leaf_event(
+            "user.stop",
+            Some(session_id.to_string()),
+            "requested",
+            0,
+            parent_span_id,
+        );
+    });
+}
+
 /// Record a bounded, payload-free lifecycle transition from a durable Hope
 /// control plane. Callers pass only stable IDs and enum-like status strings;
 /// prompts, tool arguments, database rows, and error bodies never enter the
@@ -2184,6 +2222,57 @@ mod tests {
             faults: Vec::new(),
             budget: EvalBudgetLimits::default(),
         }
+    }
+
+    #[test]
+    fn owner_stop_fault_is_scoped_to_registered_root_and_activates_once() {
+        let mut ctx = context();
+        ctx.trial_id = "mtrial_owner_stop".into();
+        ctx.arm = "faulted".into();
+        ctx.fault_profile = "chaos".into();
+        ctx.faults = vec![EvalFaultDirective {
+            id: "stop-event".into(),
+            kind: EvalFaultKind::UserEvent,
+            trigger: "cancel_parent_during_child_tool".into(),
+            params: Default::default(),
+            max_activations: 1,
+        }];
+        let root = register_http_turn_session("owner-stop-root", ctx.clone()).unwrap();
+        let child =
+            register_child_session_from_parent("owner-stop-root", "owner-stop-child", ctx).unwrap();
+        record_registered_owner_stop("owner-stop-child");
+        record_registered_owner_stop("foreign-root");
+        assert!(
+            !telemetry_snapshot("mtrial_owner_stop").unwrap()["observedSignals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == "fault")
+        );
+        record_registered_owner_stop("owner-stop-root");
+        record_registered_owner_stop("owner-stop-root");
+        let snapshot = telemetry_snapshot("mtrial_owner_stop").unwrap();
+        assert_eq!(
+            snapshot["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|event| event["event"] == "fault.activated")
+                .count(),
+            1
+        );
+        assert_eq!(
+            snapshot["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|event| event["event"] == "user.stop")
+                .count(),
+            1
+        );
+        drop(child);
+        drop(root);
+        finish_trial_root("mtrial_owner_stop").unwrap();
     }
 
     #[test]

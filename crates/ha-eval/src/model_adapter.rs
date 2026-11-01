@@ -76,6 +76,7 @@ enum ScriptedUserStep {
         #[serde(default, rename = "delayMs")]
         delay_ms: u64,
     },
+    StopParent {},
     UpdateGoal {
         objective: String,
         #[serde(rename = "completionCriteria")]
@@ -1044,6 +1045,18 @@ async fn run_hope_core_scenario(
                         break;
                     }
                 }
+                ScriptedUserStep::StopParent { .. } => {
+                    scripted_action_checks.push(
+                        apply_scripted_owner_stop(
+                            &client,
+                            server_url,
+                            token.as_deref(),
+                            &chat.session_id,
+                        )
+                        .await?,
+                    );
+                    break;
+                }
                 ScriptedUserStep::UpdateGoal {
                     objective,
                     completion_criteria,
@@ -1491,6 +1504,88 @@ async fn send_scripted_user_turn(
     }
 }
 
+async fn apply_scripted_owner_stop(
+    client: &Client,
+    server_url: &str,
+    token: Option<&str>,
+    session_id: &str,
+) -> Result<ModelCampaignCheck> {
+    let token = token
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow!("scripted Stop requires owner authentication"))?;
+    if session_id.is_empty()
+        || session_id.len() > 128
+        || !session_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        bail!("scripted Stop has an invalid Session identity");
+    }
+    let response = client
+        .get(format!("{server_url}/api/subagent/runs"))
+        .query(&[("sessionId", session_id)])
+        .bearer_auth(token)
+        .send()
+        .await?;
+    let status = response.status();
+    let before = response.bytes().await?;
+    if !status.is_success() {
+        bail!(
+            "scripted Stop child lookup returned HTTP {status}; body sha256:{}",
+            sha256_bytes(&before)
+        );
+    }
+    let runs: Value = serde_json::from_slice(&before)?;
+    let active = runs
+        .as_array()
+        .ok_or_else(|| anyhow!("scripted Stop child lookup is not a list"))?
+        .iter()
+        .filter(|run| {
+            run.get("parentSessionId").and_then(Value::as_str) == Some(session_id)
+                && matches!(
+                    run.get("status").and_then(Value::as_str),
+                    Some("running" | "spawning")
+                )
+        })
+        .count();
+    if active == 0 {
+        return Ok(ModelCampaignCheck {
+            id: "scripted_owner_stop".into(),
+            passed: false,
+            blocking: true,
+            detail:
+                "no running child executor remained; no Stop dispatched and cancellation not proven"
+                    .into(),
+            metric: Some(0.0),
+            artifact_hashes: vec![sha256_bytes(&before)],
+        });
+    }
+    let response = client
+        .post(format!("{server_url}/api/chat/stop"))
+        .bearer_auth(token)
+        .json(&json!({"sessionId":session_id}))
+        .send()
+        .await?;
+    let status = response.status();
+    let bytes = response.bytes().await?;
+    if !status.is_success() {
+        bail!(
+            "scripted owner Stop returned HTTP {status}; body sha256:{}",
+            sha256_bytes(&bytes)
+        );
+    }
+    let result: Value = serde_json::from_slice(&bytes)?;
+    let passed = result.get("scope").and_then(Value::as_str) == Some("session")
+        && result.get("stopped").and_then(Value::as_bool) == Some(true)
+        && result.get("turnMismatch").and_then(Value::as_bool) == Some(false)
+        && result
+            .get("runtimeCancellationError")
+            .is_none_or(Value::is_null);
+    Ok(ModelCampaignCheck{id:"scripted_owner_stop".into(),passed,blocking:true,
+        detail:format!("owner Stop targeted only current Session with {active} running children; independent killed-child, absent-artifact and closed-trace checks remain mandatory"),
+        metric:Some(active as f64),artifact_hashes:vec![sha256_bytes(&before),sha256_bytes(&bytes)]})
+}
+
 async fn apply_scripted_goal_revision(
     client: &Client,
     server_url: &str,
@@ -1592,12 +1687,17 @@ fn process_restart_phase_instruction(trigger: &str) -> &'static str {
 }
 
 fn user_event_phase_instruction(trigger: &str, profile: &str) -> &'static str {
+    if profile == "eval-control-plane-ready-v11" && trigger == "cancel_parent_during_child_tool" {
+        return "\n\n评测用户事件阶段：启动真实 Subagent/Team 子任务，令至少一个子执行器在前台阻塞工具调用中运行有界等待（例如 Python time.sleep(300)）。禁止 background/异步提交，子 Agent 在等待期间不能自行返回完成。确认子执行器仍为 running 后立即回复 WAITING_FOR_USER_EVENT，不等待或消费子结果，不写最终交付物。Runner 将通过用户控制面的 Stop 取消当前父会话及其子执行，不会要求模型再发起一轮自取消对话。";
+    }
     if profile == "eval-control-plane-ready-v10" && trigger == "cancel_parent_during_child_tool" {
         return "\n\n评测用户事件阶段：启动真实 Subagent/Team 子任务，让至少一个子执行器用 exec 运行有界等待（例如 Python time.sleep(300)），作为必须被取消的真实工具进程。确认它仍在执行后立即回复 WAITING_FOR_USER_EVENT；不要等待或消费子结果，不要创建最终交付物。后续用户消息会要求取消父任务和全部子执行。";
     }
     if matches!(
         profile,
-        "eval-control-plane-ready-v9" | "eval-control-plane-ready-v10"
+        "eval-control-plane-ready-v9"
+            | "eval-control-plane-ready-v10"
+            | "eval-control-plane-ready-v11"
     ) && matches!(
         trigger,
         "after_first_draft" | "narrow_time_range_after_draft"
@@ -2295,6 +2395,13 @@ fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<Scripted
         other => bail!("unsupported scripted user flow schema {other}"),
     };
 
+    if steps
+        .iter()
+        .any(|step| matches!(step, ScriptedUserStep::StopParent { .. }))
+        && steps.len() != 1
+    {
+        bail!("stop_parent must be the sole scripted owner action");
+    }
     let message_steps = steps
         .iter()
         .filter(|step| matches!(step, ScriptedUserStep::Message { .. }))
@@ -2311,6 +2418,7 @@ fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<Scripted
                     bail!("scripted user flow contains an invalid message step");
                 }
             }
+            ScriptedUserStep::StopParent { .. } => {}
             ScriptedUserStep::UpdateGoal {
                 objective,
                 completion_criteria,
@@ -2374,10 +2482,27 @@ pub(crate) fn validate_harness_preconditions(
     let steps = load_scripted_user_steps(scenario_dir, scenario)?;
     if steps
         .iter()
+        .any(|step| matches!(step, ScriptedUserStep::StopParent { .. }))
+        && (scenario.subject.config_profile != "eval-control-plane-ready-v11"
+            || !scenario
+                .capabilities
+                .iter()
+                .any(|value| matches!(value.to_ascii_lowercase().as_str(), "subagent" | "team"))
+            || !scenario.faults.iter().any(|fault| {
+                fault.kind == FaultKind::UserEvent
+                    && fault.trigger == "cancel_parent_during_child_tool"
+            }))
+    {
+        bail!("stop_parent requires a registered v11 parent-cancellation scenario");
+    }
+    if steps
+        .iter()
         .any(|step| matches!(step, ScriptedUserStep::UpdateGoal { .. }))
         && (!matches!(
             scenario.subject.config_profile.as_str(),
-            "eval-control-plane-ready-v9" | "eval-control-plane-ready-v10"
+            "eval-control-plane-ready-v9"
+                | "eval-control-plane-ready-v10"
+                | "eval-control-plane-ready-v11"
         ) || !scenario
             .capabilities
             .iter()
@@ -3572,6 +3697,7 @@ pub(crate) fn scenario_has_ready_control_plane(scenario: &LiveAgentScenario) -> 
             | "eval-control-plane-ready-v8"
             | "eval-control-plane-ready-v9"
             | "eval-control-plane-ready-v10"
+            | "eval-control-plane-ready-v11"
     )
 }
 
@@ -3588,7 +3714,7 @@ fn scenario_initial_goal(
             // objective. Keep historical/faulted fixtures unchanged.
             let objective = if matches!(scenario.subject.config_profile.as_str(),
                 "eval-control-plane-ready-v3" | "eval-control-plane-ready-v4"
-                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7" | "eval-control-plane-ready-v8" | "eval-control-plane-ready-v9" | "eval-control-plane-ready-v10")
+                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7" | "eval-control-plane-ready-v8" | "eval-control-plane-ready-v9" | "eval-control-plane-ready-v10" | "eval-control-plane-ready-v11")
                 && fault_profile == FaultProfile::Clean
             {
                 format!(
@@ -3640,6 +3766,7 @@ fn scripted_revision_requires_settlement(profile: &str, trigger: &str) -> bool {
         "eval-control-plane-ready-v8"
             | "eval-control-plane-ready-v9"
             | "eval-control-plane-ready-v10"
+            | "eval-control-plane-ready-v11"
     ) && matches!(
         trigger,
         "after_first_draft" | "narrow_time_range_after_draft"
@@ -3741,6 +3868,7 @@ fn observes_trial_completion(config_profile: &str, unlimited_budget: bool) -> bo
                 | "eval-control-plane-ready-v8"
                 | "eval-control-plane-ready-v9"
                 | "eval-control-plane-ready-v10"
+                | "eval-control-plane-ready-v11"
         )
 }
 
@@ -5002,5 +5130,85 @@ mod tests {
         );
         let repaired: LiveAgentScenario = read_json(&root.join("1.19.0/scenario.json")).unwrap();
         validate_harness_preconditions(&root.join("1.19.0"), &repaired).unwrap();
+    }
+    #[test]
+    fn scripted_stop_cannot_carry_targets_or_be_followed_by_model_input() {
+        let stop = json!({"action":"stop_parent"});
+        assert!(parse_scripted_user_flow(
+            json!({"schemaVersion":"scripted-user-flow.v2","steps":[stop.clone()]}),
+            1
+        )
+        .is_ok());
+        assert!(parse_scripted_user_flow(json!({"schemaVersion":"scripted-user-flow.v2","steps":[stop,json!({"action":"message","message":"resume"})]}),2).is_err());
+        for key in ["sessionId", "goalId", "headers", "url"] {
+            let mut action = json!({"action":"stop_parent"});
+            action[key] = json!("forbidden");
+            assert!(
+                parse_scripted_user_flow(
+                    json!({"schemaVersion":"scripted-user-flow.v2","steps":[action]}),
+                    1
+                )
+                .is_err(),
+                "{key}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn owner_stop_checks_actual_running_child_scope_and_never_uses_global_stop() {
+        use axum::{
+            routing::{get, post},
+            Json, Router,
+        };
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        for (parent, status, expected) in [
+            ("session-fixture", "running", true),
+            ("session-fixture", "completed", false),
+            ("foreign-session", "running", false),
+        ] {
+            let posts = Arc::new(AtomicUsize::new(0));
+            let count = posts.clone();
+            let app = Router::new()
+                .route(
+                    "/api/subagent/runs",
+                    get(move || async move {
+                        Json(json!([{"parentSessionId":parent,"status":status}]))
+                    }),
+                )
+                .route(
+                    "/api/chat/stop",
+                    post(
+                        move |headers: axum::http::HeaderMap, Json(body): Json<Value>| {
+                            let count = count.clone();
+                            async move {
+                                assert_eq!(
+                                    headers.get("authorization").unwrap(),
+                                    "Bearer test-owner"
+                                );
+                                assert_eq!(body, json!({"sessionId":"session-fixture"}));
+                                count.fetch_add(1, Ordering::SeqCst);
+                                Json(json!({"scope":"session","stopped":true,"turnMismatch":false}))
+                            }
+                        },
+                    ),
+                );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let client = Client::builder().no_proxy().build().unwrap();
+            assert_eq!(
+                apply_scripted_owner_stop(&client, &url, Some("test-owner"), "session-fixture")
+                    .await
+                    .unwrap()
+                    .passed,
+                expected
+            );
+            assert_eq!(posts.load(Ordering::SeqCst), usize::from(expected));
+            server.abort();
+            let _ = server.await;
+        }
     }
 }

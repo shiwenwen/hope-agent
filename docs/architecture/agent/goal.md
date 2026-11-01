@@ -476,3 +476,5 @@ Goal 是终点与完成证据，不是执行引擎，也不是持续调度器：
 - follow-up pool 迁到独立 task / backlog 的批量治理，是后续方向而非当前范围。
 
 统一状态展示不写 Goal state，见 [Agent Control Activity Projection](agent-control.md)：Goal completed 但 closure 未确认时显示 `waiting_user`；accepted / cancelled 等已封存 Goal 在没有更高优先级活动时显示 `terminal`。后续最值得补的方向是更严格的真实运行 evidence profile、follow-up pool 批量治理，以及与 Loop progress guard 的更深联动。
+
+用户改约不应重新激活已经解决的历史运行错误：失败运行与其真实成功验证仍须在同一 Goal、会话、完成条件和原修订内匹配。审计保留这一历史修复关系，当前修订仍独立要求新验证。跨修订的成功不能修复另一个修订的失败；审批、取消和无法确认修订归属的历史阻塞保持原裁决。

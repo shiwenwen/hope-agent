@@ -3716,10 +3716,9 @@ fn build_goal_rule_audit(snapshot: &GoalSnapshot) -> Value {
         ));
     }
 
-    let has_strong_positive = snapshot
-        .evidence
-        .iter()
-        .any(goal_evidence_is_strong_positive);
+    let has_strong_positive = snapshot.evidence.iter().any(|item| {
+        evidence_is_current_revision(snapshot, item) && goal_evidence_is_strong_positive(item)
+    });
     if !has_strong_positive {
         missing.push(
             "No final workflow completion, passing validation, or completed task evidence yet."
@@ -3885,7 +3884,7 @@ fn build_goal_rule_audit(snapshot: &GoalSnapshot) -> Value {
         "ruleGate": {
             "status": if blockers.is_empty() && missing.is_empty() && required_criteria_passed { "passed" } else { "blocked" },
             "hardBlockers": active_blockers.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
-            "strongEvidence": snapshot.evidence.iter().filter(|item| goal_evidence_is_strong_positive(item)).map(|item| item.id.clone()).collect::<Vec<_>>(),
+            "strongEvidence": snapshot.evidence.iter().filter(|item| evidence_is_current_revision(snapshot,item) && goal_evidence_is_strong_positive(item)).map(|item| item.id.clone()).collect::<Vec<_>>(),
             "requiredCriteriaPassed": required_criteria_passed,
             "llmAuditor": {
                 "status": "skipped",
@@ -3980,7 +3979,7 @@ fn build_goal_criteria_audit(snapshot: &GoalSnapshot) -> Vec<GoalCriterionAudit>
                 }
             } else {
                 let supporting =
-                    supporting_evidence_for_criterion(&item.id, &item.text, &snapshot.evidence);
+                    supporting_evidence_for_criterion(&item.id, &item.text, snapshot);
                 let expected_supporting = if item.expected_evidence.is_empty() {
                     supporting.clone()
                 } else {
@@ -4055,10 +4054,13 @@ fn build_goal_criteria_audit(snapshot: &GoalSnapshot) -> Vec<GoalCriterionAudit>
 fn supporting_evidence_for_criterion<'a>(
     criterion_id: &str,
     criterion: &str,
-    evidence: &'a [GoalEvidenceItem],
+    snapshot: &'a GoalSnapshot,
 ) -> Vec<&'a GoalEvidenceItem> {
     let mut out = Vec::new();
-    for item in evidence {
+    for item in &snapshot.evidence {
+        if !evidence_is_current_revision(snapshot, item) {
+            continue;
+        }
         if let Some(bound_id) = evidence_goal_criterion_id(item) {
             if bound_id == criterion_id {
                 out.push(item);
@@ -4159,6 +4161,44 @@ fn evidence_audit_scope<'a>(
     Some((evidence_goal_criterion_id(item), revision))
 }
 
+// Historical resolution and current acceptance are separate questions. A
+// validated repair stays resolved in its original revision; only new evidence
+// can satisfy the current owner contract.
+fn evidence_is_current_revision(snapshot: &GoalSnapshot, item: &GoalEvidenceItem) -> bool {
+    if let Some((_, revision)) = evidence_audit_scope(snapshot, item) {
+        return revision == snapshot.goal.revision;
+    }
+    if snapshot.goal.revision == 1 {
+        return true;
+    }
+    // Never infer an unversioned Workflow's contract after an edit.
+    if item.source_type == "workflow_run"
+        || (item.source_type == "validation"
+            && (item.source_id.starts_with("wfr_") || item.metadata.get("runId").is_some()))
+    {
+        return false;
+    }
+    // Legacy task/manual evidence has no revision column. Its server-owned
+    // timestamp must follow the explicit owner update for this exact revision.
+    let boundary = snapshot
+        .events
+        .iter()
+        .filter(|event| {
+            event.goal_id == snapshot.goal.id
+                && event.kind == "goal_updated"
+                && event
+                    .payload
+                    .pointer("/next/revision")
+                    .and_then(Value::as_i64)
+                    == Some(snapshot.goal.revision)
+        })
+        .max_by_key(|event| event.seq);
+    boundary
+        .and_then(|event| chrono::DateTime::parse_from_rfc3339(&event.created_at).ok())
+        .zip(chrono::DateTime::parse_from_rfc3339(&item.created_at).ok())
+        .is_some_and(|(updated, created)| created > updated)
+}
+
 fn newer_matching_evidence(
     snapshot: &GoalSnapshot,
     item: &GoalEvidenceItem,
@@ -4167,7 +4207,7 @@ fn newer_matching_evidence(
     let Some(scope) = evidence_audit_scope(snapshot, item) else {
         return false;
     };
-    scope.1 == snapshot.goal.revision
+    (1..=snapshot.goal.revision).contains(&scope.1)
         && snapshot.evidence.iter().any(|candidate| {
             candidate.created_at > item.created_at
                 && evidence_audit_scope(snapshot, candidate) == Some(scope)
@@ -4179,12 +4219,13 @@ fn completed_workflow_repair<'a>(
     snapshot: &'a GoalSnapshot,
     failed: &WorkflowRun,
 ) -> Option<&'a WorkflowRun> {
+    let failed_revision = workflow_audit_revision(snapshot, failed)?;
     // Cancellation and permission/approval blockers are never repaired by an
     // unrelated success. Their existing owner/approval transitions still apply.
     if failed.state != WorkflowRunState::Failed
         || failed.goal_id.as_deref() != Some(snapshot.goal.id.as_str())
         || failed.session_id != snapshot.goal.session_id
-        || workflow_audit_revision(snapshot, failed) != Some(snapshot.goal.revision)
+        || !(1..=snapshot.goal.revision).contains(&failed_revision)
         || !snapshot.evidence.iter().any(|item| {
             item.source_type == "workflow_run"
                 && item.source_id == failed.id
@@ -4200,7 +4241,7 @@ fn completed_workflow_repair<'a>(
             && candidate.goal_id == failed.goal_id
             && candidate.session_id == failed.session_id
             && candidate.goal_criterion_id == failed.goal_criterion_id
-            && workflow_audit_revision(snapshot, candidate) == Some(snapshot.goal.revision)
+            && workflow_audit_revision(snapshot, candidate) == Some(failed_revision)
             && candidate.created_at.as_str() > failed_at
             && snapshot.evidence.iter().any(|validation| {
                 validation.relation == "validation_passed"
@@ -6769,6 +6810,151 @@ mod tests {
             follow_up_items: vec![],
         })
         .expect("current repaired audit permits owner closure");
+    }
+
+    #[test]
+    fn owner_revision_keeps_historical_repairs_without_reusing_them_as_current_evidence() {
+        let (_dir, db) = temp_db();
+        let (original, failed_id, repair_id) = repaired_goal_snapshot(&db);
+        let updated = db
+            .update_goal(UpdateGoalInput {
+                goal_id: original.goal.id.clone(),
+                objective: Some("new owner contract".into()),
+                completion_criteria: Some("validate the new owner contract".into()),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+            })
+            .unwrap();
+        assert_eq!(updated.goal.revision, 2);
+        assert_eq!(updated.goal.state, GoalState::Active);
+        let failed = updated
+            .workflow_runs
+            .iter()
+            .find(|run| run.id == failed_id)
+            .unwrap();
+        assert_eq!(
+            completed_workflow_repair(&updated, failed).unwrap().id,
+            repair_id
+        );
+        assert!(!active_blocking_evidence(&updated)
+            .iter()
+            .any(|item| item.source_id == failed_id));
+        assert_ne!(
+            db.evaluate_goal(&original.goal.id).unwrap().goal.state,
+            GoalState::Completed
+        );
+        let current = create_workflow(
+            &db,
+            &original.goal.session_id,
+            Some(original.goal.id.clone()),
+        );
+        assert_eq!(current.goal_revision, Some(2));
+        db.transition_workflow_run(&current.id, WorkflowRunState::Running, Some("start"))
+            .unwrap();
+        record_repair_validation(&db, &current, "current-owner-contract", true);
+        db.transition_workflow_run(&current.id, WorkflowRunState::Completed, Some("done"))
+            .unwrap();
+        let completed = db.evaluate_goal(&original.goal.id).unwrap();
+        assert_eq!(completed.goal.state, GoalState::Completed);
+        assert!(completed
+            .workflow_runs
+            .iter()
+            .any(|run| run.id == failed_id && run.state == WorkflowRunState::Failed));
+        let mut wrong_revision = updated.clone();
+        wrong_revision
+            .workflow_runs
+            .iter_mut()
+            .find(|run| run.id == repair_id)
+            .unwrap()
+            .goal_revision = Some(2);
+        let failed = wrong_revision
+            .workflow_runs
+            .iter()
+            .find(|run| run.id == failed_id)
+            .unwrap();
+        assert!(completed_workflow_repair(&wrong_revision, failed).is_none());
+    }
+
+    #[test]
+    fn task_evidence_after_edit_requires_the_actual_owner_update_boundary() {
+        let (_dir, db) = temp_db();
+        let (original, _, _) = repaired_goal_snapshot(&db);
+        db.update_goal(UpdateGoalInput {
+            goal_id: original.goal.id.clone(),
+            objective: Some("revised task evidence".into()),
+            completion_criteria: None,
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
+        })
+        .unwrap();
+        let mut snapshot = db.goal_snapshot(&original.goal.id, 200).unwrap().unwrap();
+        let boundary = snapshot
+            .events
+            .iter()
+            .find(|event| event.kind == "goal_updated")
+            .unwrap()
+            .created_at
+            .clone();
+        let mut evidence = original
+            .evidence
+            .iter()
+            .find(|item| item.relation == "validation_passed")
+            .unwrap()
+            .clone();
+        evidence.source_type = "task".into();
+        evidence.source_id = "legacy-task".into();
+        evidence.relation = "task_completed".into();
+        evidence.metadata = json!({});
+        assert!(!evidence_is_current_revision(&snapshot, &evidence));
+        evidence.created_at = boundary.clone();
+        assert!(!evidence_is_current_revision(&snapshot, &evidence));
+        evidence.created_at = (chrono::DateTime::parse_from_rfc3339(&boundary).unwrap()
+            + chrono::Duration::milliseconds(1))
+        .to_rfc3339();
+        assert!(evidence_is_current_revision(&snapshot, &evidence));
+        snapshot
+            .events
+            .iter_mut()
+            .find(|event| event.kind == "goal_updated")
+            .unwrap()
+            .goal_id = "another-goal".into();
+        assert!(!evidence_is_current_revision(&snapshot, &evidence));
+    }
+
+    #[test]
+    fn historical_validation_resolution_remains_scoped_after_owner_revision() {
+        let (_dir, db) = temp_db();
+        let (mut snapshot, failed_id, _) = repaired_goal_snapshot(&db);
+        let passed = snapshot
+            .evidence
+            .iter()
+            .find(|item| item.relation == "validation_passed")
+            .unwrap()
+            .clone();
+        let mut failed = passed.clone();
+        failed.id = "historical-failed-validation".into();
+        failed.relation = "validation_failed".into();
+        failed.created_at = "2000-01-01T00:00:00Z".into();
+        failed.metadata["ok"] = json!(false);
+        failed.source_id = format!("{failed_id}:old-check");
+        snapshot.evidence.push(failed.clone());
+        snapshot.goal.revision += 1;
+        assert!(newer_matching_evidence(&snapshot, &failed, |item| item
+            .relation
+            == "validation_passed"));
+        let failed_run = snapshot
+            .workflow_runs
+            .iter_mut()
+            .find(|run| run.id == failed_id)
+            .unwrap();
+        failed_run.goal_revision = Some(snapshot.goal.revision);
+        assert!(!newer_matching_evidence(&snapshot, &failed, |item| item
+            .relation
+            == "validation_passed"));
     }
 
     #[test]
