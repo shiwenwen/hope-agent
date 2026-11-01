@@ -1999,7 +1999,7 @@
         },
         "custom": {
           "title": "自訂診斷",
-          "description": "從已註冊 weekly 場景與對照組中選擇有界子集執行。"
+          "description": "從全部已註冊 Hope Core 場景與對照組中選擇有界子集執行。"
         }
       },
       "profileLimits": "≤{{trials}} 個試驗 · ≤{{models}} 個模型",

@@ -9,6 +9,98 @@ const MID_LOOP_SUMMARY_HYSTERESIS_DELTA: f64 = 0.15;
 const MID_LOOP_MAX_SUMMARY_ATTEMPTS_PER_TURN: u32 = 2;
 const MID_LOOP_MIN_ROUNDS_BETWEEN_SUMMARIES: u32 = 3;
 
+fn compaction_flush_model(
+    conversation_provider: Option<&crate::provider::ProviderConfig>,
+    conversation_model: &str,
+    providers: &[crate::provider::ProviderConfig],
+    provider_override: Option<&str>,
+    model_override: Option<&str>,
+) -> Option<crate::memory::extract_runtime::MemoryExtractModel> {
+    let provider = match provider_override {
+        Some(id) => crate::provider::find_provider(providers, id)?,
+        None => conversation_provider?,
+    };
+    let model_id = model_override.unwrap_or(conversation_model);
+    if !provider.enabled || provider.model_config(model_id).is_none() {
+        return None;
+    }
+    Some(crate::memory::extract_runtime::MemoryExtractModel::capture(
+        provider, model_id,
+    ))
+}
+
+#[cfg(test)]
+mod compaction_flush_model_tests {
+    use super::compaction_flush_model;
+    use crate::provider::{ApiType, ProviderConfig};
+    use serde_json::json;
+
+    fn provider(id: &str, models: &[&str]) -> ProviderConfig {
+        let mut provider = ProviderConfig::new(
+            id.to_string(),
+            ApiType::OpenaiChat,
+            "https://example.invalid/v1".to_string(),
+            "test-only-key".to_string(),
+        );
+        provider.id = id.to_string();
+        provider.models = models
+            .iter()
+            .map(|id| serde_json::from_value(json!({"id": id, "name": id})).unwrap())
+            .collect();
+        provider
+    }
+
+    #[test]
+    fn inherits_conversation_binding_instead_of_first_provider_or_model() {
+        let first = provider("first", &["stable"]);
+        let selected = provider("selected", &["stable", "preview"]);
+        let providers = vec![first, selected.clone()];
+        let model =
+            compaction_flush_model(Some(&selected), "preview", &providers, None, None).unwrap();
+        assert_eq!(model.provider_id(), "selected");
+        assert_eq!(model.model_id(), "preview");
+    }
+
+    #[test]
+    fn honors_explicit_override_and_rejects_unavailable_bindings() {
+        let first = provider("first", &["stable"]);
+        let selected = provider("selected", &["preview"]);
+        let providers = vec![first.clone(), selected.clone()];
+        let model = compaction_flush_model(
+            Some(&selected),
+            "preview",
+            &providers,
+            Some("first"),
+            Some("stable"),
+        )
+        .unwrap();
+        assert_eq!(model.provider_id(), "first");
+        assert_eq!(model.model_id(), "stable");
+        assert!(compaction_flush_model(None, "preview", &providers, None, None).is_none());
+        assert!(compaction_flush_model(
+            Some(&selected),
+            "preview",
+            &providers,
+            Some("missing"),
+            None
+        )
+        .is_none());
+        assert!(compaction_flush_model(
+            Some(&selected),
+            "preview",
+            &providers,
+            None,
+            Some("missing")
+        )
+        .is_none());
+        let mut disabled = first;
+        disabled.enabled = false;
+        assert!(
+            compaction_flush_model(Some(&disabled), "stable", &providers, None, None).is_none()
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CompactionRunTrigger {
     Manual,
@@ -1140,30 +1232,53 @@ impl AssistantAgent {
                             && options.allow_memory_flush;
 
                         if flush_enabled {
-                            // Resolve provider config on the current thread before spawning
-                            let flush_provider =
-                                crate::config::cached_config().providers.first().cloned();
+                            // Match inline/idle extraction precedence, and capture
+                            // the conversation lease when no override was selected.
+                            // Provider/model list order must never choose the model.
+                            let store = crate::config::cached_config();
+                            let global_extract = crate::memory::load_extract_config();
+                            let agent_def = crate::agent_loader::load_agent(&self.agent_id).ok();
+                            let agent_mem = agent_def.as_ref().map(|d| &d.config.memory);
+                            let provider_override = agent_mem
+                                .and_then(|m| m.extract_provider_id.as_deref())
+                                .or_else(|| {
+                                    global_extract
+                                        .model_override
+                                        .as_ref()
+                                        .map(|m| m.provider_id.as_str())
+                                })
+                                .or(global_extract.extract_provider_id.as_deref());
+                            let model_override = agent_mem
+                                .and_then(|m| m.extract_model_id.as_deref())
+                                .or_else(|| {
+                                    global_extract
+                                        .model_override
+                                        .as_ref()
+                                        .map(|m| m.model_id.as_str())
+                                })
+                                .or(global_extract.extract_model_id.as_deref());
+                            let flush_model = compaction_flush_model(
+                                self.provider_config.as_deref(),
+                                self.provider.model(),
+                                &store.providers,
+                                provider_override,
+                                model_override,
+                            );
 
-                            if let Some(prov) = flush_provider {
-                                if let Some(model) = prov.models.first().cloned() {
-                                    let agent_id = self.agent_id.clone();
-                                    let session_id = self.session_id.clone().unwrap_or_default();
-                                    let msgs = split.summarizable.clone();
-                                    let model_ref =
-                                        crate::memory::extract_runtime::MemoryExtractModel::capture(
-                                            &prov,
-                                            model.id.clone(),
-                                        );
-                                    let session_db = self.session_db.clone();
+                            if let Some(model_ref) = flush_model {
+                                let agent_id = self.agent_id.clone();
+                                let session_id = self.session_id.clone().unwrap_or_default();
+                                let msgs = split.summarizable.clone();
+                                let session_db = self.session_db.clone();
 
-                                    // Use a new tokio runtime on a background thread to avoid
-                                    // Send bounds issues with the parent async context.
-                                    std::thread::spawn(move || {
-                                        let rt = tokio::runtime::Builder::new_current_thread()
-                                            .enable_all()
-                                            .build();
-                                        if let Ok(rt) = rt {
-                                            let result = rt.block_on(async {
+                                // Use a new tokio runtime on a background thread to avoid
+                                // Send bounds issues with the parent async context.
+                                std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Builder::new_current_thread()
+                                        .enable_all()
+                                        .build();
+                                    if let Ok(rt) = rt {
+                                        let result = rt.block_on(async {
                                                 tokio::time::timeout(
                                                     std::time::Duration::from_secs(30),
                                                     crate::memory::extract_runtime::flush_before_compact(
@@ -1176,35 +1291,40 @@ impl AssistantAgent {
                                                 )
                                                 .await
                                             });
-                                            match result {
-                                                Ok(Ok(count)) if count > 0 => {
-                                                    app_info!(
-                                                        "memory",
-                                                        "flush",
-                                                        "Flushed {} memories before compaction",
-                                                        count
-                                                    );
-                                                }
-                                                Ok(Err(e)) => {
-                                                    app_warn!(
-                                                        "memory",
-                                                        "flush",
-                                                        "Memory flush failed: {}",
-                                                        e
-                                                    );
-                                                }
-                                                Err(_) => {
-                                                    app_warn!(
-                                                        "memory",
-                                                        "flush",
-                                                        "Memory flush timed out (30s)"
-                                                    );
-                                                }
-                                                _ => {}
+                                        match result {
+                                            Ok(Ok(count)) if count > 0 => {
+                                                app_info!(
+                                                    "memory",
+                                                    "flush",
+                                                    "Flushed {} memories before compaction",
+                                                    count
+                                                );
                                             }
+                                            Ok(Err(e)) => {
+                                                app_warn!(
+                                                    "memory",
+                                                    "flush",
+                                                    "Memory flush failed: {}",
+                                                    e
+                                                );
+                                            }
+                                            Err(_) => {
+                                                app_warn!(
+                                                    "memory",
+                                                    "flush",
+                                                    "Memory flush timed out (30s)"
+                                                );
+                                            }
+                                            _ => {}
                                         }
-                                    });
-                                }
+                                    }
+                                });
+                            } else {
+                                app_warn!(
+                                    "memory",
+                                    "flush",
+                                    "Skipping memory flush: configured extraction provider/model is unavailable"
+                                );
                             }
                         }
                     }
@@ -2673,13 +2793,21 @@ pub(crate) async fn summarize_direct(
     usage_event: Option<crate::model_usage::ModelUsageEvent>,
 ) -> Result<String> {
     use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
-
-    let started = std::time::Instant::now();
+    let session_id = usage_event
+        .as_ref()
+        .and_then(|event| event.session_id.clone());
+    let _eval_call_guard = crate::eval_context::retain_model_call(session_id.as_deref())?;
     let client =
         crate::provider::apply_model_proxy(reqwest::Client::builder().user_agent(user_agent))
             .build()
-            .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
-
+            .map_err(|error| anyhow::anyhow!("HTTP client error: {}", error))?;
+    let mut attempt = usage_event.map(|mut event| {
+        event.metadata = Some(serde_json::json!({ "max_tokens": max_tokens }));
+        crate::model_usage::ModelUsageAttemptGuard::new(event)
+    });
+    if let Some(attempt) = attempt.as_mut() {
+        attempt.arm();
+    }
     let result = provider
         .as_adapter()
         .one_shot(
@@ -2700,36 +2828,15 @@ pub(crate) async fn summarize_direct(
                 user_content: None,
             },
         )
-        .await;
-
-    let result = match result {
-        Ok(result) => result,
-        Err(e) => {
-            if let Some(mut event) = usage_event {
-                event.duration_ms = Some(started.elapsed().as_millis() as u64);
-                event.success = false;
-                event.error = Some(e.to_string());
-                event.metadata = Some(serde_json::json!({ "max_tokens": max_tokens }));
-                crate::model_usage::record_model_usage_best_effort(event);
-            }
-            return Err(e);
-        }
-    };
-
-    if let Some(mut event) = usage_event {
-        if result.usage.input_coverage.is_present() {
-            event.input_tokens = Some(result.usage.input_tokens);
-            event.cache_creation_input_tokens = Some(result.usage.cache_creation_input_tokens);
-            event.cache_read_input_tokens = Some(result.usage.cache_read_input_tokens);
-        }
-        if result.usage.output_coverage.is_present() {
-            event.output_tokens = Some(result.usage.output_tokens);
-        }
-        event.duration_ms = Some(started.elapsed().as_millis() as u64);
-        event.metadata = Some(serde_json::json!({ "max_tokens": max_tokens }));
-        crate::model_usage::record_model_usage_best_effort(event);
+        .await
+        .map_err(crate::model_usage::one_shot_transport_error);
+    if let Some(attempt) = attempt {
+        attempt.finish(
+            result.as_ref().ok().map(|result| &result.usage),
+            result.as_ref().err(),
+        );
     }
-
+    let result = result?;
     crate::context_compact::validate_summarization_output(&result.text)
         .map_err(|error| anyhow::anyhow!("Invalid summarization response: {error}"))?;
     Ok(result.text)

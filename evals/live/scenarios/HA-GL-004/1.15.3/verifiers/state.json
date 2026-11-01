@@ -1,0 +1,19 @@
+{
+  "path": "/api/sessions/{sessionId}/goal/latest",
+  "expectedByFaultProfile": {
+    "clean": {
+      "expectedSubset": {
+        "goal": {
+          "state": "completed"
+        }
+      }
+    },
+    "chaos": {
+      "expectedSubset": {
+        "goal": {
+          "state": "failed"
+        }
+      }
+    }
+  }
+}

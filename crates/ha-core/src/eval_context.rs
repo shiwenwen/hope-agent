@@ -298,6 +298,7 @@ struct TrialAccumulator {
     active_sessions: HashSet<String>,
     all_sessions: BTreeSet<String>,
     active_work: u32,
+    pending_work: u32,
     background_model_work: u32,
     max_concurrency: u32,
     max_agent_depth: u16,
@@ -372,6 +373,7 @@ impl TrialAccumulator {
             active_sessions: HashSet::new(),
             all_sessions,
             active_work: 0,
+            pending_work: 0,
             background_model_work: 0,
             max_concurrency: 0,
             max_agent_depth: 0,
@@ -616,6 +618,7 @@ pub fn register_http_turn_session(
         parent_span_id: root_span_id,
         started: Instant::now(),
         armed: true,
+        pending: false,
     })
 }
 
@@ -675,6 +678,7 @@ pub struct EvalSessionGuard {
     parent_span_id: String,
     started: Instant,
     armed: bool,
+    pending: bool,
 }
 
 impl EvalSessionGuard {
@@ -719,8 +723,12 @@ impl EvalSessionGuard {
                 state.sessions.remove(&self.session_id);
             }
             if let Some(trial) = state.trials.get_mut(&self.trial_id) {
-                trial.active_work = trial.active_work.saturating_sub(1);
-                if self.event == "model_automation.run" {
+                if self.pending {
+                    trial.pending_work = trial.pending_work.saturating_sub(1);
+                } else {
+                    trial.active_work = trial.active_work.saturating_sub(1);
+                }
+                if matches!(self.event, "model_automation.run" | "model.call_scope") {
                     trial.background_model_work = trial.background_model_work.saturating_sub(1);
                 }
                 if self.event == "subagent.run" {
@@ -752,7 +760,8 @@ impl EvalSessionGuard {
                 }
             }
             let dormant_root_session = state.trials.get(&self.trial_id).and_then(|trial| {
-                (trial.root_closed && trial.active_work == 0).then(|| trial.root_session_id.clone())
+                (trial.root_closed && trial.active_work == 0 && trial.pending_work == 0)
+                    .then(|| trial.root_session_id.clone())
             });
             if let Some(root_session_id) = dormant_root_session {
                 if state
@@ -830,6 +839,7 @@ pub fn register_root_session(
         parent_span_id,
         started: Instant::now(),
         armed: true,
+        pending: false,
     })
 }
 
@@ -939,12 +949,26 @@ fn register_child_session_with_depth(
         parent_span_id,
         started: Instant::now(),
         armed: true,
+        pending: false,
     })
 }
 
 /// Keep attribution for background work that continues in the same Session
 /// after the foreground turn returns.
 pub fn retain_session(session_id: &str) -> Option<EvalSessionGuard> {
+    retain_active_session(session_id, "async_job.run", true)
+}
+
+/// A parent result turn is real work, but is not a durable tool job.
+pub fn retain_parent_injection(session_id: &str) -> Option<EvalSessionGuard> {
+    retain_active_session(session_id, "agent.result_delivery", false)
+}
+
+fn retain_active_session(
+    session_id: &str,
+    event: &'static str,
+    async_job: bool,
+) -> Option<EvalSessionGuard> {
     let mut state = registry().lock().ok()?;
     let (trial_id, parent_span_id) = {
         let entry = state.sessions.get(session_id)?;
@@ -953,13 +977,11 @@ pub fn retain_session(session_id: &str) -> Option<EvalSessionGuard> {
     let span_id = if let Some(trial) = state.trials.get_mut(&trial_id) {
         trial.active_work = trial.active_work.saturating_add(1);
         trial.max_concurrency = trial.max_concurrency.max(trial.active_work);
-        trial.async_jobs = trial.async_jobs.saturating_add(1);
-        trial.observed_signals.insert("async_jobs".to_string());
-        trial.start_span(
-            "async_job.run",
-            Some(session_id.to_string()),
-            parent_span_id.clone(),
-        )
+        if async_job {
+            trial.async_jobs = trial.async_jobs.saturating_add(1);
+            trial.observed_signals.insert("async_jobs".to_string());
+        }
+        trial.start_span(event, Some(session_id.to_string()), parent_span_id.clone())
     } else {
         return None;
     };
@@ -972,11 +994,46 @@ pub fn retain_session(session_id: &str) -> Option<EvalSessionGuard> {
         session_id: session_id.to_string(),
         trial_id,
         root: false,
-        event: "async_job.run",
+        event,
         span_id,
         parent_span_id,
         started: Instant::now(),
         armed: true,
+        pending: false,
+    })
+}
+
+/// Retain a queued result notification through merge windows, idle waits and
+/// delivery deferral. Queued work keeps attribution/trace open without being
+/// counted as a running Agent or consuming the execution concurrency budget.
+pub fn retain_pending_notification(session_id: &str) -> Option<EvalSessionGuard> {
+    let mut state = registry().lock().ok()?;
+    let entry = state.sessions.get(session_id)?;
+    let trial_id = entry.context.trial_id.clone();
+    let parent_span_id = entry.causal_span_id.clone();
+    let trial = state.trials.get_mut(&trial_id)?;
+    trial.pending_work = trial.pending_work.saturating_add(1);
+    trial.active_sessions.insert(session_id.to_string());
+    let span_id = trial.start_span(
+        "agent.result_queued",
+        Some(session_id.to_string()),
+        parent_span_id.clone(),
+    );
+    state
+        .sessions
+        .get_mut(session_id)?
+        .active_spans
+        .push(span_id.clone());
+    Some(EvalSessionGuard {
+        session_id: session_id.to_string(),
+        trial_id,
+        root: false,
+        event: "agent.result_queued",
+        span_id,
+        parent_span_id,
+        started: Instant::now(),
+        armed: true,
+        pending: true,
     })
 }
 
@@ -986,10 +1043,14 @@ pub fn retain_session(session_id: &str) -> Option<EvalSessionGuard> {
 /// accounting, but they are reported separately from durable async jobs so a
 /// cosmetic background call cannot masquerade as unfinished task work.
 pub fn retain_model_automation(session_id: &str) -> Result<Option<EvalSessionGuard>> {
+    ensure_model_scope(Some(session_id), model_eval_mode_enabled())?;
     let mut state = registry()
         .lock()
         .map_err(|_| anyhow::anyhow!("eval context registry is poisoned"))?;
     let Some(entry) = state.sessions.get(session_id) else {
+        if model_eval_mode_enabled() {
+            bail!("evaluation model admission denied: Session ended before automation retention");
+        }
         return Ok(None);
     };
     let trial_id = entry.context.trial_id.clone();
@@ -1034,6 +1095,7 @@ pub fn retain_model_automation(session_id: &str) -> Result<Option<EvalSessionGua
         parent_span_id,
         started: Instant::now(),
         armed: true,
+        pending: false,
     }))
 }
 
@@ -1071,13 +1133,71 @@ pub fn tool_allowed_for_experiment(session_id: Option<&str>, tool_name: &str) ->
 /// has been reached. Usage-based ceilings are checked against completed
 /// Provider attempts; output overshoot is additionally bounded by
 /// [`remaining_output_tokens`].
+fn ensure_model_scope(session_id: Option<&str>, isolated_evaluation: bool) -> Result<()> {
+    if isolated_evaluation && session_id.and_then(context_for_session).is_none() {
+        bail!("evaluation model admission denied: registered Session context is required");
+    }
+    Ok(())
+}
+
 pub fn ensure_model_budget(session_id: Option<&str>) -> Result<()> {
+    ensure_model_scope(session_id, model_eval_mode_enabled())?;
     let Some(session_id) = session_id else {
         return Ok(());
     };
     with_budget_check(session_id, "model", |trial| {
         model_budget_exhaustion_reason(trial).map(str::to_string)
     })
+}
+
+/// Retain one admitted one-shot call through its usage write, including when
+/// a background caller did not retain the Session before starting. This is a
+/// lifetime fence, not an additional Agent/execution-concurrency slot.
+pub fn retain_model_call(session_id: Option<&str>) -> Result<Option<EvalSessionGuard>> {
+    ensure_model_budget(session_id)?;
+    let Some(session_id) = session_id else {
+        return Ok(None);
+    };
+    let mut state = registry()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("eval context registry is poisoned"))?;
+    let Some(entry) = state.sessions.get(session_id) else {
+        if model_eval_mode_enabled() {
+            bail!("evaluation model admission denied: Session ended before call retention");
+        }
+        return Ok(None);
+    };
+    let trial_id = entry.context.trial_id.clone();
+    let parent_span_id = entry.causal_span_id.clone();
+    let trial = state
+        .trials
+        .get_mut(&trial_id)
+        .ok_or_else(|| anyhow::anyhow!("evaluation model admission denied: missing trial"))?;
+    trial.pending_work = trial.pending_work.saturating_add(1);
+    trial.background_model_work = trial.background_model_work.saturating_add(1);
+    trial.active_sessions.insert(session_id.to_string());
+    let span_id = trial.start_span(
+        "model.call_scope",
+        Some(session_id.to_string()),
+        parent_span_id.clone(),
+    );
+    state
+        .sessions
+        .get_mut(session_id)
+        .expect("Session entry retained while registry is locked")
+        .active_spans
+        .push(span_id.clone());
+    Ok(Some(EvalSessionGuard {
+        session_id: session_id.to_string(),
+        trial_id,
+        root: false,
+        event: "model.call_scope",
+        span_id,
+        parent_span_id,
+        started: Instant::now(),
+        armed: true,
+        pending: true,
+    }))
 }
 
 fn model_budget_exhaustion_reason(trial: &TrialAccumulator) -> Option<&'static str> {
@@ -1094,12 +1214,19 @@ fn model_budget_exhaustion_reason(trial: &TrialAccumulator) -> Option<&'static s
     {
         return Some("model_calls");
     }
+    if budget.max_input_tokens.is_some() && trial.input_tokens.is_none() && trial.model_calls > 0 {
+        return Some("input_usage_unknown");
+    }
     if exact_limit_reached(
         trial.input_tokens,
         budget.max_input_tokens,
         trial.model_calls,
     ) {
         return Some("input_tokens");
+    }
+    if budget.max_output_tokens.is_some() && trial.output_tokens.is_none() && trial.model_calls > 0
+    {
+        return Some("output_usage_unknown");
     }
     if exact_limit_reached(
         trial.output_tokens,
@@ -1286,11 +1413,14 @@ pub fn record_model_usage(event: &ModelUsageEvent) {
             (None, value) | (value, None) => value,
         };
         match configured_eval_cost(event) {
-            Some((cost, component)) if trial.cost_usd.is_some() => {
-                trial.cost_usd = Some(trial.cost_usd.unwrap_or(0.0) + cost);
+            Some((cost, component)) => {
+                if let Some(total) = trial.cost_usd.as_mut() {
+                    *total += cost;
+                }
+                // Unknown usage keeps the total unknown, but does not erase
+                // the pricing provenance of later settled attempts.
                 trial.price_components.insert(component);
             }
-            Some(_) => {}
             None => trial.cost_usd = None,
         }
         let budget = &trial.context.budget;
@@ -1348,6 +1478,17 @@ pub fn record_model_usage(event: &ModelUsageEvent) {
                 "errorClass".to_string(),
                 Value::String(crate::failover::classify_error(error).as_str().to_string()),
             );
+        }
+        if let Some(metadata) = event.metadata.as_ref() {
+            if let Some(cancelled) = metadata.get("callerCancelled").and_then(Value::as_bool) {
+                attributes.insert("callerCancelled".to_string(), Value::Bool(cancelled));
+            }
+            if metadata.get("dispatchOutcome").and_then(Value::as_str) == Some("unknown") {
+                attributes.insert(
+                    "dispatchOutcome".to_string(),
+                    Value::String("unknown".to_string()),
+                );
+            }
         }
         trial.push_leaf_event_with_attributes(
             "model.call",
@@ -1612,7 +1753,8 @@ fn fault_matches(fault: &EvalFaultDirective, target: FaultTarget, subject: &str)
             _ => true,
         },
         (EvalFaultKind::StorageState, FaultTarget::Tool) => {
-            tool.contains("write")
+            (fault.trigger == "first_workspace_operation" && tool == "exec")
+                || tool.contains("write")
                 || tool.contains("edit")
                 || tool.contains("patch")
                 || tool.contains("note")
@@ -1620,6 +1762,12 @@ fn fault_matches(fault: &EvalFaultDirective, target: FaultTarget, subject: &str)
         (EvalFaultKind::EnvironmentEvent, FaultTarget::Tool) => match fault.trigger.as_str() {
             "service_restart_and_browser_disconnect" => {
                 tool.contains("browser") || tool.contains("web") || tool.contains("exec")
+            }
+            "first_workspace_operation" => {
+                tool == "exec"
+                    || tool.contains("read")
+                    || tool.contains("write")
+                    || tool.contains("edit")
             }
             "malicious_scope_escalation_fixture" => {
                 tool.contains("memory") || tool.contains("knowledge") || tool.contains("note")
@@ -1701,6 +1849,44 @@ fn activate_passive_faults(
     }
 }
 
+/// Owner HTTP Stop is a user action, not a model turn. Cleanup does not call
+/// this entry, and ordinary processes cannot manufacture evaluation evidence.
+#[doc(hidden)]
+pub fn record_scripted_owner_stop(session_id: &str) {
+    if model_eval_mode_enabled() {
+        record_registered_owner_stop(session_id);
+    }
+}
+
+fn record_registered_owner_stop(session_id: &str) {
+    with_trial_for_session(session_id, |trial, parent_span_id| {
+        if trial.root_closed
+            || trial.root_session_id != session_id
+            || !trial.context.faults.iter().any(|fault| {
+                fault.kind == EvalFaultKind::UserEvent
+                    && fault.trigger == "cancel_parent_during_child_tool"
+                    && trial.fault_activations.get(&fault.id).copied().unwrap_or(0)
+                        < fault.max_activations
+            })
+        {
+            return;
+        }
+        activate_passive_faults(
+            trial,
+            EvalFaultKind::UserEvent,
+            Some("cancel_parent_during_child_tool"),
+            &parent_span_id,
+        );
+        trial.push_leaf_event(
+            "user.stop",
+            Some(session_id.to_string()),
+            "requested",
+            0,
+            parent_span_id,
+        );
+    });
+}
+
 /// Record a bounded, payload-free lifecycle transition from a durable Hope
 /// control plane. Callers pass only stable IDs and enum-like status strings;
 /// prompts, tool arguments, database rows, and error bodies never enter the
@@ -1768,10 +1954,12 @@ pub fn telemetry_snapshot(trial_id: &str) -> Option<Value> {
         .difference(&trial.observed_signals)
         .cloned()
         .collect::<Vec<_>>();
+    let outstanding_work = trial.active_work.saturating_add(trial.pending_work);
     let trace_closed =
-        trial.root_closed && trial.active_sessions.is_empty() && trial.active_work == 0;
+        trial.root_closed && trial.active_sessions.is_empty() && outstanding_work == 0;
     let active_children = trial
         .active_work
+        .saturating_add(trial.pending_work)
         .saturating_sub(u32::from(!trial.root_closed));
     let attribution = if trace_closed && missing.is_empty() {
         "complete"
@@ -1812,6 +2000,7 @@ pub fn telemetry_snapshot(trial_id: &str) -> Option<Value> {
         "attribution": attribution,
         "activeChildren": active_children,
         "backgroundModelWork": trial.background_model_work,
+        "pendingWork": trial.pending_work,
         "budgetExhausted": trial.budget_exhausted,
         "budgetExhaustionReasons": trial.budget_exhaustion_reasons,
         "timings": {
@@ -1870,13 +2059,13 @@ pub fn telemetry_snapshot(trial_id: &str) -> Option<Value> {
             "childActiveMs": trial.child_active_ms,
             "asyncJobs": trial.async_jobs,
             "duplicateInjections": trial.duplicate_injections,
-            "orphanedChildren": if trace_closed { 0 } else { trial.active_work },
+            "orphanedChildren": if trace_closed { 0 } else { outstanding_work },
         },
         "trace": {
             "traceId": trial.context.trace_id,
             "rootSpanId": trial.context.root_span_id,
             "spanCount": span_count,
-            "orphanSpanCount": if trace_closed { 0 } else { trial.active_work },
+            "orphanSpanCount": if trace_closed { 0 } else { outstanding_work },
             "closed": trace_closed,
         },
         "milestones": [],
@@ -2036,6 +2225,72 @@ mod tests {
     }
 
     #[test]
+    fn owner_stop_fault_is_scoped_to_registered_root_and_activates_once() {
+        let mut ctx = context();
+        ctx.trial_id = "mtrial_owner_stop".into();
+        ctx.arm = "faulted".into();
+        ctx.fault_profile = "chaos".into();
+        ctx.faults = vec![EvalFaultDirective {
+            id: "stop-event".into(),
+            kind: EvalFaultKind::UserEvent,
+            trigger: "cancel_parent_during_child_tool".into(),
+            params: Default::default(),
+            max_activations: 1,
+        }];
+        let root = register_http_turn_session("owner-stop-root", ctx.clone()).unwrap();
+        let child =
+            register_child_session_from_parent("owner-stop-root", "owner-stop-child", ctx).unwrap();
+        record_registered_owner_stop("owner-stop-child");
+        record_registered_owner_stop("foreign-root");
+        assert!(
+            !telemetry_snapshot("mtrial_owner_stop").unwrap()["observedSignals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == "fault")
+        );
+        record_registered_owner_stop("owner-stop-root");
+        record_registered_owner_stop("owner-stop-root");
+        let snapshot = telemetry_snapshot("mtrial_owner_stop").unwrap();
+        assert_eq!(
+            snapshot["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|event| event["event"] == "fault.activated")
+                .count(),
+            1
+        );
+        assert_eq!(
+            snapshot["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|event| event["event"] == "user.stop")
+                .count(),
+            1
+        );
+        drop(child);
+        drop(root);
+        finish_trial_root("mtrial_owner_stop").unwrap();
+    }
+
+    #[test]
+    fn isolated_model_admission_rejects_missing_context_before_any_call() {
+        ensure_model_scope(None, false).unwrap();
+        ensure_model_scope(Some("ordinary-session"), false).unwrap();
+        assert!(ensure_model_scope(None, true).is_err());
+        assert!(ensure_model_scope(Some("unregistered-review"), true).is_err());
+        let mut ctx = context();
+        ctx.trial_id = "mtrial_model_scope_admission".to_string();
+        let guard = register_http_turn_session("review-model-scope", ctx).unwrap();
+        ensure_model_scope(Some("review-model-scope"), true).unwrap();
+        drop(guard);
+        finish_trial_root("mtrial_model_scope_admission").unwrap();
+        assert!(ensure_model_scope(Some("review-model-scope"), true).is_err());
+    }
+
+    #[test]
     fn snapshot_is_complete_only_after_required_signals_and_close() {
         let guard = register_root_session("session-eval-test", context()).unwrap();
         record_tool_result(
@@ -2088,6 +2343,46 @@ mod tests {
     }
 
     #[test]
+    fn queued_notifications_keep_attribution_without_consuming_running_concurrency() {
+        let mut context = context();
+        context.trial_id = "mtrial_queued_notifications".to_string();
+        context.required_signals.clear();
+        context.budget.max_concurrency = Some(1);
+        let root = register_root_session("session-queued-root", context).unwrap();
+        let pending = retain_pending_notification("session-queued-root").unwrap();
+        let next_pending = retain_pending_notification("session-queued-root").unwrap();
+        drop(root);
+        let queued = telemetry_snapshot("mtrial_queued_notifications").unwrap();
+        assert_eq!(queued["pendingWork"], 2);
+        assert_eq!(queued["trace"]["orphanSpanCount"], 2);
+        assert_eq!(queued["orchestration"]["maxConcurrency"], 1);
+        assert!(!queued["trace"]["closed"].as_bool().unwrap());
+        let child = inherit_session("session-queued-root", "session-queued-child").unwrap();
+        drop(child);
+        let delivery = retain_parent_injection("session-queued-root").unwrap();
+        record_model_usage(&ModelUsageEvent {
+            session_id: Some("session-queued-root".to_string()),
+            operation: Some("chat_round".to_string()),
+            input_tokens: Some(12),
+            output_tokens: Some(6),
+            ..ModelUsageEvent::new("chat")
+        });
+        drop((delivery, next_pending, pending));
+        let complete = telemetry_snapshot("mtrial_queued_notifications").unwrap();
+        assert!(complete["trace"]["closed"].as_bool().unwrap());
+        assert_eq!(complete["tokens"]["input"], 12);
+        assert_eq!(complete["pendingWork"], 0);
+        assert_eq!(complete["orchestration"]["maxConcurrency"], 1);
+        assert_eq!(complete["orchestration"]["asyncJobs"], 0);
+        assert!(!complete["observedSignals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|signal| signal == "async_jobs"));
+        assert!(context_for_session("session-queued-root").is_none());
+    }
+
+    #[test]
     fn product_background_model_work_stays_attributed_until_it_finishes() {
         let mut context = context();
         context.trial_id = "mtrial_background_model".to_string();
@@ -2116,6 +2411,125 @@ mod tests {
         let closed = telemetry_snapshot("mtrial_background_model").unwrap();
         assert_eq!(closed["backgroundModelWork"], 0);
         assert!(closed["trace"]["closed"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn one_shot_call_keeps_late_usage_scoped_without_an_extra_concurrency_slot() {
+        let mut context = context();
+        context.trial_id = "mtrial_late_one_shot".to_string();
+        context.required_signals.clear();
+        context.budget.max_concurrency = Some(1);
+        let root = register_root_session("session-late-one-shot", context).unwrap();
+        let call = retain_model_call(Some("session-late-one-shot"))
+            .unwrap()
+            .unwrap();
+        drop(root);
+        assert!(context_for_session("session-late-one-shot").is_some());
+        let active = telemetry_snapshot("mtrial_late_one_shot").unwrap();
+        assert_eq!(active["orchestration"]["maxConcurrency"], 1);
+        assert_eq!(active["backgroundModelWork"], 1);
+        assert!(!active["trace"]["closed"].as_bool().unwrap());
+
+        let mut usage = ModelUsageEvent {
+            session_id: Some("session-late-one-shot".to_string()),
+            operation: Some("agent.side_query".to_string()),
+            input_tokens: Some(1_220),
+            output_tokens: Some(286),
+            ..ModelUsageEvent::new("side_query")
+        };
+        enrich_usage_metadata(&mut usage);
+        assert_eq!(
+            usage.metadata.as_ref().unwrap()["eval"]["trialId"],
+            "mtrial_late_one_shot"
+        );
+        record_model_usage(&usage);
+        drop(call);
+        assert!(context_for_session("session-late-one-shot").is_none());
+        let closed = telemetry_snapshot("mtrial_late_one_shot").unwrap();
+        assert_eq!(closed["tokens"]["input"], 1_220);
+        assert_eq!(closed["tokens"]["output"], 286);
+        assert_eq!(closed["pendingWork"], 0);
+        assert_eq!(closed["backgroundModelWork"], 0);
+        assert!(closed["trace"]["closed"].as_bool().unwrap());
+    }
+
+    #[tokio::test]
+    async fn cancelled_one_shot_records_unknown_usage_before_scope_is_released() {
+        let mut context = context();
+        context.trial_id = "mtrial_cancelled_one_shot".to_string();
+        context.required_signals.clear();
+        let root = register_root_session("session-cancelled-one-shot", context).unwrap();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _scope = retain_model_call(Some("session-cancelled-one-shot")).unwrap();
+            let mut event = ModelUsageEvent::new("side_query");
+            event.session_id = Some("session-cancelled-one-shot".to_string());
+            event.operation = Some("agent.side_query".to_string());
+            let mut attempt = crate::model_usage::ModelUsageAttemptGuard::new(event);
+            attempt.arm();
+            started_tx.send(()).unwrap();
+            std::future::pending::<()>().await;
+        });
+        started_rx.await.unwrap();
+        drop(root);
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        let snapshot = telemetry_snapshot("mtrial_cancelled_one_shot").unwrap();
+        assert_eq!(snapshot["orchestration"]["modelCalls"], 1);
+        assert!(snapshot["tokens"]["input"].is_null());
+        assert!(snapshot["tokens"]["output"].is_null());
+        assert!(snapshot["trace"]["closed"].as_bool().unwrap());
+        let call = snapshot["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|event| event["event"] == "model.call")
+            .unwrap();
+        assert_eq!(call["attributes"]["callerCancelled"], true);
+        assert_eq!(call["attributes"]["dispatchOutcome"], "unknown");
+    }
+
+    #[test]
+    fn undispatched_one_shot_does_not_create_a_paid_attempt() {
+        let mut context = context();
+        context.trial_id = "mtrial_unsent_one_shot".to_string();
+        context.required_signals.clear();
+        let root = register_root_session("session-unsent-one-shot", context).unwrap();
+        let scope = retain_model_call(Some("session-unsent-one-shot")).unwrap();
+        let mut event = ModelUsageEvent::new("side_query");
+        event.session_id = Some("session-unsent-one-shot".to_string());
+        drop(crate::model_usage::ModelUsageAttemptGuard::new(event));
+        drop((scope, root));
+        let snapshot = telemetry_snapshot("mtrial_unsent_one_shot").unwrap();
+        assert_eq!(snapshot["orchestration"]["modelCalls"], 0);
+        assert!(snapshot["trace"]["closed"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn settled_one_shot_records_usage_once_without_a_cancelled_duplicate() {
+        let mut context = context();
+        context.trial_id = "mtrial_settled_one_shot".to_string();
+        context.required_signals.clear();
+        let root = register_root_session("session-settled-one-shot", context).unwrap();
+        let scope = retain_model_call(Some("session-settled-one-shot")).unwrap();
+        let mut event = ModelUsageEvent::new("side_query");
+        event.session_id = Some("session-settled-one-shot".to_string());
+        let mut attempt = crate::model_usage::ModelUsageAttemptGuard::new(event);
+        attempt.arm();
+        let usage = crate::agent::types::ChatUsage {
+            input_tokens: 20,
+            output_tokens: 4,
+            input_coverage: crate::token_accounting::UsageCoverage::Complete,
+            output_coverage: crate::token_accounting::UsageCoverage::Complete,
+            ..Default::default()
+        };
+        attempt.finish(Some(&usage), None);
+        drop((scope, root));
+        let snapshot = telemetry_snapshot("mtrial_settled_one_shot").unwrap();
+        assert_eq!(snapshot["orchestration"]["modelCalls"], 1);
+        assert_eq!(snapshot["tokens"]["input"], 20);
+        assert_eq!(snapshot["tokens"]["output"], 4);
+        assert!(snapshot["trace"]["closed"].as_bool().unwrap());
     }
 
     #[test]
@@ -2485,6 +2899,39 @@ mod tests {
     }
 
     #[test]
+    fn unknown_token_usage_stops_without_claiming_a_measured_limit_was_reached() {
+        for (suffix, input, output, expected) in [
+            ("input", None, Some(10), "input_usage_unknown"),
+            ("output", Some(10), None, "output_usage_unknown"),
+            ("measured", Some(800_000), Some(10), "input_tokens"),
+        ] {
+            let session = format!("session-usage-boundary-{suffix}");
+            let mut context = context();
+            context.trial_id = format!("mtrial_usage_boundary_{suffix}");
+            context.required_signals.clear();
+            context.budget = EvalBudgetLimits {
+                max_input_tokens: Some(800_000),
+                max_output_tokens: Some(50_000),
+                ..Default::default()
+            };
+            let trial_id = context.trial_id.clone();
+            let root = register_root_session(&session, context).unwrap();
+            ensure_model_budget(Some(&session)).unwrap();
+            record_model_usage(&ModelUsageEvent {
+                session_id: Some(session.clone()),
+                input_tokens: input,
+                output_tokens: output,
+                ..ModelUsageEvent::new("chat")
+            });
+            assert!(ensure_model_budget(Some(&session)).is_err());
+            drop(root);
+            let snapshot = telemetry_snapshot(&trial_id).unwrap();
+            assert_eq!(snapshot["budgetExhausted"], true);
+            assert_eq!(snapshot["budgetExhaustionReasons"], json!([expected]));
+        }
+    }
+
+    #[test]
     fn zero_remaining_budget_is_valid_and_blocks_continuation_immediately() {
         let mut context = context();
         context.trial_id = "mtrial_zero_remaining_budget".to_string();
@@ -2537,5 +2984,21 @@ mod tests {
                 .count(),
             1
         );
+    }
+    #[test]
+    fn versioned_workspace_faults_reach_exec_without_changing_legacy_triggers() {
+        for kind in [EvalFaultKind::StorageState, EvalFaultKind::EnvironmentEvent] {
+            let mut fault = EvalFaultDirective {
+                id: "workspace".into(),
+                kind,
+                trigger: "first_workspace_operation".into(),
+                params: BTreeMap::new(),
+                max_activations: 1,
+            };
+            assert!(fault_matches(&fault, FaultTarget::Tool, "exec"));
+            assert!(!fault_matches(&fault, FaultTarget::Tool, "team"));
+            fault.trigger = "malicious_scope_escalation_fixture".into();
+            assert!(!fault_matches(&fault, FaultTarget::Tool, "exec"));
+        }
     }
 }

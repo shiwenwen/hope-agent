@@ -1999,7 +1999,7 @@
         },
         "custom": {
           "title": "Custom diagnosis",
-          "description": "A user-selected subset of registered weekly cases and arms with bounded repetitions."
+          "description": "A user-selected subset of all registered Hope Core cases and arms with bounded repetitions."
         }
       },
       "profileLimits": "≤{{trials}} trials · ≤{{models}} models",
