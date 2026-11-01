@@ -76,6 +76,11 @@ enum ScriptedUserStep {
         #[serde(default, rename = "delayMs")]
         delay_ms: u64,
     },
+    UpdateGoal {
+        objective: String,
+        #[serde(rename = "completionCriteria")]
+        completion_criteria: String,
+    },
     CompactContext {
         #[serde(rename = "expectedTier")]
         expected_tier: u8,
@@ -626,6 +631,7 @@ async fn run_hope_core_scenario(
     let scenario_dir = scenario_path
         .parent()
         .ok_or_else(|| anyhow!("scenario path has no parent"))?;
+    validate_scripted_user_flow(scenario_dir, scenario)?;
     let setup_started = Instant::now();
     let workspace = provision_workspace(scenario_dir, scenario)?;
     let environment_setup_ms = elapsed_ms(setup_started);
@@ -711,7 +717,10 @@ async fn run_hope_core_scenario(
         .find(|fault| fault.kind == FaultKind::UserEvent)
         .map(|fault| fault.trigger.as_str());
     if let Some(trigger) = user_event_trigger {
-        prompt.push_str(user_event_phase_instruction(trigger));
+        prompt.push_str(user_event_phase_instruction(
+            trigger,
+            &scenario.subject.config_profile,
+        ));
     }
     let eval_context = json!({
         "evidenceKind": "model_campaign",
@@ -1024,6 +1033,25 @@ async fn run_hope_core_scenario(
                     response_hashes.push(sha256_bytes(chat.response.as_bytes()));
                     if chat.blocked_reason.is_some() {
                         request_blocked = true;
+                        break;
+                    }
+                }
+                ScriptedUserStep::UpdateGoal {
+                    objective,
+                    completion_criteria,
+                } => {
+                    let check = apply_scripted_goal_revision(
+                        &client,
+                        server_url,
+                        token.as_deref(),
+                        &chat.session_id,
+                        &objective,
+                        &completion_criteria,
+                    )
+                    .await?;
+                    let passed = check.passed;
+                    scripted_action_checks.push(check);
+                    if !passed {
                         break;
                     }
                 }
@@ -1352,6 +1380,89 @@ async fn run_hope_core_scenario(
     })
 }
 
+async fn apply_scripted_goal_revision(
+    client: &Client,
+    server_url: &str,
+    token: Option<&str>,
+    session_id: &str,
+    objective: &str,
+    completion_criteria: &str,
+) -> Result<ModelCampaignCheck> {
+    let token = token
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("scripted owner Goal revision requires owner authentication"))?;
+    let safe_id = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 128
+            && value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    };
+    if !safe_id(session_id) {
+        bail!("scripted owner action has an invalid Session identity");
+    }
+    let mut request = client.get(format!(
+        "{server_url}/api/sessions/{session_id}/goal/latest"
+    ));
+    request = request.bearer_auth(token);
+    let response = request
+        .send()
+        .await
+        .context("reading current Session Goal for scripted revision")?;
+    let status = response.status();
+    let bytes = response.bytes().await?;
+    if !status.is_success() {
+        bail!(
+            "scripted Goal lookup returned HTTP {status}; {}",
+            http_error_hint(&bytes)
+        );
+    }
+    let before: Value = serde_json::from_slice(&bytes)?;
+    let goal = before
+        .get("goal")
+        .ok_or_else(|| anyhow!("scripted owner revision has no current Goal"))?;
+    if goal.get("sessionId").and_then(Value::as_str) != Some(session_id) {
+        bail!("scripted owner revision cannot target another Session");
+    }
+    let goal_id = goal
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|v| safe_id(v))
+        .ok_or_else(|| anyhow!("scripted owner revision has an invalid Goal identity"))?;
+    let previous = goal
+        .get("revision")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| anyhow!("Goal revision is missing"))?;
+    let expected_revision = previous
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("Goal revision overflow"))?;
+    let mut request = client
+        .patch(format!("{server_url}/api/goals/{goal_id}"))
+        .json(&json!({"objective":objective,"completionCriteria":completion_criteria}));
+    request = request.bearer_auth(token);
+    let response = request
+        .send()
+        .await
+        .context("applying declared user Goal revision through owner API")?;
+    let status = response.status();
+    let bytes = response.bytes().await?;
+    if !status.is_success() {
+        bail!(
+            "scripted owner Goal revision returned HTTP {status}; {}",
+            http_error_hint(&bytes)
+        );
+    }
+    let after: Value = serde_json::from_slice(&bytes)?;
+    let revision = after.pointer("/goal/revision").and_then(Value::as_i64);
+    let passed = after.pointer("/goal/id").and_then(Value::as_str) == Some(goal_id)
+        && after.pointer("/goal/sessionId").and_then(Value::as_str) == Some(session_id)
+        && revision == Some(expected_revision)
+        && after.pointer("/goal/state").and_then(Value::as_str) == Some("active");
+    Ok(ModelCampaignCheck { id:"scripted_owner_goal_revision".to_string(), passed, blocking:true,
+        detail:format!("owner revised current Session Goal {goal_id}: revision {previous} -> {:?}; model permissions unchanged", revision),
+        metric: revision.map(|v| v as f64), artifact_hashes:vec![sha256_bytes(&bytes)] })
+}
+
 fn process_restart_phase_instruction(trigger: &str) -> &'static str {
     match trigger {
         "after_goal_checkpoint" => {
@@ -1369,7 +1480,15 @@ fn process_restart_phase_instruction(trigger: &str) -> &'static str {
     }
 }
 
-fn user_event_phase_instruction(trigger: &str) -> &'static str {
+fn user_event_phase_instruction(trigger: &str, profile: &str) -> &'static str {
+    if profile == "eval-control-plane-ready-v9"
+        && matches!(
+            trigger,
+            "after_first_draft" | "narrow_time_range_after_draft"
+        )
+    {
+        return "\n\n评测用户事件阶段：本轮只创建草稿（如 drafts/research.json），不要创建最终 deliverables/result.json，也不要请求完成 Goal。若创建 Workflow，只让它真实读取并验证草稿，验证成功后正常 finish；不要为了等待用户而制造 blocked/等待审批的 Workflow 运行。Goal 保持未完成并登记草稿 checkpoint。回复 WAITING_FOR_USER_EVENT，用户将通过控制面修改 Goal 契约，随后按新的真实 revision 交付。";
+    }
     match trigger {
         "after_first_draft" => {
             "\n\n评测用户事件阶段：本轮只完成第一版草稿并把当前 Goal 保持在未完成状态；不要写最终 deliverables/result.json。回复 `WAITING_FOR_USER_EVENT` 后等待用户修订，再按新目标交付。"
@@ -2067,11 +2186,25 @@ fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<Scripted
         bail!("scripted user flow turn count is invalid");
     }
     let mut compact_actions = 0usize;
+    let mut owner_goal_actions = 0usize;
     for step in &steps {
         match step {
             ScriptedUserStep::Message { message, delay_ms } => {
                 if message.trim().is_empty() || message.len() > 32_000 || *delay_ms > 30_000 {
                     bail!("scripted user flow contains an invalid message step");
+                }
+            }
+            ScriptedUserStep::UpdateGoal {
+                objective,
+                completion_criteria,
+            } => {
+                owner_goal_actions += 1;
+                if objective.trim().is_empty()
+                    || completion_criteria.trim().is_empty()
+                    || objective.len() > 32_000
+                    || completion_criteria.len() > 32_000
+                {
+                    bail!("scripted Goal revision requires bounded nonempty objective and completionCriteria");
                 }
             }
             ScriptedUserStep::CompactContext { expected_tier } => {
@@ -2082,10 +2215,58 @@ fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<Scripted
             }
         }
     }
+    let owner_update_has_later_message = steps
+        .iter()
+        .position(|step| matches!(step, ScriptedUserStep::UpdateGoal { .. }))
+        .is_none_or(|index| {
+            steps[index + 1..]
+                .iter()
+                .any(|step| matches!(step, ScriptedUserStep::Message { .. }))
+        });
+    if owner_goal_actions > 1
+        || (owner_goal_actions > 0 && message_steps == 0)
+        || !owner_update_has_later_message
+    {
+        bail!(
+            "a scripted Goal revision occurs at most once and must be followed by a user message"
+        );
+    }
     if compact_actions > 1 {
         bail!("scripted user flow may compact context at most once");
     }
     Ok(steps)
+}
+
+pub(crate) fn validate_scripted_user_flow(
+    scenario_dir: &Path,
+    scenario: &LiveAgentScenario,
+) -> Result<()> {
+    if !matches!(
+        scenario.user_simulator.kind,
+        UserSimulatorKind::ScriptedFsm | UserSimulatorKind::Replay
+    ) {
+        return Ok(());
+    }
+    let steps = load_scripted_user_steps(scenario_dir, scenario)?;
+    if steps
+        .iter()
+        .any(|step| matches!(step, ScriptedUserStep::UpdateGoal { .. }))
+        && (scenario.subject.config_profile != "eval-control-plane-ready-v9"
+            || !scenario
+                .capabilities
+                .iter()
+                .any(|value| value.eq_ignore_ascii_case("goal"))
+            || !scenario.faults.iter().any(|fault| {
+                fault.kind == FaultKind::UserEvent
+                    && matches!(
+                        fault.trigger.as_str(),
+                        "after_first_draft" | "narrow_time_range_after_draft"
+                    )
+            }))
+    {
+        bail!("owner Goal revision requires a registered v9 Goal user-revision scenario");
+    }
+    Ok(())
 }
 
 fn load_scripted_user_steps(
@@ -3263,6 +3444,7 @@ pub(crate) fn scenario_has_ready_control_plane(scenario: &LiveAgentScenario) -> 
             | "eval-control-plane-ready-v6"
             | "eval-control-plane-ready-v7"
             | "eval-control-plane-ready-v8"
+            | "eval-control-plane-ready-v9"
     )
 }
 
@@ -3279,7 +3461,7 @@ fn scenario_initial_goal(
             // objective. Keep historical/faulted fixtures unchanged.
             let objective = if matches!(scenario.subject.config_profile.as_str(),
                 "eval-control-plane-ready-v3" | "eval-control-plane-ready-v4"
-                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7" | "eval-control-plane-ready-v8")
+                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7" | "eval-control-plane-ready-v8" | "eval-control-plane-ready-v9")
                 && fault_profile == FaultProfile::Clean
             {
                 format!(
@@ -3326,11 +3508,13 @@ where
 }
 
 fn scripted_revision_requires_settlement(profile: &str, trigger: &str) -> bool {
-    profile == "eval-control-plane-ready-v8"
-        && matches!(
-            trigger,
-            "after_first_draft" | "narrow_time_range_after_draft"
-        )
+    matches!(
+        profile,
+        "eval-control-plane-ready-v8" | "eval-control-plane-ready-v9"
+    ) && matches!(
+        trigger,
+        "after_first_draft" | "narrow_time_range_after_draft"
+    )
 }
 
 fn prior_scripted_work_settled(telemetry: &TelemetrySnapshot) -> bool {
@@ -3426,6 +3610,7 @@ fn observes_trial_completion(config_profile: &str, unlimited_budget: bool) -> bo
                 | "eval-control-plane-ready-v6"
                 | "eval-control-plane-ready-v7"
                 | "eval-control-plane-ready-v8"
+                | "eval-control-plane-ready-v9"
         )
 }
 
@@ -4050,7 +4235,11 @@ mod tests {
     fn user_event_phase_requires_unfinished_real_control_plane_state() {
         let telemetry = restart_telemetry();
         let workspace = tempfile::tempdir().unwrap();
-        assert!(user_event_phase_instruction("reject_delete_approval").contains("不得执行删除"));
+        assert!(user_event_phase_instruction(
+            "reject_delete_approval",
+            "eval-control-plane-ready-v9"
+        )
+        .contains("不得执行删除"));
         assert!(
             user_event_precondition_observed(
                 "pause_resume_cancel_sequence",
@@ -4522,5 +4711,82 @@ mod tests {
         .await;
         assert!(!prior_scripted_work_settled(&timed_out));
         assert_eq!(timed_out.pending_work, 1);
+    }
+    #[test]
+    fn scripted_owner_goal_actions_are_bounded_typed_and_followed_by_user_input() {
+        let action = json!({"action":"update_goal","objective":"revised objective","completionCriteria":"new evidence"});
+        let message = json!({"action":"message","message":"continue with updated user contract"});
+        let flow =
+            |steps: Vec<Value>| json!({"schemaVersion":"scripted-user-flow.v2","steps":steps});
+        assert!(parse_scripted_user_flow(flow(vec![action.clone(), message.clone()]), 2).is_ok());
+        assert!(parse_scripted_user_flow(flow(vec![message.clone(), action.clone()]), 2).is_err());
+        assert!(parse_scripted_user_flow(flow(vec![action.clone()]), 2).is_err());
+        assert!(parse_scripted_user_flow(
+            flow(vec![action.clone(), action.clone(), message.clone()]),
+            2
+        )
+        .is_err());
+        for patch in [
+            json!({"objective":""}),
+            json!({"goalId":"foreign"}),
+            json!({"headers":{"Authorization":"forbidden"}}),
+        ] {
+            let mut invalid = action.clone();
+            invalid
+                .as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            assert!(parse_scripted_user_flow(flow(vec![invalid, message.clone()]), 2).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn owner_goal_revision_checks_session_scope_and_actual_revision_change() {
+        use axum::{
+            routing::{get, patch},
+            Json, Router,
+        };
+        use std::sync::{Arc, Mutex};
+        for (read_session, goal_id, revision, expected) in [
+            ("session-fixture", "goal-fixture", 2, Some(true)),
+            ("session-fixture", "goal-fixture", 1, Some(false)),
+            ("session-fixture", "goal-fixture", 3, Some(false)),
+            ("foreign-session", "goal-fixture", 2, None),
+            ("session-fixture", "bad/id", 2, None),
+        ] {
+            let before = json!({"goal":{"id":goal_id,"sessionId":read_session,"revision":1,"state":"blocked"}});
+            let after = json!({"goal":{"id":"goal-fixture","sessionId":"session-fixture","revision":revision,"state":"active"}});
+            let seen = Arc::new(Mutex::new(Vec::<Value>::new()));
+            let capture = seen.clone();
+            let app=Router::new()
+                .route("/api/sessions/session-fixture/goal/latest", get(move || {let body=before.clone();async move {Json(body)}}))
+                .route("/api/goals/goal-fixture", patch(move |headers:axum::http::HeaderMap, Json(body):Json<Value>| {
+                    let capture=capture.clone();let after=after.clone();async move {
+                        assert_eq!(headers.get("authorization").unwrap(),"Bearer test-owner");
+                        assert_eq!(body,json!({"objective":"revised objective","completionCriteria":"new evidence"}));
+                        capture.lock().unwrap().push(body);Json(after)
+                    }
+                }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let client = Client::builder().no_proxy().build().unwrap();
+            let result = apply_scripted_goal_revision(
+                &client,
+                &url,
+                Some("test-owner"),
+                "session-fixture",
+                "revised objective",
+                "new evidence",
+            )
+            .await;
+            match expected {
+                Some(value) => assert_eq!(result.unwrap().passed, value),
+                None => assert!(result.is_err()),
+            }
+            assert_eq!(seen.lock().unwrap().len(), usize::from(expected.is_some()));
+            server.abort();
+            let _ = server.await;
+        }
     }
 }

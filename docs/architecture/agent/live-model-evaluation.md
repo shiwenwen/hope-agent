@@ -223,6 +223,8 @@ Milestone 必须形成 DAG，支持 `requires`、`anyOf`、blocking、weight、d
 
 编排 `1.17.0` / 上下文 `1.0.10` 修复草稿修订的轮次衔接：`after_first_draft` 和 `narrow_time_range_after_draft` 在发送下一条用户消息前，按真实遥测等待已接纳的子工作、后台模型与父级结果通知结算，并计入环境等待时间。取消子树、purge 与进程重启仍保留活动工作，不能用统一清空活动状态来伪造故障。该步骤只观察状态，不重发失败或用量不确定的模型请求。HTTP 失败记录有界脱敏原因及正文摘要，不能仅从清理阶段的 callerCancelled 推断原始失败原因。
 
+编排 `1.18.0` / 上下文 `1.0.11` 为草稿修订注册受限 `update_goal` 用户步骤：仅允许给出目标和完成条件，Runner 通过既有 owner API 读取当前会话 Goal、校验归属并修改契约，确认同一 Goal 修订号恰好增加一次后才发送后续消息。模型没有修改契约的权限；Manifest 不得提供 Goal ID、URL 或认证字段。草稿验证 Workflow 必须正常结束，不能为等待用户而制造永久阻塞的运行。旧版用例及锁项保留，不修改历史结果。
+
 
 编排 `1.16.0` / 上下文 `1.0.9` 的本地回归还修正以下判分边界：
 
@@ -244,7 +246,7 @@ Milestone 必须形成 DAG，支持 `requires`、`anyOf`、blocking、weight、d
 - control 只验证正常任务、产物与控制面终态。当前公开文件任务仍是合成 JSON / SHA-256 验证；Loop 状态查询不能证明多轮调度，未执行的故障臂不能证明场景标题中的恢复、竞态或安全能力。业务产物通过率、机制 / 终态通过率和等待用户的失败需分别报告。跨 `1.9.0` / `1.15.0` 成绩属于环境修复前后诊断，不直接作为模型能力排名。
 - Model gateway、tool、scheduler、process、storage、user、environment 故障分开归因；重启从 durable row 恢复 trial 身份与剩余预算。
 - blocking 场景优先用 `scripted_fsm`，允许受审 `replay`；LLM User 只用于探索，固定模型 / Prompt / 预算并与 Agent 成本分开，**不得决定本地 required case 的 pass/fail**。
-- `scripted-user-flow.v1` 继续只支持消息轮次；`scripted-user-flow.v2` 使用带标签步骤，当前只注册 `message` 与 `compact_context`。后者调用生产 `POST /api/sessions/{id}/compact`，并要求真实第 3 层摘要满足 `tierApplied=3`、`description=summarized`、词元数下降且确实影响消息；Manifest 不能借此携带任意 HTTP 动作。
+- `scripted-user-flow.v1` 继续只支持消息轮次；`scripted-user-flow.v2` 使用带标签步骤，当前注册 `message`、`compact_context` 与受限 `update_goal`。后者调用生产 `POST /api/sessions/{id}/compact`，并要求真实第 3 层摘要满足 `tierApplied=3`、`description=summarized`、词元数下降且确实影响消息；Manifest 不能借此携带任意 HTTP 动作。
 - 用户改需求、拒绝审批、取消等事件，执行前后都检查持久状态，确保事件确实命中预定阶段，而不是只在日志里出现。
 - 强制进程重启无法执行调用守卫的析构：若重启前仍有子执行器或后台模型工作，合并证据保留已完成调用，但归因降为 `partial`，试次 Token / 总费用未知，并记录 `process.restart.interruptedWorkAtRestart`；不能把未上报部分视为零或伪造逐次用量。
 - infra retry 保留原 attempt、累计用量和独立 trace，**不能重置成本或覆盖失败证据**。

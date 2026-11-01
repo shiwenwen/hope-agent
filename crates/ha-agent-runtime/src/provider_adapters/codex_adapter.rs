@@ -506,7 +506,10 @@ mod tests {
                         .and_then(serde_json::Value::as_str),
                     expected
                 );
-                assert_eq!(body["tools"], serde_json::json!(tools));
+                assert_eq!(
+                    body["tools"],
+                    serde_json::json!([{ "type":"function", "name":"read", "strict":false }])
+                );
                 assert_eq!(body["store"], false);
                 assert_eq!(body["stream"], true);
                 assert!(body.get("temperature").is_none());
@@ -564,7 +567,8 @@ mod tests {
         let (request, input) = build_codex_request("gpt-5.4-codex", None, &req);
         let body = serde_json::to_value(&request).unwrap();
         assert_eq!(body["instructions"], "stable");
-        assert!(body.get("temperature").is_none());
+        // Legacy models retain their existing sampling contract; GPT-6 is covered above.
+        assert_eq!(body["temperature"], serde_json::json!(0.0));
         assert!(body.get("prompt_cache_key").is_none());
         assert!(body.get("prompt_cache_options").is_none());
         assert_eq!(body["tools"].as_array().unwrap().len(), 1);
