@@ -292,9 +292,11 @@ pub fn is_direct_volcengine_deepseek_v4_1_flash(base_url: &str, model: &str) -> 
         && has_exact_https_host(base_url, "ark.cn-beijing.volces.com")
 }
 
-/// Direct Moonshot Kimi K3.1 Pro uses a distinct public model ID and host.
+/// Direct Moonshot Kimi K3.1 Pro variants use public model IDs and a fixed
+/// sampling/always-on reasoning contract on the official host.
 pub fn is_direct_moonshot_kimi_k3_1_pro(base_url: &str, model: &str) -> bool {
-    model == "kimi-k3.1-pro" && has_exact_https_host(base_url, "api.moonshot.ai")
+    matches!(model, "kimi-k3.1-pro" | "kimi-k3.1-pro-highspeed")
+        && has_exact_https_host(base_url, "api.moonshot.ai")
 }
 
 pub fn is_direct_kimi_k3_1_pro(base_url: &str, model: &str) -> bool {
@@ -1521,6 +1523,10 @@ mod provider_effort_tests {
             "https://api.moonshot.ai/v1",
             "kimi-k3.1-pro"
         ));
+        assert!(is_direct_moonshot_kimi_k3_1_pro(
+            "https://api.moonshot.ai/v1",
+            "kimi-k3.1-pro-highspeed"
+        ));
         for (base_url, model) in [
             (
                 "http://ark.cn-beijing.volces.com/api/v3",
@@ -1533,7 +1539,10 @@ mod provider_effort_tests {
             ("https://relay.example/api/v3", "kimi-k3-1-pro-261024"),
             (endpoint, "kimi-k3-1-pro-custom"),
             ("https://api.moonshot.ai.evil.test/v1", "kimi-k3.1-pro"),
-            ("https://api.moonshot.ai/v1", "kimi-k3.1-pro-highspeed"),
+            (
+                "https://api.moonshot.ai.evil.test/v1",
+                "kimi-k3.1-pro-highspeed",
+            ),
         ] {
             assert!(!is_direct_kimi_k3_1_pro(base_url, model));
         }
@@ -1541,6 +1550,7 @@ mod provider_effort_tests {
         for (base_url, model) in [
             (endpoint, "kimi-k3-1-pro-261024"),
             ("https://api.moonshot.ai/v1", "kimi-k3.1-pro"),
+            ("https://api.moonshot.ai/v1", "kimi-k3.1-pro-highspeed"),
         ] {
             let provider = LlmProvider::OpenAIChat {
                 api_key: "synthetic".into(),

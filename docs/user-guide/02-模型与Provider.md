@@ -134,7 +134,7 @@ API 类型告诉 Hope Agent 用哪套协议和服务商通信。**用内置模�
 
 OpenAI 直连 Responses 模板新增 GPT-6.1 Terra（`gpt-6.1-terra`）：支持文本和图片、1.05M 上下文、128K 最大输出，推理档位含 `none` 到 `max`，标准价为输入/输出每百万 Token $1/$5。Terra 工具调用使用 Responses API；模型也出现在 OpenRouter 目录中。ChatGPT/Codex 登录新增可选 Terra，采用 Codex 官方 500K 默认上下文和 16K 输出预算预留，实际可用性由账号套餐、工作区权限和上线范围决定。直接 OpenAI Chat Completions 模板暂不提供 GPT-6 系列；不同型号的 Chat 工具支持有额外限制。缓存、超长输入价和快速服务档位未计入基础价。
 
-Moonshot 直连模板新增 Kimi K3.1 Pro（`kimi-k3.1-pro`）：OpenAI Chat 接口支持文本、图片和函数调用，上下文与最大输出均为 1,048,576；基础输入/输出价为每百万 $2/$10。厂商要求推理始终开启、只支持 `low/high/max` 档，并规定 `temperature=1`、`top_p=0.95` 等采样值固定；Hope 省略这些采样字段，关闭推理时仍按模型默认思考。访问需要账号完成至少 $1 充值，限流按账号等级变化。Kimi API 的 K2 系列自 2026-10-31 起不再向新注册用户开放，因此新建模板只保留 K3 系列；现有配置不会迁移或删除。
+Moonshot 直连模板新增 Kimi K3.1 Pro（`kimi-k3.1-pro`）和高速版（`kimi-k3.1-pro-highspeed`）：官方说明高速版与 Pro 同等智能、速度约为 2–3 倍，两者均提供 1,048,576 上下文。Hope 为高速版采用 131,072 的保守输出预设；官方模型说明给出的 K3.1 Pro API 默认输出为 131,072、可设置上限为 1,048,576，但未单独说明高速版的硬上限。高速版基础输入/输出价为每百万 $4/$20。两种型号走 OpenAI Chat 接口，支持文本、图片和函数调用，推理始终开启且只支持 `low/high/max` 档；厂商固定 `temperature=1`、`top_p=0.95` 等采样值，Hope 省略这些字段，关闭推理时仍按模型默认思考。访问需要账号完成至少 $1 充值，限流按账号等级变化。Kimi API 的 K2 系列自 2026-10-31 起不再向新注册用户开放，因此新建模板只保留 K3 系列；现有配置不会迁移或删除。详见[官方模型列表](https://platform.kimi.ai/docs/models)、[K3.1 Pro API 指南](https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart)和[官方价目](https://platform.kimi.ai/docs/pricing/chat)。
 
 火山方舟模板也新增其托管的 Kimi K3.1 Pro（`kimi-k3-1-pro-261024`）：支持文本、图片和函数调用，上下文与厂商最大回答长度均为 1,024K；人民币基础价为输入/输出每百万 Token ¥13/¥68。该端点同样要求思考始终开启、`temperature=1`、`top_p=0.95`；Hope 会省略采样字段并映射显式推理强度。它是与 Moonshot 直连不同的模型 ID 和计费端点。缓存价格和调用后实际费用仍以方舟账单为准。
 

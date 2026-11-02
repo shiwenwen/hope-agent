@@ -1522,6 +1522,7 @@ mod tests {
                 "kimi-k3-1-pro-261024",
             ),
             ("https://api.moonshot.ai/v1", "kimi-k3.1-pro"),
+            ("https://api.moonshot.ai/v1", "kimi-k3.1-pro-highspeed"),
         ] {
             let (body, _, _) =
                 super::build_chat_body(base_url, model, &ThinkingStyle::Anthropic, true, &req);

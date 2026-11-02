@@ -370,7 +370,7 @@ describe("provider template lifecycle hygiene", () => {
       apiType: "openai-chat",
       baseUrl: "https://api.moonshot.ai/v1",
     })
-    expect(moonshot.models).toHaveLength(2)
+    expect(moonshot.models).toHaveLength(3)
     expect(moonshot.models.find((model) => model.id === "kimi-k3.1-pro")).toMatchObject({
       inputTypes: ["text", "image"],
       contextWindow: 1_048_576,
@@ -379,6 +379,15 @@ describe("provider template lifecycle hygiene", () => {
       thinkingStyle: "openai",
       costInput: 2,
       costOutput: 10,
+    })
+    expect(moonshot.models.find((model) => model.id === "kimi-k3.1-pro-highspeed")).toMatchObject({
+      inputTypes: ["text", "image"],
+      contextWindow: 1_048_576,
+      maxTokens: 131_072,
+      reasoning: true,
+      thinkingStyle: "openai",
+      costInput: 4,
+      costOutput: 20,
     })
     expect(moonshot.models.find((model) => model.id === "kimi-k3")).toBeDefined()
   })
