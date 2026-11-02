@@ -488,7 +488,13 @@ mod tests {
         let mut req = super::super::test_support::round_request(&history);
         req.tool_schemas = &tools;
         req.temperature = Some(0.2);
-        for model in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"] {
+        for model in [
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
+            "gpt-6-astra",
+            "gpt-6-sol",
+            "gpt-6-luna",
+        ] {
             for (effort, expected) in [
                 (None, None),
                 (Some("none"), Some("low")),

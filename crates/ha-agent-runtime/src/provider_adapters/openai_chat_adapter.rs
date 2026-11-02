@@ -88,7 +88,8 @@ impl OpenAIChatStreamingAdapter<'_> {
                 "GPT-6 Astra tool calling requires the OpenAI Responses API; change this provider's API type in settings.".to_string(),
             ).into());
         }
-        let thinking_style = if thinking_parameters_disabled {
+        let direct_kimi = crate::agent::config::is_direct_kimi_k3_1_pro(self.base_url, self.model);
+        let thinking_style = if thinking_parameters_disabled || direct_kimi {
             &ThinkingStyle::None
         } else {
             self.thinking_style
@@ -227,7 +228,8 @@ fn build_chat_body(
                 .remove("tools");
         }
     }
-    if let Some(temp) = req.temperature.filter(|_| !is_astra) {
+    let is_direct_kimi = crate::agent::config::is_direct_kimi_k3_1_pro(base_url, model);
+    if let Some(temp) = req.temperature.filter(|_| !is_astra && !is_direct_kimi) {
         body["temperature"] = json!(temp);
     }
     if prompt_cache_key_is_supported(base_url) {
@@ -248,6 +250,41 @@ fn apply_official_chat_effort(
     thinking_style: &ThinkingStyle,
     effort: Option<&str>,
 ) {
+    if crate::agent::config::is_direct_volcengine_deepseek_v4_1_flash(base_url, model) {
+        let object = body.as_object_mut().expect("chat body is an object");
+        object.remove("thinking");
+        object.remove("reasoning_effort");
+        let mapped_effort = if matches!(thinking_style, ThinkingStyle::None) {
+            Some("none")
+        } else {
+            match effort {
+                Some("none") => Some("none"),
+                Some("minimal" | "low") => Some("low"),
+                Some("medium" | "high" | "xhigh") => Some("high"),
+                Some("max") => Some("max"),
+                _ => None,
+            }
+        };
+        if let Some(mapped_effort) = mapped_effort {
+            body["reasoning_effort"] = json!(mapped_effort);
+        }
+        return;
+    }
+    if crate::agent::config::is_direct_kimi_k3_1_pro(base_url, model) {
+        let object = body.as_object_mut().expect("chat body is an object");
+        object.remove("thinking");
+        object.remove("reasoning_effort");
+        let mapped_effort = match effort {
+            Some("minimal" | "low" | "medium") => Some("low"),
+            Some("high") => Some("high"),
+            Some("xhigh" | "max") => Some("max"),
+            _ => None,
+        };
+        if let Some(mapped_effort) = mapped_effort {
+            body["reasoning_effort"] = json!(mapped_effort);
+        }
+        return;
+    }
     if crate::agent::config::is_direct_deepseek(base_url, model)
         && matches!(thinking_style, ThinkingStyle::Openai | ThinkingStyle::None)
     {
@@ -1370,6 +1407,52 @@ mod tests {
     }
 
     #[test]
+    fn ark_deepseek_v41_uses_supported_efforts_and_scopes_disabled_mode() {
+        let base_url = "https://ark.cn-beijing.volces.com/api/v3";
+        let model = "deepseek-v4-1-flash-261017";
+        let style = crate::provider::ThinkingStyle::Openai;
+        for (effort, expected) in [
+            (None, None),
+            (Some("none"), Some("none")),
+            (Some("minimal"), Some("low")),
+            (Some("low"), Some("low")),
+            (Some("medium"), Some("high")),
+            (Some("high"), Some("high")),
+            (Some("xhigh"), Some("high")),
+            (Some("max"), Some("max")),
+        ] {
+            let mut body = serde_json::json!({"reasoning_effort":"high"});
+            super::apply_official_chat_effort(&mut body, base_url, model, &style, effort);
+            assert_eq!(
+                body.get("reasoning_effort")
+                    .and_then(|value| value.as_str()),
+                expected
+            );
+            assert!(body.get("thinking").is_none());
+        }
+
+        let mut disabled = serde_json::json!({"reasoning_effort":"max"});
+        super::apply_official_chat_effort(
+            &mut disabled,
+            base_url,
+            model,
+            &crate::provider::ThinkingStyle::None,
+            Some("max"),
+        );
+        assert_eq!(disabled["reasoning_effort"], "none");
+
+        for url in [
+            "https://relay.example/api/v3",
+            "http://ark.cn-beijing.volces.com/api/v3",
+            "https://ark.cn-beijing.volces.com.evil.test/api/v3",
+        ] {
+            let mut relay = serde_json::json!({});
+            super::apply_official_chat_effort(&mut relay, url, model, &style, Some("max"));
+            assert!(relay.get("reasoning_effort").is_none());
+        }
+    }
+
+    #[test]
     fn direct_deepseek_toggle_and_max_do_not_apply_to_relays() {
         let style = crate::provider::ThinkingStyle::Openai;
         for model in [
@@ -1423,6 +1506,47 @@ mod tests {
             );
             assert!(body.get("thinking").is_none());
         }
+    }
+
+    #[test]
+    fn ark_kimi_k31_uses_fixed_sampling_and_always_on_reasoning_contract() {
+        let history = vec![serde_json::json!({"role":"user", "content":"hello"})];
+        let mut req = super::super::test_support::round_request(&history);
+        req.temperature = Some(0.2);
+        req.reasoning_effort = Some("xhigh");
+        let tools = vec![serde_json::json!({"name":"read", "parameters":{"type":"object"}})];
+        req.tool_schemas = &tools;
+        for (base_url, model) in [
+            (
+                "https://ark.cn-beijing.volces.com/api/v3",
+                "kimi-k3-1-pro-261024",
+            ),
+            ("https://api.moonshot.ai/v1", "kimi-k3.1-pro"),
+        ] {
+            let (body, _, _) =
+                super::build_chat_body(base_url, model, &ThinkingStyle::Anthropic, true, &req);
+            assert_eq!(body["reasoning_effort"], "max");
+            assert!(body.get("thinking").is_none());
+            assert!(body.get("temperature").is_none());
+            assert!(body.get("top_p").is_none());
+            assert_eq!(body["tools"].as_array().unwrap().len(), 1);
+
+            req.reasoning_effort = Some("none");
+            let (body, _, _) =
+                super::build_chat_body(base_url, model, &ThinkingStyle::Anthropic, true, &req);
+            assert!(body.get("reasoning_effort").is_none());
+            assert!(body.get("thinking").is_none());
+            req.reasoning_effort = Some("xhigh");
+        }
+
+        let (relay, _, _) = super::build_chat_body(
+            "https://api.moonshot.ai.evil.test/v1",
+            "kimi-k3.1-pro",
+            &ThinkingStyle::None,
+            true,
+            &req,
+        );
+        assert_eq!(relay["temperature"], 0.2);
     }
 
     #[test]

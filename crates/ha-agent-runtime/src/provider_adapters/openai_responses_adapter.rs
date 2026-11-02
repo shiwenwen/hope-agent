@@ -1633,7 +1633,13 @@ mod tests {
         let history = vec![serde_json::json!({"role":"user","content":"hello"})];
         let mut req = super::super::test_support::round_request(&history);
         req.temperature = Some(0.2);
-        for model in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"] {
+        for model in [
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
+            "gpt-6-astra",
+            "gpt-6-sol",
+            "gpt-6-luna",
+        ] {
             for effort in [None, Some("minimal"), Some("none"), Some("max")] {
                 req.reasoning_effort = effort;
                 let expected = crate::agent::config::gpt6_api_reasoning_effort(model, effort);
@@ -1656,7 +1662,7 @@ mod tests {
                 build_responses_request("https://api.openai.com", model, None, &req);
             assert_eq!(
                 request.reasoning.unwrap().effort,
-                if matches!(model, "gpt-6-sol" | "gpt-6-luna") {
+                if matches!(model, "gpt-6.1-terra" | "gpt-6-sol" | "gpt-6-luna") {
                     "none"
                 } else {
                     "low"
