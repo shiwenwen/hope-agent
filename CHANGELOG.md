@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-11-03
+
 ### Added
 
 - **Kimi K3.1 Pro Highspeed**：新增 Moonshot 官方高速型号模板，沿用精确端点的推理参数兼容处理，并以官方高速价格和保守输出预设展示。 (#881)
