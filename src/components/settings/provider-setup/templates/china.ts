@@ -24,6 +24,18 @@ export const chinaTemplates: ProviderTemplate[] = [
         costOutput: 10.0,
       },
       {
+        id: "kimi-k3.1-pro-highspeed",
+        name: "Kimi K3.1 Pro Highspeed",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_048_576,
+        // Use the API's 131K default as Hope's conservative output preset.
+        maxTokens: 131_072,
+        reasoning: true,
+        thinkingStyle: "openai",
+        costInput: 4.0,
+        costOutput: 20.0,
+      },
+      {
         id: "kimi-k3",
         name: "Kimi K3",
         inputTypes: ["text", "image"],
