@@ -4156,6 +4156,10 @@
       "description": "Puerta de enlace de enrutamiento multi-modelo, cientos de modelos con una sola key",
       "name": "Requesty"
     },
+    "runcrate": {
+      "description": "Nube de GPU que sirve modelos abiertos con una API compatible con OpenAI",
+      "name": "Runcrate"
+    },
     "together": {
       "description": "Plataforma de inferencia cloud para modelos open source",
       "name": "Together AI"

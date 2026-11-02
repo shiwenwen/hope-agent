@@ -4156,6 +4156,10 @@
       "description": "Gateway de roteamento multi-modelo, centenas de modelos com uma única key",
       "name": "Requesty"
     },
+    "runcrate": {
+      "description": "Nuvem de GPU que serve modelos abertos por uma API compatível com OpenAI",
+      "name": "Runcrate"
+    },
     "together": {
       "description": "Plataforma de inferência em nuvem para modelos open source",
       "name": "Together AI"

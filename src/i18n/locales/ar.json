@@ -4156,6 +4156,10 @@
       "description": "بوابة توجيه متعددة النماذج، مئات النماذج بمفتاح واحد",
       "name": "Requesty"
     },
+    "runcrate": {
+      "description": "سحابة GPU تقدم نماذج مفتوحة عبر API متوافق مع OpenAI",
+      "name": "Runcrate"
+    },
     "together": {
       "description": "منصة استدلال سحابية للنماذج مفتوحة المصدر",
       "name": "Together AI"

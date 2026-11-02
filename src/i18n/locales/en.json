@@ -4156,6 +4156,10 @@
       "description": "Multi-model routing gateway, hundreds of models with one key",
       "name": "Requesty"
     },
+    "runcrate": {
+      "description": "GPU cloud serving open models through an OpenAI-compatible API",
+      "name": "Runcrate"
+    },
     "together": {
       "description": "Open source model cloud inference platform",
       "name": "Together AI"

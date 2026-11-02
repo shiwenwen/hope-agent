@@ -4156,6 +4156,10 @@
       "description": "多模型路由网关，一个 Key 用数百个模型",
       "name": "Requesty"
     },
+    "runcrate": {
+      "description": "GPU 云，以 OpenAI 兼容 API 提供开源模型",
+      "name": "Runcrate"
+    },
     "together": {
       "description": "开源模型云推理平台",
       "name": "Together AI"
