@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Obscurify.ai 服务商**：新增隐私优先的 OpenAI Chat 兼容网关模板（`https://obscurify.ai/v1`），预置 DeepSeek V4 Flash、GLM 5.3、Kimi K2 0905、Qwen3 Coder 与 Llama 3.3 70B，上下文与价格取自其公开的 `/v1/models`。
+
 ### Fixed
 
 - **目标修订**：修改目标后保留此前已验证的修复记录，按所属运行关联诊断、领域复核与验证，并继续要求新版本证据，避免已解决的错误再次阻塞交付。 (#879)

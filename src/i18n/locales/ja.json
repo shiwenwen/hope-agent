@@ -4196,6 +4196,10 @@
       "name": "Venice",
       "description": "プライバシーを重視した AI 推論プラットフォーム"
     },
+    "obscurify": {
+      "name": "Obscurify.ai",
+      "description": "プライバシー重視の AI ゲートウェイ。メール不要のアカウント、200 以上のモデル"
+    },
     "synthetic": {
       "name": "Synthetic",
       "description": "オープンソースモデル推論（Anthropic 互換）"

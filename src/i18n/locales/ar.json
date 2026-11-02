@@ -4196,6 +4196,10 @@
       "name": "Venice",
       "description": "منصة لاستدلال الذكاء الاصطناعي تضع الخصوصية أولًا"
     },
+    "obscurify": {
+      "name": "Obscurify.ai",
+      "description": "بوابة ذكاء اصطناعي تركّز على الخصوصية، حسابات بلا بريد إلكتروني، أكثر من 200 نموذج"
+    },
     "synthetic": {
       "name": "Synthetic",
       "description": "استدلال للنماذج مفتوحة المصدر (متوافق مع Anthropic)"
