@@ -12341,6 +12341,7 @@
       "fixStarted": "AI is fixing it now",
       "fixBusy": "A conversation is in progress, please try again shortly",
       "fixPrompt": "Please fix the issue found by the design self-check: {{detail}}. Use design-system tokens (var(--ds-*)) to consolidate colors and replace hard-coded styles. Make only the minimal necessary changes and keep everything else in the design intact.",
+      "visualScenarioIncomplete": "Visual validation incomplete: only the default scenario and fixed viewports are supported. Custom scenarios have not run and cannot be accepted as a baseline; rerun after scenario changes.",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",
       "baselineFailed": "Failed to accept the visual baseline",

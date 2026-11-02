@@ -12341,6 +12341,7 @@
       "fixStarted": "AI sedang membaikinya",
       "fixBusy": "Perbualan sedang berjalan, cuba lagi sebentar",
       "fixPrompt": "Sila baiki isu yang ditemui oleh semakan kendiri reka bentuk: {{detail}}. Gunakan token sistem reka bentuk (var(--ds-*)) untuk menyatukan warna dan menggantikan gaya berkod keras. Buat perubahan minimum yang perlu sahaja dan kekalkan reka bentuk yang lain.",
+      "visualScenarioIncomplete": "Pengesahan visual belum lengkap: hanya senario lalai dan ruang pandang tetap disokong. Senario tersuai belum dijalankan dan tidak boleh diterima sebagai garis dasar; sahkan semula selepas perubahan senario.",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",
       "baselineFailed": "Failed to accept the visual baseline",

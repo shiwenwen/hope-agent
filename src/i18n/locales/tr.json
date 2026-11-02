@@ -12341,6 +12341,7 @@
       "fixStarted": "Yapay zeka düzeltmeye başladı",
       "fixBusy": "Bir sohbet devam ediyor, lütfen birazdan tekrar deneyin",
       "fixPrompt": "Tasarım öz denetiminde bulunan sorunu düzeltin: {{detail}}. Renkleri toparlamak ve sabit kodlanmış stilleri değiştirmek için tasarım sistemi belirteçlerini (var(--ds-*)) kullanın. Yalnızca gerekli en az değişikliği yapın ve tasarımın geri kalanını olduğu gibi koruyun.",
+      "visualScenarioIncomplete": "Görsel doğrulama tamamlanmadı: yalnızca varsayılan senaryo ve sabit görünüm alanları desteklenir. Özel senaryolar çalıştırılmadığından temel olarak kabul edilemez; senaryo değişikliklerinden sonra doğrulamayı yineleyin.",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",
       "baselineFailed": "Failed to accept the visual baseline",

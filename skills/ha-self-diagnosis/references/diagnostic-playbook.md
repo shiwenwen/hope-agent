@@ -321,3 +321,7 @@ gotcha that most often explains a failure. Open every DB read-only.
 Goal 改约后 LSP 错误无法被后续 clean diagnostics 或 validation 清除时，核对 diagnostic 的 metadata.runId、source id 前缀及持久化 Workflow 的 Goal/session/criterion/revision。诊断本身未携带 goalRevision 不代表无法归属；必须经真实 run 解析，不能用外部修订字段或创建时间跨修订消除阻塞。历史同修订内修复保留，但不能满足当前新契约。
 
 领域质量复核无法清除同修订旧错误时，检查 domain_quality_runs.goal_revision 及回写 summary/check 的 goalRevision。该可空列由旧库兼容迁移追加，历史 NULL 不回填猜测；旧运行在改约后完成、用户 source metadata 或完成 stats 携带新修订都不能覆盖创建时归属。
+
+### Design 视觉场景验证未完成
+
+`visual_scenarios_incomplete` 表示固定三视口 runner 未执行已保存的自定义场景，或场景清单在捕获期间变化；不是浏览器失效。检查场景清单的路由、状态、场景数量/身份和自定义视口。保留用户清单与旧基线，不自动清空场景或接受默认页基线。当前仅默认场景可自动比较；完整场景状态到达证据仍待实现。
