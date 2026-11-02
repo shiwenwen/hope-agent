@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Kimi K3.1 Pro Highspeed**：新增 Moonshot 官方高速型号模板，沿用精确端点的推理参数兼容处理，并以官方高速价格和保守输出预设展示。 (#PR)
+- **Kimi K3.1 Pro Highspeed**：新增 Moonshot 官方高速型号模板，沿用精确端点的推理参数兼容处理，并以官方高速价格和保守输出预设展示。 (#881)
 - **Unbiased Pareto 26.10 稳定版**：更新当前别名和固定版本模板、官方上下文与价格，移除进入退役流程的预览 ID。 (#880)
 - **OpenAI 与 Codex GPT-6.1 Terra**：新增 Responses API 与 Codex OAuth 模型预设，保留 API 与订阅上下文、推理参数和计费边界；OpenRouter 同步目录。 (#880)
 - **Kimi K3.1 Pro**：新增 Moonshot 与火山方舟两种官方 Chat API 预设，适配始终开启的思考和固定采样参数；清理不再向新注册 Moonshot 账号开放的 K2 模板候选。 (#880)
