@@ -105,7 +105,7 @@ export default function ProviderSetup({
     setApiKey("")
     setTestResult(null)
     setError("")
-    setModelsExpanded(false)
+    setModelsExpanded(template.models.length === 0)
     setThinkingStyle(template.thinkingStyle || "openai")
     setCurrency(template.currency ?? "USD")
     setAllowPrivateNetwork(false)

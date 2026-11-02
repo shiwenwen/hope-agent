@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **API Route 服务商模板**：预填 OpenAI Chat 兼容端点，填写 API Key 并配置模型后使用。 (#752)
+
 ### Fixed
 
 - **目标修订**：修改目标后保留此前已验证的修复记录，按所属运行关联诊断、领域复核与验证，并继续要求新版本证据，避免已解决的错误再次阻塞交付。 (#879)
