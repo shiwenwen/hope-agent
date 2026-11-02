@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Unbiased Pareto 26.10 稳定版**：更新当前别名和固定版本模板、官方上下文与价格，移除进入退役流程的预览 ID。 (#880)
+- **OpenAI 与 Codex GPT-6.1 Terra**：新增 Responses API 与 Codex OAuth 模型预设，保留 API 与订阅上下文、推理参数和计费边界；OpenRouter 同步目录。 (#880)
+- **Kimi K3.1 Pro**：新增 Moonshot 与火山方舟两种官方 Chat API 预设，适配始终开启的思考和固定采样参数；清理不再向新注册 Moonshot 账号开放的 K2 模板候选。 (#880)
+- **火山方舟 DeepSeek V4.1 Flash**：补齐 1017 稳定快照与峰谷价格，替换旧 V4 模板快照，并按精确官方端点适配图片输入及推理档位。 (#880)
+
 ### Fixed
 
 - **目标修订**：修改目标后保留此前已验证的修复记录，按所属运行关联诊断、领域复核与验证，并继续要求新版本证据，避免已解决的错误再次阻塞交付。 (#879)
