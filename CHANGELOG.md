@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- 同步桌面通知插件两端版本，并保留已验证的深链补丁，修复依赖更新的桌面兼容门禁。（#883）
+
 ## [0.72.0] - 2026-11-03
 
 ### Added

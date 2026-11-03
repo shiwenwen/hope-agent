@@ -7302,7 +7302,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "petgraph",
@@ -7321,7 +7321,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -9365,9 +9365,8 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-deep-link"
-version = "2.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab551d9bec27bb79d1c7fe5ed38c5cfd1cebb86efa745acc65f5853f345f6e56"
+version = "2.6.2"
+source = "git+https://github.com/tauri-apps/plugins-workspace?rev=463977675da7bbb257dee59669b5e122c8d681db#463977675da7bbb257dee59669b5e122c8d681db"
 dependencies = [
  "dunce",
  "plist",
@@ -9494,9 +9493,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-single-instance"
-version = "2.5.5"
+version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "726b6da0dd5bd1344f84f4108a622c07d01923baacb5c803a605189672c5352f"
+checksum = "561cd99484561bc39c954768e7b41a66cebbe1ac3d9d081c34361f740c489e2c"
 dependencies = [
  "serde",
  "serde_json",
@@ -11953,8 +11952,3 @@ dependencies = [
  "syn 2.0.119",
  "winnow 1.0.4",
 ]
-
-[[patch.unused]]
-name = "tauri-plugin-deep-link"
-version = "2.6.2"
-source = "git+https://github.com/tauri-apps/plugins-workspace?rev=463977675da7bbb257dee59669b5e122c8d681db#463977675da7bbb257dee59669b5e122c8d681db"
