@@ -91,7 +91,7 @@
     "@tailwindcss/vite": "^4.2.4",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-dialog": "^2.8.3",
-    "@tauri-apps/plugin-notification": "^2.7.0",
+    "@tauri-apps/plugin-notification": "^2.8.0",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "2.14.0",
     "@xterm/addon-fit": "^0.11.0",
