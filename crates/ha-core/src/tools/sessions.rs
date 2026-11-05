@@ -1721,15 +1721,7 @@ async fn run_agent_for_session(
 }
 
 fn truncate_str(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        return s;
-    }
-    // Find a valid UTF-8 boundary near max
-    let mut end = max;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
+    ha_base::util::truncate_utf8(s, max)
 }
 
 fn format_session_search_results(
