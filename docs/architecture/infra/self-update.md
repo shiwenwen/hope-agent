@@ -196,7 +196,7 @@ GUI 入口在「设置 → 关于 → 自动更新」，命令 `get_auto_update_
 
 ## 签名信任根（单一 Minisign Pubkey）
 
-2026-11-05 裸二进制与桌面路径统一使用 `minisign-verify 0.3.0`，共享锁中不再保留 0.2 支线。
+2026-11-05 [PR #892](https://github.com/shiwenwen/hope-agent/pull/892) 裸二进制与桌面路径统一使用 `minisign-verify 0.3.0`，共享锁中不再保留 0.2 支线。
 `verify_bytes` 只从内嵌发布公钥进入，仍拒绝 legacy 签名；下载归档先验签，再解包和替换。
 公开的非发布测试公钥夹具覆盖合法预哈希签名、错误 payload/公钥、签名与 trusted comment 篡改、全局签名的非规范 `S + L`。
 这些夹具在原锁定 0.2.5 与新 0.3.0 均通过；两个 tag 的 `crypto/ed25519.rs` 相同且均检查 `S < L`，
