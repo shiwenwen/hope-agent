@@ -3993,4 +3993,26 @@ mod ui_request_policy_tests {
             Some(&HeaderValue::from_static("http://tauri.localhost"))
         );
     }
+
+    #[tokio::test]
+    async fn cors_preflight_does_not_allow_an_unlisted_origin() {
+        let app = Router::new()
+            .route("/api/health", get(|| async { StatusCode::OK }))
+            .layer(build_cors_layer(&["https://app.example".to_string()]));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/api/health")
+                    .header(header::ORIGIN, "https://unlisted.example")
+                    .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(!response
+            .headers()
+            .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+    }
 }
