@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.73.0] - 2026-11-06
+
+### Fixed
+
 - 裸二进制自更新与桌面端统一验签依赖，并补充签名篡改、旧格式和非规范签名的兼容回归检查。 (#892)
 
 - 同步桌面通知插件两端版本，并保留已验证的深链补丁，修复依赖更新的桌面兼容门禁。（#883）
