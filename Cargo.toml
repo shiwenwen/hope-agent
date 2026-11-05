@@ -180,7 +180,7 @@ rmcp = { version = "3.5.1", default-features = false, features = [
 # the `ha-updater` crate to verify the same `.sig` files tauri-plugin-updater
 # already consumes, so a headless `hope-agent server` can self-update without
 # pulling the Tauri runtime.
-minisign-verify = "0.2"
+minisign-verify = "0.3"
 
 # ---------------------------------------------------------------------------
 # Build profiles

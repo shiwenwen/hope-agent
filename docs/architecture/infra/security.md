@@ -389,3 +389,11 @@ DOMPurify 的 [模板与 shadow root](https://github.com/cure53/DOMPurify/securi
 上游 [7.30.1 正式发布说明](https://github.com/nodejs/undici/releases/tag/v7.30.1) 与八项 GHSA 公告分别涉及 Agent 的 TLS 回调丢失、TLS 1.2 重协商错误、跨源重定向缓存、内容编码和解压异常、SRI 算法名大小写、EventSource 缓冲与 WebSocket PONG 背压；锁中版本匹配不等于当前应用可被远程利用。发布包 SHA-512 与 npm 元数据和锁文件一致。实际调用只在 jsdom 开发依赖链：jsdom 使用 Dispatcher、全局 dispatcher、私有 wrap/unwrap handler 和 WebSocket，因此兼容核验包含这些接口及本地 HTTP 重定向、Cookie、压缩正文和子资源加载。
 
 jsdom 自有重定向、解压与 SRI 实现不因 Undici 补丁自动获得安全验收。该补丁不替换 Node 内置 fetch 或桌面 WebView 的网络栈，也不改变 Rust 的 SSRF、证书验证、CSP 或权限守卫。隔离合成检查、普通测试与 CI 各自留证，不代表真实 Provider、生产、宿主升级或全入口攻击验收；回滚须保留已修补的兼容版本。
+
+## 2026-11-05 更新验签依赖统一
+
+自有 `ha-updater` 与桌面插件共同锁定 `minisign-verify 0.3.0`，消除 0.2.5 重复支线；公钥、manifest、下载/解包顺序、`allow_legacy=false` 和确认门保持原合同。
+[上游 0.2.5](https://github.com/jedisct1/rust-minisign-verify/blob/0.2.5/src/crypto/ed25519.rs) 与
+[0.3.0](https://github.com/jedisct1/rust-minisign-verify/blob/0.3.0/src/crypto/ed25519.rs) 的 Ed25519 实现相同，均检查 `S < L`。
+SDK-21 的版本差异只能作为维护线索，不能推导旧锁可接受非规范签名；专项原归档只读，纠偏证据留在行动卡与本轮受控记录。
+相同公开测试公钥及签名在升级前后覆盖合法/篡改/legacy/非规范全局签名，不读取任何发布私钥，不宣称真实更新安装、任意 payload 伪造或全图安全验收。
