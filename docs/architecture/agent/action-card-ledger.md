@@ -19,7 +19,7 @@ Provider 相同 MD 按既有成功回执精确配对，专项历史只读。1585
 | 既有 A3/A11/A13/O2 | Google Chat 引用脚注已 GA，撤旧 DP 前置但仍仅 Markdown 异步创建；imsg 兼容目标 0.21.0，最低 0.15.8 不变；LINE 台湾 11-01 费用调整已生效；MCP 11-11/12 资格检查点临近 | 不因 GA/版本号解封账号权限；不升级宿主或开启身份/删除 mutation，不推断账号费用或静默改 Reply/Push。资格/范围出现新证据再沿稳定决策重评 |
 | 依赖与回归队列 | 543 份既有结果/官方回执文件摘要读回，无缺失。最新 73 项回归与本轮准备基线相同：前端 mock 11、更新器单元 55、loopback/tempfile 7；未补跑。旧 128/116 项保留各自基线 | 原依赖 #884 新头等待原主责收口，calamine 0.38 兼容仍排其后；#765 仍是搜索来源元数据前置。Chrome 四平台资源/原生与 Intel desktop updater 分别保留证据门，不接管其他分支 |
 
-本轮仅 `10-A23:qq-keyboard-markdown`，第二包为空。实现见 PR_PLACEHOLDER。
+本轮仅 `10-A23:qq-keyboard-markdown`，第二包为空。实现见 [PR #895](https://github.com/shiwenwen/hope-agent/pull/895)。
 保护交付后 `10-A23` 为部分交付：已交付 20、部分交付 53、待决策 37、待授权 24、待证据 22、观察 16。
 真实 QQ 展示与回调、Provider、账号/凭据、费用、生产数据、宿主升级及完整专项均未运行；
 旧输入日期/源码基线缺口与 FTR、Actions/R2、Vercel pending_revalidation 保留，不重复询问。

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- 修正 QQ 私聊和群聊审批、问答按钮的消息正文格式，避免缺少必需的 Markdown 字段，并防止提示文本被解释为格式或平台标签。 (#PR_PLACEHOLDER)
+- 修正 QQ 私聊和群聊审批、问答按钮的消息正文格式，避免缺少必需的 Markdown 字段，并防止提示文本被解释为格式或平台标签。 (#895)
 
 - 裸二进制自更新与桌面端统一验签依赖，并补充签名篡改、旧格式和非规范签名的兼容回归检查。 (#892)
 
