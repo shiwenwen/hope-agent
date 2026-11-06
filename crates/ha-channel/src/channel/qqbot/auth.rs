@@ -42,6 +42,16 @@ struct TokenResponse {
 }
 
 impl QqBotAuth {
+    #[cfg(test)]
+    pub(super) fn with_test_token() -> Self {
+        let mut auth = Self::new("synthetic-app", "synthetic-secret");
+        auth.cached_token = Mutex::new(Some(CachedToken {
+            token: "synthetic-token".into(),
+            expires_at: Instant::now() + std::time::Duration::from_secs(3600),
+        }));
+        auth
+    }
+
     /// Create a new auth manager with the given appId and clientSecret.
     pub fn new(app_id: &str, client_secret: &str) -> Self {
         Self {

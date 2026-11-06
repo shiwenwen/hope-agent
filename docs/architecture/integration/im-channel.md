@@ -941,6 +941,8 @@ ask_user / approval 的**按钮卡片**也走 schema 2.0，但**不**走 cardkit
 
 ### QQ Bot
 
+- **键盘正文**：C2C/群键盘按 `msg_type=2` 发送嵌套 `markdown.content`，省略顶层 `content`/`ark`。提示按字面文本转义 Markdown 与实体/QQ 标签，按钮 callback 与 `msg_id`/`msg_seq`/`event_id` 元数据沿既有路径；普通文本仍为 `msg_type=0`，频道/频道私信沿数字回复。错误或未知投递不补发；审批/问答发送失败清理本地 pending，不能视作同意。仅完成本机合成合同验证，真实展示与回调往返仍待测试应用验收。
+
 - **域名证据边界**：10-02 雷达已记录官方统一 `api.bot.qq.com` 通知；当前 REST 生产/沙箱与取凭证仍沿既有域名。统一沙箱隔离和新取凭证路由未完整核验，迁移由行动卡 `10-A12` 跟踪，不在发送失败后跨域重放。
 
 - **认证**：`appId` + `clientSecret` → `access_token`（2h TTL）；**Auth Header**：`QQBot {token}`（非 Bearer）；**传输**：WebSocket Gateway，与 Discord 类似的 opcode 协议；**Intents**：`PUBLIC_GUILD_MESSAGES | DIRECT_MESSAGE | GROUP_AND_C2C`。
