@@ -640,6 +640,36 @@ fn needs_permission_engine(
         && (name != TOOL_EXEC || exec_skip_blocked_by_plan)
 }
 
+/// No-enforce engine probe for `auto_approve_tools` surfaces (IM auto-approve
+/// accounts / slash-skill execution). Returns the strict Ask decision to force
+/// through the normal approval flow, or `None` when the call may keep the
+/// auto-approve bypass. Deliberately ignores `external_pre_approved` (async
+/// re-entry is already audited at the outer dispatch) and MCP trust (a
+/// separate, server-scoped opt-in).
+async fn auto_approve_strict_probe(
+    name: &str,
+    args: &Value,
+    ctx: &ToolExecContext,
+    needs_engine: bool,
+) -> Option<crate::permission::Decision> {
+    if !ctx.auto_approve_tools || ctx.external_pre_approved || needs_engine {
+        return None;
+    }
+    match resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await {
+        crate::permission::Decision::Ask { reason } if reason.forbids_allow_always() => {
+            app_warn!(
+                "permission",
+                "auto_approve_bypass",
+                "Tool '{}' auto-approve surface (IM/skill) hit a STRICT approval ({:?}) — forcing per-call approval",
+                name,
+                reason
+            );
+            Some(crate::permission::Decision::Ask { reason })
+        }
+        _ => None,
+    }
+}
+
 fn is_bound_context_resource_read(name: &str, args: &Value, ctx: &ToolExecContext) -> bool {
     if name != TOOL_READ_CONTEXT_RESOURCE {
         return false;
@@ -1181,36 +1211,25 @@ pub async fn execute_tool_with_context(
 
     // F7 (IMYOLO-1 / DELETE-2): an IM auto-approve account / slash-skill skips the
     // engine gate entirely (`auto_approve_tools` → `needs_engine=false`). That
-    // convenience stays opt-in, but a *strict* call slipping through silently
-    // (dangerous command / protected path / mac-dangerous / plan-ask) must be
-    // auditable. Probe the engine WITHOUT enforcing — only when the bypass is
-    // specifically `auto_approve_tools` (NOT `external_pre_approved` async
-    // re-entry, already gated at the outer dispatch; NOT MCP trust). Audit only:
-    // the call still proceeds.
-    if ctx.auto_approve_tools && !ctx.external_pre_approved && !needs_engine {
-        if let crate::permission::Decision::Ask { reason } =
-            resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await
-        {
-            if reason.forbids_allow_always() {
-                app_warn!(
-                    "permission",
-                    "auto_approve_bypass",
-                    "Tool '{}' auto-approved (IM/skill), bypassing a STRICT approval ({:?}) — audit only, proceeding",
-                    name,
-                    reason
-                );
-            }
-        }
-    }
+    // convenience stays opt-in, but it covers SOFT approvals only: a *strict*
+    // call (dangerous command / protected path / mac-dangerous / raw CDP /
+    // plan-ask) is a class that even AllowAlways rules, Smart-mode confidence
+    // and timeout-proceed cannot grant, so an auto-approve surface must not
+    // swallow it either. Probe the engine WITHOUT enforcing; a strict hit is
+    // upgraded to a forced per-call approval through the normal engine Ask
+    // flow below (previously audit-only: the call proceeded after a warning).
+    let auto_approve_forced_ask = auto_approve_strict_probe(name, args, ctx, needs_engine).await;
     // exec async approval-reorder state (B5/B6). Declared here — above the
     // engine gate — so the Plan-Mode-ask path below can record that exec was
     // already approved at the outer gate and suppress the reorder's second
     // prompt (review#3: plan-ask + async-eligible exec double-prompted).
     let mut exec_pre_approved = false;
     let mut tool_approval_origin: Option<approval::ApprovalOrigin> = None;
-    if needs_engine {
-        let decision =
-            resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await;
+    if needs_engine || auto_approve_forced_ask.is_some() {
+        let decision = match auto_approve_forced_ask {
+            Some(decision) => decision,
+            None => resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await,
+        };
         match decision {
             crate::permission::Decision::Allow => {
                 // Engine would allow without a prompt. A PreToolUse hook that
@@ -1854,13 +1873,13 @@ pub fn purge_tool_results_for_session(session_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_mcp_execution_name_from, decide_async_path_with_config,
-        exec_process_background_mode, execute_tool_with_context, is_bound_context_resource_read,
-        maybe_persist_large_tool_result, migrate_exec_process_mode_to_async_job_args,
-        needs_permission_engine, resolve_tool_permission,
-        should_migrate_exec_process_mode_to_async_job_with_config, should_run_exec_reorder_gate,
-        tool_timeout, validate_async_background_contract, AsyncDecision, JobOrigin,
-        ToolExecContext,
+        auto_approve_strict_probe, canonical_mcp_execution_name_from,
+        decide_async_path_with_config, exec_process_background_mode, execute_tool_with_context,
+        is_bound_context_resource_read, maybe_persist_large_tool_result,
+        migrate_exec_process_mode_to_async_job_args, needs_permission_engine,
+        resolve_tool_permission, should_migrate_exec_process_mode_to_async_job_with_config,
+        should_run_exec_reorder_gate, tool_timeout, validate_async_background_contract,
+        AsyncDecision, JobOrigin, ToolExecContext,
     };
     use crate::agent_config::AsyncToolPolicy;
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
@@ -2699,6 +2718,58 @@ export default async function main(workflow) {
             &inner_ctx,
             inner_ctx.local_auto_approve()
         ));
+    }
+
+    #[tokio::test]
+    async fn auto_approve_strict_probe_forces_ask_for_raw_cdp() {
+        // Regression: an IM auto-approve surface used to slip a STRICT call
+        // through with only an audit warning. The probe must return the Ask
+        // so dispatch forces a per-call approval.
+        let ctx = ToolExecContext {
+            auto_approve_tools: true,
+            ..ToolExecContext::default()
+        };
+        let args = json!({
+            "action": "control",
+            "op": "raw_cdp",
+            "method": "Accessibility.getFullAXTree",
+        });
+        let decision = auto_approve_strict_probe("browser", &args, &ctx, false)
+            .await
+            .expect("strict raw CDP must be forced to a per-call approval");
+        assert!(matches!(decision, crate::permission::Decision::Ask { .. }));
+    }
+
+    #[tokio::test]
+    async fn auto_approve_strict_probe_ignores_soft_calls_and_async_reentry() {
+        let ctx = ToolExecContext {
+            auto_approve_tools: true,
+            ..ToolExecContext::default()
+        };
+        // A soft approval keeps the opt-in auto-approve convenience.
+        assert!(
+            auto_approve_strict_probe("web_search", &json!({ "query": "weather" }), &ctx, false)
+                .await
+                .is_none(),
+            "soft approvals must keep the auto-approve bypass"
+        );
+        // Async re-entry (`external_pre_approved`) is out of the probe's scope:
+        // it was already gated at the outer dispatch.
+        let reentry_ctx = ToolExecContext {
+            auto_approve_tools: true,
+            external_pre_approved: true,
+            ..ToolExecContext::default()
+        };
+        let args = json!({
+            "action": "control",
+            "op": "raw_cdp",
+            "method": "Accessibility.getFullAXTree",
+        });
+        assert!(
+            auto_approve_strict_probe("browser", &args, &reentry_ctx, false)
+                .await
+                .is_none()
+        );
     }
 
     #[test]
