@@ -456,7 +456,7 @@ stateDiagram-v2
 - `args_optional=true` 命令（`/imreply` / `/sessions` / `/recap` / `/team` / `/awareness` / `/reason` 等）：fall-through 到 handler 自带的「无参 = 显示当前状态 / picker」分支，**不**插入 Usage 提示，避免覆盖 handler 的自定义无参语义
 - skill 命令：统一按 `args_optional=true` 处理（skill 默认无参可跑）
 
-**`/model` 无参的特殊处理**：返回可用模型的 inline keyboard（每行最多 2 个，当前活跃模型标 `✓`），`callback_data` 格式 `slash:model <model_name>`，最多 20 个；不支持按钮的渠道降级为文本列表 + 「用 `/model <name>` 切换」提示。
+**`/model` 无参的特殊处理**：返回可用模型的 inline keyboard（每行最多 2 个，当前活跃模型标 `✓`），`callback_data` 格式 `slash:model <model_name>`，最多 50 个（`MODEL_PICKER_ITEM_LIMIT`），超出时按钮路径正文改为「first 50 of N — use `/model <name>` for the rest」；不支持按钮的渠道降级为文本列表 + 「用 `/model <name>` 切换」提示，同样截到 50 并以「… +N more」提示隐藏数量。
 
 ### 有 arg_options 的命令
 
