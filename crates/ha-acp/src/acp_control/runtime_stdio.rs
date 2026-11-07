@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -36,7 +36,15 @@ struct ChildHandle {
     stdin: Arc<Mutex<ChildStdin>>,
     stdout: Arc<Mutex<BufReader<ChildStdout>>>,
     external_session_id: Option<String>,
+    /// Child-scoped unique outbound request ids. A prompt response can only
+    /// ever be matched to its own request, so an overlapping caller can never
+    /// claim another turn's response by id collision.
+    next_request_id: Arc<AtomicU64>,
 }
+
+/// First outbound prompt request id. Handshake ids (1, 2) and the
+/// `session/close` id (999) stay fixed below it.
+const FIRST_PROMPT_REQUEST_ID: u64 = 100;
 
 impl StdioAcpRuntime {
     pub fn new(
@@ -448,6 +456,7 @@ impl AcpRuntime for StdioAcpRuntime {
             stdin: Arc::new(Mutex::new(stdin)),
             stdout: Arc::new(Mutex::new(BufReader::new(stdout))),
             external_session_id: None,
+            next_request_id: Arc::new(AtomicU64::new(FIRST_PROMPT_REQUEST_ID)),
         };
 
         // Step 1: initialize
@@ -540,7 +549,7 @@ impl AcpRuntime for StdioAcpRuntime {
         event_tx: mpsc::Sender<AcpStreamEvent>,
         cancel: Arc<AtomicBool>,
     ) -> anyhow::Result<AcpTurnResult> {
-        let (stdin, stdout, ext_sid) = {
+        let (stdin, stdout, ext_sid, next_request_id) = {
             let children = self.children.lock().await;
             let handle = children
                 .get(&session.session_id)
@@ -552,13 +561,18 @@ impl AcpRuntime for StdioAcpRuntime {
                     .external_session_id
                     .clone()
                     .unwrap_or_else(|| "unknown".to_string()),
+                handle.next_request_id.clone(),
             )
         };
+
+        // One child-scoped unique id per prompt: the response can only ever
+        // be matched to this request, never to an overlapping turn's.
+        let prompt_id = next_request_id.fetch_add(1, Ordering::Relaxed);
 
         // Send session/prompt
         let prompt_request = serde_json::json!({
             "jsonrpc": "2.0",
-            "id": 100,
+            "id": prompt_id,
             "method": "session/prompt",
             "params": {
                 "sessionId": ext_sid,
@@ -581,7 +595,7 @@ impl AcpRuntime for StdioAcpRuntime {
         let mut tool_calls = Vec::new();
         let mut total_input = 0u64;
         let mut total_output = 0u64;
-        let mut stop_reason = "end_turn".to_string();
+        let stop_reason: String;
 
         loop {
             if cancel.load(Ordering::Relaxed) {
@@ -613,7 +627,31 @@ impl AcpRuntime for StdioAcpRuntime {
             };
 
             if n == 0 {
-                break; // EOF
+                // EOF is a transport failure, never a successful empty turn:
+                // a killed or crashed child must fail every pending waiter.
+                if cancel.load(Ordering::Relaxed) {
+                    // The run is being cancelled/killed: report the cancel
+                    // outcome rather than a spurious transport error.
+                    let _ = event_tx
+                        .send(AcpStreamEvent::Done {
+                            stop_reason: "cancelled".into(),
+                        })
+                        .await;
+                    return Ok(AcpTurnResult {
+                        stop_reason: "cancelled".into(),
+                        response_text: accumulated_text,
+                        input_tokens: Some(total_input),
+                        output_tokens: Some(total_output),
+                        tool_calls,
+                    });
+                }
+                let message = "ACP backend closed stdout before the prompt response arrived";
+                let _ = event_tx
+                    .send(AcpStreamEvent::Error {
+                        message: message.to_string(),
+                    })
+                    .await;
+                return Err(anyhow::anyhow!(message));
             }
 
             let trimmed = buf.trim();
@@ -630,25 +668,52 @@ impl AcpRuntime for StdioAcpRuntime {
                 continue;
             }
 
-            // Check if this is the prompt response (id: 100)
-            if msg.get("id").and_then(|v| v.as_u64()) == Some(100) {
-                if let Some(result) = msg.get("result") {
-                    stop_reason = result
-                        .get("stopReason")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("end_turn")
-                        .to_string();
-                    // Some v1 adapters expose the protocol's unstable usage
-                    // extension on PromptResponse. Prefer that exact split over
-                    // the context-occupancy fallback from usage_update.
-                    if let Some(usage) = result.get("usage") {
-                        if let (Some(input), Some(output)) = (
-                            usage.get("inputTokens").and_then(|value| value.as_u64()),
-                            usage.get("outputTokens").and_then(|value| value.as_u64()),
-                        ) {
-                            total_input = input;
-                            total_output = output;
-                        }
+            // Only this turn's own prompt response may end the read loop.
+            if msg.get("id").and_then(|v| v.as_u64()) == Some(prompt_id) {
+                if let Some(error) = msg.get("error") {
+                    let rpc_message = error
+                        .get("message")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("unknown ACP JSON-RPC error");
+                    let message = format!("ACP session/prompt failed: {rpc_message}");
+                    let _ = event_tx
+                        .send(AcpStreamEvent::Error {
+                            message: message.clone(),
+                        })
+                        .await;
+                    return Err(anyhow::anyhow!(message));
+                }
+
+                let Some(result) = msg.get("result") else {
+                    let message = "ACP session/prompt response missing result".to_string();
+                    let _ = event_tx
+                        .send(AcpStreamEvent::Error {
+                            message: message.clone(),
+                        })
+                        .await;
+                    return Err(anyhow::anyhow!(message));
+                };
+                let Some(reason) = result.get("stopReason").and_then(|v| v.as_str()) else {
+                    let message = "ACP session/prompt response missing stopReason".to_string();
+                    let _ = event_tx
+                        .send(AcpStreamEvent::Error {
+                            message: message.clone(),
+                        })
+                        .await;
+                    return Err(anyhow::anyhow!(message));
+                };
+                stop_reason = reason.to_string();
+
+                // Some v1 adapters expose the protocol's unstable usage
+                // extension on PromptResponse. Prefer that exact split over
+                // the context-occupancy fallback from usage_update.
+                if let Some(usage) = result.get("usage") {
+                    if let (Some(input), Some(output)) = (
+                        usage.get("inputTokens").and_then(|value| value.as_u64()),
+                        usage.get("outputTokens").and_then(|value| value.as_u64()),
+                    ) {
+                        total_input = input;
+                        total_output = output;
                     }
                 }
                 let _ = event_tx
@@ -1114,5 +1179,190 @@ mod tests {
                 "unexpected inherited environment variable"
             );
         }
+    }
+
+    /// A deterministic fake ACP child: a POSIX-sh JSON-RPC peer that answers
+    /// the initialize/session-new handshake and then behaves per `$1`. Every
+    /// response echoes the request id it received, so the tests below prove
+    /// correlation for whatever id the runtime generates. Control flow is
+    /// line-protocol driven — no timing sleeps decide any outcome.
+    #[cfg(unix)]
+    const FAKE_ACP_CHILD_SH: &str = r#"
+mode="$1"
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}
+' "$id" ;;
+    *'"method":"session/new"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"fake-session"}}
+' "$id" ;;
+    *'"method":"session/prompt"'*)
+      case "$mode" in
+        eof)
+          exit 0 ;;
+        refusal)
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"refusal"}}
+' "$id" ;;
+        rpc_error)
+          printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32603,"message":"provider exploded"}}
+' "$id" ;;
+        missing_stop_reason)
+          printf '{"jsonrpc":"2.0","id":%s,"result":{}}
+' "$id" ;;
+        end_turn)
+          printf '%s
+' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fake-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"fake reply"}}}}'
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}
+' "$id" ;;
+      esac ;;
+    *'"method":"session/close"'*)
+      exit 0 ;;
+  esac
+done
+"#;
+
+    #[cfg(unix)]
+    fn fake_child_runtime(mode: &str) -> StdioAcpRuntime {
+        StdioAcpRuntime::new(
+            "fake-child".into(),
+            "Fake Child".into(),
+            "/bin/sh".into(),
+            vec![
+                "-c".into(),
+                FAKE_ACP_CHILD_SH.into(),
+                "fake-acp".into(),
+                mode.into(),
+            ],
+            AcpBackendProtocol::V1,
+            HashMap::new(),
+        )
+    }
+
+    #[cfg(unix)]
+    async fn fake_child_session(runtime: &StdioAcpRuntime) -> AcpExternalSession {
+        runtime
+            .create_session(AcpCreateParams {
+                cwd: Some("/tmp".into()),
+                system_prompt: None,
+                model: None,
+                timeout_secs: Some(0),
+                resume_session_id: None,
+            })
+            .await
+            .expect("fake child session")
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn eof_mid_turn_fails_instead_of_returning_fake_success() {
+        let runtime = fake_child_runtime("eof");
+        let session = fake_child_session(&runtime).await;
+        let (tx, _rx) = mpsc::channel::<AcpStreamEvent>(16);
+
+        let result = runtime
+            .run_turn(&session, "hello", tx, Arc::new(AtomicBool::new(false)))
+            .await;
+
+        let error = result.expect_err("EOF mid-turn must fail, not fake success");
+        assert!(
+            error.to_string().contains("closed stdout"),
+            "error: {error}"
+        );
+        runtime.close_session(&session).await.expect("close");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn prompt_response_correlates_by_the_child_unique_request_id() {
+        let runtime = fake_child_runtime("refusal");
+        let session = fake_child_session(&runtime).await;
+        let (tx, _rx) = mpsc::channel::<AcpStreamEvent>(16);
+
+        let result = runtime
+            .run_turn(&session, "hello", tx, Arc::new(AtomicBool::new(false)))
+            .await
+            .expect("turn");
+
+        // The fake echoed the runtime-generated id verbatim; a refusal must
+        // come back as the turn's own stop reason, not as a transport error.
+        assert_eq!(result.stop_reason, "refusal");
+        runtime.close_session(&session).await.expect("close");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn prompt_rpc_error_fails_instead_of_returning_fake_success() {
+        let runtime = fake_child_runtime("rpc_error");
+        let session = fake_child_session(&runtime).await;
+        let (tx, mut rx) = mpsc::channel::<AcpStreamEvent>(16);
+
+        let result = runtime
+            .run_turn(&session, "hello", tx, Arc::new(AtomicBool::new(false)))
+            .await;
+
+        let error = result.expect_err("JSON-RPC error must fail the turn");
+        assert!(
+            error.to_string().contains("provider exploded"),
+            "error: {error}"
+        );
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(AcpStreamEvent::Error { message }) if message.contains("provider exploded")
+        ));
+        runtime.close_session(&session).await.expect("close");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn prompt_response_without_stop_reason_fails_closed() {
+        let runtime = fake_child_runtime("missing_stop_reason");
+        let session = fake_child_session(&runtime).await;
+        let (tx, _rx) = mpsc::channel::<AcpStreamEvent>(16);
+
+        let result = runtime
+            .run_turn(&session, "hello", tx, Arc::new(AtomicBool::new(false)))
+            .await;
+
+        let error = result.expect_err("missing stopReason must fail the turn");
+        assert!(
+            error.to_string().contains("missing stopReason"),
+            "error: {error}"
+        );
+        runtime.close_session(&session).await.expect("close");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn notifications_stream_before_the_prompt_response_without_ending_the_turn() {
+        let runtime = fake_child_runtime("end_turn");
+        let session = fake_child_session(&runtime).await;
+        let (tx, mut rx) = mpsc::channel::<AcpStreamEvent>(16);
+
+        let result = runtime
+            .run_turn(&session, "hello", tx, Arc::new(AtomicBool::new(false)))
+            .await
+            .expect("turn");
+
+        assert_eq!(result.stop_reason, "end_turn");
+        assert_eq!(result.response_text, "fake reply");
+
+        // The session/update notification was forwarded, and the Done event
+        // carries the true stop reason.
+        let mut saw_text = false;
+        let mut done_reason = None;
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                AcpStreamEvent::TextDelta { content } => {
+                    saw_text |= content == "fake reply";
+                }
+                AcpStreamEvent::Done { stop_reason } => done_reason = Some(stop_reason),
+                _ => {}
+            }
+        }
+        assert!(saw_text, "text delta must be streamed");
+        assert_eq!(done_reason.as_deref(), Some("end_turn"));
+        runtime.close_session(&session).await.expect("close");
     }
 }
