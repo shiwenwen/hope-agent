@@ -140,7 +140,7 @@ docker compose --profile with-ollama up -d
 
 What the `ollama` service in `docker-compose.yml` does:
 
-- Pulls `ollama/ollama:latest`
+- Pins `ollama/ollama` by manifest digest (`@sha256:…`), so it never auto-follows upstream; to upgrade, resolve the target version's multi-arch digest with `docker buildx imagetools inspect ollama/ollama:latest`, then update the pin in `docker-compose.yml` manually
 - Persists models in the named volume `ollama-models` (maps to `/root/.ollama` inside)
 - By default only reachable from inside the compose network — Hope Agent talks to it over `http://ollama:11434/v1`
 - GPU passthrough and host port exposure are commented out by default; uncomment as needed
@@ -172,12 +172,15 @@ docker compose exec ollama nvidia-smi
 
 The container upgrade path is different from the desktop bundle — the `app_update` tool detects `HA_DEPLOYMENT=docker` and routes the user to image pull instead of a binary swap:
 
+The bundled `docker-compose.yml` pins a concrete release tag (e.g. `:v0.58.0`), so `docker compose pull` fetches exactly that version and never auto-follows new releases; to upgrade, first bump the `hope-agent` `image:` tag in the compose file, then pull and restart:
+
 ```bash
-# Using docker compose
+# Using docker compose: edit the image tag in docker-compose.yml first,
+# e.g. image: ghcr.io/shiwenwen/hope-agent:v0.58.0, then:
 docker compose pull hope-agent
 docker compose up -d hope-agent
 
-# Or using docker run
+# Or using docker run (follows latest)
 docker pull ghcr.io/shiwenwen/hope-agent:latest
 docker rm -f hope-agent
 docker run -d --name hope-agent ... ghcr.io/shiwenwen/hope-agent:latest
@@ -185,7 +188,7 @@ docker run -d --name hope-agent ... ghcr.io/shiwenwen/hope-agent:latest
 
 The data volume is preserved across image swaps; config, history, and credentials survive.
 
-For production, pin to a concrete tag like `ghcr.io/shiwenwen/hope-agent:v0.2.1` rather than relying on `latest`.
+Compose users who prefer following `latest` can point `image:` back to `ghcr.io/shiwenwen/hope-agent:latest`; for tamper-evident pinning, resolve the multi-arch digest with `docker buildx imagetools inspect ghcr.io/shiwenwen/hope-agent:v0.58.0` and pin by digest.
 
 ## Reverse proxy
 
