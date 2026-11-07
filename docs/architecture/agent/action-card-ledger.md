@@ -18,7 +18,7 @@ Provider 相同 MD 按成功回执的精确路径、生成时间和摘要配对�
 | 依赖与既有回归 | 720 份既有结果/官方回执文件摘要读回，无缺失。依赖原主责 #884 候选已变为 `29ccdf47`，仍待该头保护交付；calamine 兼容维护沿其队列 | 旧头 CI 不沿用、不接管分支。73 项成功回归仍基于 `5e105d37`，本轮未重跑；旧 128/116 项保留各自基线，不充作本轮或真实服务验收 |
 | 原有候选与门控 | #765 仍为搜索来源元数据前置；Discord `10-A19` 尚无扫描元数据消费者；A21/A22 流式生命周期合同待冻结；Chrome 四平台资源/原生、Intel desktop updater 分别保留 | 沿原主责和重新评估条件接续。MiniMax 11-18、Sonnet 11-30、Argon/Gemini 12-01、TTS 2027-01-06、FTR、Actions/R2、Vercel pending_revalidation 无新决策，不重复询问 |
 
-本轮仅 `02-A9:embedding-lifecycle-evidence` 文档包，验收为来源摘要、规范 ID 去重、Markdown 链接与差异，
+本轮仅 `02-A9:embedding-lifecycle-evidence` 文档包，变更见 [PR #897](https://github.com/shiwenwen/hope-agent/pull/897)。验收为来源摘要、规范 ID 去重、Markdown 链接与差异，
 再走普通 hooks、精确头审查/必需 CI、保护合入与远端读回。逐卡来源、结论和重新评估条件保存在受控完整 JSON。
 旧输入生成日期与源码基线缺口保持；本轮没有真实 Provider/账号、费用、索引数据或完整专项结果。
 
