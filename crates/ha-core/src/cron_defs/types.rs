@@ -252,6 +252,13 @@ pub struct CronJob {
     /// act autonomously without putting the host at risk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sandbox_mode_override: Option<crate::permission::SandboxMode>,
+    /// Model pinned at creation for isolated (`AgentTurn`) runs: the creating
+    /// session's own model snapshot. Without it a new run session silently
+    /// follows the agent chain / global `active_model`, which may have drifted
+    /// (or become unavailable) since the task was scheduled (#784). `None` =
+    /// resolve from the agent chain as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ActiveModel>,
 }
 
 /// Compact "what happened last time" for a task list row. Deliberately not the
@@ -495,6 +502,9 @@ pub struct NewCronJob {
     /// Per-job sandbox-mode override; `None` = follow the agent default.
     #[serde(default)]
     pub sandbox_mode_override: Option<crate::permission::SandboxMode>,
+    /// Model snapshot for isolated runs; `None` = follow the agent chain (#784).
+    #[serde(default)]
+    pub model_override: Option<crate::provider::ActiveModel>,
 }
 
 /// §8: a cron job that references a given channel account in its delivery
