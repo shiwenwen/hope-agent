@@ -103,15 +103,20 @@ pub async fn save_exported_file(path: String, data_base64: String) -> Result<(),
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64.as_bytes())
         .map_err(|e| CmdError::from(anyhow!("invalid base64 export payload: {e}")))?;
-    std::fs::write(&resolved, &bytes)
-        .with_context(|| format!("failed to write exported file: {resolved}"))?;
-    app_info!(
-        "design",
-        "save_exported_file",
-        "wrote export to {} ({} bytes)",
-        resolved,
-        bytes.len()
-    );
+    let byte_len = bytes.len();
+    // Disk write for an arbitrary user-picked path — keep it off the async
+    // executor threads.
+    ha_core::blocking::run_blocking(move || -> anyhow::Result<()> {
+        std::fs::write(&resolved, &bytes)
+            .with_context(|| format!("failed to write exported file: {resolved}"))?;
+        app_info!(
+            "design",
+            "save_exported_file",
+            "wrote export to {resolved} ({byte_len} bytes)"
+        );
+        Ok(())
+    })
+    .await?;
     Ok(())
 }
 
@@ -143,7 +148,10 @@ fn is_browser_internal_url(url: &str) -> bool {
 /// Write exported content to a file (used by slash command /export).
 #[tauri::command]
 pub async fn write_export_file(path: String, content: String) -> Result<(), CmdError> {
-    std::fs::write(&path, content).context("Failed to write export file")?;
+    ha_core::blocking::run_blocking(move || {
+        std::fs::write(&path, content).context("Failed to write export file")
+    })
+    .await?;
     Ok(())
 }
 
