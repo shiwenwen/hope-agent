@@ -30,6 +30,21 @@ Hope Agent 要面对一个碎片化的现实：市面上有几十家大模型服
 
 ## 1. Provider 系统
 
+### 单条系统消息的端点兼容
+
+Hetzner `https://inference.hetzner.com/api/v1` 与 OVHcloud
+`https://oai.endpoints.kepler.ai.cloud.ovh.net/v1` 的 OpenAI Chat 请求将稳定 system、
+受信 Run instruction 与 Coding Profile 按原顺序用空行合并到首条 system。Qwen3.8-27B
+[固定版本模板](https://huggingface.co/Qwen/Qwen3.8-27B/blob/3121a14ab17816cbc8b7897b15149ddacb2e39ce/chat_template.jinja)
+拒绝位于索引 0 以外的 system，即使它们连续处于请求开头；单 user 消息的模型测试不能覆盖该限制。
+
+匹配仅限上述 HTTPS 主机、443 端口与规范路径，允许末尾 `/`；其它端点保持原形状。
+合并只消费受信 instruction，不移动会话历史，不提升 `<hope_round_data>`、召回或外部内容权限。
+计量使用同一合并函数：混合了运行指令的完整 system 条目计入固定动态输入，稳定段计量留空，
+避免把整条动态消息声称为稳定缓存；历史仍是可独立预算的历史 lane。Provider 返回的实际用量照常入账。
+该兼容仅经离线请求形状与模板验证，不表示真实账号、全部模型、工具续轮或生产端点验收。
+
+
 ### 1.1 两个核心枚举
 
 Provider 相关的 wire 类型（跨进程序列化的纯数据）住在 `crates/ha-config-schema/src/provider.rs`，`ha-core::provider` 原样再导出——脱敏 / 写入 helper 等带凭据的逻辑仍留在 `ha-core`。
