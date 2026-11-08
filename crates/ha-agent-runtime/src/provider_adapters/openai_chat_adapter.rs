@@ -1,7 +1,7 @@
 //! OpenAI Chat Completions API adapter implementing [`StreamingChatAdapter`].
 //!
-//! Owns body construction (multiple `system` messages for OpenAI's automatic
-//! prefix caching), HTTP send, SSE event decoding (delta-based with
+//! Owns body construction (endpoint-compatible `system` messages with stable
+//! prefix ordering), HTTP send, SSE event decoding (delta-based with
 //! `tool_calls[]` index accumulation + `<think>` tag filtering), and history
 //! persistence in Chat Completions' `tool_calls` + `role=tool` shape.
 
@@ -163,6 +163,45 @@ struct ThinkingAutoDisable {
     payload: serde_json::Value,
 }
 
+/// These exact public gateways serve templates that reject a second system
+/// message, including a consecutive leading one. Keep every trusted instruction
+/// at system authority, in its original order; never include history or data.
+fn needs_single_system_message(base_url: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(base_url) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.port_or_known_default() == Some(443)
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && matches!(
+            (url.host_str(), url.path().trim_end_matches('/')),
+            (Some("inference.hetzner.com"), "/api/v1")
+                | (Some("oai.endpoints.kepler.ai.cloud.ovh.net"), "/v1")
+        )
+}
+
+fn chat_system_messages(base_url: &str, req: &RoundRequest<'_>) -> Vec<Value> {
+    let suffixes = super::super::streaming_adapter::dynamic_instruction_suffixes(req);
+    if needs_single_system_message(base_url) {
+        let mut content = req.system_prompt.to_owned();
+        for suffix in suffixes {
+            content.push_str("\n\n");
+            content.push_str(suffix);
+        }
+        return vec![json!({ "role": "system", "content": content })];
+    }
+    let mut messages = vec![json!({ "role": "system", "content": req.system_prompt })];
+    messages.extend(
+        suffixes
+            .into_iter()
+            .map(|content| json!({ "role": "system", "content": content })),
+    );
+    messages
+}
+
 fn build_chat_body(
     base_url: &str,
     model: &str,
@@ -174,14 +213,7 @@ fn build_chat_body(
     Vec<serde_json::Value>,
     Vec<serde_json::Value>,
 ) {
-    let mut api_messages: Vec<Value> =
-        vec![json!({ "role": "system", "content": req.system_prompt })];
-    for suffix in super::super::streaming_adapter::dynamic_instruction_suffixes(req) {
-        // The stable system message remains the exact prefix. A separate
-        // dynamic system message is the compatibility form for chat endpoints
-        // that do not consistently support the developer role.
-        api_messages.push(json!({ "role": "system", "content": suffix }));
-    }
+    let mut api_messages = chat_system_messages(base_url, req);
     let expanded_history =
         expand_openai_chat_image_markers_for_api(req.history_for_api, model_supports_vision);
     api_messages.extend(expanded_history);
@@ -738,17 +770,21 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
     }
 
     fn token_count_input_for(&self, req: &RoundRequest<'_>) -> ProviderAccountingInput {
-        let stable_message = json!({ "role": "system", "content": req.system_prompt });
-        let mut dynamic_messages: Vec<Value> =
-            super::super::streaming_adapter::dynamic_instruction_suffixes(req)
-                .into_iter()
-                .map(|content| json!({ "role": "system", "content": content }))
-                .collect();
+        let mut system_messages = chat_system_messages(self.base_url, req);
+        // A merged wire item contains changing instructions. Count that exact
+        // item as fixed dynamic input instead of claiming it is wholly stable
+        // or putting trusted instructions into replaceable history.
+        let stable_prompt = if needs_single_system_message(self.base_url) {
+            String::new()
+        } else {
+            serde_json::to_string(&system_messages.remove(0)).unwrap_or_default()
+        };
+        let mut dynamic_messages = system_messages;
         if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
             dynamic_messages.push(json!({ "role": "user", "content": content }));
         }
         ProviderAccountingInput {
-            stable_prompt: serde_json::to_string(&stable_message).unwrap_or_default(),
+            stable_prompt,
             dynamic_prompt: serde_json::to_string(&dynamic_messages).unwrap_or_default(),
             history: self.token_count_history_for(req.history_for_api),
         }
@@ -2051,6 +2087,29 @@ mod tests {
     }
 
     #[test]
+    fn single_system_compatibility_is_limited_to_exact_public_gateways() {
+        for base_url in [
+            "https://inference.hetzner.com/api/v1",
+            "https://oai.endpoints.kepler.ai.cloud.ovh.net:443/v1/",
+        ] {
+            assert!(super::needs_single_system_message(base_url));
+        }
+        for base_url in [
+            "https://api.openai.com/v1",
+            "https://relay.example/v1",
+            "http://inference.hetzner.com/api/v1",
+            "https://inference.hetzner.com.evil.example/api/v1",
+            "https://inference.hetzner.com:8443/api/v1",
+            "https://inference.hetzner.com/other",
+            "https://user@inference.hetzner.com/api/v1",
+            "https://inference.hetzner.com/api/v1?route=other",
+            "https://inference.hetzner.com/api/v1#other",
+        ] {
+            assert!(!super::needs_single_system_message(base_url));
+        }
+    }
+
+    #[test]
     fn openai_chat_request_golden_appends_dynamic_blocks_after_stable_system() {
         let tools = vec![serde_json::json!({
             "name": "read",
@@ -2143,6 +2202,46 @@ mod tests {
         );
         assert_eq!(accounting.history, history);
         assert_eq!(adapter.token_count_tool_schemas(&req), request_tools);
+
+        for base_url in [
+            "https://inference.hetzner.com/api/v1",
+            "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/",
+        ] {
+            let (body, messages, _) =
+                build_chat_body(base_url, "Qwen3.8-27B", &thinking_style, false, &req);
+            assert_eq!(messages.len(), 3);
+            assert_eq!(
+                messages[0],
+                serde_json::json!({
+                    "role": "system", "content": "stable\n\nrun\n\ncoding"
+                })
+            );
+            assert_eq!(messages[1], history[0]);
+            assert_eq!(messages[2]["role"], "user");
+            assert!(messages[2]["content"]
+                .as_str()
+                .unwrap()
+                .contains("run data"));
+            assert_eq!(body["messages"], serde_json::json!(messages));
+            let compatible_adapter = OpenAIChatStreamingAdapter {
+                base_url,
+                api_key: "synthetic-header-only",
+                model: "Qwen3.8-27B",
+                thinking_style: &thinking_style,
+                provider_config: None,
+                vision_runtime_disabled: Arc::new(AtomicBool::new(false)),
+                vision_notice_emitted: Arc::new(AtomicBool::new(false)),
+                prepared_history_had_images: AtomicBool::new(false),
+            };
+            let accounting = compatible_adapter.token_count_input_for(&req);
+            assert_eq!(accounting.stable_prompt, "");
+            let counted: Vec<serde_json::Value> =
+                serde_json::from_str(&accounting.dynamic_prompt).unwrap();
+            assert_eq!(counted, vec![messages[0].clone(), messages[2].clone()]);
+            assert_eq!(accounting.history, history);
+            let prepared = compatible_adapter.prepare_round_request(&req).unwrap();
+            assert_eq!(prepared.body().as_ref(), serde_json::to_vec(&body).unwrap());
+        }
         let prepared = adapter.prepare_round_request(&req).unwrap();
         let prepared_body = prepared.body();
         assert_eq!(prepared_body.as_ref(), serde_json::to_vec(&body).unwrap());

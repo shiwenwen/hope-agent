@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- 修复 Hetzner 与 OVHcloud 部分模型在新会话中因多条系统指令返回 400 的兼容问题，保留动态数据权限与完整请求计量。 (#898)
+
 - 修正 QQ 私聊和群聊审批、问答按钮的消息正文格式，避免缺少必需的 Markdown 字段，并防止提示文本被解释为格式或平台标签。 (#895)
 
 - 裸二进制自更新与桌面端统一验签依赖，并补充签名篡改、旧格式和非规范签名的兼容回归检查。 (#892)

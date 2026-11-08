@@ -216,6 +216,10 @@ flowchart LR
 
 `run_instruction_suffix` 与 Coding Profile 是受信运行指令；Permission / Execution / Workflow / Sandbox 当前模式、Active Goal 固定运行合同，以及仅在有活动任务时出现的固定 Task Tracker 合同，也在回合开始/round head 冻结到这一 lane，因此 mode、Goal 或任务正文变化不会重拼稳定 system。`run_data_suffix`、Active Goal 的用户目标与状态、Awareness、Active Memory、Procedure、相关笔记、已挂 KB、MCP 目录、User Profile、当天日期、天气/目录清单、LSP、任务 label/status snapshot 与 Hook 输出全部经 `<hope_round_data>` 放进 user role。Plan 固定合同与 plan 文档也分开存放，后者不能继承 developer authority。
 
+Hetzner 与 OVHcloud 的规范 OpenAI Chat 端点将稳定 system 与受信运行指令按原顺序合为一条 system，
+以兼容仅允许首条 system 的模板；逻辑通道来源保持分离，user-data 仍在历史之后。
+该混合条目完整计入固定动态预算，不声称整条消息是稳定缓存，见 [端点兼容](provider-system.md#单条系统消息的端点兼容)。
+
 Anthropic 只给稳定 system 与最后一个 eager tool schema 标显式 cache breakpoint；OpenAI Responses 的受支持模型把稳定 developer block设为 explicit breakpoint；Codex 不发送公共 OpenAI cache 参数。所有动态 block 都不带显式 cache marker。
 
 压缩预算使用 `prompt_for_budget()` 计入稳定 prompt、受信 Run 与全部动态 user-data，但它只做预算输入，不改变真实 Provider role。
