@@ -7924,6 +7924,7 @@ impl SessionDB {
                  WHERE s.incognito = 0
                    AND s.archived_at IS NULL
                    AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
+                   AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
                    AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                    AND COALESCE(s.title, '') LIKE ?1 ESCAPE '\\'
                  ORDER BY s.updated_at DESC
@@ -7964,6 +7965,7 @@ impl SessionDB {
                        AND s.incognito = 0
                        AND s.archived_at IS NULL
                        AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
+                       AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
                        AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                  ) WHERE rn = 1
                  ORDER BY rank
@@ -8002,6 +8004,7 @@ impl SessionDB {
                        AND s.incognito = 0
                        AND s.archived_at IS NULL
                        AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
+                       AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
                        AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                  ) WHERE rn = 1
                  ORDER BY rank
