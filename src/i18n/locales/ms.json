@@ -4156,6 +4156,10 @@
       "description": "Get laluan penghalaan multi-model, ratusan model dengan satu key",
       "name": "Requesty"
     },
+    "standardcompute": {
+      "description": "Get laluan penghalaan multi-model yang menghantar setiap permintaan ke model kos terendah yang mampu mengendalikannya",
+      "name": "Standard Compute"
+    },
     "together": {
       "description": "Platform inferens awan untuk model sumber terbuka",
       "name": "Together AI"

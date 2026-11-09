@@ -4156,6 +4156,10 @@
       "description": "Мульти-модельный шлюз маршрутизации, сотни моделей по одному ключу",
       "name": "Requesty"
     },
+    "standardcompute": {
+      "description": "Мультимодельный шлюз маршрутизации, отправляет каждый запрос самой недорогой подходящей модели",
+      "name": "Standard Compute"
+    },
     "together": {
       "description": "Облачная платформа инференса open-source моделей",
       "name": "Together AI"

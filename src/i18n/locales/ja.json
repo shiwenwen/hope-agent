@@ -4156,6 +4156,10 @@
       "description": "マルチモデルルーティングゲートウェイ、1 つの Key で数百のモデル",
       "name": "Requesty"
     },
+    "standardcompute": {
+      "description": "マルチモデルルーティングゲートウェイ、リクエストごとに対応可能な最も低コストのモデルを自動選択",
+      "name": "Standard Compute"
+    },
     "together": {
       "description": "オープンソースモデルクラウド推論プラットフォーム",
       "name": "Together AI"

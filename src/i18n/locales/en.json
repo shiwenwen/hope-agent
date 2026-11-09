@@ -4156,6 +4156,10 @@
       "description": "Multi-model routing gateway, hundreds of models with one key",
       "name": "Requesty"
     },
+    "standardcompute": {
+      "description": "Multi-model routing gateway that sends each request to the lowest-cost model that can handle it",
+      "name": "Standard Compute"
+    },
     "together": {
       "description": "Open source model cloud inference platform",
       "name": "Together AI"

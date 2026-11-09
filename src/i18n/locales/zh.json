@@ -4156,6 +4156,10 @@
       "description": "多模型路由网关，一个 Key 用数百个模型",
       "name": "Requesty"
     },
+    "standardcompute": {
+      "description": "多模型路由网关，默认按请求自动选择能胜任的最低成本模型",
+      "name": "Standard Compute"
+    },
     "together": {
       "description": "开源模型云推理平台",
       "name": "Together AI"

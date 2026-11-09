@@ -4156,6 +4156,10 @@
       "description": "Gateway de roteamento multi-modelo, centenas de modelos com uma única key",
       "name": "Requesty"
     },
+    "standardcompute": {
+      "description": "Gateway de roteamento multimodelo que envia cada solicitação ao modelo de menor custo capaz de atendê-la",
+      "name": "Standard Compute"
+    },
     "together": {
       "description": "Plataforma de inferência em nuvem para modelos open source",
       "name": "Together AI"

@@ -4156,6 +4156,10 @@
       "description": "بوابة توجيه متعددة النماذج، مئات النماذج بمفتاح واحد",
       "name": "Requesty"
     },
+    "standardcompute": {
+      "description": "بوابة توجيه متعددة النماذج، تختار تلقائيًا أقل نموذج تكلفة قادر على تنفيذ كل طلب",
+      "name": "Standard Compute"
+    },
     "together": {
       "description": "منصة استدلال سحابية للنماذج مفتوحة المصدر",
       "name": "Together AI"

@@ -4156,6 +4156,10 @@
       "description": "Puerta de enlace de enrutamiento multi-modelo, cientos de modelos con una sola key",
       "name": "Requesty"
     },
+    "standardcompute": {
+      "description": "Gateway de enrutamiento multimodelo que envía cada solicitud al modelo de menor costo capaz de resolverla",
+      "name": "Standard Compute"
+    },
     "together": {
       "description": "Plataforma de inferencia cloud para modelos open source",
       "name": "Together AI"

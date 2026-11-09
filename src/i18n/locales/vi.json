@@ -4156,6 +4156,10 @@
       "description": "Cổng định tuyến đa mô hình, hàng trăm mô hình với một key duy nhất",
       "name": "Requesty"
     },
+    "standardcompute": {
+      "description": "Cổng định tuyến đa mô hình, gửi mỗi yêu cầu tới mô hình chi phí thấp nhất có thể xử lý",
+      "name": "Standard Compute"
+    },
     "together": {
       "description": "Nền tảng suy luận đám mây cho các mô hình mã nguồn mở",
       "name": "Together AI"
