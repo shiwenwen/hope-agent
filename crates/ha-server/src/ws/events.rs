@@ -251,6 +251,9 @@ mod tests {
             ha_core::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
                 .unwrap(),
         );
+        ha_core::channel::db::ChannelDB::new(db.clone())
+            .migrate()
+            .unwrap();
         let auth = crate::middleware::AuthState::new(Some("test-owner".into()), None, false);
         let headers = HeaderMap::new();
         let ordinary = format!(

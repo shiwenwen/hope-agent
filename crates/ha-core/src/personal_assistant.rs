@@ -145,7 +145,7 @@ pub async fn enrich_personal_assistant_requests(
             )?;
             if active { current.insert(request_id); }
         }
-        Ok(current)
+        Ok::<_, anyhow::Error>(current)
     }).await?;
     for request in requests {
         if !current.contains(&request.id) {
