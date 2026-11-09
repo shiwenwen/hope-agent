@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "eval-app-profile.v1",
+  "id": "prompt-cache",
+  "version": "1.0.0",
+  "title": "缓存成本与延迟专项",
+  "description": "显式运行合成多轮场景，分别记录首次历史、预热、尾部更新、工具循环、摘要与摘要后复用。默认串行重复 3 次，内容保留必须通过；实际缓存读写与延迟仅作诊断。",
+  "baseTier": "nightly",
+  "suites": [
+    {
+      "suiteId": "prompt-cache",
+      "caseTags": [
+        "prompt_cache"
+      ]
+    }
+  ],
+  "allowedArms": [
+    "control"
+  ],
+  "armMode": "one_control_per_case",
+  "defaultRepetitions": 3,
+  "useSuiteRepetitions": false,
+  "maxTrials": 60,
+  "maxModels": 2,
+  "maxConcurrency": 1,
+  "defaultConcurrency": 1,
+  "maxCostUsd": 1000000,
+  "defaultCostUsd": 10,
+  "budgetMode": "user_configurable",
+  "allowCustom": false
+}

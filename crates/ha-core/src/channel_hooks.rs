@@ -2,7 +2,8 @@
 //!
 //! # 为什么需要
 //!
-//! 阶段 5 第五刀把 12 个 IM 插件 / worker / feishu 业务 API 自 ha-core 迁入 ha-channel，
+//! 阶段 5 第五刀把 IM 插件 / worker / feishu 业务 API 自 ha-core 迁入 ha-channel，
+//! 后者当前承载 13 个内置插件（含企业微信文本首版）。
 //! 但 kernel 侧仍有两类反向需求：
 //!
 //! 1. **撤掉 IM 侧待决窗口**——`ask_user` / 审批的决议路径遍布 kernel
@@ -227,7 +228,7 @@ pub struct ChannelHooks {
     pub start_watchdog_cancel_pending: for<'a> fn(&'a str) -> BoxFut<'a, ()>,
 
     // ── 装配槽（`app_init` 在建好 registry / ChannelDB 之后逐个调用）──
-    /// 把 12 个内置插件装进 registry。registry 与其 `ChannelId` 键都是 kernel
+    /// 把 13 个内置插件装进 registry。registry 与其 `ChannelId` 键都是 kernel
     /// 契约，只有插件实现在特征侧。
     pub install_plugins: fn(&mut crate::channel::ChannelRegistry),
     /// `worker::spawn_dispatcher`——入站事件分发线程（自带 runtime，可从 sync

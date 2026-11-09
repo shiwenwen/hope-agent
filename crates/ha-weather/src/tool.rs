@@ -32,7 +32,7 @@ async fn resolve_location(args: &Value) -> Result<(f64, f64, String)> {
                 return Ok((lat, lon, format!("{:.2},{:.2}", lat, lon)));
             }
             // Otherwise treat as city name — geocode it
-            let results = crate::geocode_search(location, "en").await?;
+            let results = crate::geocode_search(location, geocoding_language(location)).await?;
             if let Some(first) = results.first() {
                 return Ok((first.latitude, first.longitude, first.name.clone()));
             }
@@ -69,4 +69,42 @@ fn parse_lat_lon(s: &str) -> Option<(f64, f64)> {
         }
     }
     None
+}
+
+/// Open-Meteo indexes Chinese aliases under the Chinese search language.
+/// Keep the existing English path for Latin names and coordinates.
+fn geocoding_language(location: &str) -> &'static str {
+    if location
+        .chars()
+        .any(|c| matches!(c, '\u{3400}'..='\u{4dbf}' | '\u{4e00}'..='\u{9fff}' | '\u{f900}'..='\u{faff}'))
+    {
+        "zh"
+    } else {
+        "en"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chinese_city_names_select_the_search_language_with_aliases() {
+        for city in ["上海", "北京", "纽约", "Shanghai 上海"] {
+            assert_eq!(geocoding_language(city), "zh", "{city}");
+        }
+        for city in ["Shanghai", "San Juan", "Berlin"] {
+            assert_eq!(geocoding_language(city), "en", "{city}");
+        }
+    }
+
+    #[test]
+    fn explicit_coordinates_still_resolve_without_geocoding() {
+        assert_eq!(
+            parse_lat_lon("31.22222,121.45806"),
+            Some((31.22222, 121.45806))
+        );
+        assert_eq!(parse_lat_lon("91,0"), None);
+        assert_eq!(parse_lat_lon("上海"), None);
+    }
 }

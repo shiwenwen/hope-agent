@@ -1,6 +1,6 @@
 # Side Query：复用主对话前缀的一次性 LLM 调用
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-07-23
+> 返回 [文档索引](../../README.md) | 更新时间：2026-11-01
 >
 > 关联源码：[`agent/side_query.rs`](../../../crates/ha-core/src/agent/side_query.rs)（快照 + 入口）、[`agent/llm_adapter.rs`](../../../crates/ha-core/src/agent/llm_adapter.rs)（统一 one-shot 适配器）、[`agent/context.rs`](../../../crates/ha-core/src/agent/context.rs)（`summarize_direct` + `DedicatedModelProvider`）、[`agent/types.rs`](../../../crates/ha-core/src/agent/types.rs)（数据结构）、[`agent/config.rs`](../../../crates/ha-core/src/agent/config.rs)（URL / 版本常量）、[`failover/executor.rs`](../../../crates/ha-core/src/failover/executor.rs)（退避重试与 profile 轮换）。
 
@@ -8,9 +8,9 @@
 
 主对话每一轮真正发给 Provider 的请求，前缀都是一大坨：**系统提示词 + 全部工具 schema + 完整对话历史**，动辄几万 token。而后台有大量"顺带问一句"的短请求——生成标题、提取记忆、挑选相关记忆、写摘要、召回增强——它们本质上是站在同一段对话上下文里再问一个小问题。
 
-如果这些后台请求各自从零发送，就要为那几万 token 的上下文重复付全价。Side Query 的关键想法是：**让后台请求复用主对话刚刚发过的那段前缀，从而命中 Provider 的 prompt cache**。前缀命中缓存后，输入侧成本降到约十分之一，而后台请求要携带的"新内容"只有一句 instruction。
+这些后台请求可以复用主对话的前缀，使模型服务商有机会读取提示缓存。命中后的费用按实际模型的缓存读取价格结算；后台请求追加的内容通常只有一条指令，不能仅凭共享文本推断命中或固定折扣。
 
-要吃到缓存，只有一个硬约束：**侧查询构造的前缀必须与主请求逐字节一致**。Provider 的缓存是按前缀字节匹配的——Anthropic 靠显式 `cache_control` 标记的 block，OpenAI 系靠自动前缀匹配。差一个字节，缓存就重建，优化归零。整个子系统的设计，都是围绕"如何稳定地复刻那段字节一致的前缀"展开的。
+缓存复用要求模型服务商最终渲染的前缀一致。工具定义、消息角色、内容和推理配置都可能影响前缀；缓存断点则决定此前写入的位置是否能被查到。Anthropic 使用 `cache_control`，官方 OpenAI Responses 按型号支持显式断点，兼容端点和 Codex 保持各自能力边界。相同缓存键、JSON 键顺序或语义相同，都不能单独证明命中。
 
 ```mermaid
 sequenceDiagram
@@ -67,12 +67,14 @@ struct CacheSafeParams {
 
 所有"发一发就完、不跑工具循环、不做压缩"的一次性 LLM 调用，都收敛到同一套适配器 [`agent/llm_adapter.rs`](../../../crates/ha-core/src/agent/llm_adapter.rs) 上。调用方只负责"取快照 / 定 system + 建 client + 选 mode"，Provider 特异性全在 `LlmApiAdapter` trait 的实现里。
 
-三种互斥的调用形状由 `OneShotMode` 建模，用枚举而非布尔标志，就是为了让调用方无法把"复用缓存前缀"和"独立 system"这类矛盾组合误配到一起：
+调用形状由 `OneShotMode` 建模，用枚举而非布尔标志，避免把复用前缀和独立系统提示误配：
 
 | Mode | 请求形状 | 谁用 |
 |------|---------|------|
 | `Cached(&CacheSafeParams)` | 复用 `system + tools + history` 前缀，追加 instruction；格式不匹配则自动退化为 Bare | `side_query`（有主对话上下文时） |
+| `SummaryFork(&SummaryForkRequest)` | 已计数的原生摘要分叉；保留主请求前缀及推理设置，只追加检查点指令；身份不匹配时拒绝 | 跟随对话模型且未设置摘要推理覆盖的文本摘要 |
 | `Independent { system }` | 全新请求：给定 system + 单条 user message，不带 tools / history | `summarize_direct`、带附件的独立查询 |
+| `Summary { system, effort, thinking_style }` | 独立摘要请求，携带摘要专用推理覆盖 | 显式设置摘要推理档位 |
 | `Bare` | 仅 instruction 作 user message，无 system、无 tools | 无快照回退、`judge_one_shot` |
 
 ```mermaid
@@ -86,7 +88,7 @@ flowchart TD
 
     SQ -->|"Cached / Bare"| ADP
     IND -->|"Independent + 图片附件"| ADP
-    SUM -->|"Independent 摘要 system"| ADP
+    SUM -->|"SummaryFork / Independent / Summary"| ADP
     JUDGE -->|"Bare"| ADP
 
     ADP["LlmProvider::as_adapter()<br/>LlmApiAdapter::one_shot"]
@@ -101,9 +103,9 @@ flowchart TD
     A4 --> HTTP
 ```
 
-`OneShotRequest` 是喂给适配器的统一入参，四个字段：`instruction`（那句要问的话）、`max_tokens`、`mode`（上面三态之一）、`user_content`（可选，携带图片附件时用来替换默认的纯文本 user content）。
+`OneShotRequest` 的四个字段为 `instruction`、`max_tokens`、`mode` 和 `user_content`。原生摘要分叉直接使用已证明容量的请求，不把 `instruction` 或 `user_content` 再拼一份历史。其模板由本轮主请求构造器生成，独立于普通侧查询快照；来源、适用条件和工具拒绝规则见[上下文压缩](../core/context-compact.md#第-3-层llm-语义摘要)。
 
-每个适配器把请求体构造成纯函数（`build_anthropic_body` / `build_openai_chat_body` / `build_responses_body`）。这些纯函数是**唯一**能防住字节级前缀回归的防线：一旦某个 JSON 键的插入顺序变了，Anthropic 的 `cache_control` 就会错位、OpenAI 的前缀缓存就会从头重建——所以它们各自都有独立单测锁死输出形状。
+每个适配器由请求体构造器和协议定向测试保护内容、角色、设置与断点位置。通用侧查询从快照重建请求；原生摘要分叉保留本轮请求帧，并仅裁去保留段、设置摘要输出上限及追加指令。JSON 对象键顺序变化不等于模型前缀变化。
 
 ### mode → 请求体形状
 
@@ -111,6 +113,8 @@ flowchart TD
 flowchart TD
     M{"OneShotMode"}
     M -->|"Independent { system }"| I["独立 system + 单条 user<br/>不带 tools / history"]
+    M -->|"Summary / 显式推理覆盖"| I
+    M -->|"SummaryFork"| F["已计数的原生前缀<br/>身份不匹配则拒绝"]
     M -->|"Bare"| B["仅 instruction 作 user<br/>无 system 无 tools"]
     M -->|"Cached(params)"| C{"params.provider_format<br/>== 适配器格式?"}
     C -->|"是"| CF["Cache-friendly：复用<br/>system + tools + history 前缀"]
@@ -124,7 +128,7 @@ flowchart TD
 - **非流式**：`one_shot` 走同步 JSON 请求（Codex 除外，见下），不做流式输出。（存在一个流式孪生方法 `one_shot_stream`，同样的请求体 / 前缀 / SSE 机制，只是把每个 text delta 转发给回调——仅设计空间的实时预览用，侧查询路径不碰它。）
 - **单轮**：不执行工具循环、不做压缩。
 - **前缀一致**：即便侧查询根本不会执行工具，`tool_schemas` 也必须原样带上——因为主请求永远带着工具，缺了就不再是字节一致的前缀。
-- **连续消息合并**：追加 instruction 走 `push_user_message()`，自动合并相邻的 user 消息，兼容 Anthropic 对 user/assistant 角色交替的要求。
+- **连续消息合并**：普通侧查询走 `push_user_message()`。原生摘要分叉单独追加检查点消息，不改写最后一条历史消息。
 
 ## Provider 适配
 

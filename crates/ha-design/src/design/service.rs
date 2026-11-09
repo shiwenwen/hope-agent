@@ -1332,6 +1332,24 @@ fn reference_recreate_brief(n: usize) -> String {
     }
 }
 
+async fn append_generation_reference_paths(
+    input_images: &mut Vec<ha_media::media_gen::adapters::InputImage>,
+    paths: &[String],
+) {
+    match ha_media::media_gen::load_input_images(paths).await {
+        Ok(mut loaded) => {
+            let room = ha_core::media_gen::MAX_INPUT_IMAGES.saturating_sub(input_images.len());
+            loaded.truncate(room);
+            input_images.append(&mut loaded);
+        }
+        Err(e) => ha_core::app_warn!(
+            "design",
+            "image",
+            "reference image paths load failed, ignoring: {e}"
+        ),
+    }
+}
+
 /// 若 image 形态且无 body，用 prompt/title 调 image_generate 生成后再落库。
 /// owner（Tauri/HTTP）与 agent 工具共用此入口。
 pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Result<DesignArtifact> {
@@ -1365,8 +1383,8 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
                 ),
             }
         }
-        // 首页多图 composer：`reference_images`（≤5）逐张解码为图生图输入，与单张 b64 / paths 叠加、
-        // 总量钳 ≤5。此前只读单张 `reference_image_b64`，而首页改造后只发 `reference_images`——
+        // 首页多图 composer：`reference_images`（≤5）逐张解码为图生图输入，与单张 b64 合计 ≤5。
+        // Agent paths 随后按公共媒体上限叠加。此前只读单张 `reference_image_b64`，而首页改造后只发 `reference_images`——
         // image 形态图生图会静默丢参考图（review #1 回归修复）。
         if let Some(refs) = input.reference_images.as_deref() {
             for r in refs {
@@ -1401,18 +1419,7 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .as_deref()
             .filter(|p| !p.is_empty())
         {
-            match ha_media::media_gen::load_input_images(paths).await {
-                Ok(mut loaded) => {
-                    let room = 5usize.saturating_sub(input_images.len());
-                    loaded.truncate(room);
-                    input_images.append(&mut loaded);
-                }
-                Err(e) => ha_core::app_warn!(
-                    "design",
-                    "image",
-                    "reference image paths load failed, ignoring: {e}"
-                ),
-            }
+            append_generation_reference_paths(&mut input_images, paths).await;
         }
         let opts = super::image::ImageGenOptions {
             aspect_ratio: input.aspect_ratio.clone().filter(|s| !s.trim().is_empty()),
@@ -5633,5 +5640,41 @@ mod comment_tests {
         assert_eq!(sanitize_oid(Some(0)), Some(0));
         assert_eq!(sanitize_oid(Some(-1)), None, "负 oid → 脱锚");
         assert_eq!(sanitize_oid(None), None);
+    }
+}
+
+#[cfg(test)]
+mod generation_reference_tests {
+    use super::append_generation_reference_paths;
+    use base64::Engine;
+    use ha_media::media_gen::adapters::InputImage;
+
+    #[tokio::test]
+    async fn agent_reference_paths_keep_fourteen_inputs_and_respect_combined_capacity() {
+        let paths: Vec<_> = (0..16u8)
+            .map(|i| {
+                format!(
+                    "data:image/png;base64,{}",
+                    base64::engine::general_purpose::STANDARD.encode([i])
+                )
+            })
+            .collect();
+        for existing in [0, 1, 5] {
+            let mut images: Vec<_> = (0..existing)
+                .map(|_| InputImage {
+                    data: vec![255],
+                    mime: "image/png".into(),
+                })
+                .collect();
+            append_generation_reference_paths(&mut images, &paths).await;
+            assert_eq!(images.len(), 14);
+            assert!(images[..existing].iter().all(|i| i.data == [255]));
+            for (index, image) in images[existing..].iter().enumerate() {
+                assert_eq!(image.data, [index as u8]);
+            }
+        }
+        let mut images = Vec::new();
+        append_generation_reference_paths(&mut images, &paths[..6]).await;
+        assert_eq!(images.len(), 6);
     }
 }

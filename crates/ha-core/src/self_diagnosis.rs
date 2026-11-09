@@ -295,7 +295,7 @@ fn call_llm(provider: &ProviderConfig, prompt: &str) -> anyhow::Result<Diagnosis
         })
         .ok_or_else(|| anyhow::anyhow!("No models available"))?;
 
-    let client = crate::provider::apply_proxy_blocking(
+    let client = crate::provider::apply_model_proxy_blocking(
         reqwest::blocking::Client::builder().timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS)),
     )
     .build()
@@ -728,6 +728,88 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    #[test]
+    fn diagnosis_model_calls_never_replay_prompt_or_authentication_on_redirect() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let mut config = crate::config::AppConfig::default();
+        config.proxy.mode = crate::provider::ProxyMode::None;
+        let _config_restore = crate::test_support::replace_config_cache(config);
+        for api_type in [
+            ApiType::Anthropic,
+            ApiType::OpenaiChat,
+            ApiType::OpenaiResponses,
+        ] {
+            for status in [307, 308] {
+                let destination = TcpListener::bind("127.0.0.1:0").unwrap();
+                destination.set_nonblocking(true).unwrap();
+                let target = format!("http://{}/redirected", destination.local_addr().unwrap());
+                let origin = TcpListener::bind("127.0.0.1:0").unwrap();
+                let base = format!("http://{}", origin.local_addr().unwrap());
+                let request_api_type = api_type.clone();
+                let server = std::thread::spawn(move || {
+                    let (mut socket, _) = origin.accept().unwrap();
+                    socket
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    let mut request = Vec::new();
+                    let header_end = loop {
+                        let mut buffer = [0; 1024];
+                        let count = socket.read(&mut buffer).unwrap();
+                        assert_ne!(count, 0);
+                        request.extend_from_slice(&buffer[..count]);
+                        if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                            break end + 4;
+                        }
+                    };
+                    let headers = String::from_utf8_lossy(&request[..header_end]).to_lowercase();
+                    let body_len = headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length: "))
+                        .unwrap()
+                        .parse::<usize>()
+                        .unwrap();
+                    while request.len() < header_end + body_len {
+                        let mut buffer = [0; 1024];
+                        let count = socket.read(&mut buffer).unwrap();
+                        assert_ne!(count, 0);
+                        request.extend_from_slice(&buffer[..count]);
+                    }
+                    let expected_auth = if request_api_type == ApiType::Anthropic {
+                        "x-api-key: synthetic-diagnosis-key"
+                    } else {
+                        "authorization: bearer synthetic-diagnosis-key"
+                    };
+                    assert!(headers.contains(expected_auth));
+                    assert!(String::from_utf8_lossy(&request[header_end..])
+                        .contains("synthetic-private-diagnosis"));
+                    socket.write_all(format!("HTTP/1.1 {status} Redirect\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).unwrap();
+                });
+                let mut provider = ProviderConfig::new(
+                    "synthetic provider".into(),
+                    api_type.clone(),
+                    base,
+                    "synthetic-diagnosis-key".into(),
+                );
+                provider.allow_private_network = true;
+                provider.models.push(
+                    serde_json::from_value(serde_json::json!({
+                        "id": "synthetic-model", "name": "synthetic model"
+                    }))
+                    .unwrap(),
+                );
+                let error = call_llm(&provider, "synthetic-private-diagnosis").unwrap_err();
+                assert!(error.to_string().contains(&status.to_string()), "{error:#}");
+                server.join().unwrap();
+                assert_eq!(
+                    destination.accept().unwrap_err().kind(),
+                    std::io::ErrorKind::WouldBlock
+                );
+            }
+        }
     }
 
     #[test]

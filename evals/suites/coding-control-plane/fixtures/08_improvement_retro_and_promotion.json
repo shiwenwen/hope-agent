@@ -6,6 +6,18 @@
       {
         "path": "README.md",
         "text": "# Retro Promotion Fixture\n"
+      },
+      {
+        "path": "evals/suites/coding-control-plane/fixtures/base.json",
+        "text": "{\n  \"name\": \"promotion_registration_baseline\",\n  \"repo\": {\n    \"files\": [],\n    \"changes\": []\n  }\n}\n"
+      },
+      {
+        "path": "evals/suites/coding-control-plane/suite.json",
+        "text": "{\n  \"schemaVersion\": \"eval-suite.v1\",\n  \"id\": \"coding-control-plane\",\n  \"version\": \"1.0.0\",\n  \"capability\": \"coding\",\n  \"adapter\": \"coding_fixture_patch\",\n  \"tiers\": [\n    \"weekly\"\n  ],\n  \"runnerClass\": \"hosted_linux\",\n  \"networkPolicy\": \"deny\",\n  \"shards\": 1,\n  \"timeoutSeconds\": 180,\n  \"thresholds\": {},\n  \"cases\": [\n    {\n      \"id\": \"base\",\n      \"path\": \"fixtures/base.json\",\n      \"tags\": []\n    }\n  ]\n}\n"
+      },
+      {
+        "path": "evals/version-lock.json",
+        "text": "{\n  \"schemaVersion\": \"eval-version-lock.v1\",\n  \"suites\": {\n    \"coding-control-plane@1.0.0\": \"6ba0a979d263c771924f6cf3c60d1a93138ba495bf815776336bc17906a8c895\"\n  },\n  \"policies\": {}\n}\n"
       }
     ],
     "changes": []
@@ -61,7 +73,7 @@
       "expectedAppliedKind": "eval_candidate",
       "minAppliedArtifacts": 1,
       "expectedPromotedStatus": "promoted",
-      "minPromotedArtifacts": 1,
+      "minPromotedArtifacts": 3,
       "expectedPromotionTargetContains": "evals/suites/coding-control-plane/fixtures"
     }
   }

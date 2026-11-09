@@ -3,6 +3,10 @@
 > 状态：确定性评测轨道随包提供 CLI、桌面 Evaluation Center、本地历史与诊断证据，供本机显式运行。当前不在 GitHub Actions、PR、pre-push 或发布 workflow 中运行，也不上传、查询或校验评测证据——所有产物都是本地诊断，不构成自动发布门禁。
 > 真实模型 Campaign 轨道：[`live-model-evaluation.md`](live-model-evaluation.md)
 
+## 隔离研究脚本边界
+
+`FTR-004` 的 `scripts/experiments/workflow_cohort.py` 和 `FTR-005` 的 `scripts/experiments/claim_evidence_consistency.py` 只使用内存合成 fixture，须由开发者本地显式运行。后者固定四组多文件结构化样本，比较单件证据完整性与跨产物 `claim-evidence-version` 检查；三个重复结果只能证明小样本判定稳定，不能证明自然语言结论、真实模型或用户价值。两者均不属于 `evals/suites`、`version-lock.json`、默认 Cargo test、PR/CI 或发布门禁，不读取生产数据库、用户文件或调用 Provider。
+
 ## 核心思想
 
 Hope Agent 的功能横跨 Coding 控制平面、领域工作流、记忆 Dreaming、记忆检索等多个子系统。这些能力的正确性无法靠单元测试完全兜住：它们的行为依赖真实的会话数据库、检索排序、图谱推理等一整套运行时。但把这类整包回放塞进 `cargo test` 会带来两个问题——单测会变慢、变脆，而且一旦引入模型调用就失去确定性。
@@ -61,7 +65,7 @@ flowchart TB
         direction LR
         sch["schema/"]
         pol["policy/（weekly·release）"]
-        suites["suites/（6 个）"]
+        suites["suites/（7 个）"]
         lock["version-lock.json"]
     end
 
@@ -90,9 +94,9 @@ flowchart TB
 | `evals/` | JSON Schema、policy、suite manifest、fixture 与 `version-lock.json` 的单一真相源；`evals/live/` 存真实模型资产 |
 | 桌面 Evaluation Center | `src/components/dashboard/evaluation/` 面板 + 随包 Sidecar（`scripts/prepare-eval-sidecar.mjs` 以 `eval-sidecar` profile 构建 `ha-eval`），显式运行本地真实模型评测并保存进度、结果、历史、对比与趋势 |
 
-## 六个 suite 与它们的适配器
+## 七个 suite 与它们的适配器
 
-v1 只承认六种确定性适配器，每种恰好对应一个 suite。计划器会拒绝任何策略未列出的适配器，`validate_suite` 也会拒绝非确定性适配器。
+v1 只承认七种确定性适配器，每种恰好对应一个 suite。计划器会拒绝任何策略未列出的适配器，`validate_suite` 也会拒绝非确定性适配器。
 
 | adapter | suite | 能力域 | 分片数 | 机器所在 crate |
 | --- | --- | --- | --- | --- |
@@ -100,10 +104,11 @@ v1 只承认六种确定性适配器，每种恰好对应一个 suite。计划�
 | `coding_gold_fixture_patch` | `coding-gold` | coding | 4 | `ha-eval-runtime` |
 | `context_compaction_contract` | `context-compaction-safety` | context_compaction | 2 | `ha-core` |
 | `domain_trace_fixture` | `domain-trace` | domain | 3 | `ha-improve` |
+| `knowledge_retrieval_evidence` | `knowledge-retrieval-evidence` | knowledge | 1 | `ha-knowledge` |
 | `dreaming_golden` | `memory-dreaming` | memory | 2 | `ha-core` |
 | `memory_retrieval_scale` | `memory-retrieval-scale` | memory | 1 | `ha-core` |
 
-`weekly` 与 `release` 两个策略目前都声明这六个 suite、`minPassRate=1.0`、`mode=advisory`、`performanceBlocking=false`——即质量断言必须全过，但耗时/性能只作提示、不阻断。
+`weekly` 与 `release` 两个策略目前都声明这七个 suite、`minPassRate=1.0`、`mode=advisory`、`performanceBlocking=false`——即质量断言必须全过，但耗时/性能只作提示、不阻断。
 
 ## 流水线：从计划到证据
 
@@ -187,9 +192,11 @@ flowchart TB
     net["网络层<br/>可选校验 network namespace 只剩 loopback"]
 ```
 
+所有确定性 adapter 都先经 `ha_server::wire_features()` 装配，再调用内核门面；不依赖 SessionDB 的 Dreaming / 检索 adapter 也不能跳过装配。记忆规模基准使用已注册的合成嵌入配置及其真实 v2 签名，实际向量由进程内确定性 embedder 产生，不发送网络请求。领域 trace 的列表证据使用数组，不能用任意占位字符串冒充审阅或数据检查。
+
 逐条说明：
 
-- **只认六种适配器**：`coding_fixture_patch`、`coding_gold_fixture_patch`、`context_compaction_contract`、`domain_trace_fixture`、`dreaming_golden`、`memory_retrieval_scale`。
+- **只认七种适配器**：`coding_fixture_patch`、`coding_gold_fixture_patch`、`context_compaction_contract`、`domain_trace_fixture`、`knowledge_retrieval_evidence`、`dreaming_golden`、`memory_retrieval_scale`。
 - **manifest 不能携带任意 shell 命令**：suite 与 case 的类型里根本没有「命令」字段，且开启 `deny_unknown_fields`——多写字段直接反序列化失败。这是「无任意执行」的结构性保证，而非运行时黑名单。
 - **fixture 路径受限**：只能是 suite 目录内的普通相对路径；`resolve_contained` 拒绝空路径、绝对路径、任何 `..` / 根组件，并对 base 与拼接后路径都 canonicalize，结果必须仍在 base 之内，从而挡掉 symlink 逃逸。
 - **adapter 层再挡一次**：Coding fixture 在解析前过 `reject_model_configuration`，一旦出现 provider / providers / providerId / model / model chain / API key / endpoint 等字段，或 `mode` / `executionMode` 取 `agent`、`external_model`、`mock_provider` 这类值，就 fail-fast；领域 fixture 若意外带上 provider / model chain 也会 bail。
@@ -208,7 +215,7 @@ flowchart TB
 
 ## 证据的当前定位：只作本地诊断
 
-本地可以在 dirty worktree 上运行、生成 JSON / Markdown，用于定位失败或在相同 commit、policy、suite digest 下比较功能结果。当前所有本地产物都是纯诊断：
+本地可以在 dirty worktree 上运行、生成 JSON / Markdown，用于定位失败或在相同 commit、policy、suite digest 下比较功能结果。`verify-evidence --allow-local` 可显式检查 source=local 且没有 release tag 的 dirty 诊断；默认校验与带 tag 的校验仍拒绝 dirty 证据，不提升发布资格。当前所有本地产物都是纯诊断：
 
 - 不上传 GitHub Actions artifact；
 - 不被 `release.yml` 查询、验证或附加到 GitHub Release；
@@ -226,8 +233,8 @@ flowchart TB
 关键设计取舍是：**编译面进门禁，运行面不进**。
 
 - **编译面**：`pnpm check:eval-internal`（对三个 crate 打开 gated feature 跑 `cargo check --tests`）由 [`.husky/pre-push`](../../../.husky/pre-push) 和 [`.github/workflows/rust.yml`](../../../.github/workflows/rust.yml) 无条件调用。改动这三个 crate 的 gated 测试后，任何编译错误都会立刻变红。
-- **运行面**：刻意不 `cargo test` 这些 gated 测试。真正会「静默 ship」的失效模式是**编译不过**——gated 测试代码不参与常规构建，一处签名不匹配就能让它悄悄腐烂而门禁全绿；而编译门禁正是为堵这个而设。让它们跑起来反而会撞上下面这条已知的存量断言失败，价值不抵噪声。
+- **运行面**：刻意不 `cargo test` 这些 gated 测试。真正会「静默 ship」的失效模式是**编译不过**——gated 测试代码不参与常规构建，一处签名不匹配就能让它悄悄腐烂而门禁全绿；而编译门禁正是为堵这个而设。让它们跑起来反而会撞上真实运行时和完整 fixture 前置条件，适合本地显式诊断。
 
 这套安排不改任何 CI job 的名字，也不需要同步 ruleset 的 required checks。
 
-**一条已知存量失败**：`ha-improve` 的 `promote_eval_candidate_refuses_existing_formal_fixture_without_overwrite`。它的测试 setup 没有在临时 workspace 里建出 `evals/suites/coding-control-plane/suite.json` 与 `evals/version-lock.json`，而 promotion plan 要求两者存在。这是长期存在的测试脚手架缺口，不是近期改动引入的回归；调试这三个 crate 的 gated 测试时遇到它可以先跳过。
+内部评测的 Agent 模式测试须装配 `ha-agent-runtime` 与 Workflow runtime，使用 loopback 假 Provider。晋升 fixture 和防覆盖测试须在临时工作区构造有效 suite、基础 fixture 与版本锁；不能因缺少前置注册文件而跳过防覆盖验证。

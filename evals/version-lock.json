@@ -9,7 +9,11 @@
     "domain-trace@1.1.0": "aab1de39ede8fdb5d85660c78711fe4d851f18f24562f8100df79d8a14dd5dbb",
     "knowledge-retrieval-evidence@1.0.0": "1a14690ad2a9854cef38eea26796865258895982b3425ec7a75e8f4370d1e7ce",
     "memory-dreaming@1.0.0": "3353306d3d7cb706aaa540f1dbdcf505081259946bdd0cce55d527b971e04965",
-    "memory-retrieval-scale@1.0.0": "e27851435b10b5395c2c35779791ca6796d182270a30afcfddd640f7c203219b"
+    "memory-retrieval-scale@1.0.0": "e27851435b10b5395c2c35779791ca6796d182270a30afcfddd640f7c203219b",
+    "coding-control-plane@1.0.1": "99daaa9b56005bd1862f67960962c875be994ab49d711180cbe4430a32418629",
+    "domain-trace@1.1.1": "768e4bf0b47f9e924a3a95f24b2aa5f6198f6a3289f12e5109adda9b59db1eff",
+    "memory-dreaming@1.0.1": "617605c541056e0411027744d04a2670b946ab18485d14024e9cef59ceabbf73",
+    "memory-retrieval-scale@1.0.1": "f9d38eb580267316cdbafbad322658e744ccd3c3a5ad1d1340016701456c328d"
   },
   "policies": {
     "hope-agent-release-deterministic@1.0.0": "4e552909cf3a6977884bcdcfacb374369c0cb7d0a2a1fe53d6b240fe8a6e5bcf",
