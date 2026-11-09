@@ -12,6 +12,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use ha_core::mcp_hooks::McpToolResultFormat;
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
 use serde_json::Value;
 use tokio::time::timeout;
@@ -34,6 +35,15 @@ pub async fn call_tool(
     name: &str,
     args: &Value,
     ctx: &ha_core::tools::ToolExecContext,
+) -> anyhow::Result<String> {
+    call_tool_with_format(name, args, ctx, McpToolResultFormat::Conversation).await
+}
+
+pub(crate) async fn call_tool_with_format(
+    name: &str,
+    args: &Value,
+    ctx: &ha_core::tools::ToolExecContext,
+    format: McpToolResultFormat,
 ) -> anyhow::Result<String> {
     let manager = McpManager::global().ok_or_else(|| {
         anyhow::anyhow!(
@@ -92,7 +102,7 @@ pub async fn call_tool(
         .map_err(|e| anyhow::anyhow!("MCP per-server semaphore closed: {e}"))?;
 
     let start = std::time::Instant::now();
-    let fut = dispatch_inner(handle.clone(), &entry.original_tool_name, args);
+    let fut = dispatch_inner(handle.clone(), &entry.original_tool_name, args, format);
     let result: anyhow::Result<String> = if call_timeout_secs == 0 {
         match fut.await {
             Ok(body) => Ok(body),
@@ -171,6 +181,7 @@ async fn dispatch_inner(
     handle: Arc<ServerHandle>,
     original_name: &str,
     args: &Value,
+    format: McpToolResultFormat,
 ) -> McpResult<String> {
     let cfg_name = handle.config.read().await.name.clone();
     let peer = handle.peer().await?;
@@ -200,19 +211,7 @@ async fn dispatch_inner(
             message: format!("{e}"),
         })?;
 
-    let body = normalize_content(&result.content);
-
-    if result.is_error.unwrap_or(false) {
-        return Err(McpError::ToolFailed {
-            server: cfg_name,
-            tool: original_name.to_string(),
-            message: if body.is_empty() {
-                "server reported isError=true with no body".into()
-            } else {
-                body
-            },
-        });
-    }
+    let body = normalize_result_for(&result, &cfg_name, original_name, format)?;
 
     // Reset the per-server failure counter on a clean call so the
     // watchdog knows the connection is healthy.
@@ -220,6 +219,43 @@ async fn dispatch_inner(
         .consecutive_failures
         .store(0, std::sync::atomic::Ordering::Relaxed);
 
+    Ok(body)
+}
+
+/// Keep successful structured data alongside the human-readable content. A
+/// present JSON null is meaningful; rmcp preserves it as `Some(Value::Null)`.
+/// Error diagnostics keep their existing text-only contract: copying structured
+/// payloads or protocol metadata there would also copy them into Learning events.
+fn normalize_result_for(
+    result: &CallToolResult,
+    server: &str,
+    tool: &str,
+    format: McpToolResultFormat,
+) -> McpResult<String> {
+    let mut body = normalize_content(&result.content);
+    if result.is_error.unwrap_or(false) {
+        return Err(McpError::ToolFailed {
+            server: server.to_string(),
+            tool: tool.to_string(),
+            message: if body.is_empty() {
+                "server reported isError=true with no body".into()
+            } else {
+                body
+            },
+        });
+    }
+    if let Some(structured) = &result.structured_content {
+        if let McpToolResultFormat::Hook(event) = format {
+            return Ok(ha_core::hooks::parse::mcp_hook_stdout(
+                structured, &body, event,
+            ));
+        }
+        if !body.is_empty() {
+            body.push_str("\n\n");
+        }
+        body.push_str("[structuredContent]\n");
+        body.push_str(&structured.to_string());
+    }
     Ok(body)
 }
 
@@ -289,6 +325,9 @@ pub fn normalize_content(blocks: &[ContentBlock]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn normalize_result(result: &CallToolResult, server: &str, tool: &str) -> McpResult<String> {
+        normalize_result_for(result, server, tool, McpToolResultFormat::Conversation)
+    }
     fn text(t: &str) -> ContentBlock {
         ContentBlock::text(t)
     }
@@ -307,5 +346,114 @@ mod tests {
     #[test]
     fn normalize_empty_is_empty() {
         assert_eq!(normalize_content(&[]), "");
+    }
+
+    fn from_wire(value: Value) -> CallToolResult {
+        serde_json::from_value(value).expect("synthetic MCP wire result")
+    }
+
+    #[test]
+    fn result_without_structure_preserves_legacy_content() {
+        let result = from_wire(serde_json::json!({
+            "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}],
+            "_meta": {"private": "not model content"}
+        }));
+        assert_eq!(
+            normalize_result(&result, "server", "tool").unwrap(),
+            "a\n\nb"
+        );
+        assert_eq!(
+            normalize_result(
+                &from_wire(serde_json::json!({"content": []})),
+                "server",
+                "tool"
+            )
+            .unwrap(),
+            ""
+        );
+    }
+
+    #[test]
+    fn result_preserves_every_structured_json_shape_with_and_without_text() {
+        for value in [
+            Value::Null,
+            serde_json::json!(false),
+            serde_json::json!(0),
+            serde_json::json!(12.5),
+            serde_json::json!("text\n[structuredContent]\n雪"),
+            serde_json::json!([]),
+            serde_json::json!([1, null, {"name": "雪"}]),
+            serde_json::json!({}),
+            serde_json::json!({"items": [], "total_count": 0}),
+        ] {
+            for text in [None, Some("Human-readable fallback")] {
+                // Both legacy and 2026 complete responses use this SDK path.
+                for complete in [false, true] {
+                    let mut wire = serde_json::json!({
+                        "content": text.map(|t| vec![serde_json::json!({"type": "text", "text": t})]).unwrap_or_default(),
+                        "structuredContent": value,
+                        "_meta": {"private": "not model content"}
+                    });
+                    if text.is_none() {
+                        wire.as_object_mut().unwrap().remove("content");
+                    }
+                    if complete {
+                        wire["resultType"] = serde_json::json!("complete");
+                    }
+                    let result = from_wire(wire);
+                    assert_eq!(result.structured_content.as_ref(), Some(&value));
+                    let normalized = normalize_result(&result, "server", "tool").unwrap();
+                    let prefix = text.map(|t| format!("{t}\n\n")).unwrap_or_default();
+                    let json = normalized
+                        .strip_prefix(&format!("{prefix}[structuredContent]\n"))
+                        .unwrap();
+                    assert_eq!(serde_json::from_str::<Value>(json).unwrap(), value);
+                    assert!(!normalized.contains("not model content"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn structured_content_does_not_replace_media_fallbacks() {
+        let result = from_wire(serde_json::json!({
+            "content": [{"type": "image", "mimeType": "image/png", "data": "AA=="}],
+            "structuredContent": {"width": 1}
+        }));
+        assert_eq!(
+            normalize_result(&result, "server", "tool").unwrap(),
+            "[image mime=image/png size_b64=4]\n\n[structuredContent]\n{\"width\":1}"
+        );
+    }
+
+    #[test]
+    fn structured_errors_remain_failures_without_new_payload_diagnostics() {
+        for text in [None, Some("try a different argument")] {
+            let result = from_wire(serde_json::json!({
+                "content": text.map(|t| vec![serde_json::json!({"type": "text", "text": t})]).unwrap_or_default(),
+                "structuredContent": {"private": "not diagnostic content"},
+                "isError": true
+            }));
+            for format in [
+                McpToolResultFormat::Conversation,
+                McpToolResultFormat::Hook(ha_core::hooks::HookEvent::PreToolUse),
+            ] {
+                match normalize_result_for(&result, "server", "tool", format).unwrap_err() {
+                    McpError::ToolFailed {
+                        server,
+                        tool,
+                        message,
+                    } => {
+                        assert_eq!(server, "server");
+                        assert_eq!(tool, "tool");
+                        assert_eq!(
+                            message,
+                            text.unwrap_or("server reported isError=true with no body")
+                        );
+                    }
+                    other => panic!("unexpected error: {other}"),
+                }
+            }
+        }
     }
 }

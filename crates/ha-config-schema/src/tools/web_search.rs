@@ -13,6 +13,8 @@ const DEFAULT_WEB_SEARCH_CACHE_TTL_MINUTES: u64 = 15;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum WebSearchProvider {
+    /// Native multi-engine web search — free, no API key or Python runtime
+    Keyless,
     /// DuckDuckGo HTML scraping — free, no API key
     DuckDuckGo,
     /// SearXNG self-hosted meta-search — free, needs instance URL
@@ -36,6 +38,7 @@ pub enum WebSearchProvider {
 impl std::fmt::Display for WebSearchProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Keyless => write!(f, "Keyless"),
             Self::DuckDuckGo => write!(f, "DuckDuckGo"),
             Self::Searxng => write!(f, "SearXNG"),
             Self::Bocha => write!(f, "Bocha"),
@@ -70,7 +73,7 @@ pub struct WebSearchProviderEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebSearchConfig {
-    /// Ordered list of providers. First enabled provider is used.
+    /// Ordered list of providers. Try enabled providers until one returns results.
     #[serde(default = "default_providers")]
     pub providers: Vec<WebSearchProviderEntry>,
     /// Docker-managed SearXNG container
@@ -103,6 +106,13 @@ pub struct WebSearchConfig {
 /// 可见性升级：ha-core `tools::web_search::backfill_providers` 仍要调用。
 pub fn default_providers() -> Vec<WebSearchProviderEntry> {
     vec![
+        WebSearchProviderEntry {
+            id: WebSearchProvider::Keyless,
+            enabled: true,
+            api_key: None,
+            api_key2: None,
+            base_url: None,
+        },
         WebSearchProviderEntry {
             id: WebSearchProvider::DuckDuckGo,
             enabled: true,

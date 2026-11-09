@@ -1763,7 +1763,13 @@ fn campaign_evidence_metadata(
     metadata.insert("artifactTitle".to_string(), json!(task.title));
     metadata.insert("artifactKind".to_string(), json!(task.task_type));
     for key in &req.metadata_keys {
-        metadata.insert(key.clone(), json!(format!("campaign_fixture_{key}")));
+        let value = match key.as_str() {
+            "issues" | "duplicates" | "gaps" => json!([]),
+            "checks" => json!(["completeness", "consistency"]),
+            "attendees" => json!(["fixture reviewer"]),
+            _ => json!(format!("campaign_fixture_{key}")),
+        };
+        metadata.insert(key.clone(), value);
     }
     match req.evidence_type.as_str() {
         "source_cited" => {
@@ -2843,6 +2849,8 @@ mod tests {
         // 走 `improve_hooks`，不 wire 就恒返 `Ok(None)`——不装配等于让这批测试
         // 悄悄跑在一条「永远不记复盘」的路径上，与生产不同。`wire()` 幂等。
         crate::wire();
+        ha_agent_runtime::wire();
+        ha_workflow::wire();
         let dir = tempfile::tempdir().expect("tempdir");
         let db = SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
             .expect("session db");
@@ -2930,7 +2938,7 @@ mod tests {
                         DomainEvalFixtureEvidence {
                             evidence_type: "source_cited".to_string(),
                             title: "Source C".to_string(),
-                            source_metadata: json!({"uri": "https://example.com/c", "publishedAt": "2026-07-03"}),
+                            source_metadata: json!({"uri": "https://example.com/c", "publishedAt": "2026-07-03", "retrievedAt": "2026-07-04"}),
                             ..Default::default()
                         },
                         DomainEvalFixtureEvidence {

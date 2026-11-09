@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "scripted-user-flow.v2",
+  "steps": [
+    {
+      "action": "stop_parent"
+    }
+  ]
+}

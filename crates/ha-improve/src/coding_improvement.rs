@@ -4396,11 +4396,27 @@ mod tests {
         assert!(stored.action.as_ref().is_some_and(|action| action.applied));
     }
 
+    fn seed_eval_registration_workspace(workspace: &std::path::Path) {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../evals/suites/coding-control-plane/fixtures/08_improvement_retro_and_promotion.json"
+        ))
+        .expect("formal promotion fixture");
+        for file in fixture["repo"]["files"].as_array().unwrap() {
+            let path = file["path"].as_str().unwrap();
+            if path.starts_with("evals/") {
+                let target = workspace.join(path);
+                std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+                std::fs::write(target, file["text"].as_str().unwrap()).unwrap();
+            }
+        }
+    }
+
     #[test]
     fn promote_eval_candidate_refuses_existing_formal_fixture_without_overwrite() {
         let (dir, db) = test_db();
         let workspace = dir.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
+        seed_eval_registration_workspace(&workspace);
         let session = db
             .create_session(ha_core::agent_loader::DEFAULT_AGENT_ID)
             .unwrap();

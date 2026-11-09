@@ -2,6 +2,15 @@ use crate::commands::CmdError;
 use crate::provider::ProviderConfig;
 
 #[tauri::command]
+pub async fn discover_provider_models(
+    config: ProviderConfig,
+) -> Result<ha_core::provider::discovery::ModelDiscovery, CmdError> {
+    ha_core::provider::discovery::discover_provider_models(config)
+        .await
+        .map_err(CmdError::msg)
+}
+
+#[tauri::command]
 pub async fn test_provider(config: ProviderConfig) -> Result<String, CmdError> {
     ha_core::provider::test::test_provider(config)
         .await

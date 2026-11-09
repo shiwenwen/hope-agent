@@ -1,5 +1,7 @@
 # 语音转写（STT）
 
+2026-10-27 兼容目录维护：新建 xAI batch 预设改为官方当前 `grok-voice-transcribe-2.0`，仍走 [multipart `/v1/stt`](https://docs.x.ai/developers/model-capabilities/audio/speech-to-text)。新建 AssemblyAI WS 预设采用 [当前显式型号](https://www.assemblyai.com/docs/streaming/select-the-speech-model) `universal-3-6-pro`、`universal-3-5-pro`、`universal-streaming-english` 与 `universal-streaming-multilingual`，仍以 `speech_model` 发送。旧配置和自定义 ID 原样交给原适配器；空 ID 的旧 English 兜底、语言条件、鉴权和 Terminate 语义不改变。回环 HTTP 核对 xAI 型号/语言先于最后的 file、双语数字文本/时长/来源解析；AssemblyAI 离线 URL 和既有 Turn 夹具核对选择器、转义及 partial/final，未做真实 WS 连接。xAI 词级时间戳仍不映射为 segments，WS 型号仍不得进入 batch/IM 兜底链。本次不是实时语音或 TTS 迁移，没有真实音频、WER/CER、延迟或账单验收。
+
 > 返回 [文档索引](../../README.md)
 >
 > 关联源码：
