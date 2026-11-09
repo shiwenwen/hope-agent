@@ -403,3 +403,7 @@ interface ModelChainEditorProps {
 ## 10. 已知边界
 
 **混合文本 + 扫描页的 PDF**：扫描版 PDF 逐页 OCR 兜底只在整份 PDF **完全没有文本层**时触发——只要文本抽取返回非空（哪怕只是文档里一页扫描附录之外、其余页正常抽取到的文本），就走普通文本路径，不会对文本抽取"漏掉"的个别扫描页单独尝试 OCR。这是刻意的最小范围，避免给每一份"恰好某页没抽出文本"的正常 PDF 都加一次视觉调用。完整设计见 [`knowledge-base.md`](knowledge-base.md)。
+
+### 隔离评测的自动化调用
+
+真实模型评测中的 ModelTaskSpec 必须携实际 Session id。automation 的四种入口经类型化 SessionDB 读取已接纳模型 pin；缺失、不可用或未注册 EvalRunContext 时请求前拒绝。普通生产会话仍按消费者 override → automation default → chat default 解析。side_query 在请求及重试前检查评测接纳与预算；接纳拒绝为终止错误，不重试或跨模型回退。

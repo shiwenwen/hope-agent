@@ -75,7 +75,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         );
     }
 
-    let client = ha_core::provider::apply_proxy(
+    let client = ha_core::provider::apply_model_proxy(
         Client::builder()
             .connect_timeout(std::time::Duration::from_secs(30))
             .timeout(std::time::Duration::from_secs(params.timeout_secs)),
@@ -151,28 +151,9 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     for (i, item) in items.into_iter().enumerate() {
         if let Some(img_url) = item.url {
             let dl_start = std::time::Instant::now();
-            let img_resp = client
-                .get(&img_url)
-                .timeout(std::time::Duration::from_secs(30))
-                .send()
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to download ZhipuAI image: {}", e))?;
-
-            if !img_resp.status().is_success() {
-                anyhow::bail!("ZhipuAI image download failed ({})", img_resp.status());
-            }
-
-            let content_type = img_resp
-                .headers()
-                .get("content-type")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("image/png")
-                .split(';')
-                .next()
-                .unwrap_or("image/png")
-                .trim()
-                .to_string();
-            let data = img_resp.bytes().await?.to_vec();
+            let (data, content_type) =
+                crate::media_gen::adapters::fetch::fetch_asset(&img_url, params.ssrf, "image/png")
+                    .await?;
             let dl_ms = dl_start.elapsed().as_millis() as u64;
 
             if let Some(logger) = ha_core::get_logger() {

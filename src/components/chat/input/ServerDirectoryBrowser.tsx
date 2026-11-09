@@ -32,6 +32,7 @@ interface ServerDirectoryBrowserProps {
   initialPath?: string | null
   onSelect: (path: string) => void
   allowCreate?: boolean
+  directoriesOnly?: boolean
 }
 
 export default function ServerDirectoryBrowser({
@@ -40,6 +41,7 @@ export default function ServerDirectoryBrowser({
   initialPath,
   onSelect,
   allowCreate = false,
+  directoriesOnly = false,
 }: ServerDirectoryBrowserProps) {
   const { t } = useTranslation()
   const transport = useTransport()
@@ -63,7 +65,9 @@ export default function ServerDirectoryBrowser({
       setCreateError(null)
       setCreateErrorDetail(null)
       try {
-        const result = await transport.listServerDirectory(path)
+        const result = directoriesOnly
+          ? await transport.listServerDirectory(path, true)
+          : await transport.listServerDirectory(path)
         setListing(result)
         setManualPath(result.path)
         return result
@@ -76,7 +80,7 @@ export default function ServerDirectoryBrowser({
         setLoading(false)
       }
     },
-    [transport],
+    [transport, directoriesOnly],
   )
 
   useEffect(() => {
@@ -201,6 +205,7 @@ export default function ServerDirectoryBrowser({
     allowCreate && !workspaceIsLocal && remoteWritesAllowed === false && !remoteWritesCheckFailed
   const canCreate =
     allowCreate && (workspaceIsLocal || (remoteWritesAllowed === true && !remoteWritesCheckFailed))
+  const visibleEntries = listing?.entries.filter((entry) => !directoriesOnly || entry.isDir) ?? []
 
   const openServerSettings = () => {
     onOpenChange(false)
@@ -379,14 +384,14 @@ export default function ServerDirectoryBrowser({
               <p className="break-all">{error}</p>
             </div>
           )}
-          {!loading && !error && listing && listing.entries.length === 0 && (
+          {!loading && !error && listing && visibleEntries.length === 0 && (
             <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
-              {t("chat.workingDir.empty")}
+              {t(directoriesOnly ? "chat.workingDir.noSubdirectories" : "chat.workingDir.empty")}
             </div>
           )}
-          {!loading && !error && listing && listing.entries.length > 0 && (
+          {!loading && !error && listing && visibleEntries.length > 0 && (
             <ul className="divide-y divide-border">
-              {listing.entries.map((entry) => (
+              {visibleEntries.map((entry) => (
                 <li key={entry.path}>
                   <button
                     type="button"

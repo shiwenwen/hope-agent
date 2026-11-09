@@ -598,6 +598,18 @@ impl SessionDB {
                 None
             }
         };
+        // Unbound runs also belong to a specific Goal contract revision.
+        let goal_revision = match goal_id.as_deref() {
+            Some(goal_id) => Some(match goal_criterion.as_ref() {
+                Some(criterion) => criterion.goal_revision,
+                None => {
+                    self.get_goal(goal_id)?
+                        .ok_or_else(|| anyhow!("goal not found: {goal_id}"))?
+                        .revision
+                }
+            }),
+            None => None,
+        };
         if let Some(worktree_id) = input.worktree_id.as_deref() {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
             let row: Option<(Option<String>, String, String)> = conn
@@ -662,9 +674,7 @@ impl SessionDB {
                     goal_criterion
                         .as_ref()
                         .map(|criterion| criterion.kind.as_str()),
-                    goal_criterion
-                        .as_ref()
-                        .map(|criterion| criterion.goal_revision),
+                    goal_revision,
                     now
                 ],
             )?;

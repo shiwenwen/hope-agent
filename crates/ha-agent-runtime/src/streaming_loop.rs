@@ -2142,6 +2142,49 @@ fn prompt_cache_key(
     )
 }
 
+fn prepare_summary_fork_template(
+    agent: &AssistantAgent,
+    adapter: &dyn StreamingChatAdapter,
+    template: &RoundRequest<'_>,
+    model: &str,
+    canonical_history: &[serde_json::Value],
+    force: bool,
+) {
+    if !agent.summary_fork_enabled() {
+        return;
+    }
+    let req = template.with_history(canonical_history);
+    if !force {
+        let lanes = adapter.token_count_input_for(&req);
+        let tools = adapter.token_count_tool_schemas(&req);
+        let count = crate::token_accounting::service().count_local(
+            &crate::token_accounting::TokenCountRequest {
+                provider: adapter.provider_format().token_provider_family(),
+                model,
+                request_shape: adapter.provider_format().token_request_shape(),
+                stable_prompt: &lanes.stable_prompt,
+                dynamic_prompt: &lanes.dynamic_prompt,
+                history: &lanes.history,
+                eager_tool_schemas: &tools,
+                activated_tool_schemas: &[],
+            },
+        );
+        if count.upper_bound.saturating_add(u64::from(req.max_tokens))
+            < (f64::from(agent.get_context_window())
+                * agent.runtime_compact_config().summarization_threshold)
+                .ceil() as u64
+        {
+            return;
+        }
+    }
+    let history = crate::context_compact::prepare_messages_for_api(canonical_history);
+    if let Ok(prepared) = adapter.prepare_round_request(&template.with_history(&history)) {
+        agent.save_summary_fork_template(&prepared, canonical_history);
+    } else {
+        agent.clear_summary_fork_template();
+    }
+}
+
 /// Local-only accounting view used by compaction. Dynamic blocks are appended
 /// here solely so their tokens reserve real context space; this string is not
 /// serialized as a provider system/developer message, so data-lane content
@@ -2426,10 +2469,10 @@ impl RuntimeAgentExt for AssistantAgent {
         if let Some(usage) = usage {
             if usage.input_coverage.is_present() {
                 event.input_tokens = Some(usage.input_tokens);
-                event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
-                event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
-                event.context_input_tokens = Some(usage.context_input_tokens);
-                event.fresh_input_tokens = Some(usage.fresh_input_tokens);
+                event.cache_creation_input_tokens = usage.cache_receipt.write;
+                event.cache_read_input_tokens = usage.cache_receipt.read;
+                event.context_input_tokens = usage.cache_receipt.context;
+                event.fresh_input_tokens = usage.cache_receipt.fresh;
             }
             if usage.output_coverage.is_present() {
                 event.output_tokens = Some(usage.output_tokens);
@@ -2716,6 +2759,71 @@ impl RuntimeAgentExt for AssistantAgent {
             eager_tool_count,
             round_limit_enabled && max_rounds == 1,
         );
+        self.clear_summary_fork_template();
+        if self.summary_fork_enabled() {
+            let (effort, disabled) = self.effective_reasoning_selection(reasoning_effort).await;
+            let effort = super::config::provider_reasoning_effort(
+                self.runtime_provider(),
+                effort.as_deref(),
+            );
+            let disabled = reasoning_output_is_disabled(
+                disabled,
+                self.runtime_reasoning_hard_disabled(),
+                provider_reasoning_is_hard_disabled(
+                    self.runtime_provider(),
+                    effort.as_deref(),
+                    self.runtime_thinking_style(),
+                ),
+            );
+            let key = prompt_cache_key(
+                self,
+                adapter.provider_format(),
+                model,
+                &system_prompt,
+                &tool_schemas,
+                initial_provider_deferred_tool_schemas,
+            );
+            let template = RoundRequest {
+                session_id: self.runtime_session_id(),
+                system_prompt: &system_prompt,
+                run_instruction_suffix: initial_run_instruction.as_deref(),
+                run_data_suffix: initial_run_data.as_deref(),
+                awareness_suffix: initial_awareness.as_deref().map(String::as_str),
+                active_memory_suffix: initial_active_memory.as_deref().map(String::as_str),
+                legacy_memory_suffix: initial_legacy_memory.as_deref().map(String::as_str),
+                coding_profile_suffix: initial_coding_profile.as_deref().map(String::as_str),
+                procedure_memory_suffix: initial_procedure_memory.as_deref().map(String::as_str),
+                related_notes_suffix: initial_related_notes.as_deref().map(String::as_str),
+                attached_knowledge_suffix: attached_knowledge_suffix.as_deref(),
+                capability_catalog_suffix: capability_catalog_suffix.as_deref(),
+                user_profile_suffix: user_profile_suffix.as_deref(),
+                environment_context_suffix: environment_context_suffix.as_deref(),
+                lsp_diagnostics_suffix: None,
+                task_reminder_suffix: None,
+                tool_schemas: &tool_schemas,
+                deferred_tool_schemas: initial_provider_deferred_tool_schemas,
+                eager_tool_count,
+                deferred_tool_count,
+                activated_tool_count: activated_tool_names.len(),
+                prompt_cache_key: Some(&key),
+                history_for_api: &[],
+                vision_bridge_available: false,
+                reasoning_effort: effort.as_deref(),
+                reasoning_disabled: disabled,
+                temperature: self.runtime_temperature(),
+                max_tokens: MAX_OUTPUT_TOKENS,
+                is_final_round: round_limit_enabled && max_rounds == 1,
+                round: 0,
+            };
+            prepare_summary_fork_template(
+                self,
+                adapter,
+                &template,
+                model,
+                &canonical_history,
+                false,
+            );
+        }
         let compaction = self
             .run_compaction(
                 &mut messages,
@@ -3197,6 +3305,15 @@ impl RuntimeAgentExt for AssistantAgent {
                 round,
             };
 
+            prepare_summary_fork_template(
+                self,
+                adapter,
+                &request_template,
+                model,
+                &canonical_history,
+                false,
+            );
+
             // One bounded, same-round capacity state machine. It never repeats
             // dynamic prompt construction, mailbox drains, hooks, or tools:
             // P → Tier0 → P → Tier2 → P → Tier3 → P → terminal. Tier0/2 edit
@@ -3373,6 +3490,14 @@ impl RuntimeAgentExt for AssistantAgent {
                             summary_input.stable_prompt, summary_input.dynamic_prompt
                         );
                         let summary_tools = adapter.token_count_tool_schemas(&summary_request);
+                        prepare_summary_fork_template(
+                            self,
+                            adapter,
+                            &request_template,
+                            model,
+                            &canonical_history,
+                            true,
+                        );
                         let outcome = match self
                             .summarize_old_history_for_current_tool_group(
                                 &mut messages,

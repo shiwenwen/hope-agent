@@ -708,6 +708,9 @@ impl IMessageClient {
     /// The notification `params` should contain a `message` object with the
     /// `IMessagePayload` fields.
     fn parse_notification(params: &Value, account_id: &str) -> Option<MsgContext> {
+        if inbound_kind(params) != IMessageInboundKind::Inserted {
+            return None;
+        }
         // The params may contain a "message" wrapper or be the message directly
         let message_val = params.get("message").unwrap_or(params);
 
@@ -847,6 +850,26 @@ fn message_value(value: &Value) -> &Value {
     value.get("message").unwrap_or(value)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IMessageInboundKind {
+    Inserted,
+    Edited,
+    Unsent,
+    Unknown,
+}
+
+fn inbound_kind(value: &Value) -> IMessageInboundKind {
+    // imsg v0.19.0: insertions omit `type`; edits/unsends reuse the original
+    // rowid/GUID. An explicit unknown or malformed type must never become a
+    // model instruction. Mutation delivery/history reconciliation is separate.
+    match message_value(value).get("type") {
+        None => IMessageInboundKind::Inserted,
+        Some(Value::String(kind)) if kind == "edited" => IMessageInboundKind::Edited,
+        Some(Value::String(kind)) if kind == "unsent" => IMessageInboundKind::Unsent,
+        _ => IMessageInboundKind::Unknown,
+    }
+}
+
 fn message_rowid(value: &Value) -> Option<i64> {
     message_value(value).get("id").and_then(Value::as_i64)
 }
@@ -873,6 +896,12 @@ async fn deliver_inbound_value(
     runtime: &Arc<Mutex<RuntimeState>>,
     deduper: &Arc<Mutex<InboundDeduper>>,
 ) -> bool {
+    // Classify before touching insertion cursor/dedupe state, including catch-up
+    // and a fresh cache after restart. Mutations cannot consume a later replay
+    // of the original insertion or falsely advance the insertion high-water.
+    if inbound_kind(value) != IMessageInboundKind::Inserted {
+        return true;
+    }
     if let Some(rowid) = message_rowid(value) {
         let mut state = runtime.lock().await;
         state.last_rowid = state.last_rowid.max(rowid);
@@ -1186,9 +1215,9 @@ fn build_send_params(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_send_params, recovery_loop_with_backoff, restore_protocol_watch_until_ready,
-        IMessageClient, IMessageDeliveryDisposition, IMessageRpcError, InboundDeduper, RpcHandle,
-        RuntimeState,
+        build_send_params, deliver_inbound_value, recovery_loop_with_backoff,
+        restore_protocol_watch_until_ready, IMessageClient, IMessageDeliveryDisposition,
+        IMessageRpcError, InboundDeduper, RpcHandle, RuntimeState,
     };
     use ha_core::channel::types::ChatType;
     use serde_json::Value;
@@ -1316,6 +1345,93 @@ mod tests {
         assert!(!deduper.admit(&by_rowid));
     }
 
+    #[test]
+    fn parse_notification_rejects_mutations_and_unknown_types() {
+        for kind in [
+            serde_json::json!("edited"),
+            serde_json::json!("unsent"),
+            serde_json::json!("future-update"),
+            Value::Null,
+            serde_json::json!(42),
+            serde_json::json!({"type": "edited"}),
+        ] {
+            let payload = serde_json::json!({
+                "id": 7, "guid": "G-7", "sender": "synthetic-sender",
+                "text": "changed instruction", "type": kind,
+            });
+            assert!(IMessageClient::parse_notification(&payload, "acc").is_none());
+            assert!(IMessageClient::parse_notification(
+                &serde_json::json!({"message": payload}),
+                "acc"
+            )
+            .is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn mutation_delivery_does_not_emit_advance_or_poison_insertions() {
+        let runtime = Arc::new(Mutex::new(RuntimeState {
+            last_rowid: 20,
+            ..RuntimeState::default()
+        }));
+        let deduper = Arc::new(Mutex::new(InboundDeduper::default()));
+        let (tx, mut rx) = mpsc::channel(8);
+        for wrapped in [false, true] {
+            for kind in ["edited", "unsent", "future-update"] {
+                for stamp in ["2026-10-20T10:00:00Z", "2026-10-20T10:01:00Z"] {
+                    let payload = serde_json::json!({
+                        "id": 100, "guid": "G-100", "sender": "synthetic-sender",
+                        "type": kind, "text": "changed instruction",
+                        "edited_at": stamp, "unsent_at": stamp,
+                    });
+                    let value = if wrapped {
+                        serde_json::json!({"message": payload})
+                    } else {
+                        payload
+                    };
+                    assert!(deliver_inbound_value(&value, "acc", &tx, &runtime, &deduper).await);
+                }
+            }
+            assert!(rx.try_recv().is_err());
+            assert_eq!(runtime.lock().await.last_rowid, 20);
+            assert!(deduper.lock().await.ids.is_empty());
+        }
+        // The same original insertion can still arrive via catch-up. Mutation
+        // stamps do not consume its GUID, and the ordinary duplicate is dropped.
+        let insertion = serde_json::json!({
+            "id": 100, "guid": "G-100", "sender": "synthetic-sender",
+            "text": "original", "is_group": true, "chat_guid": "synthetic-group",
+            "reply_to_id": "parent", "attachments": [{"original_path": "/synthetic/image.png"}],
+        });
+        assert!(deliver_inbound_value(&insertion, "acc", &tx, &runtime, &deduper).await);
+        let event = rx.try_recv().expect("original insertion");
+        let ha_core::channel::types::InboundEvent::Message(message) = event else {
+            panic!("expected new-message event");
+        };
+        assert_eq!(message.text.as_deref(), Some("original"));
+        assert_eq!(message.chat_type, ChatType::Group);
+        assert_eq!(message.chat_id, "synthetic-group");
+        assert_eq!(message.reply_to_message_id.as_deref(), Some("parent"));
+        assert_eq!(
+            message.raw["attachments"][0]["original_path"],
+            "/synthetic/image.png"
+        );
+        assert_eq!(runtime.lock().await.last_rowid, 100);
+        assert!(deliver_inbound_value(&insertion, "acc", &tx, &runtime, &deduper).await);
+        assert!(rx.try_recv().is_err());
+        // A fresh process/cache cannot turn an old mutation into a new turn.
+        let fresh = Arc::new(Mutex::new(InboundDeduper::default()));
+        for text in [Value::Null, serde_json::json!("edited after restart")] {
+            let mutation = serde_json::json!({
+                "id": 7, "guid": "G-7", "sender": "synthetic-sender",
+                "type": "unsent", "text": text,
+            });
+            assert!(deliver_inbound_value(&mutation, "acc", &tx, &runtime, &fresh).await);
+        }
+        assert!(rx.try_recv().is_err());
+        assert_eq!(runtime.lock().await.last_rowid, 100);
+    }
+
     #[tokio::test]
     async fn restarted_watch_retries_until_subscription_recovers() {
         let (stdin_tx, mut stdin_rx) = mpsc::channel(4);
@@ -1404,7 +1520,11 @@ mod tests {
                         assert_eq!(request["params"]["since_rowid"].as_i64(), Some(10));
                         sender
                             .send(Ok(serde_json::json!({
-                                "messages": [],
+                                "messages": [{
+                                    "id": 500, "guid": "catch-up-mutation",
+                                    "sender": "synthetic-sender", "type": "edited",
+                                    "text": "must not become a replayed instruction",
+                                }],
                                 "next_rowid": 12,
                                 "has_more": false,
                             })))
@@ -1428,7 +1548,7 @@ mod tests {
             ..RuntimeState::default()
         }));
         let deduper = Arc::new(Mutex::new(InboundDeduper::default()));
-        let (inbound_tx, _inbound_rx) = mpsc::channel(4);
+        let (inbound_tx, mut inbound_rx) = mpsc::channel(4);
         let (recovery_tx, recovery_rx) = mpsc::channel(1);
         let cancel = CancellationToken::new();
         let task = tokio::spawn(recovery_loop_with_backoff(
@@ -1456,6 +1576,7 @@ mod tests {
         })
         .await
         .expect("overflow recovery should retry to completion");
+        assert!(inbound_rx.try_recv().is_err());
         responder.await.expect("response task");
         cancel.cancel();
         tokio::time::timeout(Duration::from_secs(1), task)

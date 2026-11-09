@@ -83,7 +83,7 @@ export default function BrowserStatusIndicator({ onOpen, className }: BrowserSta
           size="icon"
           onClick={onOpen}
           className={cn(
-            "relative rounded-xl h-8 w-8 text-muted-foreground hover:text-foreground",
+            "relative rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5 text-muted-foreground hover:text-foreground",
             className,
           )}
           aria-label={t("settings.browser.title")}
@@ -97,6 +97,9 @@ export default function BrowserStatusIndicator({ onOpen, className }: BrowserSta
               live ? "bg-green-500" : "bg-muted-foreground/40",
             )}
           />
+          <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
+            {t("settings.browser.title")}
+          </span>
         </Button>
       </TooltipTrigger>
       <TooltipContent side="right" className="p-2.5">

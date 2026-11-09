@@ -163,22 +163,7 @@ pub async fn sync_commands(body: Option<Json<SyncCommandsBody>>) -> Result<Json<
 
 /// `GET /api/channel/accounts/{id}/health`
 pub async fn health(Path(account_id): Path<String>) -> Result<Json<ChannelHealth>, AppError> {
-    let reg = registry()?;
-    let mut h = reg.health(&account_id).await;
-    if !h.is_running {
-        let store = ha_core::config::cached_config();
-        if let Some(account) = store.channels.find_account(&account_id) {
-            if let Some(plugin) = reg.get_plugin(&account.channel_id) {
-                if let Ok(probe) = plugin.probe(account).await {
-                    h.probe_ok = probe.probe_ok;
-                    h.bot_name = probe.bot_name;
-                    h.error = probe.error;
-                    h.last_probe = probe.last_probe;
-                }
-            }
-        }
-    }
-    Ok(Json(h))
+    Ok(Json(registry()?.health_with_probe(&account_id).await))
 }
 
 /// `GET /api/channel/health`

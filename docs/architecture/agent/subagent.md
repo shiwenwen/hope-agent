@@ -637,3 +637,7 @@ flowchart TD
 | `crates/ha-core/src/session/subagent_db.rs` | SQLite 台账：run / thread / dispatch / delivery 读写、终态 choke point、活跃计数、启动 sweep |
 | `crates/ha-core/src/tools/subagent.rs` | 工具接口层：canonical send、spawn / query / cancel / batch / wait 与 resume / steer alias、owner 校验、异步 DB 路由 |
 | `crates/ha-core/src/async_jobs/{manager,db,approval_projection_watcher}.rs` | 统一后台任务单向投影、Group 编排、内层审批投影 |
+
+### 结果通知的会话模型
+
+ParentInjection 在预检与创建正式 TurnRequest 时读取实际父会话的模型偏好，以 preferred model 交给 TurnKernel 解析，不自行建立 Provider 循环。普通会话保留不可用偏好的既有回退规则；已注册模型评测会话由 Kernel 强制有效模型 pin、拒绝冲突或缺失并禁止跨模型回退。该读取仅访问模型字段，不依赖可选通道表。

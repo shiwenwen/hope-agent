@@ -382,6 +382,9 @@ pub struct AssistantAgent {
     /// Cache-safe params from the last main chat request, used for side_query().
     /// Wrapped in Arc to avoid expensive deep clones on every chat turn.
     pub(super) cache_safe_params: std::sync::Mutex<Option<std::sync::Arc<CacheSafeParams>>>,
+    /// Ephemeral native request frame for cache-sharing Tier 3 summaries.
+    pub(super) summary_fork_template:
+        std::sync::Mutex<Option<std::sync::Arc<super::summary_fork::SummaryForkTemplate>>>,
     /// Timestamp of the last successful memory extraction (or session start).
     pub(crate) last_extraction_at: std::sync::Mutex<std::time::Instant>,
     /// Accumulated token count since last extraction.
@@ -699,6 +702,16 @@ impl ThinkTagFilter {
     }
 }
 
+/// Exact optional cache receipts, independent of legacy numeric/UI counters.
+/// Missing cache details must not become a measured zero in diagnostics.
+#[derive(Debug, Clone, Default)]
+pub struct CacheUsageReceipt {
+    pub read: Option<u64>,
+    pub write: Option<u64>,
+    pub context: Option<u64>,
+    pub fresh: Option<u64>,
+}
+
 /// Token usage for one chat turn, aggregated across every round of the
 /// tool loop. Counts are cumulative; the `last_*` fields track the most
 /// recent API round for status UIs where cumulative sums are misleading.
@@ -711,6 +724,7 @@ pub struct ChatUsage {
     pub output_tokens: u64,
     pub cache_creation_input_tokens: u64,
     pub cache_read_input_tokens: u64,
+    pub cache_receipt: CacheUsageReceipt,
     /// Normalized number of input tokens that occupied the model context.
     /// Unlike `input_tokens`, this has identical semantics across providers.
     pub context_input_tokens: u64,
@@ -746,6 +760,18 @@ impl ChatUsage {
         self.fresh_input_tokens = self
             .context_input_tokens
             .saturating_sub(self.cache_read_input_tokens);
+        self.cache_receipt.context = self
+            .input_coverage
+            .is_present()
+            .then_some(self.input_tokens)
+            .zip(self.cache_receipt.read)
+            .zip(self.cache_receipt.write)
+            .and_then(|((input, read), write)| input.checked_add(read)?.checked_add(write));
+        self.cache_receipt.fresh = self
+            .cache_receipt
+            .context
+            .zip(self.cache_receipt.read)
+            .and_then(|(context, read)| context.checked_sub(read));
     }
 
     /// Normalize a single OpenAI-compatible round. OpenAI input tokens already
@@ -755,6 +781,15 @@ impl ChatUsage {
         self.fresh_input_tokens = self
             .context_input_tokens
             .saturating_sub(self.cache_read_input_tokens);
+        self.cache_receipt.context = self
+            .input_coverage
+            .is_present()
+            .then_some(self.input_tokens);
+        self.cache_receipt.fresh = self
+            .cache_receipt
+            .context
+            .zip(self.cache_receipt.read)
+            .and_then(|(context, read)| context.checked_sub(read));
     }
 
     /// Fold one round's usage into the running turn total. Cumulative
@@ -787,9 +822,19 @@ impl ChatUsage {
         if self.rounds_observed == 0 {
             self.input_coverage = round.input_coverage;
             self.output_coverage = round.output_coverage;
+            self.cache_receipt = round.cache_receipt.clone();
         } else {
             self.input_coverage = self.input_coverage.accumulate(round.input_coverage);
             self.output_coverage = self.output_coverage.accumulate(round.output_coverage);
+            let add = |left: Option<u64>, right: Option<u64>| {
+                left.zip(right)
+                    .and_then(|(left, right)| left.checked_add(right))
+            };
+            self.cache_receipt.read = add(self.cache_receipt.read, round.cache_receipt.read);
+            self.cache_receipt.write = add(self.cache_receipt.write, round.cache_receipt.write);
+            self.cache_receipt.context =
+                add(self.cache_receipt.context, round.cache_receipt.context);
+            self.cache_receipt.fresh = add(self.cache_receipt.fresh, round.cache_receipt.fresh);
         }
         self.rounds_observed = self.rounds_observed.saturating_add(1);
         self.token_accounting_observations
@@ -799,8 +844,42 @@ impl ChatUsage {
 
 #[cfg(test)]
 mod chat_usage_tests {
-    use super::{ChatUsage, LlmProvider};
+    use super::{CacheUsageReceipt, ChatUsage, LlmProvider};
     use crate::token_accounting::UsageCoverage;
+
+    #[test]
+    fn cache_receipts_keep_missing_and_zero_distinct_across_rounds() {
+        let mut known = ChatUsage {
+            input_tokens: 100,
+            input_coverage: UsageCoverage::Complete,
+            cache_receipt: CacheUsageReceipt {
+                read: Some(0),
+                write: Some(0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        known.normalize_anthropic_round();
+        assert_eq!(known.cache_receipt.context, Some(100));
+        assert_eq!(known.cache_receipt.fresh, Some(100));
+        let mut unknown = ChatUsage {
+            input_tokens: 100,
+            input_coverage: UsageCoverage::Complete,
+            ..Default::default()
+        };
+        unknown.normalize_anthropic_round();
+        assert_eq!(unknown.cache_receipt.context, None);
+        unknown.normalize_openai_round();
+        assert_eq!(unknown.cache_receipt.context, Some(100));
+        assert_eq!(unknown.cache_receipt.fresh, None);
+        let mut total = ChatUsage::default();
+        total.accumulate_round(&known);
+        assert_eq!(total.cache_receipt.read, Some(0));
+        total.accumulate_round(&unknown);
+        assert_eq!(total.cache_receipt.read, None);
+        assert_eq!(total.cache_receipt.write, None);
+        assert_eq!(total.cache_receipt.context, Some(200));
+    }
 
     #[test]
     fn anthropic_round_counts_disjoint_cache_counters_in_context() {

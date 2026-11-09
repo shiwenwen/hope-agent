@@ -571,4 +571,225 @@ mod tests {
         assert!(!plugin.supports_reply_buttons("account", "channel:channel"));
         assert!(!plugin.supports_reply_buttons("account", "dms:guild"));
     }
+
+    async fn mock_plugin(server: &wiremock::MockServer) -> (QqBotPlugin, Arc<QqBotApi>) {
+        let api = Arc::new(QqBotApi::new_with_base_url(
+            Arc::new(QqBotAuth::with_test_token()),
+            server.uri(),
+        ));
+        let plugin = QqBotPlugin::new();
+        plugin.accounts.lock().await.insert(
+            "account".into(),
+            RunningAccount {
+                api: api.clone(),
+                bot_id: String::new(),
+                bot_name: String::new(),
+            },
+        );
+        (plugin, api)
+    }
+
+    fn interactive_payload(callback: &str) -> ReplyPayload {
+        ReplyPayload {
+            buttons: vec![vec![InlineButton {
+                text: "选择".into(), callback_data: Some(callback.into()), url: None
+            }]],
+            reply_to_message_id: Some("inbound".into()),
+            ..ReplyPayload::text("命令 <qqbot-at-everyone /> **bold** [run](https://example.com) ![x](https://example.com/x)")
+        }
+    }
+
+    #[tokio::test]
+    async fn keyboard_requests_match_markdown_contract() {
+        use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"id":"outbound"})),
+            )
+            .expect(6)
+            .mount(&server)
+            .await;
+        let (plugin, api) = mock_plugin(&server).await;
+        api.remember_message_reply_context("inbound", Some("event"))
+            .await;
+        for chat in ["c2c:user", "group:group"] {
+            for callback in ["approval:request:once", "ask_user:question:0"] {
+                let result = plugin
+                    .send_message("account", chat, &interactive_payload(callback))
+                    .await
+                    .unwrap();
+                assert!(result.success);
+            }
+            plugin
+                .send_message(
+                    "account",
+                    chat,
+                    &ReplyPayload {
+                        reply_to_message_id: Some("inbound".into()),
+                        ..ReplyPayload::text("普通文本")
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        let requests = server.received_requests().await.unwrap();
+        for (index, request) in requests.iter().enumerate() {
+            assert_eq!(
+                request.url.path(),
+                if index < 3 {
+                    "/v2/users/user/messages"
+                } else {
+                    "/v2/groups/group/messages"
+                }
+            );
+            assert_eq!(request.headers["authorization"], "QQBot synthetic-token");
+            let body: serde_json::Value = request.body_json().unwrap();
+            assert_eq!(body["msg_id"], "inbound");
+            assert_eq!(body["event_id"], "event");
+            assert_eq!(body["msg_seq"], index + 1);
+            if index % 3 == 2 {
+                assert_eq!(body["msg_type"], 0);
+                assert_eq!(body["content"], "普通文本");
+                assert!(body.get("markdown").is_none());
+                assert!(body.get("keyboard").is_none());
+            } else {
+                assert_eq!(body["msg_type"], 2);
+                assert!(body.get("content").is_none());
+                assert!(body.get("ark").is_none());
+                assert_eq!(
+                    body["markdown"]["content"],
+                    r"命令 &lt;qqbot\-at\-everyone /&gt; \*\*bold\*\* \[run\]\(https://example\.com\) \!\[x\]\(https://example\.com/x\)"
+                );
+                let expected = if index % 3 == 0 {
+                    "approval:request:once"
+                } else {
+                    "ask_user:question:0"
+                };
+                assert_eq!(
+                    body["keyboard"]["content"]["rows"][0]["buttons"][0]["action"]["data"],
+                    expected
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn keyboard_restricted_scopes_keep_numeric_text_fallback() {
+        use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"id":"outbound"})),
+            )
+            .expect(2)
+            .mount(&server)
+            .await;
+        let (plugin, _) = mock_plugin(&server).await;
+        for chat in ["channel:channel", "dms:guild"] {
+            assert!(
+                plugin
+                    .send_message("account", chat, &interactive_payload("approval:r:once"))
+                    .await
+                    .unwrap()
+                    .success
+            );
+        }
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests[0].url.path(), "/channels/channel/messages");
+        assert_eq!(requests[1].url.path(), "/dms/guild/messages");
+        for request in requests {
+            let body: serde_json::Value = request.body_json().unwrap();
+            assert_eq!(body["msg_type"], 0);
+            assert!(body["content"].as_str().unwrap().contains("[1] 选择"));
+            assert!(body.get("keyboard").is_none());
+            assert!(body.get("markdown").is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn keyboard_failure_does_not_resend_or_report_success() {
+        use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+        for status in [400, 429, 500] {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .respond_with(
+                    ResponseTemplate::new(status).set_body_json(serde_json::json!({"code":status})),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+            let (plugin, _) = mock_plugin(&server).await;
+            assert!(plugin
+                .send_message("account", "c2c:user", &interactive_payload("ask_user:q:0"))
+                .await
+                .is_err());
+            assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn keyboard_cancelled_send_does_not_resend() {
+        use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(std::time::Duration::from_secs(30))
+                    .set_body_json(serde_json::json!({"id":"late"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let (plugin, _) = mock_plugin(&server).await;
+        let send = tokio::spawn(async move {
+            plugin
+                .send_message(
+                    "account",
+                    "group:group",
+                    &interactive_payload("approval:r:once"),
+                )
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while server.received_requests().await.unwrap().is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        send.abort();
+        assert!(send.await.unwrap_err().is_cancelled());
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn keyboard_event_context_keeps_event_only_metadata() {
+        use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"id":"outbound"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let (plugin, api) = mock_plugin(&server).await;
+        api.remember_event_reply_context("inbound", Some("interaction-event"))
+            .await;
+        plugin
+            .send_message(
+                "account",
+                "group:group",
+                &interactive_payload("ask_user:q:0"),
+            )
+            .await
+            .unwrap();
+        let body: serde_json::Value = server.received_requests().await.unwrap()[0]
+            .body_json()
+            .unwrap();
+        assert_eq!(body["event_id"], "interaction-event");
+        assert!(body.get("msg_id").is_none());
+        assert!(body.get("msg_seq").is_none());
+    }
 }

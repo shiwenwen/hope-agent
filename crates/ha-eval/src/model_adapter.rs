@@ -76,10 +76,53 @@ enum ScriptedUserStep {
         #[serde(default, rename = "delayMs")]
         delay_ms: u64,
     },
+    StopParent {},
+    UpdateGoal {
+        objective: String,
+        #[serde(rename = "completionCriteria")]
+        completion_criteria: String,
+    },
     CompactContext {
         #[serde(rename = "expectedTier")]
         expected_tier: u8,
     },
+    CacheCheckpoint {
+        phase: String,
+        #[serde(default, rename = "expectedResponse")]
+        expected_response: Option<Value>,
+        #[serde(default, rename = "minToolCalls")]
+        min_tool_calls: u64,
+        #[serde(default = "one_model_call", rename = "minModelCalls")]
+        min_model_calls: u64,
+        #[serde(default, rename = "minTotalSummaryCalls")]
+        min_total_summary_calls: u64,
+    },
+}
+
+fn one_model_call() -> u64 {
+    1
+}
+
+fn successful_summary_calls(events: &[ModelCampaignEvent]) -> u64 {
+    events
+        .iter()
+        .filter(|event| {
+            event.event == "model.call"
+                && event.status == "succeeded"
+                && matches!(
+                    event.attributes.get("operation").and_then(Value::as_str),
+                    Some("context.summarize_direct" | "context.dedicated_summarize")
+                )
+                && matches!(
+                    event
+                        .attributes
+                        .get("summaryRequestMode")
+                        .and_then(Value::as_str),
+                    Some("independent" | "native_prefix_fork")
+                )
+                && event.attributes.get("success").and_then(Value::as_bool) == Some(true)
+        })
+        .count() as u64
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,14 +136,18 @@ struct CompactContextResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct TelemetrySnapshot {
+pub(crate) struct TelemetrySnapshot {
     attribution: AttributionCompleteness,
     #[serde(default)]
     #[allow(dead_code)]
     active_children: u32,
     #[serde(default)]
     background_model_work: u32,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pending_work: u32,
     #[serde(default)]
     budget_exhausted: bool,
     #[serde(default)]
@@ -136,6 +183,35 @@ pub async fn run_registered_trial(
 ) -> ModelTrialResult {
     let started_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let started = Instant::now();
+    if single_agent_fault_not_applicable(scenario, trial) {
+        let mut result = empty_failure_result(
+            trial, attempt, started_at, Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+            elapsed_ms(started), ModelCampaignOutcome::BenchmarkDefect,
+            "comparison_arm_not_applicable",
+            "registered fault targets a child executor; the single-Agent arm forbids children, so no model call was dispatched",
+        );
+        result.attribution = AttributionCompleteness::Complete;
+        result.tokens.input = Some(0);
+        result.tokens.output = Some(0);
+        result.tokens.cache_read = Some(0);
+        result.tokens.cache_write = Some(0);
+        result.tokens.usage_source = Some("not_dispatched".to_string());
+        result.cost.total_usd = Some(0.0);
+        result.cost.agent_usd = Some(0.0);
+        result.warnings =
+            vec!["not applicable: proven pre-dispatch rejection, not a model failure".to_string()];
+        result.invariants.push(ModelCampaignCheck {
+            id: "model_binding".to_string(),
+            passed: true,
+            blocking: true,
+            detail:
+                "no Provider dispatch: unsupported comparison arm rejected before product setup"
+                    .to_string(),
+            metric: Some(0.0),
+            artifact_hashes: Vec::new(),
+        });
+        return result;
+    }
     if scenario.user_simulator.kind == UserSimulatorKind::Llm {
         let completed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
         return empty_failure_result(
@@ -191,16 +267,18 @@ pub async fn run_registered_trial(
     let completed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let wall_ms = elapsed_ms(started);
 
-    match execution {
+    let mut result = match execution {
         Ok(mut observed) => {
-            if observed.telemetry.timings.wall_ms == 0 {
-                observed.telemetry.timings.wall_ms = wall_ms;
-            }
+            // The full trial includes setup, grading and cleanup. Agent-only
+            // telemetry can otherwise disagree with terminal timestamps and
+            // turn valid paid evidence into a subprocess failure/retry.
+            observed.telemetry.timings.wall_ms = wall_ms;
             if observed.telemetry.timings.critical_path_ms == 0 {
                 observed.telemetry.timings.critical_path_ms = wall_ms;
             }
             let exceeded = exceeded_budgets(planned_case, &observed.telemetry);
-            if observed.telemetry.budget_exhausted
+            if observed.failure_class.as_deref() != Some(CLEANUP_INCOMPLETE_FAILURE_CLASS)
+                && observed.telemetry.budget_exhausted
                 && !matches!(
                     observed.outcome,
                     ModelCampaignOutcome::PolicyFailed
@@ -276,25 +354,164 @@ pub async fn run_registered_trial(
                 error: observed.error,
             }
         }
-        Err(error) => empty_failure_result(
-            trial,
-            attempt,
-            started_at,
-            completed_at,
-            wall_ms,
+        Err(error) => {
+            let mut result = empty_failure_result(
+                trial,
+                attempt,
+                started_at,
+                completed_at,
+                wall_ms,
+                if adapter == ModelCampaignAdapter::HopeCoreScenario {
+                    ModelCampaignOutcome::InfraError
+                } else {
+                    ModelCampaignOutcome::BenchmarkDefect
+                },
+                if adapter == ModelCampaignAdapter::HopeCoreScenario {
+                    "harness_unavailable"
+                } else {
+                    "adapter_not_installed"
+                },
+                &format!("{error:#}"),
+            );
             if adapter == ModelCampaignAdapter::HopeCoreScenario {
-                ModelCampaignOutcome::InfraError
-            } else {
-                ModelCampaignOutcome::BenchmarkDefect
-            },
-            if adapter == ModelCampaignAdapter::HopeCoreScenario {
-                "harness_unavailable"
-            } else {
-                "adapter_not_installed"
-            },
-            &format!("{error:#}"),
-        ),
+                recover_failed_trial_usage(trial, attempt, &mut result).await;
+                result.completed_at = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+                result.timings.wall_ms = elapsed_ms(started);
+                result.timings.critical_path_ms =
+                    result.timings.critical_path_ms.min(result.timings.wall_ms);
+            }
+            result
+        }
+    };
+    let binding = model_binding_check(model, &result.trace_events);
+    if !binding.passed {
+        result.outcome = ModelCampaignOutcome::InfraError;
+        result.failure_class = Some("model_binding_mismatch".to_string());
+        result.warnings.push(binding.detail.clone());
     }
+    result.invariants = merge_checks(result.invariants, vec![binding]);
+    result
+}
+
+fn model_binding_check(model: &ModelProfile, events: &[ModelCampaignEvent]) -> ModelCampaignCheck {
+    let calls: Vec<_> = events
+        .iter()
+        .filter(|event| event.event == "model.call")
+        .collect();
+    let mismatches = calls
+        .iter()
+        .filter(|event| {
+            event.attributes.get("providerId").and_then(Value::as_str)
+                != Some(model.provider_id.as_str())
+                || event.attributes.get("modelId").and_then(Value::as_str)
+                    != Some(model.model_id.as_str())
+        })
+        .count();
+    ModelCampaignCheck {
+        id: "model_binding".to_string(),
+        passed: mismatches == 0,
+        blocking: true,
+        detail: format!(
+            "{} actual model calls checked against {}::{}; {} mismatched or unverified",
+            calls.len(),
+            model.provider_id,
+            model.model_id,
+            mismatches
+        ),
+        metric: Some(mismatches as f64),
+        artifact_hashes: Vec::new(),
+    }
+}
+
+/// Recover real usage from the authenticated product registry when a worker
+/// or harness fails. This only observes/cancels the existing trial; it never
+/// dispatches a model request or reruns the task.
+pub(crate) async fn recover_failed_trial_usage(
+    trial: &PlannedModelTrial,
+    attempt: u8,
+    result: &mut ModelTrialResult,
+) {
+    let recovery = async {
+        let server_url = std::env::var(SERVER_URL_ENV).ok()?;
+        let token = std::env::var(SERVER_TOKEN_ENV).ok();
+        let id = crate::model::product_trial_id(&trial.campaign_id, &trial.id, attempt);
+        recover_trial_snapshot(&server_url, token.as_deref(), &id).await
+    };
+    match tokio::time::timeout(Duration::from_secs(110), recovery).await {
+        Ok(Some((telemetry, cleanup_error))) => {
+            apply_recovered_telemetry(result, telemetry, cleanup_error);
+        }
+        _ => result
+            .warnings
+            .push("failed-worker telemetry unavailable; model usage remains unknown".to_string()),
+    }
+}
+
+async fn recover_trial_snapshot(
+    server_url: &str,
+    token: Option<&str>,
+    id: &str,
+) -> Option<(TelemetrySnapshot, Option<String>)> {
+    let url = reqwest::Url::parse(server_url).ok()?;
+    if url.scheme() != "http"
+        || url.port().is_none()
+        || !url.host_str().is_some_and(|host| {
+            host == "localhost"
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        })
+    {
+        return None;
+    }
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .ok()?;
+    let before = fetch_telemetry(&client, server_url, token, id).await?;
+    match cleanup_and_wait_for_trial(&client, server_url, token, id).await {
+        Ok(after) => Some((after, None)),
+        Err(error) => {
+            let last = fetch_telemetry(&client, server_url, token, id)
+                .await
+                .unwrap_or(before);
+            Some((last, Some(sanitize_error(&format!("{error:#}")))))
+        }
+    }
+}
+
+fn apply_recovered_telemetry(
+    result: &mut ModelTrialResult,
+    telemetry: TelemetrySnapshot,
+    cleanup_error: Option<String>,
+) {
+    if cleanup_error.is_some() || !telemetry.trace.closed || telemetry.trace.orphan_span_count > 0 {
+        result.outcome = ModelCampaignOutcome::InfraError;
+        result.failure_class = Some(CLEANUP_INCOMPLETE_FAILURE_CLASS.to_string());
+        result.error = Some(format_failure_with_cleanup(
+            result
+                .error
+                .take()
+                .unwrap_or_else(|| "trial worker failed".to_string()),
+            cleanup_error,
+        ));
+    }
+    result.attribution = telemetry.attribution;
+    result.tokens = telemetry.tokens;
+    result.cost = telemetry.cost;
+    result.tools = telemetry.tools;
+    result.orchestration = telemetry.orchestration;
+    result.trace = telemetry.trace;
+    result.trace_events = telemetry.events;
+    result.milestones = telemetry.milestones;
+    result.invariants = telemetry.invariants;
+    result.timings.model_active_ms = telemetry.timings.model_active_ms;
+    result.timings.tool_active_ms = telemetry.timings.tool_active_ms;
+    result.timings.ttft_ms = telemetry.timings.ttft_ms;
+    result.warnings.extend(telemetry.warnings);
+    result.warnings.push(
+        "actual product telemetry preserved after worker failure; task was not rerun".to_string(),
+    );
 }
 
 fn exceeded_budgets(
@@ -435,10 +652,10 @@ async fn run_hope_core_scenario(
     let server_url = std::env::var(SERVER_URL_ENV)
         .with_context(|| format!("{SERVER_URL_ENV} is required for hope_core_scenario"))?;
     let server_url = server_url.trim_end_matches('/');
-    // A runner retry is a new product execution attempt. The evidence model
-    // keeps the stable planned trial ID, while the in-process product registry
-    // must not reuse an earlier attempt's root Session or still-closing work.
-    let product_trial_id = format!("{}-attempt-{attempt}", trial.id);
+    // Paired models share a logical trial ID. Runtime identities must also
+    // include the campaign so neither another model nor a retry can reuse a
+    // previous root Session or still-closing work.
+    let product_trial_id = crate::model::product_trial_id(&trial.campaign_id, &trial.id, attempt);
     if !server_url.starts_with("http://127.0.0.1:")
         && !server_url.starts_with("http://localhost:")
         && !server_url.starts_with("https://")
@@ -452,15 +669,36 @@ async fn run_hope_core_scenario(
     let scenario_dir = scenario_path
         .parent()
         .ok_or_else(|| anyhow!("scenario path has no parent"))?;
+    validate_harness_preconditions(scenario_dir, scenario)?;
     let setup_started = Instant::now();
     let workspace = provision_workspace(scenario_dir, scenario)?;
     let environment_setup_ms = elapsed_ms(setup_started);
-    let prompt_path = resolve_contained(scenario_dir, &scenario.task.prompt_path)?;
+    let prompt_path = resolve_contained(scenario_dir, trial_prompt_path(scenario, trial)?)?;
     let mut prompt = std::fs::read_to_string(&prompt_path)
         .with_context(|| format!("reading scenario prompt {}", prompt_path.display()))?;
     if prompt.trim().is_empty() {
         bail!("scenario prompt is empty");
     }
+    if scenario_has_ready_control_plane(scenario) {
+        prompt.push_str(match trial.fault_profile {
+            FaultProfile::Clean => "\n\n本轮是 clean/control 正常路径：场景名称描述的是专项能力，并不表示本轮已注入故障。不要主动制造失败、取消、重启或审批拒绝；完成公开任务并验证正常终态。",
+            FaultProfile::Chaos => "\n\n本轮是 chaos/faulted 分支：只响应实际注入的故障或明确收到的用户事件，不能自行伪造故障、审批答案或恢复证据。",
+        });
+    }
+    let cache_benchmark = scenario
+        .capabilities
+        .iter()
+        .any(|capability| capability == "prompt_cache");
+    // A new namespace is deliberately first in *history*, retained throughout
+    // this attempt. It cannot evict Provider system/tool caches and is not
+    // evidence that the first request was actually cold.
+    let cache_namespace_digest = if cache_benchmark {
+        let namespace = format!("hope-cache-{:032x}", rand::random::<u128>());
+        prompt = format!("合成缓存测试命名空间：{namespace}\n\n{prompt}");
+        sha256_bytes(namespace.as_bytes())
+    } else {
+        String::new()
+    };
     match trial.orchestration_profile.as_deref() {
         Some(profile) if profile.starts_with("single_agent") => {
             prompt.push_str(
@@ -531,7 +769,10 @@ async fn run_hope_core_scenario(
         .find(|fault| fault.kind == FaultKind::UserEvent)
         .map(|fault| fault.trigger.as_str());
     if let Some(trigger) = user_event_trigger {
-        prompt.push_str(user_event_phase_instruction(trigger));
+        prompt.push_str(user_event_phase_instruction(
+            trigger,
+            &scenario.subject.config_profile,
+        ));
     }
     let eval_context = json!({
         "evidenceKind": "model_campaign",
@@ -581,16 +822,7 @@ async fn run_hope_core_scenario(
                 .collect::<Vec<_>>(),
         )?;
     }
-    let initial_goal = scenario
-        .capabilities
-        .iter()
-        .any(|capability| capability.eq_ignore_ascii_case("goal"))
-        .then(|| {
-            json!({
-                "objective": scenario.task.success_summary,
-                "completionCriteria": "Complete the task, record real validation evidence, evaluate the Goal, and only then request Goal completion."
-            })
-        });
+    let initial_goal = scenario_initial_goal(scenario, trial.fault_profile);
     let body = json!({
         "message": prompt,
         "incognito": scenario.id == "HA-AJ-005",
@@ -599,6 +831,7 @@ async fn run_hope_core_scenario(
         "reasoningEffort": model.reasoning_effort,
         "workingDir": workspace,
         "initialGoal": initial_goal,
+        "workflowMode": scenario_workflow_mode(scenario),
         "evalContext": initial_eval_context,
     });
     let mut request = client
@@ -655,8 +888,9 @@ async fn run_hope_core_scenario(
             artifacts: Vec::new(),
             error: Some(format_failure_with_cleanup(
                 format!(
-                    "Hope server returned HTTP {}; body sha256:{}",
+                    "Hope server returned HTTP {}; reason: {}; body sha256:{}",
                     status,
+                    http_error_hint(&bytes),
                     sha256_bytes(&bytes)
                 ),
                 cleanup_error,
@@ -673,6 +907,10 @@ async fn run_hope_core_scenario(
     let mut restart_wait_ms = 0;
     let mut scripted_wait_ms = 0u64;
     let mut scripted_action_checks = Vec::new();
+    let mut cache_phases = Vec::new();
+    let mut cache_after_seq = 0;
+    let mut cache_after_tools = 0;
+    let mut cache_phase_started = agent_started;
     if !request_blocked {
         let user_event_is_fault = scenario
             .faults
@@ -685,12 +923,71 @@ async fn run_hope_core_scenario(
                 Vec::new()
             };
         if let Some(trigger) = user_event_trigger {
-            let before = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
-                .await
-                .ok_or_else(|| anyhow!("pre-user-event Hope telemetry is unavailable"))?;
+            let mut before =
+                fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
+                    .await
+                    .ok_or_else(|| anyhow!("pre-user-event Hope telemetry is unavailable"))?;
+            if scripted_revision_requires_settlement(&scenario.subject.config_profile, trigger) {
+                let started_wait = Instant::now();
+                let remaining = (!unlimited_budget).then(|| {
+                    Duration::from_secs(planned_case.timeout_seconds)
+                        .saturating_sub(agent_started.elapsed())
+                });
+                before = observe_trial_completion_for_phase(
+                    before,
+                    remaining,
+                    Duration::from_millis(250),
+                    true,
+                    || fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id),
+                )
+                .await;
+                scripted_wait_ms = scripted_wait_ms.saturating_add(elapsed_ms(started_wait));
+                if !prior_scripted_work_settled(&before) {
+                    return Ok(timed_out_chat_result(
+                        &client,
+                        server_url,
+                        token.as_deref(),
+                        trial,
+                        &product_trial_id,
+                        "settling prior work before scripted revision",
+                    )
+                    .await);
+                }
+                scripted_action_checks.push(ModelCampaignCheck {
+                    id: "scripted_revision_prior_work_settled".to_string(),
+                    passed: prior_scripted_work_settled(&before), blocking: true,
+                    detail: "draft revision waits for admitted prior work and parent notifications; cancellation and restart stages retain their active-work precondition".to_string(),
+                    metric: None, artifact_hashes: Vec::new(),
+                });
+            }
             user_event_precondition_check = Some(user_event_precondition_observed(
                 trigger, &before, &workspace,
             ));
+            if user_event_precondition_check
+                .as_ref()
+                .is_some_and(|(passed, _)| !passed)
+            {
+                let (mut telemetry, cleanup_error) = cleanup_after_failed_chat(
+                    &client,
+                    server_url,
+                    token.as_deref(),
+                    trial,
+                    &product_trial_id,
+                )
+                .await;
+                telemetry.milestones.push(ModelCampaignCheck {
+                    id: "user_event_precondition_observed".into(),
+                    passed: false,
+                    blocking: true,
+                    detail: user_event_precondition_check
+                        .as_ref()
+                        .map(|(_, detail)| detail.clone())
+                        .unwrap_or_default(),
+                    metric: None,
+                    artifact_hashes: Vec::new(),
+                });
+                return Ok(ObservedTrial{outcome:ModelCampaignOutcome::BenchmarkDefect,failure_class:Some("user_event_precondition_not_met".into()),telemetry,artifacts:Vec::new(),error:Some(format_failure_with_cleanup(format!("scripted user event {trigger} was not dispatched because its real setup preconditions were missing"),cleanup_error))});
+            }
         }
         if process_restart_fault {
             let before = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
@@ -714,7 +1011,7 @@ async fn run_hope_core_scenario(
             scripted_steps.insert(
                 0,
                 ScriptedUserStep::Message {
-                    message: "Hope 已按评测计划重启。请从持久化状态恢复，不要重复已经提交的副作用；检查 Goal/Workflow checkpoint，只继续尚未完成的工作并重新验证终态。".to_string(),
+                    message: "Hope 已按评测计划重启。请从持久化状态恢复，不要重复已经提交的副作用；检查 Goal/Workflow checkpoint，只继续尚未完成的工作并重新验证终态。对于 Team，先查询原团队状态和成员结果；只有 paused 状态可 resume，若仍为 active 则先 pause 并确认旧成员执行已终止，再 resume；不得重复已完成工作。".to_string(),
                     delay_ms: 0,
                 },
             );
@@ -735,34 +1032,58 @@ async fn run_hope_core_scenario(
                         "reasoningEffort": model.reasoning_effort,
                         "evalContext": continuation_eval_context.clone(),
                     });
-                    let mut request = client
-                        .post(format!("{server_url}/api/chat"))
-                        .header("x-hope-eval-trial", &product_trial_id)
-                        .header("x-hope-eval-case", &trial.case_id)
-                        .json(&body);
-                    if let Some(token) = token.as_deref().filter(|value| !value.is_empty()) {
-                        request = request.bearer_auth(token);
-                    }
-                    let response = match request.send().await {
-                        Ok(response) => response,
-                        Err(error) if error.is_timeout() => {
-                            return Ok(timed_out_chat_result(
-                                &client,
-                                server_url,
-                                token.as_deref(),
-                                trial,
-                                &product_trial_id,
-                                "Hope scripted user turn",
-                            )
-                            .await);
-                        }
-                        Err(error) => return Err(error).context("calling Hope scripted user turn"),
-                    };
-                    let status = response.status();
-                    let bytes = response
-                        .bytes()
+                    let (status, bytes, admission_rejections, admission_wait_ms) =
+                        match send_scripted_user_turn(
+                            &client,
+                            server_url,
+                            token.as_deref(),
+                            &body,
+                            &chat.session_id,
+                            &product_trial_id,
+                            &trial.case_id,
+                        )
                         .await
-                        .context("reading Hope scripted user turn response")?;
+                        {
+                            Ok(response) => response,
+                            Err(error)
+                                if error
+                                    .downcast_ref::<reqwest::Error>()
+                                    .is_some_and(reqwest::Error::is_timeout) =>
+                            {
+                                return Ok(timed_out_chat_result(
+                                    &client,
+                                    server_url,
+                                    token.as_deref(),
+                                    trial,
+                                    &product_trial_id,
+                                    "Hope scripted user turn",
+                                )
+                                .await);
+                            }
+                            Err(error) => return Err(error),
+                        };
+                    scripted_wait_ms = scripted_wait_ms.saturating_add(admission_wait_ms);
+                    scripted_action_checks.push(ModelCampaignCheck {
+                        id: format!("scripted_admission_{}", scripted_action_checks.len()), passed:true, blocking:true,
+                        detail:format!("session admission idle; {admission_rejections} typed pre-dispatch rejections retried; no admitted or ambiguous model request replayed"),
+                        metric:Some(f64::from(admission_rejections)),artifact_hashes:Vec::new(),
+                    });
+                    if expected_scripted_cancellation(
+                        status,
+                        &bytes,
+                        user_event_trigger,
+                        user_event_precondition_check
+                            .as_ref()
+                            .is_some_and(|(passed, _)| *passed),
+                    ) {
+                        response_hashes.push(sha256_bytes(&bytes));
+                        scripted_action_checks.push(ModelCampaignCheck {
+                            id: "scripted_cancellation_transport".to_string(), passed: true, blocking: true,
+                            detail: "registered cancellation reached the product; independent terminal-state and absent-artifact verifiers remain mandatory".to_string(),
+                            metric: None, artifact_hashes: vec![sha256_bytes(&bytes)],
+                        });
+                        break;
+                    }
                     if !status.is_success() {
                         let (telemetry, cleanup_error) = cleanup_after_failed_chat(
                             &client,
@@ -789,8 +1110,8 @@ async fn run_hope_core_scenario(
                             artifacts: Vec::new(),
                             error: Some(format_failure_with_cleanup(
                                 format!(
-                                    "Hope scripted turn returned HTTP {status}; body sha256:{}",
-                                    sha256_bytes(&bytes)
+                                    "Hope scripted turn returned HTTP {status}; reason: {}; body sha256:{}",
+                                    http_error_hint(&bytes), sha256_bytes(&bytes)
                                 ),
                                 cleanup_error,
                             )),
@@ -801,6 +1122,40 @@ async fn run_hope_core_scenario(
                     response_hashes.push(sha256_bytes(chat.response.as_bytes()));
                     if chat.blocked_reason.is_some() {
                         request_blocked = true;
+                        break;
+                    }
+                }
+                ScriptedUserStep::StopParent { .. } => {
+                    let owner_wait_started = Instant::now();
+                    scripted_action_checks.push(
+                        apply_scripted_owner_stop(
+                            &client,
+                            server_url,
+                            token.as_deref(),
+                            &chat.session_id,
+                        )
+                        .await?,
+                    );
+                    scripted_wait_ms =
+                        scripted_wait_ms.saturating_add(elapsed_ms(owner_wait_started));
+                    break;
+                }
+                ScriptedUserStep::UpdateGoal {
+                    objective,
+                    completion_criteria,
+                } => {
+                    let check = apply_scripted_goal_revision(
+                        &client,
+                        server_url,
+                        token.as_deref(),
+                        &chat.session_id,
+                        &objective,
+                        &completion_criteria,
+                    )
+                    .await?;
+                    let passed = check.passed;
+                    scripted_action_checks.push(check);
+                    if !passed {
                         break;
                     }
                 }
@@ -878,9 +1233,79 @@ async fn run_hope_core_scenario(
                         break;
                     }
                 }
+                ScriptedUserStep::CacheCheckpoint {
+                    phase,
+                    expected_response,
+                    min_tool_calls,
+                    min_model_calls,
+                    min_total_summary_calls,
+                } => {
+                    if !cache_benchmark {
+                        bail!("cache_checkpoint requires prompt_cache capability");
+                    }
+                    let snapshot =
+                        fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
+                            .await
+                            .ok_or_else(|| anyhow!("cache checkpoint telemetry unavailable"))?;
+                    let through_seq = snapshot.events.last().map_or(0, |event| event.seq);
+                    let calls = snapshot
+                        .events
+                        .iter()
+                        .filter(|event| event.event == "model.call" && event.seq > cache_after_seq)
+                        .count() as u64;
+                    let quality_passed = expected_response.as_ref().map(|expected| {
+                        parse_semantically_exact_json_response(&chat.response)
+                            .is_ok_and(|actual| actual == *expected)
+                    });
+                    let tools = snapshot.tools.attempted.saturating_sub(cache_after_tools);
+                    let summaries = successful_summary_calls(&snapshot.events);
+                    let passed = quality_passed != Some(false)
+                        && calls >= min_model_calls
+                        && tools >= min_tool_calls
+                        && summaries >= min_total_summary_calls
+                        && snapshot.background_model_work == 0;
+                    scripted_action_checks.push(ModelCampaignCheck {
+                        id: format!("cache_phase_{phase}"), passed, blocking: true,
+                        detail: format!("phase receipt: {calls} model calls, {tools} tool attempts, {summaries} total successful summary calls; response sha256:{}; background model work {}", sha256_bytes(chat.response.as_bytes()), snapshot.background_model_work),
+                        metric: Some(if passed { 1.0 } else { 0.0 }), artifact_hashes: Vec::new(),
+                    });
+                    cache_phases.push(crate::model_cache::PhaseBoundary {
+                        name: phase,
+                        after_seq: cache_after_seq,
+                        through_seq,
+                        wall_ms: elapsed_ms(cache_phase_started),
+                        quality_passed,
+                    });
+                    cache_after_seq = through_seq;
+                    cache_after_tools = snapshot.tools.attempted;
+                    cache_phase_started = Instant::now();
+                }
             }
         }
     }
+    let completion_wait_started = Instant::now();
+    if observes_trial_completion(&scenario.subject.config_profile, unlimited_budget) {
+        // A durable job/Workflow may finish before its queued parent-result
+        // turn starts. Keep the root identity open and observe real follow-up
+        // work within the same immutable case budget. Cleanup must not cut
+        // that turn off merely because the foreground HTTP reply returned.
+        let remaining = (!unlimited_budget).then(|| {
+            Duration::from_secs(
+                planned_case
+                    .timeout_seconds
+                    .saturating_sub(TRIAL_CLEANUP_GRACE_SECONDS),
+            )
+            .saturating_sub(setup_started.elapsed())
+        });
+        let initial = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
+            .await
+            .ok_or_else(|| anyhow!("Hope model-eval telemetry endpoint is unavailable"))?;
+        let _ = observe_trial_completion(initial, remaining, Duration::from_millis(250), || {
+            fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
+        })
+        .await;
+    }
+    let completion_wait_ms = elapsed_ms(completion_wait_started);
     finish_trial_for_scoring(&client, server_url, token.as_deref(), &product_trial_id).await?;
     let agent_wall_ms = elapsed_ms(agent_started);
     let response_hash = response_hashes
@@ -890,6 +1315,15 @@ async fn run_hope_core_scenario(
     let mut telemetry = fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
         .await
         .ok_or_else(|| anyhow!("Hope model-eval telemetry endpoint is unavailable"))?;
+    if scenario.subject.config_profile == "eval-control-plane-ready-v4" {
+        // Post-turn runtime finalizers can hold a span for a few milliseconds
+        // after the HTTP response. Observe their natural teardown before
+        // grading; do not cancel work or invent terminal evidence here.
+        telemetry = settle_response_snapshot(telemetry, Duration::from_millis(250), || {
+            fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
+        })
+        .await;
+    }
     let active_work_at_response =
         telemetry.trace.orphan_span_count > u64::from(telemetry.background_model_work);
     let mut checks = scripted_action_checks;
@@ -965,6 +1399,10 @@ async fn run_hope_core_scenario(
     telemetry = final_telemetry;
     telemetry.timings.environment_setup_ms = environment_setup_ms;
     telemetry.timings.environment_cleanup_ms = environment_cleanup_ms;
+    telemetry.timings.environment_wait_ms = telemetry
+        .timings
+        .environment_wait_ms
+        .saturating_add(completion_wait_ms);
     telemetry.timings.wall_ms = agent_wall_ms;
     if let Some(pre_restart) = pre_restart_telemetry {
         merge_restart_telemetry(pre_restart, &mut telemetry, restart_wait_ms);
@@ -980,6 +1418,15 @@ async fn run_hope_core_scenario(
         causal_critical_path.min(agent_wall_ms)
     };
     telemetry.invariants = evaluate_invariants(scenario, &telemetry);
+    if !cache_phases.is_empty() {
+        crate::model_cache::append_phase_events(
+            &mut telemetry.trace,
+            &mut telemetry.events,
+            &cache_phases,
+            &cache_namespace_digest,
+            std::env::var("HA_MODEL_EVAL_FAKE_CACHE").as_deref() == Ok("1"),
+        );
+    }
     if active_work_at_response {
         checks.push(ModelCampaignCheck {
             id: "harness_completion_quiescent".to_string(),
@@ -1054,6 +1501,11 @@ async fn run_hope_core_scenario(
             ModelCampaignOutcome::PolicyFailed,
             Some("request_blocked".to_string()),
         )
+    } else if let Some(reason) = experiment_arm_failure(trial.fault_profile, fault_observed) {
+        (
+            ModelCampaignOutcome::BenchmarkDefect,
+            Some(reason.to_string()),
+        )
     } else if benchmark_defect {
         (
             ModelCampaignOutcome::BenchmarkDefect,
@@ -1088,6 +1540,357 @@ async fn run_hope_core_scenario(
     })
 }
 
+/// Observe only the parent Session's admission. Children remain active for
+/// cancellation/rejection scenarios. A retry requires a typed response minted
+/// before durable user-message admission; transport failures and 500s never retry.
+async fn send_scripted_user_turn(
+    client: &Client,
+    server_url: &str,
+    token: Option<&str>,
+    body: &Value,
+    session_id: &str,
+    product_trial_id: &str,
+    case_id: &str,
+) -> Result<(StatusCode, Vec<u8>, u32, u64)> {
+    if session_id.is_empty()
+        || session_id.len() > 128
+        || !session_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        bail!("scripted admission has an invalid Session identity");
+    }
+    let deadline = Instant::now() + Duration::from_secs(TRIAL_CLEANUP_SAFETY_FUSE_SECONDS);
+    let mut rejections = 0;
+    let mut wait_ms = 0u64;
+    loop {
+        let wait_started = Instant::now();
+        let mut quiet_since = None;
+        loop {
+            if Instant::now() >= deadline {
+                bail!("scripted Session admission did not become idle; no further user request dispatched");
+            }
+            let mut request = client
+                .get(format!(
+                    "{server_url}/api/sessions/{session_id}/stream-state"
+                ))
+                .timeout(Duration::from_secs(2));
+            if let Some(token) = token.filter(|v| !v.is_empty()) {
+                request = request.bearer_auth(token);
+            }
+            let response = request
+                .send()
+                .await
+                .context("observing scripted Session admission")?;
+            let status = response.status();
+            let bytes = response.bytes().await?;
+            if !status.is_success() {
+                bail!(
+                    "scripted admission observation returned HTTP {status}; body sha256:{}",
+                    sha256_bytes(&bytes)
+                );
+            }
+            let value: Value = serde_json::from_slice(&bytes)?;
+            let idle = match (
+                value.get("active").and_then(Value::as_bool),
+                value.get("admissionActive").and_then(Value::as_bool),
+            ) {
+                (Some(active), Some(admission)) => !active && !admission,
+                _ => bail!("scripted admission observation omitted authoritative state"),
+            };
+            if idle {
+                let since = quiet_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= Duration::from_millis(250) {
+                    break;
+                }
+            } else {
+                quiet_since = None;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        wait_ms = wait_ms.saturating_add(elapsed_ms(wait_started));
+        let dispatch_started = Instant::now();
+        let mut request = client
+            .post(format!("{server_url}/api/chat"))
+            .header("x-hope-eval-trial", product_trial_id)
+            .header("x-hope-eval-case", case_id)
+            .json(body);
+        if let Some(token) = token.filter(|v| !v.is_empty()) {
+            request = request.bearer_auth(token);
+        }
+        let response = request
+            .send()
+            .await
+            .context("calling Hope scripted user turn")?;
+        let status = response.status();
+        let bytes = response
+            .bytes()
+            .await
+            .context("reading Hope scripted user turn response")?
+            .to_vec();
+        if status == StatusCode::CONFLICT
+            && serde_json::from_slice::<Value>(&bytes)
+                .ok()
+                .and_then(|v| v.get("code").and_then(Value::as_str).map(str::to_owned))
+                .as_deref()
+                == Some("chat_admission_busy")
+        {
+            rejections += 1;
+            wait_ms = wait_ms.saturating_add(elapsed_ms(dispatch_started));
+            continue;
+        }
+        return Ok((status, bytes, rejections, wait_ms));
+    }
+}
+
+async fn apply_scripted_owner_stop(
+    client: &Client,
+    server_url: &str,
+    token: Option<&str>,
+    session_id: &str,
+) -> Result<ModelCampaignCheck> {
+    apply_scripted_owner_stop_with_settlement(
+        client,
+        server_url,
+        token,
+        session_id,
+        Duration::from_secs(TRIAL_CLEANUP_SAFETY_FUSE_SECONDS),
+    )
+    .await
+}
+
+fn stopped_child_matches(run: &Value) -> bool {
+    run.get("status").and_then(Value::as_str) == Some("killed")
+        || (run.get("status").and_then(Value::as_str) == Some("interrupted")
+            && run.get("terminalReason").and_then(Value::as_str) == Some("session_paused"))
+}
+
+async fn apply_scripted_owner_stop_with_settlement(
+    client: &Client,
+    server_url: &str,
+    token: Option<&str>,
+    session_id: &str,
+    settlement_timeout: Duration,
+) -> Result<ModelCampaignCheck> {
+    let token = token
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow!("scripted Stop requires owner authentication"))?;
+    if session_id.is_empty()
+        || session_id.len() > 128
+        || !session_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        bail!("scripted Stop has an invalid Session identity");
+    }
+    let response = client
+        .get(format!("{server_url}/api/subagent/runs"))
+        .query(&[("sessionId", session_id)])
+        .bearer_auth(token)
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await?;
+    let status = response.status();
+    let before = response.bytes().await?;
+    if !status.is_success() {
+        bail!(
+            "scripted Stop child lookup returned HTTP {status}; body sha256:{}",
+            sha256_bytes(&before)
+        );
+    }
+    let runs: Value = serde_json::from_slice(&before)?;
+    let active = runs
+        .as_array()
+        .ok_or_else(|| anyhow!("scripted Stop child lookup is not a list"))?
+        .iter()
+        .filter(|run| {
+            run.get("parentSessionId").and_then(Value::as_str) == Some(session_id)
+                && matches!(
+                    run.get("status").and_then(Value::as_str),
+                    Some("running" | "spawning")
+                )
+        })
+        .collect::<Vec<_>>();
+    if active.is_empty() {
+        return Ok(ModelCampaignCheck {
+            id: "scripted_owner_stop".into(),
+            passed: false,
+            blocking: true,
+            detail:
+                "no running child executor remained; no Stop dispatched and cancellation not proven"
+                    .into(),
+            metric: Some(0.0),
+            artifact_hashes: vec![sha256_bytes(&before)],
+        });
+    }
+    let targets = active
+        .iter()
+        .map(|run| {
+            run.get("runId")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| anyhow!("scripted Stop child lookup omitted a running target identity"))?;
+    let response = client
+        .post(format!("{server_url}/api/chat/stop"))
+        .bearer_auth(token)
+        .json(&json!({"sessionId":session_id}))
+        .send()
+        .await?;
+    let status = response.status();
+    let bytes = response.bytes().await?;
+    if !status.is_success() {
+        bail!(
+            "scripted owner Stop returned HTTP {status}; body sha256:{}",
+            sha256_bytes(&bytes)
+        );
+    }
+    let result: Value = serde_json::from_slice(&bytes)?;
+    let mut passed = result.get("scope").and_then(Value::as_str) == Some("session")
+        && result.get("stopped").and_then(Value::as_bool) == Some(true)
+        && result.get("turnMismatch").and_then(Value::as_bool) == Some(false)
+        && result
+            .get("runtimeCancellationError")
+            .is_none_or(Value::is_null);
+    let mut hashes = vec![sha256_bytes(&before), sha256_bytes(&bytes)];
+    if passed {
+        let deadline = Instant::now() + settlement_timeout;
+        loop {
+            let response = client
+                .get(format!("{server_url}/api/subagent/runs"))
+                .query(&[("sessionId", session_id)])
+                .bearer_auth(token)
+                .timeout(Duration::from_secs(2))
+                .send()
+                .await?;
+            let status = response.status();
+            let after = response.bytes().await?;
+            if !status.is_success() {
+                bail!(
+                    "scripted Stop settlement lookup returned HTTP {status}; body sha256:{}",
+                    sha256_bytes(&after)
+                );
+            }
+            let value: Value = serde_json::from_slice(&after)?;
+            let items = value
+                .as_array()
+                .ok_or_else(|| anyhow!("scripted Stop settlement is not a list"))?;
+            let settled = targets.iter().all(|target| {
+                items.iter().any(|run| {
+                    run.get("runId").and_then(Value::as_str) == Some(target.as_str())
+                        && run.get("parentSessionId").and_then(Value::as_str) == Some(session_id)
+                        && stopped_child_matches(run)
+                })
+            });
+            if settled || Instant::now() >= deadline {
+                passed = settled;
+                hashes.push(sha256_bytes(&after));
+                break;
+            }
+            tokio::time::sleep(
+                Duration::from_millis(100).min(deadline.saturating_duration_since(Instant::now())),
+            )
+            .await;
+        }
+    }
+    Ok(ModelCampaignCheck {
+        id: "scripted_owner_stop".into(),
+        passed,
+        blocking: true,
+        detail: format!(
+            "owner Stop targeted current Session; all {} captured running children must become killed or interrupted/session_paused; completed, crash-interrupted and missing targets cannot satisfy cancellation",
+            targets.len()
+        ),
+        metric: Some(targets.len() as f64),
+        artifact_hashes: hashes,
+    })
+}
+
+async fn apply_scripted_goal_revision(
+    client: &Client,
+    server_url: &str,
+    token: Option<&str>,
+    session_id: &str,
+    objective: &str,
+    completion_criteria: &str,
+) -> Result<ModelCampaignCheck> {
+    let token = token
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("scripted owner Goal revision requires owner authentication"))?;
+    let safe_id = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 128
+            && value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    };
+    if !safe_id(session_id) {
+        bail!("scripted owner action has an invalid Session identity");
+    }
+    let mut request = client.get(format!(
+        "{server_url}/api/sessions/{session_id}/goal/latest"
+    ));
+    request = request.bearer_auth(token);
+    let response = request
+        .send()
+        .await
+        .context("reading current Session Goal for scripted revision")?;
+    let status = response.status();
+    let bytes = response.bytes().await?;
+    if !status.is_success() {
+        bail!(
+            "scripted Goal lookup returned HTTP {status}; {}",
+            http_error_hint(&bytes)
+        );
+    }
+    let before: Value = serde_json::from_slice(&bytes)?;
+    let goal = before
+        .get("goal")
+        .ok_or_else(|| anyhow!("scripted owner revision has no current Goal"))?;
+    if goal.get("sessionId").and_then(Value::as_str) != Some(session_id) {
+        bail!("scripted owner revision cannot target another Session");
+    }
+    let goal_id = goal
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|v| safe_id(v))
+        .ok_or_else(|| anyhow!("scripted owner revision has an invalid Goal identity"))?;
+    let previous = goal
+        .get("revision")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| anyhow!("Goal revision is missing"))?;
+    let expected_revision = previous
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("Goal revision overflow"))?;
+    let mut request = client
+        .patch(format!("{server_url}/api/goals/{goal_id}"))
+        .json(&json!({"objective":objective,"completionCriteria":completion_criteria}));
+    request = request.bearer_auth(token);
+    let response = request
+        .send()
+        .await
+        .context("applying declared user Goal revision through owner API")?;
+    let status = response.status();
+    let bytes = response.bytes().await?;
+    if !status.is_success() {
+        bail!(
+            "scripted owner Goal revision returned HTTP {status}; {}",
+            http_error_hint(&bytes)
+        );
+    }
+    let after: Value = serde_json::from_slice(&bytes)?;
+    let revision = after.pointer("/goal/revision").and_then(Value::as_i64);
+    let passed = after.pointer("/goal/id").and_then(Value::as_str) == Some(goal_id)
+        && after.pointer("/goal/sessionId").and_then(Value::as_str) == Some(session_id)
+        && revision == Some(expected_revision)
+        && after.pointer("/goal/state").and_then(Value::as_str) == Some("active");
+    Ok(ModelCampaignCheck { id:"scripted_owner_goal_revision".to_string(), passed, blocking:true,
+        detail:format!("owner revised current Session Goal {goal_id}: revision {previous} -> {:?}; model permissions unchanged", revision),
+        metric: revision.map(|v| v as f64), artifact_hashes:vec![sha256_bytes(&bytes)] })
+}
+
 fn process_restart_phase_instruction(trigger: &str) -> &'static str {
     match trigger {
         "after_goal_checkpoint" => {
@@ -1105,7 +1908,28 @@ fn process_restart_phase_instruction(trigger: &str) -> &'static str {
     }
 }
 
-fn user_event_phase_instruction(trigger: &str) -> &'static str {
+fn user_event_phase_instruction(trigger: &str, profile: &str) -> &'static str {
+    if profile == "eval-control-plane-ready-v12" && trigger == "cancel_parent_during_child_tool" {
+        return "\n\n评测用户事件阶段：先在父会话启动一个真实后台作业（例如 exec 的 background 模式执行 Python time.sleep(300)），确保 Job 已进入实际运行；再启动真实 Subagent/Team，让至少一个子执行器在前台阻塞工具调用中运行有界等待 time.sleep(300)。子执行器禁止 background/异步提交，等待期间不能返回完成。确认父后台作业与子执行器都已运行后立即回复 WAITING_FOR_USER_EVENT；不要等待/消费这些结果，不写最终产物。Runner 将通过现有 owner Stop 取消当前父会话及其后台工作、子执行，随后独立核验。";
+    }
+    if profile == "eval-control-plane-ready-v11" && trigger == "cancel_parent_during_child_tool" {
+        return "\n\n评测用户事件阶段：启动真实 Subagent/Team 子任务，令至少一个子执行器在前台阻塞工具调用中运行有界等待（例如 Python time.sleep(300)）。禁止 background/异步提交，子 Agent 在等待期间不能自行返回完成。确认子执行器仍为 running 后立即回复 WAITING_FOR_USER_EVENT，不等待或消费子结果，不写最终交付物。Runner 将通过用户控制面的 Stop 取消当前父会话及其子执行，不会要求模型再发起一轮自取消对话。";
+    }
+    if profile == "eval-control-plane-ready-v10" && trigger == "cancel_parent_during_child_tool" {
+        return "\n\n评测用户事件阶段：启动真实 Subagent/Team 子任务，让至少一个子执行器用 exec 运行有界等待（例如 Python time.sleep(300)），作为必须被取消的真实工具进程。确认它仍在执行后立即回复 WAITING_FOR_USER_EVENT；不要等待或消费子结果，不要创建最终交付物。后续用户消息会要求取消父任务和全部子执行。";
+    }
+    if matches!(
+        profile,
+        "eval-control-plane-ready-v9"
+            | "eval-control-plane-ready-v10"
+            | "eval-control-plane-ready-v11"
+            | "eval-control-plane-ready-v12"
+    ) && matches!(
+        trigger,
+        "after_first_draft" | "narrow_time_range_after_draft"
+    ) {
+        return "\n\n评测用户事件阶段：本轮只创建草稿（如 drafts/research.json），不要创建最终 deliverables/result.json，也不要请求完成 Goal。若创建 Workflow，只让它真实读取并验证草稿，验证成功后正常 finish；不要为了等待用户而制造 blocked/等待审批的 Workflow 运行。Goal 保持未完成并登记草稿 checkpoint。回复 WAITING_FOR_USER_EVENT，用户将通过控制面修改 Goal 契约，随后按新的真实 revision 交付。";
+    }
     match trigger {
         "after_first_draft" => {
             "\n\n评测用户事件阶段：本轮只完成第一版草稿并把当前 Goal 保持在未完成状态；不要写最终 deliverables/result.json。回复 `WAITING_FOR_USER_EVENT` 后等待用户修订，再按新目标交付。"
@@ -1154,7 +1978,8 @@ fn process_restart_trigger_observed(
                 && (telemetry.orchestration.checkpoints > 0 || has_event("workflow.checkpoint"))
         }
         "executor_crash_after_checkpoint" => {
-            telemetry.orchestration.spawned_agents > 0
+            telemetry.active_children > 0
+                && telemetry.orchestration.spawned_agents > 0
                 && (has_signal("subagent") || has_signal("team"))
                 && has_event("subagent.run")
         }
@@ -1194,7 +2019,10 @@ fn user_event_precondition_observed(
                 && final_artifact_absent
         }
         "cancel_parent_during_child_tool" => {
-            telemetry.orchestration.spawned_agents > 0
+            telemetry.active_children > 0
+                && telemetry.orchestration.async_jobs > 0
+                && has_signal("async_jobs")
+                && telemetry.orchestration.spawned_agents > 0
                 && (has_signal("subagent") || has_signal("team"))
                 && final_artifact_absent
         }
@@ -1206,9 +2034,10 @@ fn user_event_precondition_observed(
     (
         passed,
         format!(
-            "user event {trigger}: signals={:?}, asyncJobs={}, spawnedAgents={}, finalArtifactAbsent={final_artifact_absent}",
+            "user event {trigger}: signals={:?}, asyncJobs={}, activeChildren={}, spawnedAgents={}, finalArtifactAbsent={final_artifact_absent}",
             telemetry.observed_signals,
             telemetry.orchestration.async_jobs,
+            telemetry.active_children,
             telemetry.orchestration.spawned_agents,
         ),
     )
@@ -1492,6 +2321,21 @@ fn merge_restart_telemetry(
     after: &mut TelemetrySnapshot,
     restart_wait_ms: u64,
 ) {
+    let interrupted_work = before.active_children > 0 || before.background_model_work > 0;
+    let restart_attributes = std::collections::BTreeMap::from([
+        (
+            "interruptedWorkAtRestart".to_string(),
+            json!(interrupted_work),
+        ),
+        (
+            "preRestartActiveChildren".to_string(),
+            json!(before.active_children),
+        ),
+        (
+            "preRestartBackgroundModelWork".to_string(),
+            json!(before.background_model_work),
+        ),
+    ]);
     fn add_exact(target: &mut Option<u64>, previous: Option<u64>) {
         *target = match (*target, previous) {
             (Some(current), Some(previous)) => Some(current.saturating_add(previous)),
@@ -1668,7 +2512,7 @@ fn merge_restart_telemetry(
         key: Some("hope-agent-server".to_string()),
         status: "completed".to_string(),
         duration_ms: restart_wait_ms,
-        attributes: std::collections::BTreeMap::new(),
+        attributes: restart_attributes,
     });
     let post_restart_events = std::mem::take(&mut after.events);
     let renamed_spans = post_restart_events
@@ -1715,6 +2559,16 @@ fn merge_restart_telemetry(
     after
         .warnings
         .push("telemetry merged across an authenticated Hope process restart".to_string());
+    if interrupted_work || before.attribution != AttributionCompleteness::Complete {
+        // SIGKILL cannot run a Provider guard's Drop. Completed calls remain
+        // inspectable in the merged trace, but an interrupted child/request
+        // can have unreported upstream usage; never certify a zero remainder.
+        after.attribution = AttributionCompleteness::Partial;
+        after.tokens = TokenMetrics::default();
+        after.cost.total_usd = None;
+        after.cost.agent_usd = None;
+        after.warnings.push("process restart interrupted active work; unobserved Provider usage may exist in addition to known completed trace calls".to_string());
+    }
 }
 
 fn close_restart_interrupted_spans(events: &mut Vec<ModelCampaignEvent>, timestamp_ms: u64) {
@@ -1759,17 +2613,33 @@ fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<Scripted
                 })
                 .collect::<Vec<_>>()
         }
-        "scripted-user-flow.v2" => {
+        "scripted-user-flow.v2" | "scripted-user-flow.v3" => {
+            let expected_version = schema_version.to_string();
             let flow: ScriptedUserFlowV2 =
-                serde_json::from_value(value).context("parsing scripted-user-flow.v2")?;
-            if flow.schema_version != "scripted-user-flow.v2" {
+                serde_json::from_value(value).context("parsing scripted user flow")?;
+            if flow.schema_version != expected_version {
                 bail!("scripted user flow schema is invalid");
+            }
+            if expected_version == "scripted-user-flow.v2"
+                && flow
+                    .steps
+                    .iter()
+                    .any(|step| matches!(step, ScriptedUserStep::CacheCheckpoint { .. }))
+            {
+                bail!("cache_checkpoint requires scripted-user-flow.v3");
             }
             flow.steps
         }
         other => bail!("unsupported scripted user flow schema {other}"),
     };
 
+    if steps
+        .iter()
+        .any(|step| matches!(step, ScriptedUserStep::StopParent { .. }))
+        && steps.len() != 1
+    {
+        bail!("stop_parent must be the sole scripted owner action");
+    }
     let message_steps = steps
         .iter()
         .filter(|step| matches!(step, ScriptedUserStep::Message { .. }))
@@ -1778,11 +2648,29 @@ fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<Scripted
         bail!("scripted user flow turn count is invalid");
     }
     let mut compact_actions = 0usize;
+    let mut owner_goal_actions = 0usize;
+    let mut cache_phases = std::collections::BTreeSet::new();
+    let mut phase_has_work = true; // initial task is the first phase
     for step in &steps {
         match step {
             ScriptedUserStep::Message { message, delay_ms } => {
                 if message.trim().is_empty() || message.len() > 32_000 || *delay_ms > 30_000 {
                     bail!("scripted user flow contains an invalid message step");
+                }
+                phase_has_work = true;
+            }
+            ScriptedUserStep::StopParent { .. } => {}
+            ScriptedUserStep::UpdateGoal {
+                objective,
+                completion_criteria,
+            } => {
+                owner_goal_actions += 1;
+                if objective.trim().is_empty()
+                    || completion_criteria.trim().is_empty()
+                    || objective.len() > 32_000
+                    || completion_criteria.len() > 32_000
+                {
+                    bail!("scripted Goal revision requires bounded nonempty objective and completionCriteria");
                 }
             }
             ScriptedUserStep::CompactContext { expected_tier } => {
@@ -1790,13 +2678,158 @@ fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<Scripted
                 if *expected_tier != 3 {
                     bail!("compact_context currently requires expectedTier=3");
                 }
+                phase_has_work = true;
+            }
+            ScriptedUserStep::CacheCheckpoint {
+                phase,
+                expected_response,
+                min_model_calls,
+                min_tool_calls,
+                min_total_summary_calls,
+            } => {
+                if phase.is_empty()
+                    || phase.len() > 48
+                    || !phase.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                    })
+                    || !cache_phases.insert(phase)
+                    || cache_phases.len() > 24
+                    || !phase_has_work
+                    || *min_model_calls == 0
+                    || *min_model_calls > 64
+                    || *min_tool_calls > 64
+                    || *min_total_summary_calls > 8
+                    || expected_response
+                        .as_ref()
+                        .is_some_and(|value| !value.is_object() || value.to_string().len() > 4096)
+                {
+                    bail!("invalid, duplicate or empty cache checkpoint");
+                }
+                phase_has_work = false;
             }
         }
+    }
+    let owner_update_has_later_message = steps
+        .iter()
+        .position(|step| matches!(step, ScriptedUserStep::UpdateGoal { .. }))
+        .is_none_or(|index| {
+            steps[index + 1..]
+                .iter()
+                .any(|step| matches!(step, ScriptedUserStep::Message { .. }))
+        });
+    if owner_goal_actions > 1
+        || (owner_goal_actions > 0 && message_steps == 0)
+        || !owner_update_has_later_message
+    {
+        bail!(
+            "a scripted Goal revision occurs at most once and must be followed by a user message"
+        );
     }
     if compact_actions > 1 {
         bail!("scripted user flow may compact context at most once");
     }
     Ok(steps)
+}
+
+pub(crate) fn validate_harness_preconditions(
+    scenario_dir: &Path,
+    scenario: &LiveAgentScenario,
+) -> Result<()> {
+    if scenario_has_ready_control_plane(scenario)
+        && scenario.faults.iter().any(|fault| {
+            fault.kind == FaultKind::EnvironmentEvent && fault.trigger == "after_loop_iteration_3"
+        })
+    {
+        bail!("read-only Loop setup cannot activate a third-iteration fault; register executable owner setup or a reachable tool-feedback scenario");
+    }
+    if !matches!(
+        scenario.user_simulator.kind,
+        UserSimulatorKind::ScriptedFsm | UserSimulatorKind::Replay
+    ) {
+        return Ok(());
+    }
+    let steps = load_scripted_user_steps(scenario_dir, scenario)?;
+    if steps
+        .iter()
+        .any(|step| matches!(step, ScriptedUserStep::CacheCheckpoint { .. }))
+        && !scenario
+            .capabilities
+            .iter()
+            .any(|capability| capability == "prompt_cache")
+    {
+        bail!("cache_checkpoint requires prompt_cache capability");
+    }
+
+    if steps
+        .iter()
+        .any(|step| matches!(step, ScriptedUserStep::StopParent { .. }))
+        && (!matches!(
+            scenario.subject.config_profile.as_str(),
+            "eval-control-plane-ready-v11" | "eval-control-plane-ready-v12"
+        ) || !scenario
+            .capabilities
+            .iter()
+            .any(|value| matches!(value.to_ascii_lowercase().as_str(), "subagent" | "team"))
+            || !scenario.faults.iter().any(|fault| {
+                fault.kind == FaultKind::UserEvent
+                    && fault.trigger == "cancel_parent_during_child_tool"
+            }))
+    {
+        bail!("stop_parent requires a registered v11 parent-cancellation scenario");
+    }
+    if steps
+        .iter()
+        .any(|step| matches!(step, ScriptedUserStep::StopParent { .. }))
+    {
+        let expects_jobs = scenario
+            .capabilities
+            .iter()
+            .any(|capability| capability.eq_ignore_ascii_case("async_jobs"));
+        for verifier in &scenario.verifiers {
+            if verifier.handler != "signal_observed" {
+                continue;
+            }
+            if let Some(path) = verifier.config_path.as_deref() {
+                let config: Value = read_json(&resolve_contained(scenario_dir, path)?)?;
+                let verifies_jobs =
+                    config
+                        .get("signals")
+                        .and_then(Value::as_array)
+                        .is_some_and(|signals| {
+                            signals
+                                .iter()
+                                .any(|signal| signal.as_str() == Some("async_jobs"))
+                        });
+                if verifies_jobs != expects_jobs {
+                    bail!("owner Stop signals disagree with declared async_jobs capability");
+                }
+            }
+        }
+    }
+    if steps
+        .iter()
+        .any(|step| matches!(step, ScriptedUserStep::UpdateGoal { .. }))
+        && (!matches!(
+            scenario.subject.config_profile.as_str(),
+            "eval-control-plane-ready-v9"
+                | "eval-control-plane-ready-v10"
+                | "eval-control-plane-ready-v11"
+                | "eval-control-plane-ready-v12"
+        ) || !scenario
+            .capabilities
+            .iter()
+            .any(|value| value.eq_ignore_ascii_case("goal"))
+            || !scenario.faults.iter().any(|fault| {
+                fault.kind == FaultKind::UserEvent
+                    && matches!(
+                        fault.trigger.as_str(),
+                        "after_first_draft" | "narrow_time_range_after_draft"
+                    )
+            }))
+    {
+        bail!("owner Goal revision requires a registered v9 Goal user-revision scenario");
+    }
+    Ok(())
 }
 
 fn load_scripted_user_steps(
@@ -2081,15 +3114,11 @@ async fn evaluate_registered_verifier(
             } else {
                 let value: Value = serde_json::from_slice(&bytes)
                     .with_context(|| format!("parsing Hope state verifier HTTP {status}"))?;
-                let passed = if let Some(expected) = config.get("expectedSubset") {
-                    json_subset(expected, &value)
-                } else if let Some(expected) = config.get("anyItemSubset") {
-                    value
-                        .as_array()
-                        .is_some_and(|items| items.iter().any(|item| json_subset(expected, item)))
-                } else {
-                    bail!("hope_state_subset requires expectedSubset or anyItemSubset");
-                };
+                let config = orchestration_state_expectation(
+                    &config,
+                    trial.orchestration_profile.as_deref(),
+                );
+                let passed = owner_state_matches(config, &value, trial.fault_profile)?;
                 (
                     passed,
                     if passed {
@@ -2169,32 +3198,7 @@ async fn evaluate_registered_verifier(
         (VerifierKind::FileAssertion, "file_json_subset") => {
             let config = read_verifier_config(verifier, scenario_dir)?;
             let path = workspace_file(workspace, &config)?;
-            let expected = config
-                .get("expectedSubset")
-                .ok_or_else(|| anyhow!("file_json_subset requires expectedSubset"))?;
-            match safe_workspace_regular_file(workspace, &path) {
-                Ok(Some(path)) => match read_json::<Value>(&path) {
-                    Ok(actual) => (
-                        json_subset(expected, &actual),
-                        "workspace JSON must contain expected subset".to_string(),
-                    ),
-                    Err(error) => (
-                        false,
-                        format!(
-                            "workspace JSON is invalid: {}",
-                            sanitize_error(&error.to_string())
-                        ),
-                    ),
-                },
-                Ok(None) => (false, "verifier target is missing".to_string()),
-                Err(error) => (
-                    false,
-                    format!(
-                        "workspace file rejected: {}",
-                        sanitize_error(&error.to_string())
-                    ),
-                ),
-            }
+            file_json_expectation(workspace, &path, &config, trial.fault_profile)?
         }
         (VerifierKind::GitAssertion, "git_changed_paths") => {
             let config = read_verifier_config(verifier, scenario_dir)?;
@@ -2243,10 +3247,14 @@ async fn evaluate_registered_verifier(
                 .iter()
                 .cloned()
                 .collect::<std::collections::BTreeSet<_>>();
-            let missing = expected.difference(&observed).count();
+            let missing = expected.difference(&observed).cloned().collect::<Vec<_>>();
             (
-                missing == 0,
-                format!("{missing} required telemetry signal(s) missing"),
+                missing.is_empty(),
+                if missing.is_empty() {
+                    "all required telemetry signals observed".to_string()
+                } else {
+                    format!("missing required telemetry signals: {}", missing.join(", "))
+                },
             )
         }
         (
@@ -2417,7 +3425,72 @@ fn provision_workspace(
             )
         })?;
     }
+    if scenario_has_ready_control_plane(scenario)
+        && scenario.capabilities.iter().any(|capability| {
+            matches!(
+                capability.to_ascii_lowercase().as_str(),
+                "subagent" | "team"
+            )
+        })
+    {
+        provision_synthetic_git_workspace(&workspace)?;
+    }
     Ok(workspace)
+}
+
+fn provision_synthetic_git_workspace(workspace: &Path) -> Result<()> {
+    // Only synthetic fixtures enter this repository. Suppress owner Git config,
+    // templates and hooks so child worktrees have no access to owner state.
+    for args in [
+        vec!["init", "--quiet", "--template=", "--initial-branch=eval"],
+        vec!["add", "--", "fixtures"],
+        vec!["commit", "--quiet", "-m", "🦭 synthetic evaluation fixture"],
+    ] {
+        let mut command = std::process::Command::new("git");
+        for name in [
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_COMMON_DIR",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_AUTHOR_NAME",
+            "GIT_AUTHOR_EMAIL",
+            "GIT_COMMITTER_NAME",
+            "GIT_COMMITTER_EMAIL",
+        ] {
+            command.env_remove(name);
+        }
+        let output = command
+            .args([
+                "-c",
+                "core.hooksPath=",
+                "-c",
+                "user.name=Hope Evaluation",
+                "-c",
+                "user.email=eval@hope.invalid",
+                "-c",
+                "commit.gpgSign=false",
+            ])
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                if cfg!(windows) { "NUL" } else { "/dev/null" },
+            )
+            .current_dir(workspace)
+            .output()
+            .context("provisioning isolated synthetic Git workspace")?;
+        if !output.status.success() {
+            bail!(
+                "synthetic Git workspace initialization failed; stderr sha256:{}",
+                sha256_bytes(&output.stderr)
+            );
+        }
+    }
+    Ok(())
 }
 
 fn workspace_file(workspace: &Path, config: &Value) -> Result<std::path::PathBuf> {
@@ -2440,6 +3513,24 @@ fn safe_workspace_regular_file(
     workspace: &Path,
     candidate: &Path,
 ) -> Result<Option<std::path::PathBuf>> {
+    let relative = candidate
+        .strip_prefix(workspace)
+        .map_err(|_| anyhow!("workspace artifact escapes the isolated trial workspace"))?;
+    let mut ancestor = workspace.to_path_buf();
+    for component in relative.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            bail!("workspace artifact path is not contained");
+        }
+        ancestor.push(component);
+        match std::fs::symlink_metadata(&ancestor) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                bail!("workspace artifact path contains a symlink")
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        }
+    }
     let metadata = match std::fs::symlink_metadata(candidate) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -2537,6 +3628,198 @@ fn json_subset(expected: &Value, actual: &Value) -> bool {
     }
 }
 
+fn experiment_arm_failure(profile: FaultProfile, fault_observed: bool) -> Option<&'static str> {
+    match (profile, fault_observed) {
+        (FaultProfile::Chaos, false) => Some("fault_not_activated"),
+        (FaultProfile::Clean, true) => Some("unexpected_fault_activation"),
+        _ => None,
+    }
+}
+
+pub(crate) fn single_agent_fault_not_applicable(
+    scenario: &LiveAgentScenario,
+    trial: &PlannedModelTrial,
+) -> bool {
+    trial.fault_profile == FaultProfile::Chaos
+        && trial
+            .orchestration_profile
+            .as_deref()
+            .is_some_and(|p| p.starts_with("single_agent"))
+        && scenario
+            .comparison
+            .as_ref()
+            .is_some_and(|c| !c.single_agent_unsupported_faults.is_empty())
+}
+
+pub(crate) fn trial_prompt_path<'a>(
+    scenario: &'a LiveAgentScenario,
+    trial: &PlannedModelTrial,
+) -> Result<&'a str> {
+    if trial
+        .orchestration_profile
+        .as_deref()
+        .is_some_and(|p| p.starts_with("single_agent"))
+    {
+        return scenario
+            .comparison
+            .as_ref()
+            .and_then(|c| c.single_agent_prompt_path.as_deref())
+            .ok_or_else(|| {
+                anyhow!("single-Agent comparison requires a registered singleAgentPromptPath")
+            });
+    }
+    Ok(&scenario.task.prompt_path)
+}
+
+fn orchestration_state_expectation<'a>(config: &'a Value, profile: Option<&str>) -> &'a Value {
+    profile
+        .and_then(|profile| config.get("expectedByOrchestrationProfile")?.get(profile))
+        .unwrap_or(config)
+}
+
+fn fault_profile_expectation(config: &Value, profile: FaultProfile) -> Result<&Value> {
+    let Some(profiles) = config.get("expectedByFaultProfile") else {
+        return Ok(config);
+    };
+    if [
+        "expectedSubset",
+        "expectedExact",
+        "anyItemSubset",
+        "expectedAbsent",
+        "exactFields",
+    ]
+    .iter()
+    .any(|key| config.get(key).is_some())
+    {
+        bail!("verifier cannot combine shared and fault-profile expectations");
+    }
+    let key = match profile {
+        FaultProfile::Clean => "clean",
+        FaultProfile::Chaos => "chaos",
+    };
+    profiles
+        .get(key)
+        .ok_or_else(|| anyhow!("verifier has no expectation for {key}"))
+}
+
+fn file_json_expectation(
+    workspace: &Path,
+    path: &Path,
+    config: &Value,
+    profile: FaultProfile,
+) -> Result<(bool, String)> {
+    let expectation = fault_profile_expectation(config, profile)?;
+    let absent = expectation.get("expectedAbsent").and_then(Value::as_bool) == Some(true);
+    if absent
+        && (expectation.get("expectedSubset").is_some() || expectation.get("exactFields").is_some())
+    {
+        bail!("file verifier cannot require both absence and content");
+    }
+    let expected = if absent {
+        None
+    } else {
+        Some(expectation.get("expectedSubset").ok_or_else(|| {
+            anyhow!("file_json_subset requires expectedSubset or expectedAbsent=true")
+        })?)
+    };
+    match safe_workspace_regular_file(workspace, path) {
+        Ok(None) => Ok((
+            absent,
+            if absent {
+                "cancelled or purged trial has no final artifact"
+            } else {
+                "verifier target is missing"
+            }
+            .to_string(),
+        )),
+        Ok(Some(_)) if absent => Ok((
+            false,
+            "cancelled or purged trial must not publish a final artifact".to_string(),
+        )),
+        Ok(Some(path)) => match read_json::<Value>(&path) {
+            Ok(actual) => {
+                let exact = match expectation.get("exactFields") {
+                    Some(fields) => fields
+                        .as_object()
+                        .ok_or_else(|| anyhow!("exactFields must be an object"))?
+                        .iter()
+                        .all(|(key, expected)| actual.get(key) == Some(expected)),
+                    None => true,
+                };
+                Ok((
+                    json_subset(
+                        expected.expect("content expectation was validated"),
+                        &actual,
+                    ) && exact,
+                    "workspace JSON must match its arm's subset and exact fields".to_string(),
+                ))
+            }
+            Err(error) => Ok((
+                false,
+                format!(
+                    "workspace JSON is invalid: {}",
+                    sanitize_error(&error.to_string())
+                ),
+            )),
+        },
+        Err(error) => Ok((
+            false,
+            format!(
+                "workspace file rejected: {}",
+                sanitize_error(&error.to_string())
+            ),
+        )),
+    }
+}
+
+fn expected_scripted_cancellation(
+    status: StatusCode,
+    bytes: &[u8],
+    trigger: Option<&str>,
+    precondition: bool,
+) -> bool {
+    precondition
+        && status == StatusCode::INTERNAL_SERVER_ERROR
+        && matches!(
+            trigger,
+            Some("cancel_parent_during_child_tool" | "purge_before_completion")
+        )
+        && serde_json::from_slice::<Value>(bytes)
+            .ok()
+            .is_some_and(|body| {
+                body.get("error").and_then(Value::as_str) == Some("chat cancelled by caller")
+            })
+}
+
+fn owner_state_matches(config: &Value, actual: &Value, profile: FaultProfile) -> Result<bool> {
+    owner_expectation_matches(fault_profile_expectation(config, profile)?, actual)
+}
+
+fn owner_expectation_matches(expectation: &Value, actual: &Value) -> Result<bool> {
+    if let Some(expected) = expectation.get("expectedExact") {
+        Ok(expected == actual)
+    } else if let Some(expected) = expectation.get("expectedSubset") {
+        Ok(json_subset(expected, actual))
+    } else if let Some(expected) = expectation.get("anyItemSubset") {
+        Ok(actual
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| json_subset(expected, item))))
+    } else if let Some(alternatives) = expectation.get("anyOf") {
+        let alternatives = alternatives
+            .as_array()
+            .filter(|items| !items.is_empty())
+            .ok_or_else(|| anyhow!("owner expectation anyOf requires nonempty alternatives"))?;
+        let mut passed = false;
+        for alternative in alternatives {
+            let matched = owner_expectation_matches(alternative, actual)?;
+            passed |= matched;
+        }
+        Ok(passed)
+    } else {
+        bail!("hope_state_subset requires expectedSubset, anyItemSubset or anyOf");
+    }
+}
+
 fn json_exact(expected: &Value, actual: &Value) -> bool {
     expected == actual
 }
@@ -2567,16 +3850,14 @@ fn fallback_telemetry(trial: &PlannedModelTrial, span_count: u64) -> TelemetrySn
         attribution: AttributionCompleteness::Partial,
         active_children: 0,
         background_model_work: 0,
+        pending_work: 0,
         budget_exhausted: false,
         budget_exhaustion_reasons: Vec::new(),
         timings: TimingMetrics::default(),
         tokens: TokenMetrics::default(),
         cost: CostMetrics::default(),
         tools: ToolMetrics::default(),
-        orchestration: OrchestrationMetrics {
-            model_calls: 1,
-            ..Default::default()
-        },
+        orchestration: OrchestrationMetrics::default(),
         trace: TraceSummary {
             trace_id: format!("trace_{}", trial.id),
             root_span_id: format!("span_{}", &trial.id[trial.id.len().saturating_sub(16)..]),
@@ -2656,11 +3937,28 @@ fn empty_failure_result(
     }
 }
 
+fn http_error_hint(bytes: &[u8]) -> String {
+    let value = serde_json::from_slice::<Value>(bytes).ok();
+    let message = value
+        .as_ref()
+        .and_then(|v| v.get("error"))
+        .and_then(Value::as_str);
+    message
+        .map(sanitize_error)
+        .unwrap_or_else(|| "non-JSON or missing error detail".to_string())
+}
+
 fn sanitize_error(error: &str) -> String {
     let lower = error.to_ascii_lowercase();
     if [
         "bearer ",
         "sk-",
+        "sk_",
+        "eyj",
+        "access_token",
+        "refresh_token",
+        "password",
+        "secret",
         "api_key",
         "apikey",
         "token=",
@@ -2674,9 +3972,8 @@ fn sanitize_error(error: &str) -> String {
             sha256_bytes(error.as_bytes())
         );
     }
-    let mut output = error.replace(['\r', '\n'], " ");
-    output.truncate(2_000);
-    output
+    let output = ha_core::logging::redact_sensitive(&error.replace(['\r', '\n'], " "));
+    ha_core::truncate_utf8(&output, 2_000).to_string()
 }
 
 fn merge_checks(
@@ -2697,6 +3994,211 @@ fn merge_checks(
 fn dedicated_source() -> bool {
     std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true")
         || std::env::var("HA_MODEL_EVAL_DEDICATED_RUNNER").as_deref() == Ok("1")
+}
+
+fn scenario_workflow_mode(
+    scenario: &LiveAgentScenario,
+) -> Option<ha_core::workflow_mode::WorkflowMode> {
+    // Owner-only autonomy must be explicitly part of the versioned fixture.
+    // Preserve the historical v1 setup, including its missing-mode diagnosis.
+    (scenario_has_ready_control_plane(scenario)
+        && scenario.capabilities.iter().any(|capability| {
+            matches!(
+                capability.to_ascii_lowercase().as_str(),
+                "goal" | "workflow"
+            )
+        }))
+    .then_some(ha_core::workflow_mode::WorkflowMode::On)
+}
+
+pub(crate) fn scenario_has_ready_control_plane(scenario: &LiveAgentScenario) -> bool {
+    matches!(
+        scenario.subject.config_profile.as_str(),
+        "eval-control-plane-ready-v2"
+            | "eval-control-plane-ready-v3"
+            | "eval-control-plane-ready-v4"
+            | "eval-control-plane-ready-v5"
+            | "eval-control-plane-ready-v6"
+            | "eval-control-plane-ready-v7"
+            | "eval-control-plane-ready-v8"
+            | "eval-control-plane-ready-v9"
+            | "eval-control-plane-ready-v10"
+            | "eval-control-plane-ready-v11"
+            | "eval-control-plane-ready-v12"
+    )
+}
+
+fn scenario_initial_goal(
+    scenario: &LiveAgentScenario,
+    fault_profile: FaultProfile,
+) -> Option<Value> {
+    scenario
+        .capabilities
+        .iter()
+        .any(|capability| capability.eq_ignore_ascii_case("goal"))
+        .then(|| {
+            // A fault-oriented scenario title is not the clean arm's business
+            // objective. Keep historical/faulted fixtures unchanged.
+            let objective = if matches!(scenario.subject.config_profile.as_str(),
+                "eval-control-plane-ready-v3" | "eval-control-plane-ready-v4"
+                    | "eval-control-plane-ready-v5" | "eval-control-plane-ready-v6" | "eval-control-plane-ready-v7" | "eval-control-plane-ready-v8" | "eval-control-plane-ready-v9" | "eval-control-plane-ready-v10" | "eval-control-plane-ready-v11" | "eval-control-plane-ready-v12")
+                && fault_profile == FaultProfile::Clean
+            {
+                format!(
+                    "完成 {} 的公开合成文件任务，验证原始输入 SHA-256、产物字段和条目数量，登记实际工具验证证据并据实完成 Goal；只响应实际注入的故障或用户事件。",
+                    scenario.id
+                )
+            } else {
+                scenario.task.success_summary.clone()
+            };
+            json!({
+                "objective": objective,
+                "completionCriteria": "Complete the task, record real validation evidence, evaluate the Goal, and only then request Goal completion."
+            })
+        })
+}
+
+async fn settle_response_snapshot<F, Fut>(
+    mut telemetry: TelemetrySnapshot,
+    grace: Duration,
+    mut fetch: F,
+) -> TelemetrySnapshot
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Option<TelemetrySnapshot>>,
+{
+    let deadline = Instant::now() + grace;
+    while telemetry.trace.orphan_span_count > u64::from(telemetry.background_model_work) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        tokio::time::sleep(remaining.min(Duration::from_millis(25))).await;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, fetch()).await {
+            Ok(Some(snapshot)) => telemetry = snapshot,
+            Ok(None) => {}
+            Err(_) => break,
+        }
+    }
+    telemetry
+}
+
+fn scripted_revision_requires_settlement(profile: &str, trigger: &str) -> bool {
+    matches!(
+        profile,
+        "eval-control-plane-ready-v8"
+            | "eval-control-plane-ready-v9"
+            | "eval-control-plane-ready-v10"
+            | "eval-control-plane-ready-v11"
+            | "eval-control-plane-ready-v12"
+    ) && matches!(
+        trigger,
+        "after_first_draft" | "narrow_time_range_after_draft"
+    )
+}
+
+fn prior_scripted_work_settled(telemetry: &TelemetrySnapshot) -> bool {
+    telemetry.trace.orphan_span_count == 0
+        && telemetry.active_children == 0
+        && telemetry.background_model_work == 0
+        && telemetry.pending_work == 0
+}
+
+async fn observe_trial_completion<F, Fut>(
+    telemetry: TelemetrySnapshot,
+    remaining: Option<Duration>,
+    quiet_period: Duration,
+    fetch: F,
+) -> TelemetrySnapshot
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Option<TelemetrySnapshot>>,
+{
+    observe_trial_completion_for_phase(telemetry, remaining, quiet_period, false, fetch).await
+}
+
+async fn observe_trial_completion_for_phase<F, Fut>(
+    mut telemetry: TelemetrySnapshot,
+    remaining: Option<Duration>,
+    quiet_period: Duration,
+    require_all_prior_work: bool,
+    mut fetch: F,
+) -> TelemetrySnapshot
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Option<TelemetrySnapshot>>,
+{
+    let deadline = remaining.map(|remaining| Instant::now() + remaining);
+    let mut quiet_since = None;
+    loop {
+        if telemetry.budget_exhausted {
+            return telemetry;
+        }
+        let now = Instant::now();
+        // Unlimited evaluation must also settle product-owned model work.
+        // Otherwise scoring races late review usage and the cleanup endpoint's
+        // short cancellation fuse becomes an accidental model-call deadline.
+        // Bounded campaigns retain their case deadline and cleanup policy.
+        let background_allowance = if deadline.is_some() {
+            u64::from(telemetry.background_model_work)
+        } else {
+            0
+        };
+        if telemetry.trace.orphan_span_count <= background_allowance
+            && (!require_all_prior_work || prior_scripted_work_settled(&telemetry))
+        {
+            let start = quiet_since.get_or_insert(now);
+            if now.duration_since(*start) >= quiet_period {
+                return telemetry;
+            }
+        } else {
+            quiet_since = None;
+        }
+        let remaining = deadline.map(|deadline| deadline.saturating_duration_since(now));
+        if remaining.is_some_and(|remaining| remaining.is_zero()) {
+            return telemetry;
+        }
+        tokio::time::sleep(remaining.map_or(Duration::from_millis(100), |remaining| {
+            remaining.min(Duration::from_millis(100))
+        }))
+        .await;
+        let observation = if let Some(deadline) = deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return telemetry;
+            }
+            match tokio::time::timeout(remaining, fetch()).await {
+                Ok(snapshot) => snapshot,
+                Err(_) => return telemetry,
+            }
+        } else {
+            fetch().await
+        };
+        match observation {
+            Some(snapshot) => telemetry = snapshot,
+            // An unavailable observation cannot establish continuous quiet.
+            None => quiet_since = None,
+        }
+    }
+}
+
+fn observes_trial_completion(config_profile: &str, unlimited_budget: bool) -> bool {
+    unlimited_budget
+        || matches!(
+            config_profile,
+            "eval-control-plane-ready-v5"
+                | "eval-control-plane-ready-v6"
+                | "eval-control-plane-ready-v7"
+                | "eval-control-plane-ready-v8"
+                | "eval-control-plane-ready-v9"
+                | "eval-control-plane-ready-v10"
+                | "eval-control-plane-ready-v11"
+                | "eval-control-plane-ready-v12"
+        )
 }
 
 fn evaluation_source() -> &'static str {
@@ -2724,13 +4226,361 @@ fn elapsed_ms(started: Instant) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn missing_or_unexpected_fault_is_a_benchmark_defect() {
+        assert_eq!(
+            super::experiment_arm_failure(FaultProfile::Chaos, false),
+            Some("fault_not_activated")
+        );
+        assert_eq!(
+            super::experiment_arm_failure(FaultProfile::Clean, true),
+            Some("unexpected_fault_activation")
+        );
+        assert_eq!(
+            super::experiment_arm_failure(FaultProfile::Chaos, true),
+            None
+        );
+        assert_eq!(
+            super::experiment_arm_failure(FaultProfile::Clean, false),
+            None
+        );
+    }
+    #[test]
+    fn crash_does_not_certify_known_cost_when_active_work_can_lose_usage() {
+        let mut before = restart_telemetry();
+        before.background_model_work = 1;
+        let mut after = restart_telemetry();
+        super::merge_restart_telemetry(before, &mut after, 1);
+        assert_eq!(after.attribution, AttributionCompleteness::Partial);
+        assert_eq!(after.tokens.input, None);
+        assert_eq!(after.cost.total_usd, None);
+        assert!(after.events.iter().any(|e| e.event == "process.restart"
+            && e.attributes.get("interruptedWorkAtRestart") == Some(&serde_json::json!(true))));
+    }
+    #[test]
+    fn single_agent_state_requires_empty_children_without_weakening_team_state() {
+        let config = serde_json::json!({
+            "anyItemSubset": {"status":"completed"},
+            "expectedByOrchestrationProfile": {
+                "single_agent_compute_matched": {"expectedExact":[]}
+            }
+        });
+        let solo =
+            super::orchestration_state_expectation(&config, Some("single_agent_compute_matched"));
+        assert!(super::owner_state_matches(
+            solo,
+            &serde_json::json!([]),
+            ha_eval_spec::model::FaultProfile::Clean
+        )
+        .unwrap());
+        assert!(!super::owner_state_matches(
+            solo,
+            &serde_json::json!([{"status":"completed"}]),
+            ha_eval_spec::model::FaultProfile::Clean
+        )
+        .unwrap());
+        assert!(!super::owner_state_matches(
+            &config,
+            &serde_json::json!([]),
+            ha_eval_spec::model::FaultProfile::Clean
+        )
+        .unwrap());
+        assert!(super::owner_state_matches(
+            &config,
+            &serde_json::json!([{"status":"completed"}]),
+            ha_eval_spec::model::FaultProfile::Clean
+        )
+        .unwrap());
+    }
     use super::*;
+
+    #[tokio::test]
+    async fn response_settling_observes_natural_teardown_and_preserves_background_usage() {
+        let mut active = restart_telemetry();
+        active.trace.orphan_span_count = 2;
+        active.background_model_work = 1;
+        let mut pending = std::collections::VecDeque::from([
+            None,
+            Some({
+                let mut settled = restart_telemetry();
+                settled.trace.orphan_span_count = 1;
+                settled.background_model_work = 1;
+                settled
+            }),
+        ]);
+        let settled = settle_response_snapshot(active, Duration::from_millis(150), || {
+            std::future::ready(pending.pop_front().flatten())
+        })
+        .await;
+        assert_eq!(settled.trace.orphan_span_count, 1);
+        assert_eq!(settled.background_model_work, 1);
+        assert_eq!(settled.tokens.input, Some(100));
+        assert!(!settled.trace.closed);
+    }
+
+    #[tokio::test]
+    async fn response_settling_keeps_unfinished_children_failed_at_the_deadline() {
+        let mut active = restart_telemetry();
+        active.trace.orphan_span_count = 2;
+        active.background_model_work = 1;
+        let retained = settle_response_snapshot(active, Duration::from_millis(30), || {
+            let mut pending = restart_telemetry();
+            pending.trace.orphan_span_count = 2;
+            pending.background_model_work = 1;
+            std::future::ready(Some(pending))
+        })
+        .await;
+        assert_eq!(retained.trace.orphan_span_count, 2);
+        assert!(!retained.trace.closed);
+    }
+
+    #[tokio::test]
+    async fn completion_observation_waits_for_parent_followup_and_keeps_its_usage() {
+        let mut initial = restart_telemetry();
+        initial.trace.orphan_span_count = 0;
+        let mut snapshots = std::collections::VecDeque::from([
+            {
+                let mut s = restart_telemetry();
+                s.trace.orphan_span_count = 1;
+                s
+            },
+            {
+                let mut s = restart_telemetry();
+                s.tokens.input = Some(200);
+                s
+            },
+        ]);
+        let observed = observe_trial_completion(
+            initial,
+            Some(Duration::from_millis(650)),
+            Duration::from_millis(150),
+            || {
+                let snapshot = snapshots.pop_front().unwrap_or_else(|| {
+                    let mut s = restart_telemetry();
+                    s.tokens.input = Some(200);
+                    s
+                });
+                std::future::ready(Some(snapshot))
+            },
+        )
+        .await;
+        assert!(snapshots.is_empty());
+        assert_eq!(observed.trace.orphan_span_count, 0);
+        assert_eq!(observed.tokens.input, Some(200));
+    }
+
+    #[tokio::test]
+    async fn completion_observation_preserves_busy_work_at_budget_or_deadline() {
+        for exhausted in [false, true] {
+            let mut initial = restart_telemetry();
+            initial.trace.orphan_span_count = 1;
+            initial.budget_exhausted = exhausted;
+            let observed = observe_trial_completion(
+                initial,
+                Some(Duration::from_millis(30)),
+                Duration::from_millis(10),
+                || std::future::ready(None),
+            )
+            .await;
+            assert_eq!(observed.trace.orphan_span_count, 1);
+            assert_eq!(observed.budget_exhausted, exhausted);
+        }
+    }
+
+    #[tokio::test]
+    async fn completion_observation_unlimited_waits_for_natural_completion() {
+        let mut initial = restart_telemetry();
+        initial.trace.orphan_span_count = 1;
+        let started = Instant::now();
+        let observed = tokio::time::timeout(
+            Duration::from_secs(2),
+            observe_trial_completion(initial, None, Duration::from_millis(20), || {
+                let mut snapshot = restart_telemetry();
+                snapshot.trace.orphan_span_count =
+                    u64::from(started.elapsed() < Duration::from_millis(350));
+                snapshot.tokens.input = Some(900_001);
+                std::future::ready(Some(snapshot))
+            }),
+        )
+        .await
+        .expect("test observation did not converge");
+        assert!(started.elapsed() >= Duration::from_millis(350));
+        assert_eq!(observed.trace.orphan_span_count, 0);
+        assert_eq!(observed.tokens.input, Some(900_001));
+        assert!(!observed.budget_exhausted);
+    }
+
+    #[tokio::test]
+    async fn completion_observation_unlimited_settles_late_background_usage() {
+        let mut initial = restart_telemetry();
+        initial.trace.orphan_span_count = 3;
+        initial.background_model_work = 3;
+        let started = Instant::now();
+        let observed = tokio::time::timeout(
+            Duration::from_secs(2),
+            observe_trial_completion(initial, None, Duration::from_millis(20), || {
+                let mut snapshot = restart_telemetry();
+                let pending = started.elapsed() < Duration::from_millis(350);
+                snapshot.trace.orphan_span_count = if pending { 3 } else { 0 };
+                snapshot.background_model_work = if pending { 3 } else { 0 };
+                snapshot.tokens.input = Some(if pending { 100 } else { 6_730 });
+                snapshot.tokens.output = Some(if pending { 10 } else { 4_868 });
+                std::future::ready(Some(snapshot))
+            }),
+        )
+        .await
+        .expect("background settlement did not converge");
+        assert!(started.elapsed() >= Duration::from_millis(350));
+        assert_eq!(observed.trace.orphan_span_count, 0);
+        assert_eq!(observed.background_model_work, 0);
+        assert_eq!(observed.tokens.input, Some(6_730));
+        assert_eq!(observed.tokens.output, Some(4_868));
+    }
+
+    #[test]
+    fn completion_observation_includes_unlimited_context_profile() {
+        assert!(observes_trial_completion(
+            "eval-safe-context-compaction-v1",
+            true
+        ));
+        assert!(!observes_trial_completion(
+            "eval-safe-context-compaction-v1",
+            false
+        ));
+        for profile in ["eval-control-plane-ready-v5", "eval-control-plane-ready-v6"] {
+            assert!(observes_trial_completion(profile, true));
+            assert!(observes_trial_completion(profile, false));
+        }
+    }
+
+    #[test]
+    fn queued_work_wire_contract_preserves_open_trace_and_actual_usage() {
+        let mut wire = serde_json::to_value(restart_telemetry()).unwrap();
+        wire["pendingWork"] = json!(2);
+        wire["trace"]["orphanSpanCount"] = json!(2);
+        let parsed: TelemetrySnapshot = serde_json::from_value(wire).unwrap();
+        assert_eq!(parsed.pending_work, 2);
+        assert_eq!(parsed.trace.orphan_span_count, 2);
+        assert_eq!(parsed.tokens.input, Some(100));
+    }
+
+    #[test]
+    fn clean_goal_objective_uses_public_task_instead_of_fault_title() {
+        let live = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/live/scenarios");
+        let mut scenario: LiveAgentScenario =
+            read_json(&live.join("HA-GL-004/1.9.0/scenario.json")).unwrap();
+        let historical = scenario_initial_goal(&scenario, FaultProfile::Clean).unwrap();
+        assert_eq!(historical["objective"], scenario.task.success_summary);
+        scenario.subject.config_profile = "eval-control-plane-ready-v3".to_string();
+        let clean = scenario_initial_goal(&scenario, FaultProfile::Clean).unwrap();
+        assert!(clean["objective"]
+            .as_str()
+            .unwrap()
+            .contains("公开合成文件任务"));
+        assert_ne!(clean["objective"], scenario.task.success_summary);
+        assert_eq!(
+            scenario_initial_goal(&scenario, FaultProfile::Chaos).unwrap()["objective"],
+            historical["objective"]
+        );
+        assert_eq!(
+            scenario_workflow_mode(&scenario),
+            Some(ha_core::workflow_mode::WorkflowMode::On)
+        );
+    }
+
+    #[test]
+    fn synthetic_git_workspace_supports_child_worktrees_without_changing_fixture() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("workspace");
+        std::fs::create_dir_all(workspace.join("fixtures")).unwrap();
+        let fixture = workspace.join("fixtures/task-state.json");
+        std::fs::write(&fixture, b"{\"synthetic\":true}\n").unwrap();
+        let before = std::fs::read(&fixture).unwrap();
+        provision_synthetic_git_workspace(&workspace).unwrap();
+        let child = root.path().join("child");
+        let status = std::process::Command::new("git")
+            .args(["worktree", "add", "--quiet", "--detach"])
+            .arg(&child)
+            .current_dir(&workspace)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(
+            std::fs::read(child.join("fixtures/task-state.json")).unwrap(),
+            before
+        );
+        assert_eq!(std::fs::read(fixture).unwrap(), before);
+    }
+
+    #[test]
+    fn versioned_owner_setup_enables_workflow_for_goal_and_workflow_cases_only() {
+        let live = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/live/scenarios");
+        for (id, version, expected) in [
+            (
+                "HA-WF-002",
+                "1.8.0",
+                Some(ha_core::workflow_mode::WorkflowMode::On),
+            ),
+            (
+                "HA-GL-004",
+                "1.9.0",
+                Some(ha_core::workflow_mode::WorkflowMode::On),
+            ),
+            ("HA-AJ-005", "1.9.0", None),
+            ("HA-ST-002", "1.8.0", None),
+        ] {
+            let mut scenario: LiveAgentScenario =
+                read_json(&live.join(id).join(version).join("scenario.json")).unwrap();
+            assert_eq!(
+                scenario_workflow_mode(&scenario),
+                None,
+                "historical setup: {id}"
+            );
+            scenario.subject.config_profile = "eval-control-plane-ready-v2".to_string();
+            let mode = scenario_workflow_mode(&scenario);
+            assert_eq!(mode, expected, "versioned setup: {id}");
+            let request: ha_server::routes::chat::ChatRequest = serde_json::from_value(json!({
+                "message": "synthetic fixture task",
+                "workflowMode": mode,
+            }))
+            .unwrap();
+            assert_eq!(
+                request.workflow_mode, expected,
+                "production owner wire: {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn model_binding_fixture_checks_background_and_parent_calls() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/model-call-bindings.v1.json"
+        ))
+        .unwrap();
+        let model: ModelProfile = serde_json::from_value(fixture["expected"].clone()).unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let events = case["calls"].as_array().unwrap().iter().enumerate().map(|(i, attributes)| {
+                serde_json::from_value(json!({
+                    "seq":i+1,"event":"model.call","timestampMs":i,"spanId":format!("span_{i}"),"parentSpanId":"root","status":"succeeded","durationMs":1,"attributes":attributes
+                })).unwrap()
+            }).collect::<Vec<ModelCampaignEvent>>();
+            let check = model_binding_check(&model, &events);
+            assert_eq!(
+                check.passed,
+                case["expectedMatch"].as_bool().unwrap(),
+                "{}",
+                case["id"]
+            );
+            assert!(check.blocking);
+        }
+    }
 
     fn restart_telemetry() -> TelemetrySnapshot {
         TelemetrySnapshot {
             attribution: AttributionCompleteness::Complete,
             active_children: 0,
             background_model_work: 0,
+            pending_work: 0,
             budget_exhausted: false,
             budget_exhaustion_reasons: Vec::new(),
             timings: TimingMetrics {
@@ -2785,6 +4635,125 @@ mod tests {
                 attributes: std::collections::BTreeMap::new(),
             }],
         }
+    }
+
+    #[test]
+    fn registered_control_expectations_are_completed_and_fault_outcomes_stay_strict() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/live/scenarios");
+        for case in [
+            "HA-GL-004",
+            "HA-WF-004",
+            "HA-WF-005",
+            "HA-AJ-003",
+            "HA-AJ-005",
+            "HA-ST-005",
+        ] {
+            let config: Value =
+                read_json(&root.join(case).join("1.9.0/verifiers/state.json")).unwrap();
+            let field = if case == "HA-GL-004" {
+                "state"
+            } else if case.starts_with("HA-WF") {
+                "state"
+            } else {
+                "status"
+            };
+            let completed = if case == "HA-GL-004" {
+                json!({"goal":{"state":"completed"}})
+            } else {
+                json!([{field:"completed"}])
+            };
+            assert!(
+                owner_state_matches(&config, &completed, FaultProfile::Clean).unwrap(),
+                "{case}"
+            );
+            assert!(
+                !owner_state_matches(&config, &completed, FaultProfile::Chaos).unwrap(),
+                "{case}"
+            );
+            let faulted = if case == "HA-GL-004" {
+                json!({"goal":{"state":"failed"}})
+            } else {
+                json!([config["expectedByFaultProfile"]["chaos"]["anyItemSubset"].clone()])
+            };
+            assert!(
+                owner_state_matches(&config, &faulted, FaultProfile::Chaos).unwrap(),
+                "{case}"
+            );
+            assert!(
+                !owner_state_matches(&config, &faulted, FaultProfile::Clean).unwrap(),
+                "{case}"
+            );
+        }
+        let incomplete = json!({"expectedByFaultProfile":{"clean":{"expectedSubset":{}}}});
+        assert!(owner_state_matches(&incomplete, &json!({}), FaultProfile::Chaos).is_err());
+    }
+
+    #[tokio::test]
+    async fn failed_worker_recovery_reads_scoped_usage_and_cancels_existing_work() {
+        use axum::{
+            extract::{Path as ApiPath, State},
+            http::HeaderMap,
+            routing::{get, post},
+            Json, Router,
+        };
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        async fn snapshot(
+            ApiPath(id): ApiPath<String>,
+            State(done): State<Arc<AtomicBool>>,
+            headers: HeaderMap,
+        ) -> Result<Json<Value>, axum::http::StatusCode> {
+            if id != "campaign-b-paired-trial-attempt-1"
+                || headers.get("authorization").and_then(|v| v.to_str().ok())
+                    != Some("Bearer synthetic-owner-token")
+            {
+                return Err(axum::http::StatusCode::NOT_FOUND);
+            }
+            let mut telemetry = restart_telemetry();
+            telemetry.cost.agent_usd = Some(0.25);
+            telemetry.trace.closed = done.load(Ordering::SeqCst);
+            Ok(Json(serde_json::to_value(telemetry).unwrap()))
+        }
+        async fn cleanup(State(done): State<Arc<AtomicBool>>) -> Json<Value> {
+            done.store(true, Ordering::SeqCst);
+            Json(json!({"ok":true}))
+        }
+        let done = Arc::new(AtomicBool::new(false));
+        let router = Router::new()
+            .route("/api/eval/model/trials/{id}", get(snapshot))
+            .route("/api/eval/model/trials/{id}/cleanup", post(cleanup))
+            .with_state(done.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let url = format!("http://{address}");
+        assert!(recover_trial_snapshot(
+            &url,
+            Some("synthetic-owner-token"),
+            "campaign-a-paired-trial-attempt-1"
+        )
+        .await
+        .is_none());
+        assert!(!done.load(Ordering::SeqCst));
+        let (telemetry, error) = recover_trial_snapshot(
+            &url,
+            Some("synthetic-owner-token"),
+            "campaign-b-paired-trial-attempt-1",
+        )
+        .await
+        .unwrap();
+        assert!(error.is_none());
+        assert!(telemetry.trace.closed);
+        assert_eq!(telemetry.orchestration.model_calls, 3);
+        assert_eq!(telemetry.tokens.input, Some(100));
+        assert_eq!(telemetry.tokens.output, Some(25));
+        assert_eq!(telemetry.cost.agent_usd, Some(0.25));
+        assert!(done.load(Ordering::SeqCst));
+        server.abort();
     }
 
     #[test]
@@ -2853,7 +4822,11 @@ mod tests {
     fn user_event_phase_requires_unfinished_real_control_plane_state() {
         let telemetry = restart_telemetry();
         let workspace = tempfile::tempdir().unwrap();
-        assert!(user_event_phase_instruction("reject_delete_approval").contains("不得执行删除"));
+        assert!(user_event_phase_instruction(
+            "reject_delete_approval",
+            "eval-control-plane-ready-v9"
+        )
+        .contains("不得执行删除"));
         assert!(
             user_event_precondition_observed(
                 "pause_resume_cancel_sequence",
@@ -2872,6 +4845,66 @@ mod tests {
             )
             .0
         );
+    }
+
+    #[test]
+    fn cache_checkpoint_requires_a_real_successful_summary_receipt() {
+        let receipt = |operation: &str, mode: Option<&str>, success: bool| ModelCampaignEvent {
+            seq: 1,
+            event: "model.call".into(),
+            timestamp_ms: 0,
+            span_id: "summary".into(),
+            parent_span_id: "root".into(),
+            key: None,
+            status: if success { "succeeded" } else { "failed" }.into(),
+            duration_ms: 1,
+            attributes: serde_json::from_value(json!({
+                "operation": operation, "summaryRequestMode": mode, "success": success
+            }))
+            .unwrap(),
+        };
+        assert_eq!(
+            successful_summary_calls(&[
+                receipt("context.dedicated_summarize", Some("independent"), true),
+                receipt("context.summarize_direct", Some("native_prefix_fork"), true),
+                receipt(
+                    "context.dedicated_summarize",
+                    Some("native_prefix_fork"),
+                    false
+                ),
+                receipt("context.dedicated_summarize", None, true),
+                receipt("chat_round", Some("native_prefix_fork"), true),
+            ]),
+            2
+        );
+        let mut flow = json!({"schemaVersion": "scripted-user-flow.v3", "steps": [
+            {"action":"cache_checkpoint", "phase":"auto", "minTotalSummaryCalls":1}
+        ]});
+        assert!(parse_scripted_user_flow(flow.clone(), 1).is_ok());
+        flow["steps"][0]["minTotalSummaryCalls"] = json!(9);
+        assert!(parse_scripted_user_flow(flow, 1).is_err());
+    }
+
+    #[test]
+    fn cache_script_requires_v3_unique_nonempty_phases_and_bounded_truth() {
+        let flow = json!({"schemaVersion": "scripted-user-flow.v3", "steps": [
+            {"action": "cache_checkpoint", "phase": "cold_history", "expectedResponse": {"fact": 1}},
+            {"action": "message", "message": "继续"},
+            {"action": "cache_checkpoint", "phase": "warm_1", "expectedResponse": {"fact": 1}}
+        ]});
+        assert_eq!(parse_scripted_user_flow(flow.clone(), 2).unwrap().len(), 3);
+        let mut wrong_version = flow.clone();
+        wrong_version["schemaVersion"] = json!("scripted-user-flow.v2");
+        assert!(parse_scripted_user_flow(wrong_version, 2).is_err());
+        let mut duplicate = flow.clone();
+        duplicate["steps"][2]["phase"] = json!("cold_history");
+        assert!(parse_scripted_user_flow(duplicate, 2).is_err());
+        let mut empty = flow.clone();
+        empty["steps"].as_array_mut().unwrap().remove(1);
+        assert!(parse_scripted_user_flow(empty, 2).is_err());
+        let mut invalid_truth = flow;
+        invalid_truth["steps"][0]["expectedResponse"] = json!(["not an object"]);
+        assert!(parse_scripted_user_flow(invalid_truth, 2).is_err());
     }
 
     #[test]
@@ -3051,6 +5084,7 @@ mod tests {
                 attribution: AttributionCompleteness::Complete,
                 active_children: 0,
                 background_model_work: 0,
+                pending_work: 0,
                 budget_exhausted: false,
                 budget_exhaustion_reasons: Vec::new(),
                 timings: TimingMetrics {
@@ -3119,5 +5153,667 @@ mod tests {
         assert!(after.events.iter().any(|event| {
             event.span_id == "span_interrupted_automation" && event.status == "cancelled"
         }));
+    }
+    #[test]
+    fn cancelled_artifact_expectations_do_not_weaken_control() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("result.json");
+        let config = json!({"expectedByFaultProfile": {
+            "clean": {"expectedSubset": {"status":"verified"}},
+            "chaos": {"expectedAbsent":true}
+        }});
+        assert!(
+            file_json_expectation(dir.path(), &path, &config, FaultProfile::Chaos)
+                .unwrap()
+                .0
+        );
+        assert!(
+            !file_json_expectation(dir.path(), &path, &config, FaultProfile::Clean)
+                .unwrap()
+                .0
+        );
+        std::fs::write(&path, r#"{"status":"verified"}"#).unwrap();
+        assert!(
+            file_json_expectation(dir.path(), &path, &config, FaultProfile::Clean)
+                .unwrap()
+                .0
+        );
+        assert!(
+            !file_json_expectation(dir.path(), &path, &config, FaultProfile::Chaos)
+                .unwrap()
+                .0
+        );
+        let conflicting = json!({"expectedSubset": {}, "expectedByFaultProfile":{"chaos":{"expectedAbsent":true}}});
+        assert!(
+            file_json_expectation(dir.path(), &path, &conflicting, FaultProfile::Chaos).is_err()
+        );
+    }
+
+    #[test]
+    fn research_exact_citations_reject_out_of_range_or_duplicate_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("result.json");
+        let config = json!({"expectedSubset":{"itemCount":2}, "exactFields":{"citations":["fixture:A","fixture:B"]}});
+        for (citations, expected) in [
+            (json!(["fixture:A", "fixture:B"]), true),
+            (json!(["fixture:A", "fixture:B", "fixture:C"]), false),
+            (json!(["fixture:A", "fixture:A"]), false),
+            (json!(["fixture:A"]), false),
+        ] {
+            std::fs::write(
+                &path,
+                json!({"itemCount":2,"citations":citations}).to_string(),
+            )
+            .unwrap();
+            assert_eq!(
+                file_json_expectation(dir.path(), &path, &config, FaultProfile::Chaos)
+                    .unwrap()
+                    .0,
+                expected
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn absent_artifact_rejects_dangling_and_ancestor_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let config = json!({"expectedAbsent":true});
+        let path = dir.path().join("result.json");
+        std::os::unix::fs::symlink(outside.path().join("missing.json"), &path).unwrap();
+        assert!(
+            !file_json_expectation(dir.path(), &path, &config, FaultProfile::Chaos)
+                .unwrap()
+                .0
+        );
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("escaped")).unwrap();
+        assert!(
+            !file_json_expectation(
+                dir.path(),
+                &dir.path().join("escaped/missing.json"),
+                &config,
+                FaultProfile::Chaos
+            )
+            .unwrap()
+            .0
+        );
+    }
+
+    #[test]
+    fn expected_cancellation_never_masks_generic_provider_errors() {
+        let cancelled = br#"{"error":"chat cancelled by caller"}"#;
+        assert!(expected_scripted_cancellation(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            cancelled,
+            Some("cancel_parent_during_child_tool"),
+            true
+        ));
+        for (status, body, trigger, ready) in [
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                cancelled.as_slice(),
+                Some("after_first_draft"),
+                true,
+            ),
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                cancelled.as_slice(),
+                Some("cancel_parent_during_child_tool"),
+                false,
+            ),
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                cancelled.as_slice(),
+                Some("cancel_parent_during_child_tool"),
+                true,
+            ),
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                br#"{"error":"Provider failed"}"#.as_slice(),
+                Some("cancel_parent_during_child_tool"),
+                true,
+            ),
+        ] {
+            assert!(!expected_scripted_cancellation(
+                status, body, trigger, ready
+            ));
+        }
+    }
+    #[test]
+    fn http_error_hints_preserve_diagnostics_without_credentials_or_utf8_panics() {
+        assert_eq!(
+            http_error_hint(br#"{"error":"synthetic admission conflict"}"#),
+            "synthetic admission conflict"
+        );
+        for message in [
+            "Bearer synthetic-credential",
+            "sk_synthetic_credential",
+            "eyJsynthetic.jwt.value",
+            "access_token=sensitive",
+        ] {
+            let value = serde_json::to_vec(&json!({"error":message})).unwrap();
+            let hint = http_error_hint(&value);
+            assert!(hint.starts_with("[REDACTED"));
+            assert!(!hint.contains(message));
+        }
+        let value = serde_json::to_vec(&json!({"error":"评测错误".repeat(1000)})).unwrap();
+        let hint = http_error_hint(&value);
+        assert!(hint.len() <= 2000);
+        assert_eq!(
+            http_error_hint(b"not JSON"),
+            "non-JSON or missing error detail"
+        );
+    }
+    #[tokio::test]
+    async fn draft_revision_settles_prior_work_without_waiting_for_cancel_targets() {
+        assert!(scripted_revision_requires_settlement(
+            "eval-control-plane-ready-v8",
+            "narrow_time_range_after_draft"
+        ));
+        for trigger in [
+            "cancel_parent_during_child_tool",
+            "purge_before_completion",
+            "pause_resume_cancel_sequence",
+        ] {
+            assert!(!scripted_revision_requires_settlement(
+                "eval-control-plane-ready-v8",
+                trigger
+            ));
+        }
+        assert!(!scripted_revision_requires_settlement(
+            "eval-control-plane-ready-v7",
+            "narrow_time_range_after_draft"
+        ));
+        let mut initial = restart_telemetry();
+        initial.trace.orphan_span_count = 0;
+        initial.active_children = 1;
+        initial.background_model_work = 1;
+        initial.pending_work = 1;
+        let mut released = restart_telemetry();
+        released.trace.orphan_span_count = 0;
+        let mut repeated = restart_telemetry();
+        repeated.trace.orphan_span_count = 0;
+        let mut snapshots = std::collections::VecDeque::from([released, repeated]);
+        let observed = observe_trial_completion_for_phase(
+            initial,
+            None,
+            Duration::from_millis(10),
+            true,
+            || std::future::ready(snapshots.pop_front()),
+        )
+        .await;
+        assert!(prior_scripted_work_settled(&observed));
+        assert!(snapshots.is_empty());
+        let mut busy = restart_telemetry();
+        busy.trace.orphan_span_count = 0;
+        busy.pending_work = 1;
+        let timed_out = observe_trial_completion_for_phase(
+            busy,
+            Some(Duration::from_millis(10)),
+            Duration::from_millis(10),
+            true,
+            || std::future::ready(None),
+        )
+        .await;
+        assert!(!prior_scripted_work_settled(&timed_out));
+        assert_eq!(timed_out.pending_work, 1);
+    }
+    #[test]
+    fn scripted_owner_goal_actions_are_bounded_typed_and_followed_by_user_input() {
+        let action = json!({"action":"update_goal","objective":"revised objective","completionCriteria":"new evidence"});
+        let message = json!({"action":"message","message":"continue with updated user contract"});
+        let flow =
+            |steps: Vec<Value>| json!({"schemaVersion":"scripted-user-flow.v2","steps":steps});
+        assert!(parse_scripted_user_flow(flow(vec![action.clone(), message.clone()]), 2).is_ok());
+        assert!(parse_scripted_user_flow(flow(vec![message.clone(), action.clone()]), 2).is_err());
+        assert!(parse_scripted_user_flow(flow(vec![action.clone()]), 2).is_err());
+        assert!(parse_scripted_user_flow(
+            flow(vec![action.clone(), action.clone(), message.clone()]),
+            2
+        )
+        .is_err());
+        for patch in [
+            json!({"objective":""}),
+            json!({"goalId":"foreign"}),
+            json!({"headers":{"Authorization":"forbidden"}}),
+        ] {
+            let mut invalid = action.clone();
+            invalid
+                .as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            assert!(parse_scripted_user_flow(flow(vec![invalid, message.clone()]), 2).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn owner_goal_revision_checks_session_scope_and_actual_revision_change() {
+        use axum::{
+            routing::{get, patch},
+            Json, Router,
+        };
+        use std::sync::{Arc, Mutex};
+        for (read_session, goal_id, revision, expected) in [
+            ("session-fixture", "goal-fixture", 2, Some(true)),
+            ("session-fixture", "goal-fixture", 1, Some(false)),
+            ("session-fixture", "goal-fixture", 3, Some(false)),
+            ("foreign-session", "goal-fixture", 2, None),
+            ("session-fixture", "bad/id", 2, None),
+        ] {
+            let before = json!({"goal":{"id":goal_id,"sessionId":read_session,"revision":1,"state":"blocked"}});
+            let after = json!({"goal":{"id":"goal-fixture","sessionId":"session-fixture","revision":revision,"state":"active"}});
+            let seen = Arc::new(Mutex::new(Vec::<Value>::new()));
+            let capture = seen.clone();
+            let app=Router::new()
+                .route("/api/sessions/session-fixture/goal/latest", get(move || {let body=before.clone();async move {Json(body)}}))
+                .route("/api/goals/goal-fixture", patch(move |headers:axum::http::HeaderMap, Json(body):Json<Value>| {
+                    let capture=capture.clone();let after=after.clone();async move {
+                        assert_eq!(headers.get("authorization").unwrap(),"Bearer test-owner");
+                        assert_eq!(body,json!({"objective":"revised objective","completionCriteria":"new evidence"}));
+                        capture.lock().unwrap().push(body);Json(after)
+                    }
+                }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let client = Client::builder().no_proxy().build().unwrap();
+            let result = apply_scripted_goal_revision(
+                &client,
+                &url,
+                Some("test-owner"),
+                "session-fixture",
+                "revised objective",
+                "new evidence",
+            )
+            .await;
+            match expected {
+                Some(value) => assert_eq!(result.unwrap().passed, value),
+                None => assert!(result.is_err()),
+            }
+            assert_eq!(seen.lock().unwrap().len(), usize::from(expected.is_some()));
+            server.abort();
+            let _ = server.await;
+        }
+    }
+    #[tokio::test]
+    async fn scripted_readmission_requires_typed_pre_dispatch_proof_and_leaves_children_active() {
+        use axum::{
+            routing::{get, post},
+            Json, Router,
+        };
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        for (first_status, code, missing_state, expected_posts) in [
+            (409, "chat_admission_busy", false, 2),
+            (500, "chat_admission_busy", false, 1),
+            (409, "unrelated_conflict", false, 1),
+            (402, "insufficient_quota", false, 1),
+            (409, "chat_admission_busy", true, 0),
+        ] {
+            let posts = Arc::new(AtomicUsize::new(0));
+            let count = posts.clone();
+            let app=Router::new()
+                .route("/api/sessions/session-fixture/stream-state",get(move ||async move {
+                    Json(if missing_state {json!({"active":false})} else {json!({"active":false,"admissionActive":false,"activeChildren":2,"pendingWork":3})})
+                }))
+                .route("/api/chat",post(move |headers:axum::http::HeaderMap,Json(body):Json<Value>| {
+                    let count=count.clone();async move {
+                        assert_eq!(headers.get("authorization").unwrap(),"Bearer test-owner");
+                        assert_eq!(body,json!({"sessionId":"session-fixture","message":"cancel only when admitted"}));
+                        if count.fetch_add(1,Ordering::SeqCst)==0 {
+                            (axum::http::StatusCode::from_u16(first_status).unwrap(),Json(json!({"code":code,"error":"active_stream: text alone cannot prove pre-dispatch rejection"})))
+                        } else {(axum::http::StatusCode::OK,Json(json!({"accepted":true})))}
+                    }
+                }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let client = Client::builder().no_proxy().build().unwrap();
+            let result = send_scripted_user_turn(
+                &client,
+                &url,
+                Some("test-owner"),
+                &json!({"sessionId":"session-fixture","message":"cancel only when admitted"}),
+                "session-fixture",
+                "trial",
+                "case",
+            )
+            .await;
+            if missing_state {
+                assert!(result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("omitted authoritative state"));
+            } else {
+                let (status, _, rejections, wait_ms) = result.unwrap();
+                assert_eq!(rejections, u32::from(expected_posts == 2));
+                assert_eq!(
+                    status.as_u16(),
+                    if expected_posts == 2 {
+                        200
+                    } else {
+                        first_status
+                    }
+                );
+                assert!(wait_ms >= 250);
+            }
+            assert_eq!(posts.load(Ordering::SeqCst), expected_posts);
+            server.abort();
+            let _ = server.await;
+        }
+    }
+
+    #[test]
+    fn read_only_loop_fixture_rejects_unreachable_iteration_fault_before_dispatch() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/live/scenarios/HA-GL-003");
+        let historical: LiveAgentScenario = read_json(&root.join("1.18.0/scenario.json")).unwrap();
+        assert!(
+            validate_harness_preconditions(&root.join("1.18.0"), &historical)
+                .unwrap_err()
+                .to_string()
+                .contains("read-only Loop setup")
+        );
+        let repaired: LiveAgentScenario = read_json(&root.join("1.19.0/scenario.json")).unwrap();
+        validate_harness_preconditions(&root.join("1.19.0"), &repaired).unwrap();
+    }
+    #[test]
+    fn scripted_stop_cannot_carry_targets_or_be_followed_by_model_input() {
+        let stop = json!({"action":"stop_parent"});
+        assert!(parse_scripted_user_flow(
+            json!({"schemaVersion":"scripted-user-flow.v2","steps":[stop.clone()]}),
+            1
+        )
+        .is_ok());
+        assert!(parse_scripted_user_flow(json!({"schemaVersion":"scripted-user-flow.v2","steps":[stop,json!({"action":"message","message":"resume"})]}),2).is_err());
+        for key in ["sessionId", "goalId", "headers", "url"] {
+            let mut action = json!({"action":"stop_parent"});
+            action[key] = json!("forbidden");
+            assert!(
+                parse_scripted_user_flow(
+                    json!({"schemaVersion":"scripted-user-flow.v2","steps":[action]}),
+                    1
+                )
+                .is_err(),
+                "{key}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn owner_stop_checks_actual_running_child_scope_and_never_uses_global_stop() {
+        use axum::{
+            routing::{get, post},
+            Json, Router,
+        };
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let row = |id: &str, parent: &str, status: &str, reason: Option<&str>| json!({"runId":id,"parentSessionId":parent,"status":status,"terminalReason":reason});
+        let active = row("target-run", "session-fixture", "running", None);
+        let killed = row(
+            "target-run",
+            "session-fixture",
+            "killed",
+            Some("user_stopped"),
+        );
+        let paused = row(
+            "target-run",
+            "session-fixture",
+            "interrupted",
+            Some("session_paused"),
+        );
+        let completed = row(
+            "target-run",
+            "session-fixture",
+            "completed",
+            Some("success"),
+        );
+        for (name, before, after, expected_post, expected_pass) in [
+            ("killed", json!([active]), json!([killed]), true, true),
+            (
+                "session pause",
+                json!([active]),
+                json!([paused]),
+                true,
+                true,
+            ),
+            (
+                "crash interruption",
+                json!([active]),
+                json!([row(
+                    "target-run",
+                    "session-fixture",
+                    "interrupted",
+                    Some("process_interrupted")
+                )]),
+                true,
+                false,
+            ),
+            (
+                "normal completion",
+                json!([active]),
+                json!([completed]),
+                true,
+                false,
+            ),
+            (
+                "already completed",
+                json!([completed]),
+                json!([completed]),
+                false,
+                false,
+            ),
+            (
+                "foreign active run",
+                json!([row("target-run", "foreign-session", "running", None)]),
+                json!([killed]),
+                false,
+                false,
+            ),
+            ("missing target", json!([active]), json!([]), true, false),
+            (
+                "different target killed",
+                json!([active]),
+                json!([row(
+                    "other-run",
+                    "session-fixture",
+                    "killed",
+                    Some("user_stopped")
+                )]),
+                true,
+                false,
+            ),
+            (
+                "target changed owner",
+                json!([active]),
+                json!([row(
+                    "target-run",
+                    "foreign-session",
+                    "killed",
+                    Some("user_stopped")
+                )]),
+                true,
+                false,
+            ),
+            (
+                "all targets stopped",
+                json!([
+                    active,
+                    row("second-run", "session-fixture", "running", None)
+                ]),
+                json!([
+                    paused,
+                    row(
+                        "second-run",
+                        "session-fixture",
+                        "killed",
+                        Some("user_stopped")
+                    )
+                ]),
+                true,
+                true,
+            ),
+            (
+                "second target still running",
+                json!([
+                    active,
+                    row("second-run", "session-fixture", "running", None)
+                ]),
+                json!([
+                    killed,
+                    row("second-run", "session-fixture", "running", None)
+                ]),
+                true,
+                false,
+            ),
+        ] {
+            let posts = Arc::new(AtomicUsize::new(0));
+            let for_read = posts.clone();
+            let count = posts.clone();
+            let app = Router::new()
+                .route(
+                    "/api/subagent/runs",
+                    get(move || {
+                        let for_read = for_read.clone();
+                        let before = before.clone();
+                        let after = after.clone();
+                        async move {
+                            Json(if for_read.load(Ordering::SeqCst) > 0 {
+                                after
+                            } else {
+                                before
+                            })
+                        }
+                    }),
+                )
+                .route(
+                    "/api/chat/stop",
+                    post(
+                        move |headers: axum::http::HeaderMap, Json(body): Json<Value>| {
+                            let count = count.clone();
+                            async move {
+                                assert_eq!(
+                                    headers.get("authorization").unwrap(),
+                                    "Bearer test-owner"
+                                );
+                                assert_eq!(body, json!({"sessionId":"session-fixture"}));
+                                count.fetch_add(1, Ordering::SeqCst);
+                                Json(json!({"scope":"session","stopped":true,"turnMismatch":false}))
+                            }
+                        },
+                    ),
+                );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let client = Client::builder().no_proxy().build().unwrap();
+            assert_eq!(
+                apply_scripted_owner_stop_with_settlement(
+                    &client,
+                    &url,
+                    Some("test-owner"),
+                    "session-fixture",
+                    Duration::from_millis(30)
+                )
+                .await
+                .unwrap()
+                .passed,
+                expected_pass,
+                "{name}"
+            );
+            assert_eq!(
+                posts.load(Ordering::SeqCst),
+                usize::from(expected_post),
+                "{name}"
+            );
+            server.abort();
+            let _ = server.await;
+        }
+    }
+
+    #[test]
+    fn foreground_stop_signal_contract_is_validated_before_model_dispatch() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/live/scenarios/HA-ST-005");
+        let old: LiveAgentScenario = read_json(&root.join("1.21.0/scenario.json")).unwrap();
+        assert!(validate_harness_preconditions(&root.join("1.21.0"), &old)
+            .unwrap_err()
+            .to_string()
+            .contains("signals disagree"));
+        let fixed: LiveAgentScenario = read_json(&root.join("1.22.0/scenario.json")).unwrap();
+        validate_harness_preconditions(&root.join("1.22.0"), &fixed).unwrap();
+    }
+    #[test]
+    fn cancellation_setup_requires_the_declared_parent_job_and_active_child() {
+        let mut telemetry = restart_telemetry();
+        telemetry.active_children = 1;
+        let workspace = tempfile::tempdir().unwrap();
+        assert!(
+            !user_event_precondition_observed(
+                "cancel_parent_during_child_tool",
+                &telemetry,
+                workspace.path()
+            )
+            .0
+        );
+        telemetry.orchestration.async_jobs = 1;
+        telemetry.observed_signals.push("async_jobs".into());
+        assert!(
+            user_event_precondition_observed(
+                "cancel_parent_during_child_tool",
+                &telemetry,
+                workspace.path()
+            )
+            .0
+        );
+        telemetry.active_children = 0;
+        assert!(
+            !user_event_precondition_observed(
+                "cancel_parent_during_child_tool",
+                &telemetry,
+                workspace.path()
+            )
+            .0
+        );
+    }
+    #[test]
+    fn owner_stop_state_accepts_session_pause_but_rejects_crash_or_completion() {
+        let expectation = json!({"anyOf":[{"anyItemSubset":{"status":"killed"}},{"anyItemSubset":{"status":"interrupted","terminalReason":"session_paused"}}]});
+        for (actual, expected) in [
+            (json!([]), false),
+            (json!([{"status":"killed"}]), true),
+            (
+                json!([{"status":"interrupted","terminalReason":"session_paused"}]),
+                true,
+            ),
+            (
+                json!([{"status":"interrupted","terminalReason":"process_interrupted"}]),
+                false,
+            ),
+            (json!([{"status":"interrupted"}]), false),
+            (
+                json!([{"status":"completed","terminalReason":"success"}]),
+                false,
+            ),
+        ] {
+            assert_eq!(
+                owner_state_matches(&expectation, &actual, FaultProfile::Chaos).unwrap(),
+                expected
+            );
+        }
+        assert!(
+            owner_state_matches(&json!({"anyOf":[]}), &json!([]), FaultProfile::Chaos).is_err()
+        );
+        assert!(owner_state_matches(
+            &json!({"anyOf":[{"expectedExact":[]},{}]}),
+            &json!([]),
+            FaultProfile::Chaos
+        )
+        .is_err());
     }
 }
