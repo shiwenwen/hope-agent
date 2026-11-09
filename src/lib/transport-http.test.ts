@@ -5,6 +5,23 @@ import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "./transport"
 
 const fetchMock = vi.fn()
 
+test("personal assistant owner commands use their dedicated HTTP routes", async () => {
+  fetchMock.mockImplementation(async () => new Response("[]", { status: 200 }))
+  const transport = new HttpTransport("http://localhost:8420", "synthetic-owner")
+  const cases = [
+    ["ensure_personal_assistant_home", {}, "POST", "/home"],
+    ["list_personal_assistant_requests", {}, "GET", "/requests"],
+    ["cancel_personal_assistant_request", { id: "request-1" }, "POST", "/requests/request-1/cancel"],
+    ["personal_assistant_inbox", {}, "GET", "/watches"],
+    ["watch_personal_goal", { sessionId: "work-1", goalId: "goal-1" }, "POST", "/watches/work-1/goal-1"],
+    ["unwatch_personal_goal", { sessionId: "work-1", goalId: "goal-1" }, "DELETE", "/watches/work-1/goal-1"],
+  ] as const
+  for (const [command, args, method, path] of cases) {
+    await transport.call(command, args)
+    expect(fetchMock).toHaveBeenLastCalledWith("http://localhost:8420/api/personal-assistant" + path, expect.objectContaining({ method }))
+  }
+})
+
 test("HTTP discovery flattens the draft config and returns the typed list without inference normalization", async () => {
   const result = { models: [{ id: "model-A", name: "Model A" }], truncated: false }
   fetchMock.mockResolvedValue(new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json" } }))

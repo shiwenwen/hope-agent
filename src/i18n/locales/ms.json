@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Kelulusan dikendalikan pada peranti lain"
   },
   "auth": {
+    "ownerTokenSetupBody": "Pelayan ini mempunyai data pembantu peribadi. Tetapkan Server Owner Token dalam tetapan desktop atau konfigurasi permulaan pelayan, kemudian kembali ke sini untuk log masuk.",
     "checking": "Memeriksa keselamatan pelayan…",
     "fingerprint": "Cap jari token pelayan: {{fingerprint}}",
     "retry": "Cuba lagi",
@@ -12910,5 +12911,31 @@
       "degraded": "Terhad",
       "blocked": "Disekat"
     }
+  },
+  "personalAssistant": {
+    "stop": "Hentikan kerja",
+    "title": "Pembantu peribadi",
+    "work": "Tugas diwakilkan",
+    "goals": "Matlamat diikuti",
+    "emptyWork": "Minta pembantu menyelaraskan kerja dalam perbualan sedia ada.",
+    "emptyGoals": "Ikuti matlamat dari ruang kerjanya untuk menerima halangan baharu dan permintaan penerimaan di sini.",
+    "watchGoal": "Ikuti melalui pembantu",
+    "unwatchGoal": "Berhenti mengikuti",
+    "opening": "Membuka pembantu anda…",
+    "source": "Buka sumber",
+    "unavailable": "Item ini tidak lagi tersedia.",
+    "attention": "Memerlukan perhatian ({{count}})",
+    "blocked": "Halangan baharu",
+    "awaiting_acceptance": "Menunggu penerimaan anda",
+    "status": {
+      "queued": "Dalam giliran",
+      "running": "Sedang bekerja",
+      "cancellation_requested": "Henti diminta",
+      "completed": "Selesai",
+      "interrupted": "Terganggu",
+      "cancelled": "Dibatalkan",
+      "failed": "Gagal"
+    },
+    "historyLocked": "Sejarah pembantu tidak boleh ditulis semula. Hantar mesej baharu untuk membetulkan arahan atau hentikan tugasan yang diwakilkan dalam panel kerja."
   }
 }

@@ -139,6 +139,8 @@ pub mod oauth;
 pub mod onboarding;
 pub mod openclaw_import;
 pub mod permission;
+pub mod personal_assistant;
+mod personal_assistant_continue;
 pub mod pet;
 pub mod plan;
 pub mod process_notification;

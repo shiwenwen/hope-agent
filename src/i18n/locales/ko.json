@@ -164,6 +164,7 @@
     "resolvedElsewhere": "다른 기기에서 승인이 처리되었습니다"
   },
   "auth": {
+    "ownerTokenSetupBody": "이 서버에는 개인 비서 데이터가 있습니다. 데스크톱 설정이나 서버 시작 구성에서 Server Owner Token을 설정한 후 여기서 로그인하세요.",
     "checking": "서버 보안 상태 확인 중…",
     "fingerprint": "서버 토큰 지문: {{fingerprint}}",
     "retry": "다시 시도",
@@ -12910,5 +12911,31 @@
       "degraded": "제한됨",
       "blocked": "차단됨"
     }
+  },
+  "personalAssistant": {
+    "stop": "작업 중지",
+    "title": "개인 비서",
+    "work": "위임한 작업",
+    "goals": "관심 목표",
+    "emptyWork": "여기서 기존 작업 대화에 업무를 나누어 맡기세요.",
+    "emptyGoals": "작업 공간에서 목표를 팔로우하면 새 장애물과 검수 요청이 여기에 표시됩니다.",
+    "watchGoal": "비서가 목표 확인",
+    "unwatchGoal": "팔로우 중단",
+    "opening": "개인 비서를 여는 중…",
+    "source": "원본 열기",
+    "unavailable": "더 이상 사용할 수 없는 항목입니다.",
+    "attention": "확인 필요 ({{count}})",
+    "blocked": "새 장애물",
+    "awaiting_acceptance": "검수 대기",
+    "status": {
+      "queued": "대기 중",
+      "running": "처리 중",
+      "cancellation_requested": "중지 요청됨",
+      "completed": "완료",
+      "interrupted": "중단됨",
+      "cancelled": "취소됨",
+      "failed": "실패"
+    },
+    "historyLocked": "어시스턴트 기록은 수정 후 다시 보낼 수 없습니다. 새 메시지로 지시를 정정하거나 작업 패널에서 개별 위임을 중지하세요."
   }
 }

@@ -777,7 +777,14 @@ export interface SessionMeta {
     senderName?: string | null
   } | null
   /** Dedicated spaces use non-regular kinds and never enter regular unread. */
-  kind?: "regular" | "side" | "knowledge" | "design" | "eval_fixture" | string
+  kind?:
+    | "regular"
+    | "personal_assistant"
+    | "side"
+    | "knowledge"
+    | "design"
+    | "eval_fixture"
+    | string
 }
 
 /** Fork responses remain SessionMeta-compatible and optionally carry the
@@ -1023,9 +1030,7 @@ export function getEffortOptionsForType(apiType: string | undefined, t: (key: st
 }
 
 export function getEffortOptionsForModel(
-  model:
-    | Pick<AvailableModel, "apiType" | "modelId" | "reasoning" | "thinkingStyle">
-    | undefined,
+  model: Pick<AvailableModel, "apiType" | "modelId" | "reasoning" | "thinkingStyle"> | undefined,
   t: (key: string) => string,
 ) {
   if (!modelSupportsThinking(model)) {
@@ -1057,9 +1062,7 @@ export function getEffortOptionsForModel(
 }
 
 export function normalizeEffortForModel(
-  model:
-    | Pick<AvailableModel, "apiType" | "modelId" | "reasoning" | "thinkingStyle">
-    | undefined,
+  model: Pick<AvailableModel, "apiType" | "modelId" | "reasoning" | "thinkingStyle"> | undefined,
   effort: string,
   t: (key: string) => string,
 ): string {

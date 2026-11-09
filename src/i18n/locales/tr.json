@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Onay başka bir cihazda yanıtlandı"
   },
   "auth": {
+    "ownerTokenSetupBody": "Bu sunucuda özel asistan verileri var. Masaüstü ayarlarında veya sunucu başlangıç yapılandırmasında bir Server Owner Token belirleyin, ardından giriş yapmak için buraya dönün.",
     "checking": "Sunucu güvenliği denetleniyor…",
     "fingerprint": "Sunucu token parmak izi: {{fingerprint}}",
     "retry": "Tekrar dene",
@@ -12910,5 +12911,31 @@
       "degraded": "Kısıtlı",
       "blocked": "Engellendi"
     }
+  },
+  "personalAssistant": {
+    "stop": "İşi durdur",
+    "title": "Kişisel asistan",
+    "work": "Devredilen işler",
+    "goals": "Takip edilen hedefler",
+    "emptyWork": "Asistanınızdan mevcut sohbetlerinizdeki işleri koordine etmesini isteyin.",
+    "emptyGoals": "Yeni engelleri ve kabul isteklerini burada görmek için hedefi çalışma alanından takip edin.",
+    "watchGoal": "Asistanla takip et",
+    "unwatchGoal": "Takibi bırak",
+    "opening": "Asistanınız açılıyor…",
+    "source": "Kaynağı aç",
+    "unavailable": "Bu öğe artık kullanılamıyor.",
+    "attention": "İlgi gerekiyor ({{count}})",
+    "blocked": "Yeni engel",
+    "awaiting_acceptance": "Kabulünüz bekleniyor",
+    "status": {
+      "queued": "Sırada",
+      "running": "Çalışıyor",
+      "cancellation_requested": "Durdurma istendi",
+      "completed": "Tamamlandı",
+      "interrupted": "Kesildi",
+      "cancelled": "İptal edildi",
+      "failed": "Başarısız"
+    },
+    "historyLocked": "Asistan geçmişi yeniden yazılamaz. Bir talimatı düzeltmek için yeni bir mesaj gönderin veya çalışma panelinden bir görevlendirmeyi durdurun."
   }
 }

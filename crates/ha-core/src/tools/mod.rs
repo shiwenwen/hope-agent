@@ -62,6 +62,7 @@ mod schedule_wakeup;
 mod send_attachment;
 mod session_continue;
 mod sessions;
+pub use sessions::{cancel_personal_assistant_dispatch, spawn_personal_assistant_worker};
 mod settings;
 pub(crate) mod subagent;
 // Workflow runtime needs only these reserved adapter keys; exposing the

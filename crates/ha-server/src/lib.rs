@@ -2325,6 +2325,27 @@ fn build_router_with_cors(
             post(routes::execution_mode::set_workflow_mode),
         )
         .route(
+            "/personal-assistant/home",
+            post(routes::personal_assistant::ensure_personal_assistant_home),
+        )
+        .route(
+            "/personal-assistant/requests",
+            get(routes::personal_assistant::list_personal_assistant_requests),
+        )
+        .route(
+            "/personal-assistant/requests/{id}/cancel",
+            post(routes::personal_assistant::cancel_personal_assistant_request),
+        )
+        .route(
+            "/personal-assistant/watches",
+            get(routes::personal_assistant::personal_assistant_inbox),
+        )
+        .route(
+            "/personal-assistant/watches/{sid}/{gid}",
+            post(routes::personal_assistant::watch_personal_goal)
+                .delete(routes::personal_assistant::unwatch_personal_goal),
+        )
+        .route(
             "/sessions/{sid}/goal",
             get(routes::goal::get_active_goal).post(routes::goal::create_goal),
         )

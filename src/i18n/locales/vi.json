@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Phê duyệt đã được xử lý trên thiết bị khác"
   },
   "auth": {
+    "ownerTokenSetupBody": "Máy chủ này có dữ liệu trợ lý riêng tư. Đặt Server Owner Token trong cài đặt ứng dụng máy tính hoặc cấu hình khởi động máy chủ, rồi quay lại đây để đăng nhập.",
     "checking": "Đang kiểm tra bảo mật máy chủ…",
     "fingerprint": "Dấu vân tay token máy chủ: {{fingerprint}}",
     "retry": "Thử lại",
@@ -12910,5 +12911,31 @@
       "degraded": "Hạn chế",
       "blocked": "Bị chặn"
     }
+  },
+  "personalAssistant": {
+    "stop": "Dừng công việc",
+    "title": "Trợ lý cá nhân",
+    "work": "Công việc được giao",
+    "goals": "Mục tiêu theo dõi",
+    "emptyWork": "Nhờ trợ lý điều phối công việc trong các cuộc trò chuyện hiện có.",
+    "emptyGoals": "Theo dõi mục tiêu từ không gian làm việc để nhận trở ngại mới và yêu cầu nghiệm thu tại đây.",
+    "watchGoal": "Theo dõi bằng trợ lý",
+    "unwatchGoal": "Ngừng theo dõi",
+    "opening": "Đang mở trợ lý…",
+    "source": "Mở nguồn",
+    "unavailable": "Mục này không còn khả dụng.",
+    "attention": "Cần xử lý ({{count}})",
+    "blocked": "Trở ngại mới",
+    "awaiting_acceptance": "Đang chờ bạn nghiệm thu",
+    "status": {
+      "queued": "Đang xếp hàng",
+      "running": "Đang xử lý",
+      "cancellation_requested": "Đã yêu cầu dừng",
+      "completed": "Hoàn tất",
+      "interrupted": "Bị gián đoạn",
+      "cancelled": "Đã hủy",
+      "failed": "Thất bại"
+    },
+    "historyLocked": "Không thể viết lại lịch sử của trợ lý. Hãy gửi tin nhắn mới để sửa chỉ dẫn hoặc dừng một công việc đã giao trong bảng công việc."
   }
 }

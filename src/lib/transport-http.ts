@@ -1005,6 +1005,21 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Goals --
   get_active_goal: { method: "GET", path: "/api/sessions/{sessionId}/goal" },
+  ensure_personal_assistant_home: { method: "POST", path: "/api/personal-assistant/home" },
+  list_personal_assistant_requests: { method: "GET", path: "/api/personal-assistant/requests" },
+  cancel_personal_assistant_request: {
+    method: "POST",
+    path: "/api/personal-assistant/requests/{id}/cancel",
+  },
+  personal_assistant_inbox: { method: "GET", path: "/api/personal-assistant/watches" },
+  watch_personal_goal: {
+    method: "POST",
+    path: "/api/personal-assistant/watches/{sessionId}/{goalId}",
+  },
+  unwatch_personal_goal: {
+    method: "DELETE",
+    path: "/api/personal-assistant/watches/{sessionId}/{goalId}",
+  },
   get_autonomy_activity: { method: "GET", path: "/api/sessions/{sessionId}/activity" },
   list_goal_watchdog_findings: { method: "GET", path: "/api/sessions/{sessionId}/goal/watchdog" },
   create_goal: { method: "POST", path: "/api/sessions/{sessionId}/goal" },
@@ -2095,7 +2110,11 @@ function normalizeHttpCommandArgs(
       ? (request as Record<string, unknown>)
       : args
   }
-  if (command === "add_provider" || command === "test_provider" || command === "discover_provider_models") {
+  if (
+    command === "add_provider" ||
+    command === "test_provider" ||
+    command === "discover_provider_models"
+  ) {
     return providerConfigFromArgs(args) ?? args
   }
   if (command === "update_provider") {

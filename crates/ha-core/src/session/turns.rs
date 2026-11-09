@@ -616,10 +616,10 @@ impl SessionDB {
                 anyhow::bail!("Global Stop began before the cross-session turn was persisted");
             }
             if let Some(source_session_id) = source_session_id {
-                let (source_incognito, source_title, source_side_parent) = tx
+                let (source_incognito, source_title, source_side_parent, source_kind) = tx
                     .query_row(
                         "SELECT incognito, title,
-                                CASE WHEN kind = 'side' THEN forked_from_session_id END
+                                CASE WHEN kind = 'side' THEN forked_from_session_id END, kind
                            FROM sessions WHERE id = ?1",
                         params![source_session_id],
                         |row| {
@@ -627,6 +627,7 @@ impl SessionDB {
                                 row.get::<_, bool>(0)?,
                                 row.get::<_, Option<String>>(1)?,
                                 row.get::<_, Option<String>>(2)?,
+                                row.get::<_, String>(3)?,
                             ))
                         },
                     )
@@ -641,16 +642,43 @@ impl SessionDB {
                 // transaction. Neither the prompt nor caller-supplied metadata
                 // may impersonate another conversation.
                 let mut enriched = message.clone();
-                enriched.attachments_meta = Some(super::types::merge_user_message_meta(
-                    serde_json::json!({
-                        "session_message": {
-                            "sessionId": source_session_id,
-                            "title": source_title,
-                            "sideParentSessionId": source_side_parent,
-                        }
-                    }),
-                    enriched.attachments_meta,
-                ));
+                if source_kind == "personal_assistant" {
+                    let request_id = message
+                        .attachments_meta
+                        .as_deref()
+                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+                        .and_then(|meta| {
+                            meta.get("personal_assistant_request_id")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_owned)
+                        })
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("personal assistant request identity is required")
+                        })?;
+                    crate::personal_assistant::admit_request_with_conn(
+                        &tx,
+                        &request_id,
+                        session_id,
+                        id,
+                    )?;
+                    enriched.attachments_meta = Some(
+                        serde_json::json!({
+                            "personal_assistant": true
+                        })
+                        .to_string(),
+                    );
+                } else {
+                    enriched.attachments_meta = Some(super::types::merge_user_message_meta(
+                        serde_json::json!({
+                            "session_message": {
+                                "sessionId": source_session_id,
+                                "title": source_title,
+                                "sideParentSessionId": source_side_parent,
+                            }
+                        }),
+                        enriched.attachments_meta,
+                    ));
+                }
                 session_tool_message = Some(enriched);
             }
             let target_incognito = tx
@@ -793,6 +821,11 @@ impl SessionDB {
                 SessionDB::create_stream_run_in_transaction(&tx, stream_run, stop_admission)
             })
             .transpose()?;
+        if matches!(source, "desktop" | "http") {
+            if let Some(registration) = &stream_registration {
+                crate::personal_assistant_continue::capture_with_conn(&tx, id, registration)?;
+            }
+        }
         tx.commit()?;
         drop(conn);
 

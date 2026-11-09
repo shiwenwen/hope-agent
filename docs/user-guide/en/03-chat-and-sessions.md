@@ -13,6 +13,7 @@ This chapter covers everyday use: how to use the chat interface, how to send ima
 - [3.7 Session working directory](#37-session-working-directory)
 - [3.8 Context compaction for long conversations](#38-context-compaction-for-long-conversations)
 - [3.9 Slash command reference](#39-slash-command-reference)
+- [3.10 Personal assistant](#310-personal-assistant)
 
 ---
 
@@ -311,6 +312,18 @@ Type `/` in the chat input box or in any IM channel to trigger a slash command. 
 > For more differences in how IM-related commands behave, see [10 · IM Channels](10-im-channels.md).
 
 ---
+
+## 3.10 Personal assistant
+
+Open **Personal assistant** in the sidebar to return to the same ongoing conversation. Ask it to find existing work conversations, check their progress, or delegate separate tasks. The work panel shows queued, running, and terminal results. Open a source conversation to take over or cancel a single delegation.
+
+Assistant history cannot be edited and resent, so delegation instructions remain linked to their receipts. Send a new message to correct an instruction, or stop the relevant delegation in the work panel.
+
+For paused work, explicitly ask the personal assistant to continue the named conversation. It resumes only the goals, workflows, and other work captured by the Stop receipt available to this turn. A later Stop requires a new instruction. Interrupted ordinary tasks are not automatically rerun; inspect existing progress before delegating a follow-up.
+
+Use **Follow with personal assistant** in a Goal panel to establish a baseline. New blockers and pending acceptance appear in the assistant. Reading an item or unfollowing a Goal does not change its outcome.
+
+The first implementation delegates to local regular work conversations. Conversations that receive private work retain a private marker and cannot be attached to ordinary work IM. Web access requires a configured server owner token and a signed-in owner.
 
 ## Next steps
 

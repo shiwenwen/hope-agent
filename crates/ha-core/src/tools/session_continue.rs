@@ -5,10 +5,9 @@ use super::ToolExecContext;
 
 /// Model-facing adapter for the canonical Stop/Continue service.
 ///
-/// The target is always derived from the bound tool context; the model never
-/// supplies a session id. The execution context must prove that the invocation
-/// belongs to a new foreground user turn; prompt instructions and Stop-watcher
-/// timing are not authorization boundaries.
+/// Ordinary turns resume only their own bound conversation. A real owner
+/// home turn may select a target from its immutable admission-time receipt
+/// snapshot; model arguments cannot mint a newer Stop capability.
 pub(crate) async fn tool_session_continue(_args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let pause_id = _args
         .get("pause_id")
@@ -20,6 +19,13 @@ pub(crate) async fn tool_session_continue(_args: &Value, ctx: &ToolExecContext) 
         .as_deref()
         .ok_or_else(|| anyhow!("session_continue requires a current session"))?;
     ensure_current_turn_can_continue(ctx, session_id)?;
+    if let Some(target) = _args
+        .get("session_id")
+        .and_then(Value::as_str)
+        .filter(|target| *target != session_id)
+    {
+        return continue_assistant_target(ctx, session_id, target, pause_id).await;
+    }
     let admitted_stop_epoch = ctx.turn_admitted_stop_epoch.ok_or_else(|| {
         anyhow!("session_continue requires a foreground turn admission generation")
     })?;
@@ -89,6 +95,51 @@ pub(crate) async fn tool_session_continue(_args: &Value, ctx: &ToolExecContext) 
         "subagentRunIds": outcome.subagent_run_ids,
         "message": "The Stop fence is cleared. Inspect captured results before resuming unfinished threads; do not repeat completed side effects. A captured sub-agent may still be converging to session_paused, so check or wait for terminal state before creating its continuation."
     }))?)
+}
+
+async fn continue_assistant_target(
+    ctx: &ToolExecContext,
+    source: &str,
+    target: &str,
+    pause: &str,
+) -> Result<String> {
+    let db = ctx
+        .session_db
+        .as_ref()
+        .map(|handle| handle.0.clone())
+        .ok_or_else(|| anyhow!("Cross-session Continue requires its bound owner database"))?;
+    let turn = ctx
+        .turn_id
+        .clone()
+        .ok_or_else(|| anyhow!("Cross-session Continue requires a live owner turn"))?;
+    let admission = owner_continue_admission(ctx)?;
+    let source = source.to_owned();
+    let target = target.to_owned();
+    ensure_current_turn_can_continue(ctx, &target)?;
+    let pause = pause.to_owned();
+    let proof = db
+        .run(move |db| db.assistant_continue_proof(&source, &turn, &target, &pause, admission))
+        .await?;
+    let outcome = crate::chat_engine::stop::continue_session_from_assistant(db, proof).await?;
+    Ok(serde_json::to_string(&serde_json::json!({
+        "resumed": outcome.resumed, "pauseId": outcome.pause_id,
+        "goalId": outcome.goal_id, "workflowRunIds": outcome.workflow_run_ids,
+        "subagentRunIds": outcome.subagent_run_ids,
+        "message": if outcome.resumed {
+            "Only receipt-captured controllers were resumed; no interrupted ordinary turn was resubmitted. Inspect persisted results before a new delegation."
+        } else { "No active receipt was consumed; no work was resubmitted." }
+    }))?)
+}
+
+pub(super) fn owner_continue_admission(ctx: &ToolExecContext) -> Result<(u64, u64, u64)> {
+    Ok((
+        ctx.turn_admitted_stop_epoch
+            .ok_or_else(|| anyhow!("Continue requires its admitted session epoch"))?,
+        ctx.turn_admitted_global_stop_epoch
+            .ok_or_else(|| anyhow!("Continue requires its admitted global epoch"))?,
+        ctx.turn_admitted_global_stop_receipt_count
+            .ok_or_else(|| anyhow!("Continue requires its admitted global receipt snapshot"))?,
+    ))
 }
 
 fn ensure_current_turn_can_continue(ctx: &ToolExecContext, session_id: &str) -> Result<()> {
@@ -383,5 +434,334 @@ mod tests {
                 .id,
             pause.id
         );
+    }
+    fn with_assistant_db(test: impl FnOnce(Arc<crate::session::SessionDB>)) {
+        let dir = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", dir.path())], || {
+            let db =
+                Arc::new(crate::session::SessionDB::open(&dir.path().join("sessions.db")).unwrap());
+            crate::channel::db::ChannelDB::new(db.clone())
+                .migrate()
+                .unwrap();
+            test(db);
+        });
+    }
+
+    fn admit_assistant_owner(
+        db: &Arc<crate::session::SessionDB>,
+        home: &str,
+        id: &str,
+    ) -> ToolExecContext {
+        use crate::session::{CreateStreamRun, NewMessage, QueuedTurnMessageSource};
+        let admission = db.foreground_stop_admission(Some(home)).unwrap();
+        let _direct = db
+            .reserve_direct_turn_admission(
+                home,
+                id,
+                QueuedTurnMessageSource::Desktop,
+                Some(admission),
+            )
+            .unwrap()
+            .unwrap();
+        db.admit_interactive_chat_turn(
+            id,
+            home,
+            "desktop",
+            id,
+            &NewMessage::user("Continue the chosen paused work"),
+            None,
+            None,
+            None,
+            Some(admission),
+            &CreateStreamRun {
+                run_id: format!("run-{id}"),
+                session_id: home.into(),
+                source: "desktop".into(),
+                stream_id: Some(id.into()),
+                turn_id: Some(id.into()),
+                provider_shape: None,
+            },
+        )
+        .unwrap();
+        let mut ctx = foreground_context(db.clone(), home.into());
+        ctx.turn_id = Some(id.into());
+        ctx
+    }
+
+    fn goal_for(db: &crate::session::SessionDB, session: &str) -> String {
+        db.create_goal(crate::goal::CreateGoalInput {
+            session_id: session.into(),
+            objective: "Finish the work".into(),
+            completion_criteria: "Owner accepts".into(),
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
+            budget_token_limit: None,
+            budget_time_limit_secs: None,
+            budget_turn_limit: None,
+        })
+        .unwrap()
+        .goal
+        .id
+    }
+
+    #[test]
+    fn owner_home_continue_uses_formal_snapshot_and_only_captured_controllers() {
+        with_assistant_db(|db| {
+            let home = db.ensure_personal_assistant_home().unwrap();
+            let target = db.create_session("ha-main").unwrap();
+            let other = db.create_session("ha-main").unwrap();
+            let goal = goal_for(&db, &target.id);
+            let manual = goal_for(&db, &other.id);
+            db.pause_goal(&manual).unwrap();
+            let pause = db.prepare_session_autonomy_pause(&target.id).unwrap();
+            db.pause_goal(&goal).unwrap();
+            let ctx = admit_assistant_owner(&db, &home.id, "owner-continue");
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let status = super::super::sessions::tool_session_status(
+                    &serde_json::json!({"session_id":target.id}),
+                    &ctx,
+                )
+                .await
+                .unwrap();
+                assert!(status.contains(&pause.id));
+                let args = serde_json::json!({"session_id":target.id,"pause_id":pause.id});
+                let result: Value =
+                    serde_json::from_str(&tool_session_continue(&args, &ctx).await.unwrap())
+                        .unwrap();
+                assert_eq!(result["resumed"], true);
+                assert_eq!(result["goalId"], goal);
+                let repeat: Value =
+                    serde_json::from_str(&tool_session_continue(&args, &ctx).await.unwrap())
+                        .unwrap();
+                assert_eq!(repeat["resumed"], false);
+            });
+            assert_eq!(
+                db.get_goal(&goal).unwrap().unwrap().state,
+                crate::goal::GoalState::Active
+            );
+            assert_eq!(
+                db.get_goal(&manual).unwrap().unwrap().state,
+                crate::goal::GoalState::Paused
+            );
+            assert!(
+                db.get_latest_chat_turn(&target.id).unwrap().is_none(),
+                "Continue must not reissue ordinary work"
+            );
+        });
+    }
+
+    #[test]
+    fn owner_home_continue_cannot_refresh_old_turn_after_new_stop_or_privacy_change() {
+        for change in ["target", "home", "global", "privacy", "terminal"] {
+            with_assistant_db(|db| {
+                let home = db.ensure_personal_assistant_home().unwrap();
+                let target = db.create_session("ha-main").unwrap();
+                let pause = db.prepare_session_autonomy_pause(&target.id).unwrap();
+                let ctx = admit_assistant_owner(&db, &home.id, "owner-stale");
+                let proof = db
+                    .assistant_continue_proof(
+                        &home.id,
+                        "owner-stale",
+                        &target.id,
+                        &pause.id,
+                        owner_continue_admission(&ctx).unwrap(),
+                    )
+                    .unwrap();
+                match change {
+                    "target" => {
+                        db.prepare_session_autonomy_pause(&target.id).unwrap();
+                    }
+                    "home" => {
+                        let newer = db.prepare_session_autonomy_pause(&home.id).unwrap();
+                        db.finish_session_autonomy_resume(&newer.id).unwrap();
+                    }
+                    "global" => {
+                        db.begin_global_stop_enumeration().unwrap();
+                    }
+                    "privacy" => {
+                        // Core-only fixture changes the authoritative privacy
+                        // bit; the product setter additionally requires ha-design.
+                        db.with_conn_internal(|conn| {
+                            conn.execute(
+                                "UPDATE sessions SET incognito=1 WHERE id=?1",
+                                [&target.id],
+                            )?;
+                            Ok(())
+                        })
+                        .unwrap();
+                    }
+                    "terminal" => {
+                        db.finish_chat_turn_once(
+                            "owner-stale",
+                            crate::session::ChatTurnStatus::Completed,
+                            None,
+                            None,
+                            None,
+                        )
+                        .unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+                // This is the final transaction guard after a proof was already
+                // acquired: a race cannot consume the old receipt's CAS.
+                assert!(
+                    db.finish_session_autonomy_resume_with_assistant(&pause.id, Some(&proof))
+                        .is_err(),
+                    "{change}"
+                );
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                let error = rt
+                    .block_on(tool_session_continue(
+                        &serde_json::json!({"session_id":target.id,"pause_id":pause.id}),
+                        &ctx,
+                    ))
+                    .unwrap_err();
+                assert!(!error.to_string().is_empty());
+                assert!(db.is_session_autonomy_paused(&target.id).unwrap());
+            });
+        }
+    }
+
+    #[test]
+    fn owner_home_continue_has_no_late_snapshot_and_rejects_other_sources() {
+        with_assistant_db(|db| {
+            let home = db.ensure_personal_assistant_home().unwrap();
+            let target = db.create_session("ha-main").unwrap();
+            let ctx = admit_assistant_owner(&db, &home.id, "owner-before-pause");
+            let pause = db.prepare_session_autonomy_pause(&target.id).unwrap();
+            assert!(db
+                .assistant_pause_receipt(
+                    &home.id,
+                    "owner-before-pause",
+                    &target.id,
+                    owner_continue_admission(&ctx).unwrap()
+                )
+                .unwrap()
+                .is_none());
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            assert!(rt
+                .block_on(tool_session_continue(
+                    &serde_json::json!({"session_id":target.id,"pause_id":pause.id}),
+                    &ctx
+                ))
+                .is_err());
+        });
+        for source in ["regular", "channel", "autonomous", "generic"] {
+            with_assistant_db(|db| {
+                let home = db.ensure_personal_assistant_home().unwrap();
+                let target = db.create_session("ha-main").unwrap();
+                let pause = db.prepare_session_autonomy_pause(&target.id).unwrap();
+                let mut ctx = if source == "regular" {
+                    let ordinary = db.create_session("ha-main").unwrap();
+                    admit_assistant_owner(&db, &ordinary.id, "not-owner")
+                } else if source == "channel" || source == "generic" {
+                    let message = db
+                        .append_message(&home.id, &crate::session::NewMessage::user("Continue"))
+                        .unwrap();
+                    db.create_chat_turn_with_id(
+                        "not-owner",
+                        &home.id,
+                        if source == "channel" {
+                            "channel"
+                        } else {
+                            "desktop"
+                        },
+                        None,
+                        Some(message),
+                    )
+                    .unwrap();
+                    let mut ctx = foreground_context(db.clone(), home.id.clone());
+                    ctx.turn_id = Some("not-owner".into());
+                    ctx
+                } else {
+                    admit_assistant_owner(&db, &home.id, "not-owner")
+                };
+                if source == "autonomous" {
+                    ctx.turn_provenance = crate::tool_defs::ToolTurnProvenance::Autonomous;
+                }
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                assert!(
+                    rt.block_on(tool_session_continue(
+                        &serde_json::json!({"session_id":target.id,"pause_id":pause.id}),
+                        &ctx
+                    ))
+                    .is_err(),
+                    "{source}"
+                );
+                assert!(db.is_session_autonomy_paused(&target.id).unwrap());
+            });
+        }
+    }
+    #[test]
+    fn owner_home_continue_waiting_on_transition_rechecks_source_and_target_stop() {
+        for stop_source in [false, true] {
+            with_assistant_db(|db| {
+                let home = db.ensure_personal_assistant_home().unwrap();
+                let target = db.create_session("ha-main").unwrap();
+                let goal = goal_for(&db, &target.id);
+                let pause = db.prepare_session_autonomy_pause(&target.id).unwrap();
+                db.pause_goal(&goal).unwrap();
+                let ctx = admit_assistant_owner(&db, &home.id, "owner-waiting");
+                let proof = db
+                    .assistant_continue_proof(
+                        &home.id,
+                        "owner-waiting",
+                        &target.id,
+                        &pause.id,
+                        owner_continue_admission(&ctx).unwrap(),
+                    )
+                    .unwrap();
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    let gate=crate::chat_engine::stop::hold_autonomy_transition_for_test().await;
+                    let resume=crate::chat_engine::stop::continue_session_from_assistant(db.clone(),proof);
+                    tokio::pin!(resume);
+                    tokio::select! {
+                        result=&mut resume => panic!("Continue bypassed transition lock: {result:?}"),
+                        _=tokio::time::sleep(std::time::Duration::from_millis(1)) => {},
+                    }
+                    db.prepare_session_autonomy_pause(if stop_source {&home.id} else {&target.id}).unwrap();
+                    drop(gate);
+                    assert!(resume.await.is_err());
+                });
+                assert_eq!(
+                    db.get_goal(&goal).unwrap().unwrap().state,
+                    crate::goal::GoalState::Paused
+                );
+                assert!(db.is_session_autonomy_paused(&target.id).unwrap());
+            });
+        }
+    }
+
+    #[test]
+    fn owner_home_continue_requires_matching_tool_admission_epochs() {
+        with_assistant_db(|db| {
+            let home = db.ensure_personal_assistant_home().unwrap();
+            let target = db.create_session("ha-main").unwrap();
+            let pause = db.prepare_session_autonomy_pause(&target.id).unwrap();
+            let mut ctx = admit_assistant_owner(&db, &home.id, "owner-missing-proof");
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            ctx.turn_admitted_global_stop_epoch = None;
+            assert!(rt
+                .block_on(tool_session_continue(
+                    &serde_json::json!({"session_id":target.id,"pause_id":pause.id}),
+                    &ctx
+                ))
+                .unwrap_err()
+                .to_string()
+                .contains("admitted global epoch"));
+            ctx.turn_admitted_global_stop_epoch = Some(99);
+            assert!(rt
+                .block_on(tool_session_continue(
+                    &serde_json::json!({"session_id":target.id,"pause_id":pause.id}),
+                    &ctx
+                ))
+                .unwrap_err()
+                .to_string()
+                .contains("superseded"));
+            assert!(db.is_session_autonomy_paused(&target.id).unwrap());
+        });
     }
 }

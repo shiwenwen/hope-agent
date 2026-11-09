@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense, type ReactNod
 import { useTranslation } from "react-i18next"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { listen } from "@tauri-apps/api/event"
-import { getTransport, setDirtyTransportConfirmText } from "@/lib/transport-provider"
+import { getTransport, setDirtyTransportConfirmText, useTransport } from "@/lib/transport-provider"
 import { parsePayload, isTauriMode } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { MAIN_WINDOW_MIN_HEIGHT, MAIN_WINDOW_MIN_WIDTH } from "@/lib/mainWindowSize"
@@ -190,6 +190,20 @@ type PetInstallLinkEvent = {
 
 export default function App() {
   const { t, i18n } = useTranslation()
+  const chatTransport = useTransport()
+  const chatTransportScope = useRef({ transport: chatTransport, key: 0 })
+  if (chatTransportScope.current.transport !== chatTransport) {
+    chatTransportScope.current = {
+      transport: chatTransport,
+      key: chatTransportScope.current.key + 1,
+    }
+  }
+  const [assistantActive, setAssistantActive] = useState(false)
+  const [assistantAttentionCount, setAssistantAttentionCount] = useState(0)
+  const [assistantNavigation, setAssistantNavigation] = useState<{
+    mode: "assistant" | "regular"
+    nonce: number
+  } | null>(null)
   const [view, setView] = useState<AppView>("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [agentTabForSettings, setAgentTabForSettings] = useState<AgentTab | undefined>(undefined)
@@ -597,11 +611,12 @@ export default function App() {
 
   const handleOpenChat = useCallback(() => {
     if (keepConfigRecoveryView()) return
+    if (assistantActive) setAssistantNavigation({ mode: "regular", nonce: Date.now() })
     if (view === "chat") {
       setUnreadFocusSignal((value) => value + 1)
     }
     setView("chat")
-  }, [keepConfigRecoveryView, view])
+  }, [keepConfigRecoveryView, view, assistantActive])
 
   const handleChatFocus = useCallback(
     (target: ChatFocusTarget) => {
@@ -1167,6 +1182,12 @@ export default function App() {
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <IconSidebar
                 view={view}
+                assistantActive={view === "chat" && assistantActive}
+                assistantAttentionCount={assistantAttentionCount}
+                onOpenPersonalAssistant={() => {
+                  setAssistantNavigation({ mode: "assistant", nonce: Date.now() })
+                  setView("chat")
+                }}
                 onOpenSettings={handleOpenSettings}
                 onOpenChat={handleOpenChat}
                 onOpenAgents={() => {
@@ -1471,6 +1492,13 @@ export default function App() {
               )}
               <PersistentViewSurface active={view === "chat"}>
                 <ChatScreen
+                  key={chatTransportScope.current.key}
+                  assistantNavigation={assistantNavigation}
+                  onAssistantStateChange={setAssistantActive}
+                  onAssistantAttentionChange={setAssistantAttentionCount}
+                  onAssistantNavigated={(nonce) =>
+                    setAssistantNavigation((current) => (current?.nonce === nonce ? null : current))
+                  }
                   isViewVisible={view === "chat"}
                   onOpenAgentSettings={(agentId) => {
                     setAgentIdForSettings(agentId)

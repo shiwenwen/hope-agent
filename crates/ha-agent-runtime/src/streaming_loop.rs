@@ -1507,11 +1507,12 @@ where
             crate::session::QueuedTurnMessageSource::Channel => {
                 crate::chat_engine::stream_seq::ChatSource::Channel
             }
-            crate::session::QueuedTurnMessageSource::Scheduled => {
+            crate::session::QueuedTurnMessageSource::Scheduled
+            | crate::session::QueuedTurnMessageSource::PersonalAssistant => {
                 crate::app_warn!(
                     "session",
                     "scheduled_turn_insertion_rejected",
-                    "Scheduled queue row reached the mid-turn insertion path"
+                    "Backend-managed queue row reached the mid-turn insertion path"
                 );
                 continue;
             }

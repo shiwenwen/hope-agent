@@ -164,6 +164,7 @@
     "resolvedElsewhere": "审批已由其他端处理"
   },
   "auth": {
+    "ownerTokenSetupBody": "此服务已保存私人助手数据。请从桌面设置或服务启动配置中设置 Server Owner Token，再回到这里登录。",
     "checking": "正在检查服务器安全状态…",
     "fingerprint": "服务器 Token 指纹：{{fingerprint}}",
     "retry": "重试",
@@ -12910,5 +12911,31 @@
       "degraded": "降级",
       "blocked": "受阻"
     }
+  },
+  "personalAssistant": {
+    "stop": "停止工作",
+    "title": "个人助手",
+    "work": "交办工作",
+    "goals": "关注的目标",
+    "emptyWork": "在这里交办，让已有工作对话分别推进。",
+    "emptyGoals": "在工作区关注目标后，这里会提示新的阻塞和待验收事项。",
+    "watchGoal": "让助手关注",
+    "unwatchGoal": "停止关注",
+    "opening": "正在打开个人助手…",
+    "source": "打开来源",
+    "unavailable": "此事项已不可用。",
+    "attention": "待处理（{{count}}）",
+    "blocked": "新的阻塞",
+    "awaiting_acceptance": "等待你验收",
+    "status": {
+      "queued": "排队中",
+      "running": "办理中",
+      "cancellation_requested": "已请求停止",
+      "completed": "已完成",
+      "interrupted": "已中断",
+      "cancelled": "已取消",
+      "failed": "失败"
+    },
+    "historyLocked": "助手历史不支持编辑重发。请发送新消息更正指令，或在工作面板停止单项交办。"
   }
 }

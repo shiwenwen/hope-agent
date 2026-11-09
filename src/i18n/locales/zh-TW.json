@@ -164,6 +164,7 @@
     "resolvedElsewhere": "審批已由其他端處理"
   },
   "auth": {
+    "ownerTokenSetupBody": "此服務已儲存私人助理資料。請從桌面設定或服務啟動配置中設定 Server Owner Token，再回到這裡登入。",
     "checking": "正在檢查伺服器安全狀態…",
     "fingerprint": "伺服器 Token 指紋：{{fingerprint}}",
     "retry": "重試",
@@ -12910,5 +12911,31 @@
       "degraded": "降級",
       "blocked": "受阻"
     }
+  },
+  "personalAssistant": {
+    "stop": "停止工作",
+    "title": "個人助理",
+    "work": "交辦工作",
+    "goals": "關注的目標",
+    "emptyWork": "在這裡交辦，讓既有工作對話分別推進。",
+    "emptyGoals": "在工作區關注目標後，這裡會提示新的阻礙及待驗收事項。",
+    "watchGoal": "讓助理關注",
+    "unwatchGoal": "停止關注",
+    "opening": "正在開啟個人助理…",
+    "source": "開啟來源",
+    "unavailable": "此事項已無法使用。",
+    "attention": "待處理（{{count}}）",
+    "blocked": "新的阻礙",
+    "awaiting_acceptance": "等待你驗收",
+    "status": {
+      "queued": "排隊中",
+      "running": "辦理中",
+      "cancellation_requested": "已要求停止",
+      "completed": "已完成",
+      "interrupted": "已中斷",
+      "cancelled": "已取消",
+      "failed": "失敗"
+    },
+    "historyLocked": "助手歷史不支援編輯重送。請傳送新訊息更正指令，或在工作面板停止單項交辦。"
   }
 }

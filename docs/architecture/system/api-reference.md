@@ -1907,6 +1907,21 @@ Team 生命周期 HTTP 响应保持原有 `status` 字段并追加可观测结�
 | `rotate_server_token` | `POST /api/auth/token/rotate` | ✅；Owner 保护，返回新 Token 一次，立即作废旧会话；外部托管 Token 拒绝 |
 | `list_local_ips` | `GET /api/server/local-ips` | ✅ |
 
+### 个人助手
+
+桌面命令与下列 HTTP 端点共用内核台账。HTTP 需要配置并验证主人凭据，匿名部署无法打开私人入口。
+
+| Tauri 命令 | HTTP 端点 | 作用 |
+| --- | --- | --- |
+| `ensure_personal_assistant_home` | `POST /api/personal-assistant/home` | 原子取得或创建唯一私人主对话 |
+| `list_personal_assistant_requests` | `GET /api/personal-assistant/requests` | 读取交办与实际目标轮次状态 |
+| `cancel_personal_assistant_request` | `POST /api/personal-assistant/requests/{id}/cancel` | 撤销排队项或取消实际绑定的轮次 |
+| `personal_assistant_inbox` | `GET /api/personal-assistant/watches` | 读取本地 Goal 关注和变化 |
+| `watch_personal_goal` | `POST /api/personal-assistant/watches/{sessionId}/{goalId}` | 授权关注一个具体 Goal |
+| `unwatch_personal_goal` | `DELETE /api/personal-assistant/watches/{sessionId}/{goalId}` | 取消该项关注 |
+
+跨会话派工由私人主对话中具有真实轮次和工具调用标识的 `sessions_send` 受理。普通客户端不能伪造来源消息或认领执行。主人获取的跨源事件和通用资源票据分别使用 `owner_events` 和 `owner_resources`，旧的普通 scope 不能在已启用私人助手的数据根读取私人数据。
+
 ## 已知不对齐项
 
 截至 2026-08-05 三端差集为 31 条：§7.3 的 6 条 Desktop-only 系统权限命令、§7.3.1 的 12 条 HTTP 已实现但走专用 Transport 方法、3 条 HTTP-only transport ticket 基础设施、5 条 HTTP-only 远程服务更新端点，以及 `project_fs_resolve` / `kb_file_resolve_cmd` / `set_dock_badge_cmd` / `set_tray_unread_cmd` / `save_exported_file` 5 条 Tauri-only 命令。没有“HTTP 漏写 COMMAND_MAP”或“HTTP 路由缺失”的破口；COMMAND_MAP 每一条顶层命令都能在 `tauri::generate_handler!` 找到对应命令。
