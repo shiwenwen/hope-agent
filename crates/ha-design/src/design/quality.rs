@@ -597,10 +597,27 @@ fn readiness_script(ready: &super::scenarios::ScenarioReady) -> Result<String> {
         r#"(() => {{
         const matches = document.querySelectorAll({selector});
         if (matches.length !== 1) return false;
-        const element = matches[0], rect = element.getBoundingClientRect(), style = getComputedStyle(element);
-        return element.textContent.trim() === {text} && rect.width > 0 && rect.height > 0
+        const element = matches[0], rect = element.getBoundingClientRect();
+        const visible = () => element.isConnected && element.textContent.trim() === {text}
+          && typeof element.checkVisibility === 'function'
+          && element.checkVisibility({{opacityProperty:true,visibilityProperty:true,contentVisibilityAuto:true}});
+        if (!visible() || !('isVisible' in IntersectionObserverEntry.prototype)) return false;
+        if (!(rect.width > 0 && rect.height > 0
           && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth
-          && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0;
+        )) return false;
+        // Native visibility tracking includes ancestor clipping, opacity and
+        // occlusion. Unsupported/uncertain effects fail closed, never an ACK.
+        return new Promise(resolve => {{
+          let observer;
+          const finish = value => {{ clearTimeout(timer); observer?.disconnect(); resolve(value && visible()); }};
+          const timer = setTimeout(() => finish(false), 300);
+          observer = new IntersectionObserver(entries => {{
+            const entry = entries[0];
+            finish(entry?.isVisible === true && entry.isIntersecting
+              && entry.intersectionRect.width > 0 && entry.intersectionRect.height > 0);
+          }}, {{trackVisibility:true, delay:100}});
+          observer.observe(element);
+        }});
     }})()"#
     ))
 }
@@ -668,8 +685,10 @@ async fn capture_all(html: &str, plan: &[CaptureCase]) -> Result<Vec<(CaptureCas
                 backend.evaluate(&format!("document.querySelector('iframe').contentWindow.postMessage({message}, '*'); true")).await?;
                 let check = readiness_script(assertion)?;
                 let mut reached = false;
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
                 for _ in 0..60 {
-                    if backend.evaluate_sandboxed_frame(&check).await?.as_bool() == Some(true) {
+                    let Ok(inspected) = tokio::time::timeout_at(deadline, backend.evaluate_sandboxed_frame(&check)).await else { break; };
+                    if inspected?.as_bool() == Some(true) {
                         reached = true;
                         break;
                     }
@@ -892,6 +911,45 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("did not reach"));
+        for ancestor_style in [
+            "opacity:0",
+            "height:0;overflow:hidden",
+            "clip-path:inset(100%)",
+        ] {
+            let hidden = html
+                .replace(
+                    "<body>",
+                    &format!("<body><section style='{ancestor_style}'>"),
+                )
+                .replace("</body>", "</section></body>");
+            assert!(
+                capture_all(&hidden, &plan[..1])
+                    .await
+                    .unwrap_err()
+                    .to_string()
+                    .contains("did not reach"),
+                "hidden ancestor must not satisfy readiness: {ancestor_style}"
+            );
+        }
+        let covered = html.replace(
+            "</body>",
+            "<aside style='position:fixed;inset:0;background:white;z-index:9999'></aside></body>",
+        );
+        assert!(capture_all(&covered, &plan[..1])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("did not reach"));
+        let partly_clipped = html
+            .replace(
+                "<body>",
+                "<body><section style='height:100px;overflow:hidden'>",
+            )
+            .replace("</body>", "</section></body>");
+        assert!(
+            capture_all(&partly_clipped, &plan[..1]).await.is_ok(),
+            "a visibly intersecting portion must remain valid"
+        );
         // Exercise the real local artifact/manifest/baseline pipeline as well,
         // using only the explicit isolated data root and supplied HTML/JS.
         let project = super::super::service::create_project(

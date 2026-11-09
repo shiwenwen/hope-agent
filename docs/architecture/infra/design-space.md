@@ -756,6 +756,7 @@ graph LR
 
 - runner 执行根路由 `/` 上的场景状态投影；每个场景可选已命名视口，未选择时使用 `1440×900`、`768×1024`、`390×844`。每个场景×视口都重新创建 opaque iframe，加载完成后发送 `ds_scenario`，避免上一个状态污染下一个捕获。非根路由仍拒绝，不将消息投影当作真实 URL 导航。
 - 隔离父页先提交固定、无网络请求的惰性 `data:` 文档，再装载 srcdoc。对 Chrome 进程外 iframe，通过精确父 frame ID 绑定唯一目标，使用私有 loopback CDP 会话读取隔离世界，随后分离会话；不改全局页面注册表，不选择其他标签的同 URL frame，也不放宽模型侧 raw CDP 权限。
+- 可见性在隔离世界组合原生 `checkVisibility`（祖先 opacity、visibility、content-visibility）和 `IntersectionObserver` 的 `trackVisibility: true`、正面积交集与 `isVisible: true`，涵盖祖先裁剪和遮挡；CDP 等待 Promise。单次观察最多 300 ms，状态轮询受 3 秒绝对截止时间约束。浏览器缺少支持或对半透明、滤镜等效果无法确认时保守拒绝，不退化为只检查元素自身样式。API 边界见 [CSSOM View](https://drafts.csswg.org/cssom-view/#dom-element-checkvisibility) 和 [Chrome 可见性跟踪说明](https://web.dev/articles/intersectionobserver-v2)。
 - 自定义场景必须提供 `ready: {selector, text}`；CSS 选择器最多 256 字节、期望文本最多 512 字节。检查要求恰好一个匹配元素，文本 trim 后精确相等，且元素具有可见样式、非零尺寸并与视口相交。浏览器后端只选择当前隔离页中唯一的直接 `about:srcdoc` 子 frame，在独立执行世界读取 DOM，禁止 universal access，不受产物脚本覆写查询函数或伪造 ACK 影响。每次最多等待约 3 秒，并在截图前再次复核；未到达或配置不支持返回 `visual_scenarios_incomplete`。这是指定 DOM 条件的观察证据，不代表整个业务状态或业务正确性已经证明。旧的默认空状态保持兼容，不强制添加 ready。
 - 真实浏览器逐场景/视口截图，完成或失败都恢复原目标、视口并关闭隔离页。`CdpBackend` 依赖全局活动目标，因此从读取原目标到关闭隔离页并恢复目标/视口的完整捕获流程必须持有浏览器进程级 CDP 操作锁，禁止与浏览器工具、实时帧或其他原生导出交错。
 - 只有 CDP 网络与页面操作留在异步 worker；产物/清单读取、PNG 解码、像素比较和基线持久化统一经 `run_blocking`，大图或慢磁盘不得占住聊天、WebSocket 与 HTTP 共用的运行时线程。

@@ -100,7 +100,7 @@ async fn inspect_remote_srcdoc(
         let frame_id = frame["id"].as_str().ok_or_else(|| anyhow!("missing isolated capture frame identity"))?;
         let world = frame_session_command(&mut connection, Some(&session), "Page.createIsolatedWorld", serde_json::json!({"frameId":frame_id,"worldName":"hope-capture-inspection","grantUniveralAccess":false})).await?;
         let context_id = world["executionContextId"].as_i64().ok_or_else(|| anyhow!("missing isolated capture world"))?;
-        let evaluated = frame_session_command(&mut connection, Some(&session), "Runtime.evaluate", serde_json::json!({"expression":script,"contextId":context_id,"returnByValue":true})).await?;
+        let evaluated = frame_session_command(&mut connection, Some(&session), "Runtime.evaluate", serde_json::json!({"expression":script,"contextId":context_id,"returnByValue":true,"awaitPromise":true})).await?;
         anyhow::ensure!(evaluated.get("exceptionDetails").is_none(), "isolated capture DOM inspection failed");
         Ok(evaluated["result"]["value"].clone())
     }.await;
@@ -1220,6 +1220,7 @@ impl BrowserBackend for CdpBackend {
             .expression(script)
             .context_id(world.result.execution_context_id)
             .return_by_value(true)
+            .await_promise(true)
             .build()
             .map_err(|e| anyhow!(e))?;
         Ok(page.evaluate_expression(expression).await?.into_value()?)
