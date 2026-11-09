@@ -3853,6 +3853,19 @@ impl SessionDB {
         }
     }
 
+    /// Kernel admission needs only the classification, without any feature
+    /// tables used by the owner-facing session metadata projection.
+    pub(crate) fn get_session_kind(&self, session_id: &str) -> Result<Option<SessionKind>> {
+        let conn = self.read_conn()?;
+        Ok(conn
+            .query_row(
+                "SELECT COALESCE(kind,'regular') FROM sessions WHERE id = ?1",
+                [session_id],
+                |row| Ok(SessionKind::from_db_string(&row.get::<_, String>(0)?)),
+            )
+            .optional()?)
+    }
+
     /// Set a session's classification (see [`SessionKind`]). Used by the
     /// knowledge-space chat entry to mark a freshly-created session as a
     /// `Knowledge` conversation so it is hidden from the main session list.

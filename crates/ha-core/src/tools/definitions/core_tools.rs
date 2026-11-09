@@ -107,7 +107,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_RUNTIME_CANCEL.into(),
-            description: "Cancel a session async job, subagent, or process. In the owner's personal assistant, use kind=assistant_request and the exact request ID to cancel one delegated item. A cancellation request must still be checked against its final status. Unknown targets return refused. Use manage_cron for schedules.".into(),
+            description: "Cancel a session async job, subagent, or process. `requested` is not termination; check `finalStatus` or status. Unknown targets return `refused`. This is cancellation, not pause; use `manage_cron` for schedules. In the owner's personal assistant, use kind=assistant_request and the exact request ID to cancel one delegated item.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -2684,6 +2684,7 @@ mod tests {
         assert!(kinds.iter().any(|kind| kind == "async_job"));
         assert!(kinds.iter().any(|kind| kind == "subagent"));
         assert!(kinds.iter().any(|kind| kind == "process"));
+        assert!(kinds.iter().any(|kind| kind == "assistant_request"));
         assert!(!kinds.iter().any(|kind| kind == "cron"));
         for contract in ["not termination", "`refused`", "not pause"] {
             assert!(runtime_cancel.description.contains(contract), "{contract}");

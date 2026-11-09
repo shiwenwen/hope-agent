@@ -843,9 +843,9 @@ impl TurnKernel {
         });
         let result: Result<AdmittedTurn, TurnFailure> = async {
             let sid = submission.params.session_id.clone();
-            let meta = submission.params.session_db.run(move |db| db.get_session(&sid)).await
+            let kind = submission.params.session_db.run(move |db| db.get_session_kind(&sid)).await
                 .map_err(|e| TurnFailure::new(TurnFailureKind::Infrastructure, e.to_string()))?;
-            if meta.is_some_and(|m| m.kind.as_str() == "personal_assistant") {
+            if kind == Some(crate::session::SessionKind::PersonalAssistant) {
                 if !matches!(submission.params.source, ChatSource::Desktop | ChatSource::Http) {
                     return Err(TurnFailure::invalid_request("Private assistant requires an owner conversation"));
                 }
