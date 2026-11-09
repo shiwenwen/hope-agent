@@ -29,6 +29,10 @@ export interface DesignScenario {
   route: string
   state: Record<string, unknown>
   viewportIds: string[]
+  ready?: {
+    selector: string
+    text: string
+  }
 }
 
 export interface DesignScenarioViewport {
@@ -143,11 +147,7 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
   return (
     <>
       <div className="flex h-6 items-center rounded-md border border-border/60 bg-background/70">
-        <Select
-          value={selectedId}
-          disabled={scenarios.length === 0}
-          onValueChange={choose}
-        >
+        <Select value={selectedId} disabled={scenarios.length === 0} onValueChange={choose}>
           <SelectTrigger
             aria-label={t("design.scenarios.label", "预览场景")}
             className="h-5 max-w-32 border-0 bg-transparent px-1 text-[11px]"
