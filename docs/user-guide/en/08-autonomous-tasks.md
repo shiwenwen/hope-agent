@@ -52,6 +52,7 @@ You can also enter through the "Goal" control in the input box. A summary of the
 **A few key points**:
 
 - A session can have only one goal in progress at a time.
+- After you revise a goal, previously verified repairs remain resolved, while the revised goal still needs fresh acceptance evidence. Cancellation, denied approvals, and unresolved failures are not cleared by unrelated successes.
 - **Completion does not trust the AI's self-assessment**—it must pass a deterministic "final audit" (only complete when there is strong evidence, no blockers, and all required items are satisfied).
 - Once complete, it waits for you to confirm and close: you can "accept and close," or "demand stricter evidence" to send the goal back to keep gathering evidence.
 - After each round, if the goal still needs to advance, the system automatically schedules a follow-up run of about 10 seconds so the AI can continue, until it is complete / blocked / paused / out of budget.

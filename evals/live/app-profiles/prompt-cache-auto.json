@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "eval-app-profile.v1",
+  "id": "prompt-cache-auto",
+  "version": "1.0.0",
+  "title": "自动摘要缓存对照专项",
+  "description": "只通过连续对话触发生产自动摘要，不调用手动压缩接口。用于独立构建的旧版与新版对照；需显式记录同一缩放窗口，不能当作服务商满窗口测试。",
+  "baseTier": "nightly",
+  "suites": [
+    {
+      "suiteId": "prompt-cache-auto",
+      "caseTags": [
+        "prompt_cache"
+      ]
+    }
+  ],
+  "allowedArms": [
+    "control"
+  ],
+  "armMode": "one_control_per_case",
+  "defaultRepetitions": 1,
+  "useSuiteRepetitions": false,
+  "maxTrials": 60,
+  "maxModels": 1,
+  "maxConcurrency": 1,
+  "defaultConcurrency": 1,
+  "maxCostUsd": 1000000,
+  "defaultCostUsd": 10,
+  "budgetMode": "user_configurable",
+  "allowCustom": false
+}

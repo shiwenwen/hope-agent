@@ -42,6 +42,8 @@ Provider 未返回 usage 和真实返回 `0` 是不同状态。`ChatUsage` 分�
 
 工具循环的累计值与最近一轮值仍分开。Goal、Loop、ACP 和现有成本口径不得因 tokenizer 迁移而改成另一种累计定义。
 
+缓存诊断另保留 `ChatUsage.cache_receipt` 的可选实际值，避免兼容数值计数器把缺失的缓存字段当作实际零。Anthropic 只有完整输入与缓存桶才给出精确 context；OpenAI 的完整 input 可直接给出 context，但缺少缓存读取回执时 fresh 保持未知。主调用的评测事件，以及摘要/侧查询的用量台账记录，使用这些实际值生成脱敏 `model.call`；逐调用 TTFT 和摘要请求模式供[缓存基准](../agent/cache-benchmark.md)使用，不以标准输入价预算估值冒充缓存账单。
+
 ## 校正与持久化
 
 校正 key 包含 Provider family、model、request shape、tokenizer id、registry version 和 modality。中心值使用 EMA（alpha 0.2），每 key 最多保留 64 个近期 ratio，并以 p05/p95 形成上下界；ratio 钳在 `[0.5, 4.0]`。
@@ -68,3 +70,13 @@ Provider 未返回 usage 和真实返回 `0` 是不同状态。`ChatUsage` 分�
 | `token_accounting/part_cache.rs` | content-free bounded part cache |
 | `token_accounting/service.rs` | 唯一门面、预热与 compaction counter |
 | `agent/token_manifest.rs` | Provider request 分类诊断与 `/context` 快照 |
+
+### Kimi Basic 搜索按次入账
+
+`web_search.kimi.basic` 是独立搜索 REST 请求，`model_id` 和 Token 字段保持缺失。非空 HTTP 200 的官方计费资格、空结果、非200及未知响应分别记录，不以有效链接数量或字符数估算实际用量/费用。取消保持未知，沿用会话/子代理归属与无痕拒写。详见[工具合同](tool-system.md)。
+
+`web_search.perplexity` 在现有 Sonar 请求的发送、限量读取、解析和取消期间统一收尾。协议错误标记失败；若已收到合法 JSON 中的实际用量，仍保留 Token 字段。无响应或用量缺失保持未知，实际零保留为零；响应来源数量不推算费用。会话/子代理归属与无痕拒写继续由统一台账裁决。
+
+评测内的单次侧查询在请求接纳后通过 `eval_context::retain_model_call` 保留会话身份，直至成功或失败用量写入完成。该保留不占用新的 Agent 并发槽；即使调用方未保留后台生命周期，评测根关闭也必须等实际调用结束。注册与关闭的竞争在锁内再次校验，身份缺失时请求前拒绝；普通非评测调用保持原有计量行为。
+
+单次模型请求在进入适配器前启用 `ModelUsageAttemptGuard`。正常结束只写一次实际覆盖的用量；已启用请求被取消或超时时写入用量未知及 callerCancelled 标记，未进入请求的准备阶段不虚构调用。真实会话已删除且无隐私真相源时不恢复其取消用量持久化；合法的后台合成键仍按既有聚合规则记账。

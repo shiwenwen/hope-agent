@@ -117,6 +117,8 @@ In file previews (code / text, Markdown, rich Office previews), managed HTML / A
 
 ---
 
+For an `.html`, `.htm`, `.md` or analysis `artifact.json` deliverable, open **Artifacts** in the sidebar and choose **Register file as new Artifact**. Select a file to upload; confirming registration copies it into a versioned, managed snapshot. Alternatively, choose **Agent host path** and enter an absolute path within the Agent process working directory or user home. Obtain files from other session directories first, then select them for upload. In a remote UI, upload reads the file you select on the client; it does not treat a client path as a server path. The source is preserved, and script intermediates are not registered automatically. Leaving Artifacts closes registration and aborts an unfinished upload. An import already sent is not rolled back automatically; refresh and check its result when returning. Matching names are not merged: select an existing Artifact and choose **Update from file** to iterate it. If its version changed, refresh and review it first; history is never overwritten. **First version / Updated** labels and creation/update dates describe the durable lifecycle, rather than files changed in the current turn.
+
 ## 3.5 Managing and searching sessions
 
 - **New conversation**: "New" in the sidebar, or `/new`. When you start a new conversation inside a project, it stays as a draft first and is only saved once you send the first message.
@@ -171,7 +173,7 @@ Assign a default working directory to the current conversation. It will:
 - act as the actual working directory for `exec` (running commands) and as the resolution root for relative paths in `read` (reading files);
 - have its top-level file listing shared with the AI, so it can sense what you're working on.
 
-**How to set it**: click the "Working directory" button in the input toolbar. The desktop app opens the system directory picker; the web / server version opens a directory browser (pointing at a path on the server machine).
+**How to set it**: click the "Working directory" button in the input toolbar. On Linux desktop, the app's directory browser lists only folders and accepts a pasted absolute path; the project's "Add folder" entry uses the same approach. macOS / Windows desktop still use the system directory picker. The web / server version uses a directory browser pointing at paths on the machine running the agent.
 
 When no path is already selected, the directory browser starts in the home folder of the system account running Hope Agent; use the Home button to return there at any time. Hope Agent never elevates itself just to write a system directory, so choose a folder owned by that account if the current location is not writable. Creating a folder from the web / server UI also requires "Allow remote file writes" under Settings → Server; when it is off, the browser links directly to that setting instead of attempting a write that will fail.
 
@@ -183,7 +185,9 @@ The priority is "session setting > project setting > default workspace". A sessi
 
 The amount of conversation a model can remember is limited (the context window). As a conversation grows and approaches the limit, Hope Agent **compacts it automatically in layers**, so long conversations and long tasks can continue without suddenly "losing memory" or erroring out. Compaction happens automatically; you'll usually just see a (gray, when it completes) compaction notice at the top. If compaction doesn't finish cleanly, the notice turns into an amber banner instead, with a title spelling out the specific reason—for example "Summary generation timed out", "Cleaned up context, but summary generation timed out", "Summary was needed, but was not completed", or "Cleaned up context, but summary was not completed", falling back to "Context compression paused" when it doesn't fit those cases—plus a subtitle with how many messages were processed, how many files were recovered, and so on. The banner also has a "Retry compression" button on the right, which spins and disables itself while it's running to prevent double-clicks.
 
-Compaction starts with deterministic projections that do not call another model, then works its way up to summarizing old history. Projection changes can still invalidate part of the prompt cache, so they are not literally free. A summary preserves known file touchpoints and managed references; file contents are re-injected only when the current session has a verified authorization binding. Otherwise Hope Agent safely skips the body and the model can use the normal file tools when needed—it never treats an old tool argument as permission to read a host path.
+Ordinary requests keep the history prefix stable and summarize old history at the summary threshold. Deterministic projections reclaim space when the request cannot fit. Projections and summaries can still invalidate part of the prompt cache. With the chat model and default summary policy, eligible text summaries try to share the main conversation's cache; a dedicated model with a lower token price does not always lower the total cost. A summary preserves known file touchpoints and managed references; file contents are re-injected only when the current session has a verified authorization binding. Otherwise Hope Agent safely skips the body and the model can use the normal file tools when needed—it never treats an old tool argument as permission to read a host path.
+
+To inspect cache behavior, select **缓存成本与延迟专项 (Cache cost and latency)** in the evaluation center. Synthetic conversations check warm-up, state updates, tools and fact retention after summaries. **自动摘要缓存对照专项 (Automatic summary cache comparison)** observes automatic summaries during continued conversation; record the configured window size. Review the budget before a real-model run. Cache usage and latency come from Provider receipts, while modeled costs require explicit cache prices. The zero-cost local smoke verifies collection only. See the [cache benchmark](../../architecture/agent/cache-benchmark.md).
 
 **Manual commands**:
 
@@ -195,10 +199,14 @@ Compaction starts with deterministic projections that do not call another model,
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Enable automatic context compaction | On | When off, only the most basic truncation and fallback are kept |
-| Reactive micro-compaction | On | Cleans up old tool results as needed at the end of each round |
-| Trigger ratio | 0.75 | Reactive cleanup is triggered when context usage exceeds this ratio |
-| Summarization model | Empty (uses the chat model) | The model used to generate summaries; you can specify a cheaper model to save cost |
+| Reactive micro-compaction | On | Cleanup switch for compatibility paths; the built-in ordinary path preserves the history prefix |
+| Trigger ratio | 0.75 | Micro-compaction threshold for compatibility paths; ordinary summaries use the summary threshold below |
+| Summarization model | Empty (uses the chat model) | Choose a dedicated summary model; total cost also depends on cache reuse |
+| Summary reasoning override | Keep current summary policy | Changes reasoning only for summaries; failures preserve history without switching models or raising the output limit |
 | Summarization trigger threshold | 0.85 | Summary-based compaction is triggered when usage exceeds this ratio |
+
+If reasoning consumes the output budget and leaves an empty summary, choose an off or lower level that the summary model actually supports. Some models cannot disable reasoning. Unsupported choices produce an explicit error, and an empty summary never replaces the original history. Choose **Keep current summary policy** for automatic selection: eligible prefix-sharing summaries inherit the main request's reasoning settings; other cases use the independent summary policy. This setting does not affect the main conversation or other background one-shot tasks.
+
 
 > These are "behavior adjustment" settings (medium risk) that affect context and cost. The vast majority of users can keep the defaults. Compaction also has a full set of finer parameters (trim ratio, number of recent rounds to keep, file recovery, and so on), all in the "Advanced" area of the same panel—adjust them as needed.
 

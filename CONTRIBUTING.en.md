@@ -36,6 +36,8 @@ git checkout -b feat/xxx   # or fix/xxx, docs/xxx
 
 ### 2. Set up the environment
 
+Use Node.js 24 to match CI and Docker. `@testing-library/jest-dom` 7 requires Node.js 22+ and the existing `@testing-library/dom` 10 peer dependency; tests continue to load matchers through `@testing-library/jest-dom/vitest`.
+
 ```bash
 pnpm install              # frontend deps + Husky pre-push hooks
 pnpm dev:desktop          # default desktop dev (frontend + Rust backend hot-reload)
@@ -167,7 +169,7 @@ If your PR matches any of these, you **must update the corresponding doc in the 
 - Subsystem architecture change → `docs/architecture/<name>.md`
 - New architectural capability → new file in `docs/architecture/` + `docs/README.md` index
 - Modify Tauri command / HTTP route → [`docs/architecture/system/api-reference.md`](docs/architecture/system/api-reference.md)
-- Edit either README → sync the other in the same PR (`README.md` ↔ `README.en.md`)
+- Edit either README → sync the other in the same PR (`README.md` in English ↔ `README.zh-CN.md` in Chinese)
 - Edit release notes → both Chinese and English in the same PR
 
 ## For experienced contributors / AI assistants

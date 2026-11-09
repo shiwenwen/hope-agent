@@ -129,6 +129,8 @@ pub struct DomainQualityRun {
     pub session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_revision: Option<i64>,
     pub domain: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_id: Option<String>,
@@ -225,6 +227,7 @@ pub struct CandidateCheck {
 pub struct QualityContext {
     pub session_id: String,
     pub goal_id: Option<String>,
+    pub goal_revision: Option<i64>,
     pub domain: String,
     pub template: DomainWorkflowTemplate,
     pub evidence: Vec<DomainEvidenceItem>,
@@ -238,6 +241,7 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             id TEXT PRIMARY KEY,
             session_id TEXT NOT NULL,
             goal_id TEXT,
+            goal_revision INTEGER,
             domain TEXT NOT NULL,
             template_id TEXT,
             template_version TEXT,
@@ -296,6 +300,12 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         "template_version",
         "ALTER TABLE domain_quality_runs ADD COLUMN template_version TEXT;",
     )?;
+    ensure_domain_quality_column(
+        conn,
+        "domain_quality_runs",
+        "goal_revision",
+        "ALTER TABLE domain_quality_runs ADD COLUMN goal_revision INTEGER;",
+    )?;
     Ok(())
 }
 
@@ -309,7 +319,7 @@ impl SessionDB {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT id, session_id, goal_id, domain, template_id, template_version, state, summary,
-                    stats_json, error, created_at, updated_at, completed_at
+                    stats_json, error, created_at, updated_at, completed_at, goal_revision
              FROM domain_quality_runs
              WHERE session_id = ?1
              ORDER BY updated_at DESC
@@ -324,7 +334,7 @@ impl SessionDB {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         conn.query_row(
             "SELECT id, session_id, goal_id, domain, template_id, template_version, state, summary,
-                    stats_json, error, created_at, updated_at, completed_at
+                    stats_json, error, created_at, updated_at, completed_at, goal_revision
              FROM domain_quality_runs
              WHERE id = ?1",
             params![run_id],
@@ -376,11 +386,23 @@ impl SessionDB {
         let id = format!("dqr_{}", uuid::Uuid::new_v4().simple());
         {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            if let Some(goal_id) = context.goal_id.as_deref() {
+                let (session_id, revision): (String, i64) = conn.query_row(
+                    "SELECT session_id, revision FROM goals WHERE id = ?1",
+                    [goal_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                if session_id != context.session_id || Some(revision) != context.goal_revision {
+                    return Err(anyhow!(
+                        "domain quality context no longer matches the owning Goal revision; prepare a fresh context"
+                    ));
+                }
+            }
             conn.execute(
                 "INSERT INTO domain_quality_runs (
                     id, session_id, goal_id, domain, template_id, template_version, state, summary,
-                    stats_json, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running', '', '{}', ?7, ?7)",
+                    stats_json, created_at, updated_at, goal_revision
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running', '', '{}', ?7, ?7, ?8)",
                 params![
                     id,
                     context.session_id,
@@ -389,6 +411,7 @@ impl SessionDB {
                     context.template.id,
                     context.template.version,
                     now,
+                    context.goal_revision,
                 ],
             )?;
         }
@@ -401,6 +424,7 @@ impl SessionDB {
             json!({
                 "sessionId": context.session_id,
                 "goalId": context.goal_id,
+                "goalRevision": context.goal_revision,
                 "domain": context.domain,
                 "templateId": context.template.id,
                 "templateVersion": context.template.version,
@@ -574,6 +598,7 @@ impl SessionDB {
             relation,
             json!({
                 "runId": snapshot.run.id,
+                "goalRevision": snapshot.run.goal_revision,
                 "domain": snapshot.run.domain,
                 "templateId": snapshot.run.template_id,
                 "templateVersion": snapshot.run.template_version,
@@ -595,6 +620,7 @@ impl SessionDB {
                     "domain_quality_check",
                     json!({
                         "runId": snapshot.run.id,
+                        "goalRevision": snapshot.run.goal_revision,
                         "domain": snapshot.run.domain,
                         "title": check.title,
                         "summary": check.body,
@@ -695,6 +721,7 @@ fn row_to_domain_quality_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<Domain
         id: row.get(0)?,
         session_id: row.get(1)?,
         goal_id: row.get(2)?,
+        goal_revision: row.get(13)?,
         domain: row.get(3)?,
         template_id: row.get(4)?,
         template_version: row.get(5)?,
@@ -797,4 +824,30 @@ fn emit_domain_quality_check(event: &str, check: &DomainQualityCheck) {
 
 fn emit_domain_quality_event(event: &str, quality_event: &DomainQualityEvent) {
     emit_domain_quality_run(event, quality_event);
+}
+
+#[cfg(test)]
+mod revision_migration_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_quality_run_keeps_data_and_unknown_revision_after_migration() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE domain_quality_runs (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL, goal_id TEXT, domain TEXT NOT NULL,
+            template_id TEXT, state TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '',
+            stats_json TEXT NOT NULL DEFAULT '{}', error TEXT, created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL, completed_at TEXT
+        );
+        INSERT INTO domain_quality_runs (id,session_id,domain,state,summary,stats_json,created_at,updated_at)
+        VALUES ('dqr_legacy','session','research','completed','preserved','{\"legacy\":true}','2020-01-01','2020-01-01');").unwrap();
+        ensure_tables(&conn).unwrap();
+        ensure_tables(&conn).unwrap();
+        let run = conn.query_row("SELECT id,session_id,goal_id,domain,template_id,template_version,state,summary,stats_json,error,created_at,updated_at,completed_at,goal_revision FROM domain_quality_runs WHERE id='dqr_legacy'", [], row_to_domain_quality_run).unwrap();
+        assert_eq!(run.goal_revision, None);
+        assert_eq!(run.template_version, None);
+        assert_eq!(run.summary, "preserved");
+        assert_eq!(run.stats, json!({"legacy":true}));
+        assert_eq!(run.state, DomainQualityRunState::Completed);
+    }
 }

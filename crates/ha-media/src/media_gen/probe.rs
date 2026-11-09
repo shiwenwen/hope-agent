@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-use ha_core::provider::apply_proxy;
+use ha_core::provider::apply_model_proxy;
 
 use ha_core::media_gen::types::MediaVendorKind;
 
@@ -229,7 +229,7 @@ pub async fn test_media_provider(input: TestMediaProviderInput) -> Result<String
     }
 
     let start = Instant::now();
-    let client = apply_proxy(
+    let client = apply_model_proxy(
         reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(15)),
@@ -268,9 +268,12 @@ pub async fn test_media_provider(input: TestMediaProviderInput) -> Result<String
                     | MediaVendorKind::Iflytek
                     | MediaVendorKind::VolcengineTts
             );
-            let ok = status < 400 || (post_only_route && (status == 405 || status == 422));
+            let ok =
+                resp.status().is_success() || (post_only_route && (status == 405 || status == 422));
             let msg = if ok {
                 format!("{display_name} 连接成功")
+            } else if resp.status().is_redirection() {
+                format!("{display_name} 端点发生重定向 ({status})，请确认最终 Base URL")
             } else if status == 401 || status == 403 {
                 format!("{display_name} 认证失败，请检查 API Key")
             } else {
@@ -302,6 +305,84 @@ pub async fn test_media_provider(input: TestMediaProviderInput) -> Result<String
                 "latencyMs": latency,
             }))
             .unwrap_or_default())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn media_probe_rejects_redirects_and_preserves_post_only_statuses() {
+        let mut config = ha_core::config::AppConfig::default();
+        config.proxy.mode = ha_core::provider::ProxyMode::None;
+        let _config_restore = ha_core::test_support::replace_config_cache(config);
+        for kind in [
+            MediaVendorKind::Openai,
+            MediaVendorKind::Google,
+            MediaVendorKind::Elevenlabs,
+            MediaVendorKind::VolcengineTts,
+        ] {
+            for status in [200, 301, 302, 307, 308, 401, 403, 405, 422] {
+                let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let target = format!("http://{}/redirected", destination.local_addr().unwrap());
+                let origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let base = format!("http://{}", origin.local_addr().unwrap());
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = origin.accept().await.unwrap();
+                    let mut request = Vec::new();
+                    while !request.windows(4).any(|b| b == b"\r\n\r\n") {
+                        let mut buffer = [0; 1024];
+                        let count = socket.read(&mut buffer).await.unwrap();
+                        assert_ne!(count, 0);
+                        request.extend_from_slice(&buffer[..count]);
+                    }
+                    let headers = String::from_utf8_lossy(&request).to_lowercase();
+                    assert!(headers.starts_with("get "));
+                    let authentication = match kind {
+                        MediaVendorKind::Google => "key=synthetic-media-key",
+                        MediaVendorKind::Elevenlabs => "xi-api-key: synthetic-media-key",
+                        MediaVendorKind::VolcengineTts => "x-api-key: synthetic-media-key",
+                        _ => "authorization: bearer synthetic-media-key",
+                    };
+                    assert!(headers.contains(authentication));
+                    socket.write_all(format!("HTTP/1.1 {status} Synthetic\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+                });
+                let response = tokio::time::timeout(
+                    Duration::from_secs(3),
+                    test_media_provider(TestMediaProviderInput {
+                        provider_id: None,
+                        kind: Some(kind),
+                        api_key: Some("synthetic-media-key".into()),
+                        base_url: Some(base),
+                        allow_private_network: true,
+                    }),
+                )
+                .await
+                .expect("local media probe timed out")
+                .unwrap();
+                let result: serde_json::Value = serde_json::from_str(&response).unwrap();
+                assert_eq!(result["status"], status);
+                let compatible =
+                    kind == MediaVendorKind::VolcengineTts && matches!(status, 405 | 422);
+                assert_eq!(result["success"], status == 200 || compatible);
+                if (300..400).contains(&status) {
+                    assert!(result["message"].as_str().unwrap().contains("重定向"));
+                }
+                assert!(!result["url"]
+                    .as_str()
+                    .unwrap()
+                    .contains("synthetic-media-key"));
+                server.await.unwrap();
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(10), destination.accept())
+                        .await
+                        .is_err()
+                );
+            }
         }
     }
 }

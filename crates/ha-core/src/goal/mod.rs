@@ -3582,7 +3582,7 @@ fn latest_goal_linked_event_seq(events: &[GoalEvent]) -> i64 {
 fn build_goal_rule_audit(snapshot: &GoalSnapshot) -> Value {
     let criteria = split_criteria(&snapshot.goal.completion_criteria);
     let evidence: Vec<Value> = snapshot.evidence.iter().map(|item| json!(item)).collect();
-    let active_blockers = active_blocking_evidence(&snapshot.evidence);
+    let active_blockers = active_blocking_evidence(snapshot);
     let mut achieved = Vec::new();
     let mut missing = Vec::new();
     let mut optional_missing = Vec::new();
@@ -3616,6 +3616,13 @@ fn build_goal_rule_audit(snapshot: &GoalSnapshot) -> Value {
 
     for run in &snapshot.workflow_runs {
         let run_label = format!("workflow {} ({})", run.id, run.state.as_str());
+        if let Some(repair) = completed_workflow_repair(snapshot, run) {
+            achieved.push(format!(
+                "{run_label} repaired by validated workflow {}",
+                repair.id
+            ));
+            continue;
+        }
         match run.state {
             WorkflowRunState::Completed => {
                 achieved.push(format!("{run_label} completed"));
@@ -3709,10 +3716,9 @@ fn build_goal_rule_audit(snapshot: &GoalSnapshot) -> Value {
         ));
     }
 
-    let has_strong_positive = snapshot
-        .evidence
-        .iter()
-        .any(goal_evidence_is_strong_positive);
+    let has_strong_positive = snapshot.evidence.iter().any(|item| {
+        evidence_is_current_revision(snapshot, item) && goal_evidence_is_strong_positive(item)
+    });
     if !has_strong_positive {
         missing.push(
             "No final workflow completion, passing validation, or completed task evidence yet."
@@ -3878,7 +3884,7 @@ fn build_goal_rule_audit(snapshot: &GoalSnapshot) -> Value {
         "ruleGate": {
             "status": if blockers.is_empty() && missing.is_empty() && required_criteria_passed { "passed" } else { "blocked" },
             "hardBlockers": active_blockers.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
-            "strongEvidence": snapshot.evidence.iter().filter(|item| goal_evidence_is_strong_positive(item)).map(|item| item.id.clone()).collect::<Vec<_>>(),
+            "strongEvidence": snapshot.evidence.iter().filter(|item| evidence_is_current_revision(snapshot,item) && goal_evidence_is_strong_positive(item)).map(|item| item.id.clone()).collect::<Vec<_>>(),
             "requiredCriteriaPassed": required_criteria_passed,
             "llmAuditor": {
                 "status": "skipped",
@@ -3939,7 +3945,7 @@ fn build_goal_evidence_items(links: &[GoalLink], tasks: &[Task]) -> Vec<GoalEvid
 }
 
 fn build_goal_criteria_audit(snapshot: &GoalSnapshot) -> Vec<GoalCriterionAudit> {
-    let effective_blockers = active_blocking_evidence(&snapshot.evidence);
+    let effective_blockers = active_blocking_evidence(snapshot);
 
     snapshot
         .criteria_items
@@ -3949,7 +3955,9 @@ fn build_goal_criteria_audit(snapshot: &GoalSnapshot) -> Vec<GoalCriterionAudit>
                 .iter()
                 .copied()
                 .filter(|evidence| {
-                    evidence_goal_criterion_id(evidence)
+                    evidence_workflow_run(snapshot, evidence)
+                        .and_then(|run| run.goal_criterion_id.as_deref())
+                        .or_else(|| evidence_goal_criterion_id(evidence))
                         .map(|bound_id| bound_id == item.id)
                         .unwrap_or(true)
                 })
@@ -3971,7 +3979,7 @@ fn build_goal_criteria_audit(snapshot: &GoalSnapshot) -> Vec<GoalCriterionAudit>
                 }
             } else {
                 let supporting =
-                    supporting_evidence_for_criterion(&item.id, &item.text, &snapshot.evidence);
+                    supporting_evidence_for_criterion(&item.id, &item.text, snapshot);
                 let expected_supporting = if item.expected_evidence.is_empty() {
                     supporting.clone()
                 } else {
@@ -4046,10 +4054,13 @@ fn build_goal_criteria_audit(snapshot: &GoalSnapshot) -> Vec<GoalCriterionAudit>
 fn supporting_evidence_for_criterion<'a>(
     criterion_id: &str,
     criterion: &str,
-    evidence: &'a [GoalEvidenceItem],
+    snapshot: &'a GoalSnapshot,
 ) -> Vec<&'a GoalEvidenceItem> {
     let mut out = Vec::new();
-    for item in evidence {
+    for item in &snapshot.evidence {
+        if !evidence_is_current_revision(snapshot, item) {
+            continue;
+        }
         if let Some(bound_id) = evidence_goal_criterion_id(item) {
             if bound_id == criterion_id {
                 out.push(item);
@@ -4101,58 +4112,195 @@ fn meaningful_tokens(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn active_blocking_evidence(evidence: &[GoalEvidenceItem]) -> Vec<&GoalEvidenceItem> {
-    let latest_validation_pass =
-        latest_evidence_time(evidence, |item| item.relation == "validation_passed");
-    let latest_workflow_repair = latest_evidence_time(evidence, |item| {
-        item.relation == "workflow_completed" || item.relation == "validation_passed"
-    });
-    let latest_domain_quality_pass =
-        latest_evidence_time(evidence, |item| item.relation == "domain_quality_passed");
-    evidence
+// Resolve runtime evidence through the persisted run, rather than trusting a
+// caller-supplied criterion/revision in metadata.
+fn evidence_workflow_run<'a>(
+    snapshot: &'a GoalSnapshot,
+    item: &GoalEvidenceItem,
+) -> Option<&'a WorkflowRun> {
+    let run_id = match item.source_type.as_str() {
+        "workflow_run" => item.source_id.as_str(),
+        "validation" => item.source_id.split_once(':')?.0,
+        "diagnostic" => {
+            let run_id = item.metadata.get("runId")?.as_str()?;
+            if item.source_id.split_once(':')?.0 != run_id {
+                return None;
+            }
+            run_id
+        }
+        _ => return None,
+    };
+    snapshot.workflow_runs.iter().find(|run| {
+        run.id == run_id
+            && run.goal_id.as_deref() == Some(snapshot.goal.id.as_str())
+            && run.session_id == snapshot.goal.session_id
+    })
+}
+
+fn workflow_audit_revision(snapshot: &GoalSnapshot, run: &WorkflowRun) -> Option<i64> {
+    // Legacy unbound runs did not persist a revision. Only the initial contract
+    // can be inferred safely; never infer the current revision after an edit.
+    run.goal_revision
+        .or_else(|| (snapshot.goal.revision == 1).then_some(1))
+}
+
+fn evidence_has_workflow_source(item: &GoalEvidenceItem) -> bool {
+    item.source_type == "workflow_run"
+        || (matches!(item.source_type.as_str(), "validation" | "diagnostic")
+            && (item.source_id.starts_with("wfr_") || item.metadata.get("runId").is_some()))
+}
+
+fn evidence_audit_scope<'a>(
+    snapshot: &'a GoalSnapshot,
+    item: &'a GoalEvidenceItem,
+) -> Option<(Option<&'a str>, i64)> {
+    if evidence_has_workflow_source(item) {
+        let run = evidence_workflow_run(snapshot, item)?;
+        return Some((
+            run.goal_criterion_id.as_deref(),
+            workflow_audit_revision(snapshot, run)?,
+        ));
+    }
+    let revision = item
+        .metadata
+        .get("goalCriterion")
+        .and_then(|value| value.get("goalRevision"))
+        .and_then(Value::as_i64)
+        .or_else(|| item.metadata.get("goalRevision").and_then(Value::as_i64))
+        .or_else(|| (snapshot.goal.revision == 1).then_some(1))?;
+    Some((evidence_goal_criterion_id(item), revision))
+}
+
+// Historical resolution and current acceptance are separate questions. A
+// validated repair stays resolved in its original revision; only new evidence
+// can satisfy the current owner contract.
+fn evidence_is_current_revision(snapshot: &GoalSnapshot, item: &GoalEvidenceItem) -> bool {
+    if let Some((_, revision)) = evidence_audit_scope(snapshot, item) {
+        return revision == snapshot.goal.revision;
+    }
+    if snapshot.goal.revision == 1 {
+        return true;
+    }
+    // Never infer an unversioned Workflow's contract after an edit.
+    if evidence_has_workflow_source(item) || item.source_type == "domain_quality" {
+        return false;
+    }
+    // Legacy task/manual evidence has no revision column. Its server-owned
+    // timestamp must follow the explicit owner update for this exact revision.
+    let boundary = snapshot
+        .events
+        .iter()
+        .filter(|event| {
+            event.goal_id == snapshot.goal.id
+                && event.kind == "goal_updated"
+                && event
+                    .payload
+                    .pointer("/next/revision")
+                    .and_then(Value::as_i64)
+                    == Some(snapshot.goal.revision)
+        })
+        .max_by_key(|event| event.seq);
+    boundary
+        .and_then(|event| chrono::DateTime::parse_from_rfc3339(&event.created_at).ok())
+        .zip(chrono::DateTime::parse_from_rfc3339(&item.created_at).ok())
+        .is_some_and(|(updated, created)| created > updated)
+}
+
+fn newer_matching_evidence(
+    snapshot: &GoalSnapshot,
+    item: &GoalEvidenceItem,
+    predicate: impl Fn(&GoalEvidenceItem) -> bool,
+) -> bool {
+    let Some(scope) = evidence_audit_scope(snapshot, item) else {
+        return false;
+    };
+    (1..=snapshot.goal.revision).contains(&scope.1)
+        && snapshot.evidence.iter().any(|candidate| {
+            candidate.created_at > item.created_at
+                && evidence_audit_scope(snapshot, candidate) == Some(scope)
+                && predicate(candidate)
+        })
+}
+
+fn completed_workflow_repair<'a>(
+    snapshot: &'a GoalSnapshot,
+    failed: &WorkflowRun,
+) -> Option<&'a WorkflowRun> {
+    let failed_revision = workflow_audit_revision(snapshot, failed)?;
+    // Cancellation and permission/approval blockers are never repaired by an
+    // unrelated success. Their existing owner/approval transitions still apply.
+    if failed.state != WorkflowRunState::Failed
+        || failed.goal_id.as_deref() != Some(snapshot.goal.id.as_str())
+        || failed.session_id != snapshot.goal.session_id
+        || !(1..=snapshot.goal.revision).contains(&failed_revision)
+        || !snapshot.evidence.iter().any(|item| {
+            item.source_type == "workflow_run"
+                && item.source_id == failed.id
+                && item.relation == "workflow_failed"
+                && item.metadata.get("reason").and_then(Value::as_str) == Some("runtime_error")
+        })
+    {
+        return None;
+    }
+    let failed_at = failed.completed_at.as_deref()?;
+    snapshot.workflow_runs.iter().find(|candidate| {
+        candidate.state == WorkflowRunState::Completed
+            && candidate.goal_id == failed.goal_id
+            && candidate.session_id == failed.session_id
+            && candidate.goal_criterion_id == failed.goal_criterion_id
+            && workflow_audit_revision(snapshot, candidate) == Some(failed_revision)
+            && candidate.created_at.as_str() > failed_at
+            && snapshot.evidence.iter().any(|validation| {
+                validation.relation == "validation_passed"
+                    && validation.source_type == "validation"
+                    && validation.created_at >= candidate.created_at
+                    && validation.metadata.get("ok").and_then(Value::as_bool) == Some(true)
+                    && evidence_workflow_run(snapshot, validation)
+                        .is_some_and(|run| run.id == candidate.id)
+                    && !snapshot.evidence.iter().any(|later| {
+                        later.relation == "validation_failed"
+                            && later.created_at >= validation.created_at
+                            && evidence_workflow_run(snapshot, later)
+                                .is_some_and(|run| run.id == candidate.id)
+                    })
+            })
+    })
+}
+
+fn active_blocking_evidence(snapshot: &GoalSnapshot) -> Vec<&GoalEvidenceItem> {
+    snapshot
+        .evidence
         .iter()
         .filter(|item| match item.relation.as_str() {
-            "validation_failed" => !latest_validation_pass
-                .map(|latest| latest > item.created_at.as_str())
-                .unwrap_or(false),
-            "workflow_failed" | "workflow_blocked" | "workflow_cancelled" => {
-                !latest_workflow_repair
-                    .map(|latest| latest > item.created_at.as_str())
-                    .unwrap_or(false)
-            }
+            "validation_failed" => !newer_matching_evidence(snapshot, item, |candidate| {
+                candidate.relation == "validation_passed"
+            }),
+            "workflow_failed" => evidence_workflow_run(snapshot, item)
+                .is_none_or(|run| completed_workflow_repair(snapshot, run).is_none()),
+            "workflow_blocked" | "workflow_cancelled" => true,
             "review_finding" => review_finding_is_blocking(item),
             "domain_quality_failed" | "domain_quality_blocked" | "domain_quality_needs_user" => {
-                !latest_domain_quality_pass
-                    .map(|latest| latest > item.created_at.as_str())
-                    .unwrap_or(false)
+                !newer_matching_evidence(snapshot, item, |candidate| {
+                    candidate.relation == "domain_quality_passed"
+                })
             }
             "domain_quality_check" => {
                 domain_quality_check_is_blocking(item)
-                    && !latest_domain_quality_pass
-                        .map(|latest| latest > item.created_at.as_str())
-                        .unwrap_or(false)
+                    && !newer_matching_evidence(snapshot, item, |candidate| {
+                        candidate.relation == "domain_quality_passed"
+                    })
             }
             "diagnostic_result" => {
                 diagnostic_result_is_blocking(item)
-                    && !latest_validation_pass
-                        .map(|latest| latest > item.created_at.as_str())
-                        .unwrap_or(false)
-                    && !diagnostic_result_resolved_by_newer_clean(item, evidence)
+                    && !newer_matching_evidence(snapshot, item, |candidate| {
+                        candidate.relation == "validation_passed"
+                            || (diagnostic_result_is_clean(candidate)
+                                && diagnostic_clean_scope_matches(item, candidate))
+                    })
             }
             _ => false,
         })
         .collect()
-}
-
-fn latest_evidence_time(
-    evidence: &[GoalEvidenceItem],
-    predicate: impl Fn(&GoalEvidenceItem) -> bool,
-) -> Option<&str> {
-    evidence
-        .iter()
-        .filter(|item| predicate(item))
-        .map(|item| item.created_at.as_str())
-        .max()
 }
 
 fn review_finding_is_blocking(item: &GoalEvidenceItem) -> bool {
@@ -4203,17 +4351,6 @@ fn diagnostic_result_is_clean(item: &GoalEvidenceItem) -> bool {
         .to_lowercase();
     let errors = metadata_u64(&item.metadata, "errors").unwrap_or(0);
     item.relation == "diagnostic_result" && status == "passed" && errors == 0
-}
-
-fn diagnostic_result_resolved_by_newer_clean(
-    item: &GoalEvidenceItem,
-    evidence: &[GoalEvidenceItem],
-) -> bool {
-    evidence.iter().any(|candidate| {
-        candidate.created_at > item.created_at
-            && diagnostic_result_is_clean(candidate)
-            && diagnostic_clean_scope_matches(item, candidate)
-    })
 }
 
 fn diagnostic_clean_scope_matches(item: &GoalEvidenceItem, clean: &GoalEvidenceItem) -> bool {
@@ -6602,6 +6739,510 @@ mod tests {
         );
     }
 
+    fn record_repair_validation(db: &SessionDB, run: &WorkflowRun, key: &str, ok: bool) {
+        db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+            run_id: run.id.clone(),
+            op_key: key.to_string(),
+            op_type: "validate".to_string(),
+            effect_class: WorkflowEffectClass::NonIdempotent,
+            input: json!({ "commands": ["synthetic-check"] }),
+            child_handle: None,
+        })
+        .expect("start synthetic validation");
+        db.complete_workflow_op(
+            &run.id,
+            key,
+            json!({
+                "ok": ok, "summary": "synthetic validation", "results": [{"ok": ok}],
+            }),
+        )
+        .expect("record actual validation result");
+    }
+
+    fn repaired_goal_snapshot(db: &SessionDB) -> (GoalSnapshot, String, String) {
+        let session = db.create_session("ha-main").expect("session");
+        let goal = create_goal_for_session(db, &session.id);
+        let failed = create_workflow(db, &session.id, Some(goal.goal.id.clone()));
+        assert_eq!(failed.goal_revision, Some(goal.goal.revision));
+        db.transition_workflow_run(&failed.id, WorkflowRunState::Running, Some("start"))
+            .unwrap();
+        db.transition_workflow_run(&failed.id, WorkflowRunState::Failed, Some("runtime_error"))
+            .unwrap();
+        assert_eq!(
+            db.evaluate_goal(&goal.goal.id).unwrap().goal.state,
+            GoalState::Blocked
+        );
+        let repair = create_workflow(db, &session.id, Some(goal.goal.id.clone()));
+        db.transition_workflow_run(&repair.id, WorkflowRunState::Running, Some("start"))
+            .unwrap();
+        record_repair_validation(db, &repair, "repair-check", true);
+        db.transition_workflow_run(&repair.id, WorkflowRunState::Completed, Some("done"))
+            .unwrap();
+        (
+            db.evaluate_goal(&goal.goal.id).unwrap(),
+            failed.id,
+            repair.id,
+        )
+    }
+
+    #[test]
+    fn goal_workflow_repair_completes_audit_preserving_failed_history_and_closure() {
+        let (_dir, db) = temp_db();
+        let (snapshot, failed_id, repair_id) = repaired_goal_snapshot(&db);
+        assert_eq!(snapshot.goal.state, GoalState::Completed);
+        assert!(snapshot
+            .workflow_runs
+            .iter()
+            .any(|run| run.id == failed_id && run.state == WorkflowRunState::Failed));
+        assert!(snapshot
+            .evidence
+            .iter()
+            .any(|item| item.source_id == failed_id && item.relation == "workflow_failed"));
+        assert!(snapshot.goal.final_evidence["blockers"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(snapshot.goal.final_evidence["achieved"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                item.as_str()
+                    .is_some_and(|text| text.contains(&failed_id) && text.contains(&repair_id))
+            }));
+        db.close_goal(CloseGoalInput {
+            goal_id: snapshot.goal.id,
+            decision: GoalClosureDecision::AcceptedV1,
+            reason: Some("accept verified repair".to_string()),
+            follow_up_items: vec![],
+        })
+        .expect("current repaired audit permits owner closure");
+    }
+
+    #[test]
+    fn owner_revision_keeps_historical_repairs_without_reusing_them_as_current_evidence() {
+        let (_dir, db) = temp_db();
+        let (original, failed_id, repair_id) = repaired_goal_snapshot(&db);
+        let updated = db
+            .update_goal(UpdateGoalInput {
+                goal_id: original.goal.id.clone(),
+                objective: Some("new owner contract".into()),
+                completion_criteria: Some("validate the new owner contract".into()),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+            })
+            .unwrap();
+        assert_eq!(updated.goal.revision, 2);
+        assert_eq!(updated.goal.state, GoalState::Active);
+        let failed = updated
+            .workflow_runs
+            .iter()
+            .find(|run| run.id == failed_id)
+            .unwrap();
+        assert_eq!(
+            completed_workflow_repair(&updated, failed).unwrap().id,
+            repair_id
+        );
+        assert!(!active_blocking_evidence(&updated)
+            .iter()
+            .any(|item| item.source_id == failed_id));
+        assert_ne!(
+            db.evaluate_goal(&original.goal.id).unwrap().goal.state,
+            GoalState::Completed
+        );
+        let current = create_workflow(
+            &db,
+            &original.goal.session_id,
+            Some(original.goal.id.clone()),
+        );
+        assert_eq!(current.goal_revision, Some(2));
+        db.transition_workflow_run(&current.id, WorkflowRunState::Running, Some("start"))
+            .unwrap();
+        record_repair_validation(&db, &current, "current-owner-contract", true);
+        db.transition_workflow_run(&current.id, WorkflowRunState::Completed, Some("done"))
+            .unwrap();
+        let completed = db.evaluate_goal(&original.goal.id).unwrap();
+        assert_eq!(completed.goal.state, GoalState::Completed);
+        assert!(completed
+            .workflow_runs
+            .iter()
+            .any(|run| run.id == failed_id && run.state == WorkflowRunState::Failed));
+        let mut wrong_revision = updated.clone();
+        wrong_revision
+            .workflow_runs
+            .iter_mut()
+            .find(|run| run.id == repair_id)
+            .unwrap()
+            .goal_revision = Some(2);
+        let failed = wrong_revision
+            .workflow_runs
+            .iter()
+            .find(|run| run.id == failed_id)
+            .unwrap();
+        assert!(completed_workflow_repair(&wrong_revision, failed).is_none());
+    }
+
+    #[test]
+    fn task_evidence_after_edit_requires_the_actual_owner_update_boundary() {
+        let (_dir, db) = temp_db();
+        let (original, _, _) = repaired_goal_snapshot(&db);
+        db.update_goal(UpdateGoalInput {
+            goal_id: original.goal.id.clone(),
+            objective: Some("revised task evidence".into()),
+            completion_criteria: None,
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
+        })
+        .unwrap();
+        let mut snapshot = db.goal_snapshot(&original.goal.id, 200).unwrap().unwrap();
+        let boundary = snapshot
+            .events
+            .iter()
+            .find(|event| event.kind == "goal_updated")
+            .unwrap()
+            .created_at
+            .clone();
+        let mut evidence = original
+            .evidence
+            .iter()
+            .find(|item| item.relation == "validation_passed")
+            .unwrap()
+            .clone();
+        evidence.source_type = "task".into();
+        evidence.source_id = "legacy-task".into();
+        evidence.relation = "task_completed".into();
+        evidence.metadata = json!({});
+        assert!(!evidence_is_current_revision(&snapshot, &evidence));
+        evidence.created_at = boundary.clone();
+        assert!(!evidence_is_current_revision(&snapshot, &evidence));
+        evidence.created_at = (chrono::DateTime::parse_from_rfc3339(&boundary).unwrap()
+            + chrono::Duration::milliseconds(1))
+        .to_rfc3339();
+        assert!(evidence_is_current_revision(&snapshot, &evidence));
+        snapshot
+            .events
+            .iter_mut()
+            .find(|event| event.kind == "goal_updated")
+            .unwrap()
+            .goal_id = "another-goal".into();
+        assert!(!evidence_is_current_revision(&snapshot, &evidence));
+    }
+
+    #[test]
+    fn historical_validation_resolution_remains_scoped_after_owner_revision() {
+        let (_dir, db) = temp_db();
+        let (mut snapshot, failed_id, _) = repaired_goal_snapshot(&db);
+        let passed = snapshot
+            .evidence
+            .iter()
+            .find(|item| item.relation == "validation_passed")
+            .unwrap()
+            .clone();
+        let mut failed = passed.clone();
+        failed.id = "historical-failed-validation".into();
+        failed.relation = "validation_failed".into();
+        failed.created_at = "2000-01-01T00:00:00Z".into();
+        failed.metadata["ok"] = json!(false);
+        failed.source_id = format!("{failed_id}:old-check");
+        snapshot.evidence.push(failed.clone());
+        snapshot.goal.revision += 1;
+        assert!(newer_matching_evidence(&snapshot, &failed, |item| item
+            .relation
+            == "validation_passed"));
+        let failed_run = snapshot
+            .workflow_runs
+            .iter_mut()
+            .find(|run| run.id == failed_id)
+            .unwrap();
+        failed_run.goal_revision = Some(snapshot.goal.revision);
+        assert!(!newer_matching_evidence(&snapshot, &failed, |item| item
+            .relation
+            == "validation_passed"));
+    }
+
+    #[test]
+    fn workflow_diagnostic_scope_uses_run_ownership_and_revision() {
+        let (_dir, db) = temp_db();
+        let (mut snapshot, failed_id, repair_id) = repaired_goal_snapshot(&db);
+        snapshot.goal.revision = 2;
+        for run in &mut snapshot.workflow_runs {
+            run.goal_revision = Some(2);
+        }
+        let mut failed = snapshot
+            .evidence
+            .iter()
+            .find(|item| item.relation == "validation_passed")
+            .unwrap()
+            .clone();
+        failed.id = "failed-diagnostic".into();
+        failed.source_type = "diagnostic".into();
+        failed.source_id = format!("{failed_id}:lsp:error");
+        failed.relation = "diagnostic_result".into();
+        failed.created_at = "2000-01-01T00:00:00Z".into();
+        failed.metadata = json!({"runId":failed_id,"goalRevision":999,"goalCriterionId":"untrusted-criterion","status":"failed","severity":"error","path":"/repo/src/lib.rs"});
+        let mut clean = failed.clone();
+        clean.id = "clean-diagnostic".into();
+        clean.source_id = format!("{repair_id}:lsp:summary");
+        clean.created_at = "2001-01-01T00:00:00Z".into();
+        clean.metadata = json!({"runId":repair_id,"goalRevision":2,"status":"passed","errors":0,"path":"/repo/src/lib.rs"});
+        snapshot.evidence = vec![failed.clone(), clean.clone()];
+        assert_eq!(
+            evidence_audit_scope(&snapshot, &failed),
+            Some((None, 2)),
+            "persisted run overrides forged metadata"
+        );
+        assert!(newer_matching_evidence(
+            &snapshot,
+            &failed,
+            diagnostic_result_is_clean
+        ));
+        assert!(active_blocking_evidence(&snapshot).is_empty());
+        for boundary in [
+            "goal",
+            "session",
+            "criterion",
+            "revision",
+            "missing_revision",
+            "missing_run",
+            "run_metadata",
+            "source_id",
+            "missing_metadata",
+        ] {
+            let mut other = snapshot.clone();
+            let run = other
+                .workflow_runs
+                .iter_mut()
+                .find(|run| run.id == repair_id)
+                .unwrap();
+            match boundary {
+                "goal" => run.goal_id = Some("foreign-goal".into()),
+                "session" => run.session_id = "foreign-session".into(),
+                "criterion" => run.goal_criterion_id = Some("foreign-criterion".into()),
+                "revision" => run.goal_revision = Some(3),
+                "missing_revision" => run.goal_revision = None,
+                "missing_run" => other.workflow_runs.retain(|run| run.id != repair_id),
+                "run_metadata" => other.evidence[1].metadata["runId"] = json!(failed_id),
+                "source_id" => other.evidence[1].source_id = "wfr_other:lsp:summary".into(),
+                "missing_metadata" => {
+                    other.evidence[1]
+                        .metadata
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("runId");
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                !newer_matching_evidence(&other, &failed, diagnostic_result_is_clean),
+                "{boundary}"
+            );
+            if boundary != "criterion" {
+                assert!(
+                    !evidence_is_current_revision(&other, &other.evidence[1]),
+                    "must not fall back to supplied revision metadata: {boundary}"
+                );
+            }
+        }
+        snapshot.goal.revision = 3;
+        assert!(
+            newer_matching_evidence(&snapshot, &failed, diagnostic_result_is_clean),
+            "same historical revision repair stays resolved"
+        );
+        assert!(
+            !evidence_is_current_revision(&snapshot, &clean),
+            "historical clean result cannot satisfy current owner revision"
+        );
+        snapshot.goal.revision = 1;
+        for run in &mut snapshot.workflow_runs {
+            run.goal_revision = None;
+        }
+        assert!(
+            newer_matching_evidence(&snapshot, &failed, diagnostic_result_is_clean),
+            "initial legacy run can be inferred"
+        );
+        snapshot.goal.revision = 2;
+        assert!(
+            !newer_matching_evidence(&snapshot, &failed, diagnostic_result_is_clean),
+            "unversioned run cannot be inferred after owner edit"
+        );
+    }
+
+    #[test]
+    fn goal_workflow_repair_rejects_other_scope_old_parallel_run_and_authority_failures() {
+        let (_dir, db) = temp_db();
+        let (snapshot, failed_id, repair_id) = repaired_goal_snapshot(&db);
+        for boundary in [
+            "goal",
+            "session",
+            "criterion",
+            "revision",
+            "old_parallel",
+            "unvalidated",
+            "cancelled",
+            "approval_denied",
+            "blocked",
+            "legacy_after_edit",
+        ] {
+            let mut candidate = snapshot.clone();
+            let repair = candidate
+                .workflow_runs
+                .iter_mut()
+                .find(|run| run.id == repair_id)
+                .unwrap();
+            match boundary {
+                "goal" => repair.goal_id = Some("another-goal".to_string()),
+                "session" => repair.session_id = "another-session".to_string(),
+                "criterion" => repair.goal_criterion_id = Some("another-criterion".to_string()),
+                "revision" => repair.goal_revision = Some(snapshot.goal.revision + 1),
+                "old_parallel" => repair.created_at = "2000-01-01T00:00:00Z".to_string(),
+                "unvalidated" => candidate
+                    .evidence
+                    .retain(|item| item.source_type != "validation"),
+                "cancelled" | "blocked" => {
+                    let failed = candidate
+                        .workflow_runs
+                        .iter_mut()
+                        .find(|run| run.id == failed_id)
+                        .unwrap();
+                    failed.state = if boundary == "cancelled" {
+                        WorkflowRunState::Cancelled
+                    } else {
+                        WorkflowRunState::Blocked
+                    };
+                }
+                "approval_denied" => {
+                    let evidence = candidate
+                        .evidence
+                        .iter_mut()
+                        .find(|item| {
+                            item.source_id == failed_id && item.relation == "workflow_failed"
+                        })
+                        .unwrap();
+                    evidence.metadata["reason"] = json!("approval_denied");
+                }
+                "legacy_after_edit" => {
+                    candidate.goal.revision += 1;
+                    for run in &mut candidate.workflow_runs {
+                        run.goal_revision = None;
+                    }
+                }
+                _ => unreachable!(),
+            }
+            let failed = candidate
+                .workflow_runs
+                .iter()
+                .find(|run| run.id == failed_id)
+                .unwrap();
+            assert!(
+                completed_workflow_repair(&candidate, failed).is_none(),
+                "{boundary}"
+            );
+            assert_eq!(
+                build_goal_rule_audit(&candidate)["status"],
+                json!("blocked"),
+                "{boundary}"
+            );
+        }
+        let mut legacy = snapshot.clone();
+        for run in &mut legacy.workflow_runs {
+            run.goal_revision = None;
+        }
+        let failed = legacy
+            .workflow_runs
+            .iter()
+            .find(|run| run.id == failed_id)
+            .unwrap();
+        assert!(
+            completed_workflow_repair(&legacy, failed).is_some(),
+            "initial legacy contract can be inferred"
+        );
+    }
+
+    #[test]
+    fn goal_workflow_repair_requires_passing_validation_after_latest_failure() {
+        let (_dir, db) = temp_db();
+        let session = db.create_session("ha-main").unwrap();
+        let goal = create_goal_for_session(&db, &session.id);
+        let failed = create_workflow(&db, &session.id, Some(goal.goal.id.clone()));
+        db.transition_workflow_run(&failed.id, WorkflowRunState::Running, Some("start"))
+            .unwrap();
+        db.transition_workflow_run(&failed.id, WorkflowRunState::Failed, Some("runtime_error"))
+            .unwrap();
+        let repair = create_workflow(&db, &session.id, Some(goal.goal.id.clone()));
+        db.transition_workflow_run(&repair.id, WorkflowRunState::Running, Some("start"))
+            .unwrap();
+        record_repair_validation(&db, &repair, "first-check", true);
+        record_repair_validation(&db, &repair, "later-check", false);
+        db.transition_workflow_run(&repair.id, WorkflowRunState::Completed, Some("done"))
+            .unwrap();
+        let snapshot = db.goal_snapshot(&goal.goal.id, 200).unwrap().unwrap();
+        let failed_id = failed.id;
+        let blocked = db.evaluate_goal(&snapshot.goal.id).unwrap();
+        assert_eq!(blocked.goal.state, GoalState::Blocked);
+        let failed = blocked
+            .workflow_runs
+            .iter()
+            .find(|run| run.id == failed_id)
+            .unwrap();
+        assert!(completed_workflow_repair(&blocked, failed).is_none());
+        assert!(db
+            .close_goal(CloseGoalInput {
+                goal_id: blocked.goal.id,
+                decision: GoalClosureDecision::AcceptedV1,
+                reason: None,
+                follow_up_items: vec![],
+            })
+            .is_err());
+    }
+
+    #[test]
+    fn goal_workflow_repair_validation_resolution_is_scoped() {
+        let (_dir, db) = temp_db();
+        let (mut snapshot, _, repair_id) = repaired_goal_snapshot(&db);
+        let failed_validation = GoalEvidenceItem {
+            id: "earlier-check".to_string(),
+            source_type: "general".to_string(),
+            source_id: "check".to_string(),
+            relation: "validation_failed".to_string(),
+            title: "Earlier failure".to_string(),
+            summary: None,
+            metadata: json!({"goalCriterionId": "criterion-1", "goalRevision": snapshot.goal.revision}),
+            created_at: "2000-01-01T00:00:00Z".to_string(),
+        };
+        snapshot.evidence.push(failed_validation);
+        let repair = snapshot
+            .workflow_runs
+            .iter_mut()
+            .find(|run| run.id == repair_id)
+            .unwrap();
+        repair.goal_criterion_id = Some("criterion-2".to_string());
+        assert!(active_blocking_evidence(&snapshot)
+            .iter()
+            .any(|item| item.id == "earlier-check"));
+        snapshot
+            .workflow_runs
+            .iter_mut()
+            .find(|run| run.id == repair_id)
+            .unwrap()
+            .goal_criterion_id = Some("criterion-1".to_string());
+        assert!(!active_blocking_evidence(&snapshot)
+            .iter()
+            .any(|item| item.id == "earlier-check"));
+        snapshot
+            .workflow_runs
+            .iter_mut()
+            .find(|run| run.id == repair_id)
+            .unwrap()
+            .goal_revision = Some(snapshot.goal.revision + 1);
+        assert!(active_blocking_evidence(&snapshot)
+            .iter()
+            .any(|item| item.id == "earlier-check"));
+    }
+
     #[test]
     fn failed_validation_blocks_goal_criteria() {
         let (_dir, db) = temp_db();
@@ -6807,10 +7448,39 @@ mod tests {
 
     #[test]
     fn workflow_lsp_diagnostics_link_goal_blocker_until_clean_result() {
+        assert_workflow_lsp_diagnostic_repair(false, false);
+    }
+
+    #[test]
+    fn workflow_lsp_diagnostics_after_owner_revision_accept_clean_result() {
+        assert_workflow_lsp_diagnostic_repair(true, false);
+    }
+
+    #[test]
+    fn workflow_lsp_diagnostics_after_owner_revision_accept_validation() {
+        assert_workflow_lsp_diagnostic_repair(true, true);
+    }
+
+    fn assert_workflow_lsp_diagnostic_repair(owner_revision: bool, validation_repair: bool) {
         let (_dir, db) = temp_db();
         let session = db.create_session("ha-main").expect("create session");
         let goal = create_goal_for_session(&db, &session.id);
+        let goal = if owner_revision {
+            db.update_goal(UpdateGoalInput {
+                goal_id: goal.goal.id,
+                objective: Some("revised owner contract with diagnostics".into()),
+                completion_criteria: None,
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+            })
+            .expect("owner edits Goal before Workflow diagnostics")
+        } else {
+            goal
+        };
         let run = create_workflow(&db, &session.id, Some(goal.goal.id.clone()));
+        assert_eq!(run.goal_revision, Some(if owner_revision { 2 } else { 1 }));
 
         db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test_start"))
             .expect("start run");
@@ -6914,31 +7584,35 @@ mod tests {
                 .is_some_and(|text| text.contains("mismatched types"))
         }));
 
-        db.upsert_workflow_op_started(UpsertWorkflowOpInput {
-            run_id: run.id.clone(),
-            op_key: "lsp-3".to_string(),
-            op_type: "tool:lsp".to_string(),
-            effect_class: WorkflowEffectClass::Pure,
-            input: json!({
-                "name": "lsp",
-                "args": { "action": "diagnostics" },
-            }),
-            child_handle: None,
-        })
-        .expect("start workspace clean lsp op");
-        db.complete_workflow_op(
-            &run.id,
-            "lsp-3",
-            Value::String(
-                json!({
-                    "action": "diagnostics",
-                    "workspaceRoot": "/repo",
-                    "diagnostics": [],
-                })
-                .to_string(),
-            ),
-        )
-        .expect("complete workspace clean diagnostics");
+        if validation_repair {
+            record_repair_validation(&db, &run, "diagnostic-repair-validation", true);
+        } else {
+            db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+                run_id: run.id.clone(),
+                op_key: "lsp-3".to_string(),
+                op_type: "tool:lsp".to_string(),
+                effect_class: WorkflowEffectClass::Pure,
+                input: json!({
+                    "name": "lsp",
+                    "args": { "action": "diagnostics" },
+                }),
+                child_handle: None,
+            })
+            .expect("start workspace clean lsp op");
+            db.complete_workflow_op(
+                &run.id,
+                "lsp-3",
+                Value::String(
+                    json!({
+                        "action": "diagnostics",
+                        "workspaceRoot": "/repo",
+                        "diagnostics": [],
+                    })
+                    .to_string(),
+                ),
+            )
+            .expect("complete workspace clean diagnostics");
+        }
 
         let clean = db
             .evaluate_goal(&goal.goal.id)

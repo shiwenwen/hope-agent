@@ -10,6 +10,7 @@
 
 pub mod dreaming;
 pub mod embedding;
+pub mod prompt_preferences;
 pub mod recall_summary;
 pub mod runtime_config;
 pub mod types;
@@ -22,6 +23,7 @@ pub use embedding::{
     EmbeddingConfig, EmbeddingModelConfig, EmbeddingProviderType, EmbeddingPurpose,
     EmbeddingSelection,
 };
+pub use prompt_preferences::*;
 pub use recall_summary::RecallSummaryConfig;
 pub use runtime_config::{
     CoreMemoryRuntimeConfig, DeepRecallRuntimeConfig, MemoryCompatibilityConfig,
