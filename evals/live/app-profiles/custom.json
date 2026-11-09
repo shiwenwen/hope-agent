@@ -1,11 +1,18 @@
 {
   "schemaVersion": "eval-app-profile.v1",
   "id": "custom",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "title": "Custom diagnosis",
-  "description": "A user-selected subset of registered weekly cases and arms with bounded repetitions. The user controls the total budget and its per-case allocation.",
-  "baseTier": "weekly",
-  "suites": [{ "suiteId": "hope-core-orchestration", "caseTags": ["smoke_weekly"] }],
+  "description": "A user-selected subset of all registered Hope Core cases and arms with bounded repetitions.",
+  "baseTier": "monthly",
+  "suites": [
+    {
+      "suiteId": "hope-core-orchestration",
+      "caseTags": [
+        "smoke_monthly"
+      ]
+    }
+  ],
   "allowedArms": [
     "control",
     "faulted",

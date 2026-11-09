@@ -15,6 +15,10 @@ The end of this chapter also covers a memory-related feature, [behavior awarenes
 - [4.5 Advanced: offline consolidation, profile, and correction (Dreaming)](#45-advanced-offline-consolidation-profile-and-correction-dreaming)
 - [4.6 Behavior awareness](#46-behavior-awareness)
 
+For configured OpenViking external sync, an accepted request does not mean the export completed. Unfinished tasks are checked again on the next sync, including after switching to pull-only. Failed tasks, lost receipts, skipped writes or changed credentials leave the batch awaiting reconciliation and stop automatic resending. Older servers that return only extraction counts and a memory-diff URI, without explicit proof of zero skipped writes, also require reconciliation. Check the task and actual results in the original service before deciding whether to clear the connection; clearing credentials or removing the connection deletes the key but preserves an unresolved or damaged ledger. Removing and recreating the same connection does not clear this reconciliation protection. Restore the original credentials to continue checking it. Do not delete local state to force a retry.
+
+If OpenViking reports an incomplete memory listing, the sync stops pulling and starting new exports for that cycle; existing local memories remain unchanged. Continuation beyond 5,000 nodes is not supported yet. Older servers also stop when they return exactly the limit without proving completeness. Keep the connection and sync state until reliable continuation is supported; do not delete local state to bypass the warning.
+
 ---
 
 ## 4.1 Three tiers of memory: Global / Agent / Project
@@ -79,6 +83,10 @@ The AI can automatically extract facts worth remembering during a conversation. 
 - **Manual only**—no automatic extraction; only what you explicitly save is written.
 
 Automatic extraction runs in the background without interrupting the chat (triggered after a certain amount of conversation accumulates). The review queue lives in the Memory Management tab and shows the number of items awaiting confirmation.
+
+**Writing preferences**: In Settings → Memory → Memory Settings, independently choose System default / Concise / Detailed for conversation extraction, profile synthesis, and Dreaming, with up to 512 characters of supplemental guidance. Each Agent can override individual steps or inherit the global default. Changes apply to the next relevant operation.
+
+Profile preferences apply only to **manual synthesis**; idle/scheduled profiles keep using rules without model calls. Agent profiles use that Agent’s preferences; Global/Project profiles use global defaults. The shared Dreaming diary also uses global defaults, while Agent overrides only affect its candidates’ titles and descriptions. Preferences cannot replace output formats, enable disabled features, or override source/privacy rules. They add no model calls but may increase prompt tokens.
 
 ---
 

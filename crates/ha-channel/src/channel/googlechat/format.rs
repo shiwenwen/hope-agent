@@ -1,3 +1,31 @@
+/// The syntax used for both compilation and the explicit REST body field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageSyntax {
+    Chat,
+    Markdown,
+}
+
+impl MessageSyntax {
+    pub fn from_standard_markdown(enabled: bool) -> Self {
+        if enabled {
+            Self::Markdown
+        } else {
+            Self::Chat
+        }
+    }
+
+    pub fn text_body(self, text: &str) -> serde_json::Value {
+        let (compiled, syntax) = match self {
+            Self::Chat => (markdown_to_googlechat(text), "MARKUP_SYNTAX_CHAT"),
+            Self::Markdown => (
+                compile_standard_markdown_mentions(text),
+                "MARKUP_SYNTAX_MARKDOWN",
+            ),
+        };
+        serde_json::json!({"text": compiled, "markupSyntax": syntax})
+    }
+}
+
 /// Convert Markdown to Google Chat native format.
 ///
 /// Google Chat supports a subset of Markdown-like formatting:

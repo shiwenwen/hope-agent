@@ -33,6 +33,7 @@ pub struct MemoryRuntimeConfig {
     pub learning: MemoryLearningRuntimeConfig,
     pub rollout: MemoryUxV2RolloutConfig,
     pub compatibility: MemoryCompatibilityConfig,
+    pub prompt_preferences: super::MemoryPromptPreferences,
 }
 
 impl Default for MemoryRuntimeConfig {
@@ -46,6 +47,7 @@ impl Default for MemoryRuntimeConfig {
             learning: MemoryLearningRuntimeConfig::default(),
             rollout: MemoryUxV2RolloutConfig::default(),
             compatibility: MemoryCompatibilityConfig::default(),
+            prompt_preferences: super::MemoryPromptPreferences::default(),
         }
     }
 }

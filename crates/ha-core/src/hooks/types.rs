@@ -624,6 +624,38 @@ impl HookInput {
         }
     }
 
+    /// The event comes from the typed variant, never the common display field.
+    pub fn event(&self) -> HookEvent {
+        match self {
+            Self::SessionStart { .. } => HookEvent::SessionStart,
+            Self::SessionEnd { .. } => HookEvent::SessionEnd,
+            Self::UserPromptSubmit { .. } => HookEvent::UserPromptSubmit,
+            Self::PreToolUse { .. } => HookEvent::PreToolUse,
+            Self::PostToolUse { .. } => HookEvent::PostToolUse,
+            Self::PostToolUseFailure { .. } => HookEvent::PostToolUseFailure,
+            Self::PreCompact { .. } => HookEvent::PreCompact,
+            Self::PostCompact { .. } => HookEvent::PostCompact,
+            Self::Notification { .. } => HookEvent::Notification,
+            Self::PostToolBatch { .. } => HookEvent::PostToolBatch,
+            Self::SubagentStart { .. } => HookEvent::SubagentStart,
+            Self::SubagentStop { .. } => HookEvent::SubagentStop,
+            Self::Stop { .. } => HookEvent::Stop,
+            Self::StopFailure { .. } => HookEvent::StopFailure,
+            Self::TaskCreated { .. } => HookEvent::TaskCreated,
+            Self::TaskCompleted { .. } => HookEvent::TaskCompleted,
+            Self::ConfigChange { .. } => HookEvent::ConfigChange,
+            Self::CwdChanged { .. } => HookEvent::CwdChanged,
+            Self::FileChanged { .. } => HookEvent::FileChanged,
+            Self::PermissionRequest { .. } => HookEvent::PermissionRequest,
+            Self::PermissionDenied { .. } => HookEvent::PermissionDenied,
+            Self::UserPromptExpansion { .. } => HookEvent::UserPromptExpansion,
+            Self::Elicitation { .. } => HookEvent::Elicitation,
+            Self::ElicitationResult { .. } => HookEvent::ElicitationResult,
+            Self::WorktreeCreate { .. } => HookEvent::WorktreeCreate,
+            Self::WorktreeRemove { .. } => HookEvent::WorktreeRemove,
+        }
+    }
+
     /// Whether this input fires on a gate-capable event whose degraded
     /// delivery paths must fail **closed**. Lists exactly the events that flow
     /// through a blocking decision sink (PreToolUse gate, UserPromptSubmit

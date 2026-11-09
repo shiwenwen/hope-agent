@@ -7,11 +7,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::config::{save_config, AppConfig};
+use crate::config::{mutate_config, AppConfig};
 use crate::memory::claims;
 use crate::memory::{
-    EmbeddingProvider, EmbeddingPurpose, EmbeddingSelection, MemoryBackend, MemorySearchQuery,
-    SqliteMemoryBackend,
+    EmbeddingModelConfig, EmbeddingProvider, EmbeddingPurpose, EmbeddingSelection, MemoryBackend,
+    MemorySearchQuery, SqliteMemoryBackend,
 };
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,22 @@ const DEFAULT_ROWS: usize = 50_000;
 const DEFAULT_QUERIES_PER_CLASS: usize = 24;
 pub const DEFAULT_P95_SLO_MS: f64 = 250.0;
 const BENCHMARK_EMBEDDING_DIMS: u32 = 8;
-const BENCHMARK_EMBEDDING_SIGNATURE: &str = "memory-scale-benchmark-v1";
+fn benchmark_embedding_model() -> EmbeddingModelConfig {
+    EmbeddingModelConfig {
+        id: "memory-scale-benchmark".to_string(),
+        name: "Deterministic benchmark embedder".to_string(),
+        provider_type: Default::default(),
+        api_base_url: Some("https://example.invalid/v1".to_string()),
+        api_key: None,
+        api_model: Some("deterministic-eight-dimensions".to_string()),
+        api_dimensions: Some(BENCHMARK_EMBEDDING_DIMS),
+        source: Some("isolated-evaluation".to_string()),
+    }
+}
+
+fn benchmark_embedding_signature() -> String {
+    benchmark_embedding_model().signature()
+}
 
 struct BenchmarkEmbedder;
 
@@ -250,16 +265,23 @@ fn seed_realistic_claims(path: &Path, rows: usize) {
 }
 
 fn configure_benchmark_embedding() {
+    let model = benchmark_embedding_model();
+    let signature = model.signature();
     let config = AppConfig {
+        embedding_models: vec![model.clone()],
         memory_embedding: EmbeddingSelection {
             enabled: true,
-            model_config_id: None,
-            active_signature: Some(BENCHMARK_EMBEDDING_SIGNATURE.to_string()),
-            last_reembedded_signature: Some(BENCHMARK_EMBEDDING_SIGNATURE.to_string()),
+            model_config_id: Some(model.id),
+            active_signature: Some(signature.clone()),
+            last_reembedded_signature: Some(signature),
         },
         ..Default::default()
     };
-    save_config(&config).expect("persist isolated benchmark config");
+    mutate_config(("memory_embedding", "retrieval-scale-eval"), |current| {
+        *current = config;
+        Ok(())
+    })
+    .expect("persist isolated benchmark config");
 }
 
 fn seed_benchmark_vectors(path: &Path, rows: usize) {
@@ -284,13 +306,13 @@ fn seed_benchmark_vectors(path: &Path, rows: usize) {
     transaction
         .execute(
             "UPDATE memories SET embedding_signature = ?1",
-            [BENCHMARK_EMBEDDING_SIGNATURE],
+            [benchmark_embedding_signature()],
         )
         .expect("mark memory embedding signature");
     transaction
         .execute(
             "UPDATE memory_claims SET embedding_signature = ?1",
-            [BENCHMARK_EMBEDDING_SIGNATURE],
+            [benchmark_embedding_signature()],
         )
         .expect("mark claim embedding signature");
     {
@@ -352,7 +374,7 @@ fn probe_claim_vector_fast_path(path: &Path) -> (Duration, usize) {
             params![
                 embedding,
                 240i64,
-                BENCHMARK_EMBEDDING_SIGNATURE,
+                benchmark_embedding_signature(),
                 "2026-07-10T00:00:00.000Z",
                 30i64,
             ],

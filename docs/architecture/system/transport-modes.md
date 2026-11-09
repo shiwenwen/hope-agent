@@ -75,6 +75,12 @@ Transport 的另一层职责是把 Owner Token 关在浏览器可见 URL 之外�
 - 打包桌面 WebView 的 `tauri://localhost` 与 `http://tauri.localhost` 默认在 CORS allowlist 内。把 Web GUI 部署到其他 origin 时，服务端须设置逗号分隔的 `HA_CORS_ORIGINS`；同源内嵌不需要设置，服务端也不提供 `*` 通配放行。
 - 跨源 Fetch 用 Bearer；WebSocket / iframe / 下载改用短时 scope 票据。根 Token 永不进入 URL。
 
+### HTTP 中间件兼容边界
+
+`ha-server` 使用 `tower-http 0.7` 的 `cors` / `trace` / `fs` 特征。CORS 仍由显式来源列表决定，不启用新增 CSRF 中间件来替代现有 `UiRequestPolicy` 与鉴权。文件服务继续在路径授权后使用 `ServeFile`，单段 Range 返回 `206`；多段 Range 返回 `416`，错误响应不携带表示内容类型或编码的头。静态 GUI 的 `ServeDir` 保留 `index.html` 回退；无回退时带尾斜杠的文件路径返回 `404`。不启用忽略多段 Range、HTML 默认扩展名或新增重定向选项。
+
+上游变更与版本依据：[0.7.0](https://github.com/tower-rs/tower-http/releases/tag/tower-http-0.7.0)、[0.7.1](https://github.com/tower-rs/tower-http/releases/tag/tower-http-0.7.1)。`reqwest` 的传递依赖继续使用锁中的 `tower-http 0.6`；本次不改变出站重定向策略。
+
 ## Transport 方法矩阵
 
 `Transport` 接口的每个方法都有两套实现。下表是最能体现两种协议差异的部分（完整方法清单见 `src/lib/transport.ts`）：
@@ -90,7 +96,7 @@ Transport 的另一层职责是把 Owner Token 关在浏览器可见 URL 之外�
 | 资产 URL | data / http(s) 透传，绝对路径走 `convertFileSrc`。 | 识别 avatar / 附件等已知资产目录并改写到 HTTP server route（如 `/api/avatars/{file}`）；同源靠 HttpOnly Cookie，跨源换短时 resource 票据。 |
 | 打开 / 定位文件 | `openMedia` 调 OS 默认处理器，`revealMedia` 调文件管理器。 | `openMedia` 触发浏览器下载或新标签打开，`revealMedia` no-op，`supportsLocalFileOps()` 返回 `false`。 |
 | 图片选择 | 原生文件选择器，返回 Tauri asset URL。 | 隐藏 `<input type="file">`，返回 `blob:` URL 和 `File`。 |
-| 目录选择 / 浏览 | `pickLocalDirectory()` 用原生目录选择器；`listServerDirectory()` 也可走 Tauri 命令供 `@` mention 使用。 | 浏览器不能选 server 文件系统，UI 应显示 `ServerDirectoryBrowser`，由 `listServerDirectory()` 调 `/api/filesystem/list-dir`。 |
+| 目录选择 / 浏览 | `pickLocalDirectory()` 用原生目录选择器；Linux 桌面的会话工作目录和项目文件夹入口通过 `useDirectoryPicker` 显式改用仅显示目录的 `ServerDirectoryBrowser`，复用 `listServerDirectory()` 的 Tauri 命令。其他桌面入口仍默认原生。 | 浏览器不能选 server 文件系统，UI 应显示 `ServerDirectoryBrowser`，由 `listServerDirectory()` 调 `/api/filesystem/list-dir`。 |
 | 文件搜索 | `fs_search_files` Tauri 命令。 | `/api/filesystem/search-files`。 |
 | 浏览器扩展 owner 操作 | `browser_extension_status` / `browser_install_native_host_manifest` / `browser_extension_stop_control`。 | `/api/browser/extension/status` / `install-native-host` / `stop-control`。 |
 

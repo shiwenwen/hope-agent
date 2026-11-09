@@ -153,6 +153,8 @@ pub(crate) struct ExternalMemoryProviderSyncLedger {
     #[serde(default)]
     pub pending_export_hashes: BTreeMap<String, String>,
     #[serde(default)]
+    pub open_viking_pending_exports: BTreeMap<String, open_viking::PendingExport>,
+    #[serde(default)]
     pub imported_hashes: BTreeMap<String, String>,
     #[serde(default)]
     pub remote_versions: BTreeMap<String, String>,
@@ -1583,19 +1585,21 @@ pub async fn save_external_memory_provider_credentials(
         let ledger_path = external_memory_sync_state_path(&provider_id)?;
         let compatibility_path = external_memory_compatibility_path(&provider_id)?;
         let previous_credential_bytes = read_optional_file(&credential_path)?;
-        let previous_ledger_bytes = if reset_sync_ledger {
-            read_optional_file(&ledger_path)?
+        let (clear_ledger, previous_ledger_bytes) = if reset_sync_ledger {
+            sync_ledger_reset_snapshot(&ledger_path)
         } else {
-            None
+            (false, None)
         };
-        let previous_compatibility_bytes = if reset_sync_ledger {
-            read_optional_file(&compatibility_path)?
+        let (clear_compatibility, previous_compatibility_bytes) = if reset_sync_ledger {
+            auxiliary_reset_snapshot(&compatibility_path)
         } else {
-            None
+            (false, None)
         };
         persist_credentials(&provider_id, &credentials)?;
-        if reset_sync_ledger {
+        if clear_ledger {
             remove_sync_ledger(&provider_id)?;
+        }
+        if clear_compatibility {
             remove_compatibility_report(&provider_id)?;
         }
 
@@ -1615,8 +1619,10 @@ pub async fn save_external_memory_provider_credentials(
             },
         ) {
             restore_optional_secure_file(&credential_path, previous_credential_bytes.as_deref())?;
-            if reset_sync_ledger {
+            if clear_ledger {
                 restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
+            }
+            if clear_compatibility {
                 restore_optional_secure_file(
                     &compatibility_path,
                     previous_compatibility_bytes.as_deref(),
@@ -1673,15 +1679,20 @@ pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<(
     let ledger_path = external_memory_sync_state_path(provider_id)?;
     let compatibility_path = external_memory_compatibility_path(provider_id)?;
     let previous_credential_bytes = read_optional_file(&path)?;
-    let previous_ledger_bytes = read_optional_file(&ledger_path)?;
-    let previous_compatibility_bytes = read_optional_file(&compatibility_path)?;
+    let (clear_ledger, previous_ledger_bytes) = sync_ledger_reset_snapshot(&ledger_path);
+    let (clear_compatibility, previous_compatibility_bytes) =
+        auxiliary_reset_snapshot(&compatibility_path);
     match fs::remove_file(&path) {
         Ok(()) => {}
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
         Err(err) => return Err(anyhow!("remove {}: {err}", path.display())),
     }
-    remove_sync_ledger(provider_id)?;
-    remove_compatibility_report(provider_id)?;
+    if clear_ledger {
+        remove_sync_ledger(provider_id)?;
+    }
+    if clear_compatibility {
+        remove_compatibility_report(provider_id)?;
+    }
 
     let provider_id_owned = provider_id.to_string();
     if let Err(err) =
@@ -1699,8 +1710,15 @@ pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<(
         })
     {
         restore_optional_secure_file(&path, previous_credential_bytes.as_deref())?;
-        restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
-        restore_optional_secure_file(&compatibility_path, previous_compatibility_bytes.as_deref())?;
+        if clear_ledger {
+            restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
+        }
+        if clear_compatibility {
+            restore_optional_secure_file(
+                &compatibility_path,
+                previous_compatibility_bytes.as_deref(),
+            )?;
+        }
         return Err(err).context("clear external memory provider readiness");
     }
     Ok(())
@@ -1723,6 +1741,34 @@ fn restore_optional_secure_file(path: &std::path::Path, bytes: Option<&[u8]>) ->
             Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(err) => Err(anyhow!("remove {} during rollback: {err}", path.display())),
         },
+    }
+}
+
+fn auxiliary_reset_snapshot(path: &Path) -> (bool, Option<Vec<u8>>) {
+    match read_optional_file(path) {
+        Ok(bytes) => (true, bytes),
+        // Auxiliary state must not prevent credential revocation/rotation.
+        // Preserve it untouched; its own reader will continue to fail closed.
+        Err(_) => (false, None),
+    }
+}
+
+fn sync_ledger_reset_snapshot(path: &Path) -> (bool, Option<Vec<u8>>) {
+    // Changing or clearing credentials revokes access, but does not resolve a
+    // remote write. Preserve the ledger until the original identity can finish
+    // reconciliation; otherwise reconnecting could replay that batch.
+    let (readable, bytes) = auxiliary_reset_snapshot(path);
+    let clear = readable
+        && bytes.as_ref().is_none_or(|bytes| {
+            serde_json::from_slice::<ExternalMemoryProviderSyncLedger>(bytes).is_ok_and(|ledger| {
+                ledger.schema_version == SYNC_STATE_SCHEMA_VERSION
+                    && ledger.open_viking_pending_exports.is_empty()
+            })
+        });
+    if clear {
+        (true, bytes)
+    } else {
+        (false, None)
     }
 }
 
@@ -1861,7 +1907,7 @@ fn apply_external_memory_providers_patch(
             if let Some(kind) = provider_patch.kind {
                 if existing.kind != kind {
                     bail!(
-                        "external memory provider '{}' kind is immutable; remove it with `removeProviderIds` and add a new provider so credentials and sync state are cleared",
+                        "external memory provider '{}' kind is immutable; remove it with `removeProviderIds` and add a new provider; credentials are cleared but unresolved sync state is preserved",
                         provider_patch.id
                     );
                 }
@@ -1979,8 +2025,15 @@ fn prune_orphan_provider_files(valid_ids: &std::collections::HashSet<String>) ->
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(err) => return Err(anyhow!("read {}: {err}", dir.display())),
     };
+    let mut first_error = None;
     for entry in entries {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                first_error.get_or_insert_with(|| anyhow!("read directory entry: {error}"));
+                continue;
+            }
+        };
         let Some(name) = entry.file_name().to_str().map(ToString::to_string) else {
             continue;
         };
@@ -1994,13 +2047,24 @@ fn prune_orphan_provider_files(valid_ids: &std::collections::HashSet<String>) ->
         if validate_provider_id(provider_id).is_err() || valid_ids.contains(provider_id) {
             continue;
         }
+        // Removing a connection revokes its credential file, not an uncertain
+        // remote write. Keep pending or unreadable ledgers as tombstones so a
+        // later connection with the same ID cannot silently replay the batch.
+        if name.ends_with(".sync.json") && !sync_ledger_reset_snapshot(&entry.path()).0 {
+            continue;
+        }
         match fs::remove_file(entry.path()) {
             Ok(()) => {}
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-            Err(err) => return Err(anyhow!("remove {}: {err}", entry.path().display())),
+            Err(err) => {
+                // A broken auxiliary entry must not stop revocation of the
+                // remaining orphan credential files, regardless of dir order.
+                first_error
+                    .get_or_insert_with(|| anyhow!("remove {}: {err}", entry.path().display()));
+            }
         }
     }
-    Ok(())
+    first_error.map_or(Ok(()), Err)
 }
 
 fn persist_credentials(

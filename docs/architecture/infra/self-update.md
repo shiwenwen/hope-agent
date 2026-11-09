@@ -2,6 +2,8 @@
 
 > 关联源码：[`crates/ha-updater/src/`](../../../crates/ha-updater/src) · [`crates/ha-updater/src/tool.rs`](../../../crates/ha-updater/src/tool.rs) · [`crates/ha-core/src/tool_defs/update_tools.rs`](../../../crates/ha-core/src/tool_defs/update_tools.rs) · [`crates/ha-base/src/platform/`](../../../crates/ha-base/src/platform) · [`src-tauri/src/commands/update_bridge.rs`](../../../src-tauri/src/commands/update_bridge.rs) · [`skills/ha-self-update/SKILL.md`](../../../skills/ha-self-update/SKILL.md)
 
+2026-10-19 桌面 updater 的 Rust/JS 两端固定 2.14.0（[#839](https://github.com/shiwenwen/hope-agent/pull/839) 同步维护），应用配置显式 `allowDowngrades=false`。`check` 不接受 renderer 传入的降级覆盖；原 Minisign 验签、下载体积上限、重启确认和跨卷临时目录合同保持。未来升级或回退必须保留应用侧版本比较边界，不能把配置开放为模型可写设置。[上游禁止降级合同](https://tauri.app/release/updater/v2.12.0/)；[2.14.0 变更](https://github.com/tauri-apps/plugins-workspace/releases/tag/updater-v2.14.0) 包括安装前再次验签、macOS 失败恢复与 Linux AppImage 跨卷回退。当前仍走 `check` → `download_and_install`，不启用新增的缓存恢复接口；`requireSignedVersion` 未另行切换，签名格式与信任根保持既有配置。编译和合成检查不代表真实应用安装、降级攻击或重启验收。
+
 ## 核心思想
 
 Hope Agent 是一份 binary、三种形态（桌面 GUI / `hope-agent server` 守护进程 / `hope-agent acp`），却经由许多渠道装到用户机器上：DMG / MSI / NSIS / AppImage / Homebrew cask / Scoop / AUR / 自建 apt+dnf 源 / Docker 镜像 / 手工丢一个可执行文件。「怎么升级」在每种组合里都不一样——桌面装包要走签名安装器，brew 装的要跑 `brew upgrade`，容器里换 binary 下次 `docker pull` 就被冲掉。
@@ -193,6 +195,13 @@ GUI 入口在「设置 → 关于 → 自动更新」，命令 `get_auto_update_
 出站 URL 一律先过 `security::ssrf::check_url`（`Default` 策略拦私网 / link-local / metadata IP，但放行 loopback 以支持本地镜像与测试 wiremock）；代理经 `apply_proxy_for_url` 解析，让企业 / 系统代理后的用户也能到达发布服务器。
 
 ## 签名信任根（单一 Minisign Pubkey）
+
+2026-11-05 [PR #892](https://github.com/shiwenwen/hope-agent/pull/892) 裸二进制与桌面路径统一使用 `minisign-verify 0.3.0`，共享锁中不再保留 0.2 支线。
+`verify_bytes` 只从内嵌发布公钥进入，仍拒绝 legacy 签名；下载归档先验签，再解包和替换。
+公开的非发布测试公钥夹具覆盖合法预哈希签名、错误 payload/公钥、签名与 trusted comment 篡改、全局签名的非规范 `S + L`。
+这些夹具在原锁定 0.2.5 与新 0.3.0 均通过；两个 tag 的 `crypto/ed25519.rs` 相同且均检查 `S < L`，
+因此本次是统一版本与回归约束，不能声称复现或修复了旧 0.2.5 接受非规范签名的问题。
+未使用发布私钥，未安装应用更新或重启服务。
 
 整个信任根就一把 key：[`ha-updater/src/keys.rs::MINISIGN_PUBKEY_BASE64`](../../../crates/ha-updater/src/keys.rs)，以「pubkey 文件整体再 base64」的形式内嵌，与 `tauri-plugin-updater` 从 `tauri.conf.json` 读的形状一致。这把 key 必须与 `src-tauri/tauri.conf.json#plugins.updater.pubkey` **字符串相等**——否则桌面 `tauri-plugin-updater` 和 headless `signature::verify_bytes` 会用不同 pubkey，其中一边会静默坏掉。三重防线保证它俩不漂移：
 
