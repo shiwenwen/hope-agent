@@ -161,14 +161,24 @@ pub(crate) async fn tool_sessions_create(
         .or_else(|| crate::get_session_db().cloned())
         .ok_or_else(|| anyhow::anyhow!("Session database not initialized"))?;
     let db_for_create = db.clone();
-    if let Some(source_id) = ctx.session_id.as_deref() {
-        if db.is_personal_assistant_private_session(source_id)?
-            && !db
-                .get_session(source_id)?
-                .is_some_and(|s| s.kind.as_str() == "personal_assistant")
-        {
-            anyhow::bail!("Private delegated work cannot create another conversation; return a proposal to the owner");
-        }
+    let source_id = ctx.session_id.clone();
+    let (assistant_home, private_source) = db
+        .run(move |db| -> Result<(bool, bool)> {
+            let Some(source_id) = source_id else {
+                return Ok((false, false));
+            };
+            Ok((
+                db.get_session(&source_id)?
+                    .is_some_and(|source| source.kind.as_str() == "personal_assistant"),
+                db.is_personal_assistant_private_session(&source_id)?,
+            ))
+        })
+        .await?;
+    if private_source && !assistant_home {
+        anyhow::bail!("Private delegated work cannot create another conversation; return a proposal to the owner");
+    }
+    if assistant_home && !attachments.is_empty() {
+        anyhow::bail!("Personal assistant delegation currently accepts text only");
     }
     let agent_id_for_create = agent_id.clone();
     let title_for_create = title.clone();
@@ -231,14 +241,7 @@ pub(crate) async fn tool_sessions_create(
     };
     session.title = title.clone();
 
-    if ctx
-        .session_id
-        .as_deref()
-        .map(|id| db.get_session(id))
-        .transpose()?
-        .flatten()
-        .is_some_and(|s| s.kind.as_str() == "personal_assistant")
-    {
+    if assistant_home {
         emit_session_created(&session, session.project_id.as_deref());
         if has_initial_turn {
             let input = crate::personal_assistant::AssistantDispatchInput {
@@ -823,39 +826,45 @@ pub(crate) async fn tool_sessions_send(
         .map(|handle| handle.0.clone())
         .or_else(|| crate::get_session_db().cloned())
         .ok_or_else(|| anyhow::anyhow!("Session database not initialized"))?;
-    if let Some(home_id) = ctx.session_id.as_deref() {
-        if db
-            .get_session(home_id)?
-            .is_some_and(|s| s.kind.as_str() == "personal_assistant")
-        {
-            if !attachments.is_empty() {
-                anyhow::bail!("Personal assistant delegation currently accepts text only");
-            }
-            let input = crate::personal_assistant::AssistantDispatchInput {
-                source_turn_id: ctx
-                    .turn_id
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("A live owner turn is required"))?,
-                item_key: ctx
-                    .tool_call_id
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("A durable tool call identity is required"))?,
-                target_session_id: target_session_id.to_owned(),
-                instruction: message,
-                global_stop_epoch: ctx
-                    .turn_admitted_global_stop_epoch
-                    .ok_or_else(|| anyhow::anyhow!("A durable Stop admission is required"))?,
+    let source_id = ctx.session_id.clone();
+    let (assistant_home, private_source) = db
+        .run(move |db| -> Result<(bool, bool)> {
+            let Some(source_id) = source_id else {
+                return Ok((false, false));
             };
-            let result = db
-                .run(move |db| db.enqueue_personal_assistant_request(input))
-                .await?;
-            return Ok(serde_json::to_string(&result)?);
+            Ok((
+                db.get_session(&source_id)?
+                    .is_some_and(|source| source.kind.as_str() == "personal_assistant"),
+                db.is_personal_assistant_private_session(&source_id)?,
+            ))
+        })
+        .await?;
+    if assistant_home {
+        if !attachments.is_empty() {
+            anyhow::bail!("Personal assistant delegation currently accepts text only");
         }
-        if db.is_personal_assistant_private_session(home_id)? {
-            anyhow::bail!(
-                "Private delegated work cannot forward instructions to another conversation"
-            );
-        }
+        let input = crate::personal_assistant::AssistantDispatchInput {
+            source_turn_id: ctx
+                .turn_id
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("A live owner turn is required"))?,
+            item_key: ctx
+                .tool_call_id
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("A durable tool call identity is required"))?,
+            target_session_id: target_session_id.to_owned(),
+            instruction: message,
+            global_stop_epoch: ctx
+                .turn_admitted_global_stop_epoch
+                .ok_or_else(|| anyhow::anyhow!("A durable Stop admission is required"))?,
+        };
+        let result = db
+            .run(move |db| db.enqueue_personal_assistant_request(input))
+            .await?;
+        return Ok(serde_json::to_string(&result)?);
+    }
+    if private_source {
+        anyhow::bail!("Private delegated work cannot forward instructions to another conversation");
     }
     let target_session_id_owned = target_session_id.to_string();
     let source_session_id = ctx.session_id.clone();
@@ -1900,6 +1909,32 @@ mod tests {
             .await
             .unwrap();
         assert!(!listed.contains(&home.id));
+    }
+
+    #[tokio::test]
+    async fn personal_assistant_create_rejects_attachments_before_creating_work() {
+        let (_dir, db) = test_db("assistant-create-attachments");
+        let home = db.ensure_personal_assistant_home().unwrap();
+        let context = crate::tool_defs::ToolExecContext {
+            session_id: Some(home.id),
+            session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
+            ..Default::default()
+        };
+        let error = tool_sessions_create(
+            &serde_json::json!({
+                "message": "Read the attached brief",
+                "attachments": [{"name":"brief.txt", "content":"private brief", "encoding":"utf8"}]
+            }),
+            &context,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("text only"));
+        assert!(db
+            .list_sessions_for_personal_assistant(None, 100)
+            .unwrap()
+            .is_empty());
+        assert!(db.list_personal_assistant_requests().unwrap().is_empty());
     }
 
     #[test]
