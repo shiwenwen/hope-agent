@@ -995,12 +995,19 @@ where
 /// The process-local write lock keeps this refresh ordered with ordinary
 /// [`mutate_config`] calls. Callers that already hold a subsystem's
 /// process-shared lock can use the returned snapshot as the authoritative
-/// starting point for a cross-process transaction.
+/// starting point for a cross-process transaction. Isolated model evaluations
+/// instead retain their immutable, credential-overlaid process snapshot.
 #[doc(hidden)]
 pub fn reload_config_snapshot_from_disk() -> Result<Arc<AppConfig>> {
     let _write_guard = write_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
+    // Evaluation config writes are forbidden, and disk deliberately contains
+    // no Provider keys. Background refreshes must not erase the one-shot
+    // credentials consumed before runtime initialization.
+    if std::env::var("HA_MODEL_EVAL_MODE").as_deref() == Ok("1") {
+        return Ok(cached_config());
+    }
     let _cross_process_guard = acquire_config_write_lock()?;
     let fresh = read_from_disk()?;
     let fresh = Arc::new(fresh);
@@ -1269,6 +1276,58 @@ mod write_outcome_tests {
 #[cfg(test)]
 mod parse_tests {
     use super::*;
+
+    #[test]
+    fn model_eval_reload_preserves_memory_only_credentials() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let encoded =
+            base64::engine::general_purpose::STANDARD.encode(r#"{"eval-anchor":"sk-eval-only"}"#);
+        crate::test_support::with_env_vars(
+            &[
+                ("HA_DATA_DIR", temp.path()),
+                ("HA_MODEL_EVAL_MODE", Path::new("1")),
+                ("HA_MODEL_EVAL_PROVIDER_SECRETS_B64", Path::new(&encoded)),
+            ],
+            || {
+                let original = cached_config();
+                struct RestoreCache(Arc<AppConfig>);
+                impl Drop for RestoreCache {
+                    fn drop(&mut self) {
+                        cache().store(self.0.clone());
+                        clear_config_load_failure();
+                    }
+                }
+                let _restore = RestoreCache(original);
+                let mut provider = crate::provider::ProviderConfig::new(
+                    "Eval".to_string(),
+                    crate::provider::ApiType::OpenaiChat,
+                    "https://api.example.com/v1".to_string(),
+                    String::new(),
+                );
+                provider.id = "eval-anchor".to_string();
+                let config = AppConfig {
+                    providers: vec![provider],
+                    ..AppConfig::default()
+                };
+                let disk = serde_json::to_vec(&config).expect("serialize credential-free config");
+                let path = temp.path().join("config.json");
+                std::fs::write(&path, &disk).expect("write isolated config");
+                cache().store(Arc::new(config));
+                clear_config_load_failure();
+
+                initialize_model_eval_provider_secrets().expect("initialize memory-only secrets");
+                let initialized = cached_config();
+                let refreshed = reload_config_snapshot_from_disk().expect("background reload");
+                reload_cache_from_disk().expect("reload wrapper");
+
+                assert!(Arc::ptr_eq(&initialized, &refreshed));
+                assert_eq!(cached_config().providers[0].api_key, "sk-eval-only");
+                assert!(std::env::var_os("HA_MODEL_EVAL_PROVIDER_SECRETS_B64").is_none());
+                assert!(save_config(&refreshed).is_err());
+                assert_eq!(std::fs::read(path).expect("read isolated config"), disk);
+            },
+        );
+    }
 
     #[test]
     fn model_eval_provider_secret_is_memory_only_and_consumed() {

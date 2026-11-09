@@ -1,4 +1,5 @@
 import type { SandboxMode } from "@/types/chat"
+import type { MemoryPromptOverrides } from "./memory-panel/memoryPromptPreferences"
 
 export const SETTINGS_SECTION_IDS = [
   "general",
@@ -213,6 +214,7 @@ export interface MemoryBudgetConfig {
 
 /// Agent-level memory configuration (mirrors Rust MemoryConfig).
 export interface AgentMemoryConfig {
+  promptPreferences?: MemoryPromptOverrides
   enabled: boolean
   shared: boolean
   promptBudget: number

@@ -130,7 +130,7 @@ pub struct DirListing {
     pub path: String,
     pub parent: Option<String>,
     pub entries: Vec<DirEntry>,
-    /// `true` when the directory held more than `MAX_LIST_ENTRIES` children.
+    /// `true` when more than `MAX_LIST_ENTRIES` matching children were found.
     pub truncated: bool,
 }
 
@@ -166,6 +166,12 @@ pub struct FileSearchResponse {
 /// - Entries are sorted directories-first, then name ascending (case-insensitive).
 /// - When `requested` is `None`, returns the platform default root.
 pub fn list_dir(requested: Option<&str>) -> Result<DirListing> {
+    list_dir_filtered(requested, false)
+}
+
+/// Folder pickers filter before the output cap so ordinary files cannot crowd
+/// out browsable directories. Other callers retain the full listing contract.
+pub fn list_dir_filtered(requested: Option<&str>, directories_only: bool) -> Result<DirListing> {
     let requested = requested.map(str::trim).filter(|s| !s.is_empty());
 
     let target: PathBuf = match requested {
@@ -208,10 +214,6 @@ pub fn list_dir(requested: Option<&str>) -> Result<DirListing> {
     let mut entries: Vec<DirEntry> = Vec::new();
     let mut truncated = false;
     for entry in read_dir {
-        if entries.len() >= MAX_LIST_ENTRIES {
-            truncated = true;
-            break;
-        }
         let Ok(entry) = entry else {
             app_warn!(
                 "filesystem",
@@ -234,6 +236,13 @@ pub fn list_dir(requested: Option<&str>) -> Result<DirListing> {
         } else {
             file_type.is_dir()
         };
+        if directories_only && !is_dir {
+            continue;
+        }
+        if entries.len() >= MAX_LIST_ENTRIES {
+            truncated = true;
+            break;
+        }
         let size = if !is_dir { Some(meta.len()) } else { None };
         let modified_ms = meta
             .modified()
@@ -839,6 +848,26 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn folder_listing_filters_files_before_the_output_cap() {
+        let dir = tmpdir("folder-cap");
+        for index in 0..=MAX_LIST_ENTRIES {
+            std::fs::write(dir.join(format!("file-{index}")), b"").unwrap();
+        }
+        std::fs::create_dir(dir.join("a-folder")).unwrap();
+        std::fs::create_dir(dir.join("z-folder")).unwrap();
+        let filtered = list_dir_filtered(Some(dir.to_str().unwrap()), true).unwrap();
+        assert!(!filtered.truncated);
+        assert_eq!(filtered.entries.len(), 2);
+        assert!(filtered.entries.iter().all(|entry| entry.is_dir));
+        assert_eq!(filtered.entries[0].name, "a-folder");
+        assert_eq!(filtered.entries[1].name, "z-folder");
+        let full = list_dir(Some(dir.to_str().unwrap())).unwrap();
+        assert!(full.truncated);
+        assert_eq!(full.entries.len(), MAX_LIST_ENTRIES);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

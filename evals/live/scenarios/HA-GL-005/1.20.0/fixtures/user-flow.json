@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "scripted-user-flow.v2",
+  "steps": [
+    {
+      "action": "update_goal",
+      "objective": "按用户修订后的目标，只交付公开合成任务的 JSON 结果和验证摘要，保留已验证事实。",
+      "completionCriteria": "实际验证 deliverables/result.json 的 scenarioId、status、完整原始输入 SHA-256 和 itemCount；登记当前 Goal revision 的真实验证证据后完成 Goal。"
+    },
+    {
+      "action": "message",
+      "message": "用户已通过控制面更新 Goal 契约。需求修订：保留已经验证过的事实，但停止旧交付方案。现在按新 Goal 契约只交付 JSON 结果和验证摘要，并确保最终证据只对应修订后的目标。",
+      "delayMs": 0
+    }
+  ]
+}

@@ -62,6 +62,23 @@ struct TokenResponse {
 }
 
 impl GoogleChatAuth {
+    #[cfg(test)]
+    pub(super) fn for_test() -> Self {
+        Self {
+            credentials: ServiceAccountCredentials {
+                client_email: "synthetic@example.invalid".to_string(),
+                private_key: "synthetic-unused".to_string(),
+                token_uri: "https://example.invalid/unused".to_string(),
+                project_id: None,
+            },
+            http_client: reqwest::Client::new(),
+            cached_token: Arc::new(Mutex::new(Some(CachedToken {
+                access_token: "synthetic-test-only".to_string(),
+                expires_at: u64::MAX,
+            }))),
+        }
+    }
+
     /// Create a new authenticator from raw service account JSON string.
     pub fn from_json(json_str: &str) -> Result<Self> {
         let credentials: ServiceAccountCredentials = serde_json::from_str(json_str)

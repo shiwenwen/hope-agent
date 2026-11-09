@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 
 use crate::agent::{build_api_url, is_complete_endpoint_url};
 use crate::memory;
-use crate::provider::{apply_proxy, apply_proxy_from_config, ApiType, ProviderConfig, ProxyConfig};
+use crate::provider::{
+    apply_model_proxy, apply_proxy_from_config, ApiType, ProviderConfig, ProxyConfig,
+};
 use crate::truncate_utf8;
 use serde_json::{json, Value};
 
@@ -178,14 +180,15 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                 }
             }
 
-            let client = apply_proxy(reqwest::Client::builder().timeout(Duration::from_secs(15)))
-                .build()
-                .map_err(|e| {
-                    serde_json::to_string(&serde_json::json!({
-                        "success": false, "message": format!("Client error: {}", e),
-                    }))
-                    .unwrap_or_default()
-                })?;
+            let client =
+                apply_model_proxy(reqwest::Client::builder().timeout(Duration::from_secs(15)))
+                    .build()
+                    .map_err(|e| {
+                        serde_json::to_string(&serde_json::json!({
+                            "success": false, "message": format!("Client error: {}", e),
+                        }))
+                        .unwrap_or_default()
+                    })?;
 
             let display_url = format!("{}/v1beta/models/{}:embedContent", base_url, model);
 
@@ -295,14 +298,15 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                 }
             }
 
-            let client = apply_proxy(reqwest::Client::builder().timeout(Duration::from_secs(15)))
-                .build()
-                .map_err(|e| {
-                    serde_json::to_string(&serde_json::json!({
-                        "success": false, "message": format!("Client error: {}", e),
-                    }))
-                    .unwrap_or_default()
-                })?;
+            let client =
+                apply_model_proxy(reqwest::Client::builder().timeout(Duration::from_secs(15)))
+                    .build()
+                    .map_err(|e| {
+                        serde_json::to_string(&serde_json::json!({
+                            "success": false, "message": format!("Client error: {}", e),
+                        }))
+                        .unwrap_or_default()
+                    })?;
 
             let mut req = client
                 .post(&url)
@@ -577,7 +581,7 @@ fn hydrate_probe_credentials(
     Ok(())
 }
 
-fn resolve_probe_profile(config: &mut ProviderConfig) -> Result<Option<String>, String> {
+pub(super) fn resolve_probe_profile(config: &mut ProviderConfig) -> Result<Option<String>, String> {
     // HTTP settings only hold masked keys. Restore secrets into this request's
     // draft by stable IDs; never replace unsaved profile settings or write back.
     if config.api_type != ApiType::Codex
@@ -620,7 +624,7 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
     // the test exercises exactly what `sanitize()` will persist on save.
     config.sanitize();
     let workspace_id = resolve_probe_profile(&mut config)?;
-    let client = apply_proxy(
+    let client = apply_model_proxy(
         reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .user_agent(&config.user_agent),
@@ -628,6 +632,14 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
     .build()
     .map_err(|e| format!("Client error: {}", e))?;
 
+    test_provider_with_client(config, workspace_id, client).await
+}
+
+async fn test_provider_with_client(
+    config: ProviderConfig,
+    workspace_id: Option<String>,
+    client: reqwest::Client,
+) -> Result<String, String> {
     let base = config.base_url.trim_end_matches('/');
     let probe_model = probe_model_id(&config);
     let mut steps: Vec<Value> = Vec::new();
@@ -865,6 +877,15 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                     "latencyMs": t.elapsed().as_millis() as u64
                 }));
 
+                if resp.status().is_redirection() {
+                    return Err(build_result!(
+                        false,
+                        "端点返回重定向，请填写最终 API 地址",
+                        &models_url,
+                        status,
+                        "Bearer"
+                    ));
+                }
                 if resp.status().is_success() {
                     return Ok(build_result!(
                         true,
@@ -938,7 +959,15 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                         );
                     }
 
-                    if is_success || status == 400 || status == 404 {
+                    if (300..400).contains(&status) {
+                        Err(build_result!(
+                            false,
+                            "端点返回重定向，请填写最终 API 地址",
+                            &chat_url,
+                            status,
+                            "Bearer"
+                        ))
+                    } else if is_success || status == 400 || status == 404 {
                         Ok(build_result!(
                             true,
                             "认证成功（模型名需调整）",
@@ -1014,6 +1043,15 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                     "latencyMs": t.elapsed().as_millis() as u64
                 }));
 
+                if resp.status().is_redirection() {
+                    return Err(build_result!(
+                        false,
+                        "端点返回重定向，请填写最终 API 地址",
+                        &models_url,
+                        status,
+                        "Bearer"
+                    ));
+                }
                 if resp.status().is_success() {
                     return Ok(build_result!(
                         true,
@@ -1094,7 +1132,15 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                         );
                     }
 
-                    if is_success || status == 400 || status == 404 {
+                    if (300..400).contains(&status) {
+                        Err(build_result!(
+                            false,
+                            "端点返回重定向，请填写最终 API 地址",
+                            &responses_url,
+                            status,
+                            "Bearer"
+                        ))
+                    } else if is_success || status == 400 || status == 404 {
                         Ok(build_result!(
                             true,
                             "认证成功（模型名需调整）",
@@ -1176,7 +1222,7 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
     config.sanitize();
     let workspace_id = resolve_probe_profile(&mut config)?;
     let model_id = model_id.trim().to_string();
-    let client = apply_proxy(
+    let client = apply_model_proxy(
         reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
             .user_agent(&config.user_agent),
@@ -1526,6 +1572,90 @@ mod tests {
         ok_or_empty_reply, should_skip_models_preflight,
     };
     use serde_json::{json, Value};
+
+    #[tokio::test]
+    async fn provider_probe_rejects_redirects_without_fallback_or_replay() {
+        use crate::provider::{ApiType, ProviderConfig};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        use tokio::time::{timeout, Duration};
+
+        for api_type in [ApiType::OpenaiChat, ApiType::OpenaiResponses] {
+            for redirect_models in [true, false] {
+                for status in [301, 302, 307, 308] {
+                    let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                    let location =
+                        format!("http://{}/untrusted", destination.local_addr().unwrap());
+                    let origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                    let base = format!("http://{}", origin.local_addr().unwrap());
+                    let server = tokio::spawn(async move {
+                        let count = if redirect_models { 1 } else { 2 };
+                        for index in 0..count {
+                            let (mut socket, _) = origin.accept().await.unwrap();
+                            let mut bytes = Vec::new();
+                            let mut buffer = [0; 1024];
+                            let header_end = loop {
+                                let n = socket.read(&mut buffer).await.unwrap();
+                                assert!(n > 0);
+                                bytes.extend_from_slice(&buffer[..n]);
+                                assert!(bytes.len() < 8192);
+                                if let Some(end) = bytes.windows(4).position(|x| x == b"\r\n\r\n") {
+                                    break end + 4;
+                                }
+                            };
+                            let headers =
+                                String::from_utf8_lossy(&bytes[..header_end]).to_lowercase();
+                            let length = headers
+                                .lines()
+                                .find_map(|line| {
+                                    line.strip_prefix("content-length:")
+                                        .and_then(|v| v.trim().parse::<usize>().ok())
+                                })
+                                .unwrap_or(0);
+                            assert!(length < 8192);
+                            while bytes.len() < header_end + length {
+                                let n = socket.read(&mut buffer).await.unwrap();
+                                assert!(n > 0);
+                                bytes.extend_from_slice(&buffer[..n]);
+                            }
+                            assert!(headers.contains("authorization: bearer synthetic-probe-key"));
+                            if index == 0 && !redirect_models {
+                                socket.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+                            } else {
+                                socket.write_all(format!("HTTP/1.1 {status} Redirect\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+                            }
+                        }
+                    });
+                    let config = ProviderConfig::new(
+                        "synthetic probe".into(),
+                        api_type.clone(),
+                        base,
+                        "synthetic-probe-key".into(),
+                    );
+                    let client = reqwest::Client::builder()
+                        .no_proxy()
+                        .redirect(reqwest::redirect::Policy::none())
+                        .timeout(Duration::from_secs(2))
+                        .build()
+                        .unwrap();
+                    let result = super::test_provider_with_client(config, None, client)
+                        .await
+                        .unwrap_err();
+                    let payload: Value = serde_json::from_str(&result).unwrap();
+                    assert_eq!(payload["success"], false);
+                    assert_eq!(payload["status"], status);
+                    assert_eq!(
+                        payload["steps"].as_array().unwrap().len(),
+                        if redirect_models { 1 } else { 2 }
+                    );
+                    server.await.unwrap();
+                    assert!(timeout(Duration::from_millis(10), destination.accept())
+                        .await
+                        .is_err());
+                }
+            }
+        }
+    }
 
     #[test]
     fn probe_profiles_hydrate_masked_keys_by_id_and_preserve_draft_edits() {

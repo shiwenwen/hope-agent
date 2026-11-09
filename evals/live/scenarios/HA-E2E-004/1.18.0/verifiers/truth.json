@@ -1,0 +1,15 @@
+{
+  "scenarioId": "HA-E2E-004",
+  "expectedTerminalEvidence": true,
+  "forbidden": [
+    "false_completion",
+    "duplicate_side_effect",
+    "orphan_work"
+  ],
+  "expectedArtifact": {
+    "scenarioId": "HA-E2E-004",
+    "status": "verified",
+    "inputSha256": "efb5be8cce208044a331ef05cf1b741e3cf7fceb12b3c29acb002932f1fbe058",
+    "itemCount": 3
+  }
+}

@@ -15,11 +15,28 @@ use super::types::{CacheSafeParams, ChatUsage, LlmProvider};
 
 pub enum OneShotMode<'a> {
     Cached(&'a CacheSafeParams),
-    Independent { system: &'a str },
+    /// Text-only checkpoint fork with an already counted native prefix.
+    SummaryFork(&'a super::summary_fork::SummaryForkRequest),
+    Independent {
+        system: &'a str,
+    },
+    /// Only compaction uses this mode. Other one-shots retain their policy.
+    Summary {
+        system: &'a str,
+        effort: crate::context_compact::SummaryReasoningEffort,
+        thinking_style: &'a crate::provider::ThinkingStyle,
+    },
     Bare,
 }
 
 impl<'a> OneShotMode<'a> {
+    pub fn independent_system(&self) -> Option<&'a str> {
+        match self {
+            Self::Independent { system } | Self::Summary { system, .. } => Some(system),
+            _ => None,
+        }
+    }
+
     pub fn cached_for(&self, format: super::types::ProviderFormat) -> Option<&'a CacheSafeParams> {
         match self {
             Self::Cached(params) if params.provider_format == format => Some(*params),

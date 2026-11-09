@@ -63,6 +63,61 @@ impl AgentMemoryScopeAccess {
     }
 }
 
+/// Preserve scope priority without letting a full higher-priority scope hide
+/// every hit from the remaining scopes.
+fn merge_scoped_recall_results(
+    query: &str,
+    scoped_results: Vec<Vec<memory::MemoryEntry>>,
+    limit: usize,
+) -> Vec<memory::MemoryEntry> {
+    let mut results = Vec::with_capacity(limit.min(200));
+    let mut seen_ids = std::collections::HashSet::new();
+
+    for hits in &scoped_results {
+        if results.len() >= limit {
+            return results;
+        }
+        if let Some(hit) = hits
+            .iter()
+            .find(|hit| !seen_ids.contains(&hit.id) && has_recall_reservation_evidence(query, hit))
+        {
+            seen_ids.insert(hit.id);
+            results.push(hit.clone());
+        }
+    }
+
+    for hits in scoped_results {
+        for hit in hits {
+            if seen_ids.insert(hit.id) {
+                results.push(hit);
+                if results.len() >= limit {
+                    return results;
+                }
+            }
+        }
+    }
+    results
+}
+
+fn has_recall_reservation_evidence(query: &str, hit: &memory::MemoryEntry) -> bool {
+    let Some(evidence) = hit.retrieval_evidence.as_ref() else {
+        // Preserve the search contract for backends without absolute evidence.
+        return true;
+    };
+    // Match the fast recall evidence gate: a nearest vector neighbour alone is
+    // not proof of relevance and must not displace a higher-priority result.
+    (evidence.lexical_match
+        && query
+            .chars()
+            .filter(|ch| ch.is_alphanumeric())
+            .take(3)
+            .count()
+            >= 3)
+        || evidence
+            .semantic_similarity
+            .is_some_and(|score| score.is_finite() && score >= 0.50)
+}
+
 pub(crate) fn ensure_session_memory_read(ctx: &super::ToolExecContext, tool: &str) -> Result<()> {
     let access = memory::effective_session_memory_access(
         ctx.session_id.as_deref(),
@@ -291,8 +346,7 @@ pub(crate) async fn tool_recall_memory(
             let backend = crate::get_memory_backend()
                 .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-            let mut results = Vec::new();
-            let mut seen_ids = std::collections::HashSet::new();
+            let mut scoped_results = Vec::new();
             for scope in readable_scopes {
                 let query = MemorySearchQuery {
                     query: query_text_for_blocking.clone(),
@@ -302,18 +356,10 @@ pub(crate) async fn tool_recall_memory(
                     agent_id: None,
                     limit: Some(limit),
                 };
-                for memory in backend.search(&query)? {
-                    if seen_ids.insert(memory.id) {
-                        results.push(memory);
-                        if results.len() >= limit {
-                            break;
-                        }
-                    }
-                }
-                if results.len() >= limit {
-                    break;
-                }
+                scoped_results.push(backend.search(&query)?);
             }
+            let results =
+                merge_scoped_recall_results(&query_text_for_blocking, scoped_results, limit);
 
             let mut output = String::new();
             let mem_count = results.len();
@@ -726,5 +772,117 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn recall_reserves_a_result_for_each_matching_readable_scope() {
+        fn entry(id: i64, scope: MemoryScope) -> memory::MemoryEntry {
+            memory::MemoryEntry {
+                id,
+                memory_type: MemoryType::Reference,
+                scope,
+                content: format!("memory {id}"),
+                tags: Vec::new(),
+                source: "user".into(),
+                source_session_id: None,
+                pinned: false,
+                created_at: String::new(),
+                updated_at: String::new(),
+                relevance_score: None,
+                retrieval_evidence: None,
+                attachment_path: None,
+                attachment_mime: None,
+            }
+        }
+
+        let project = (1..=10)
+            .map(|id| entry(id, MemoryScope::Project { id: "p1".into() }))
+            .collect();
+        let agent: Vec<_> = (11..=20)
+            .map(|id| {
+                entry(
+                    id,
+                    MemoryScope::Agent {
+                        id: "ha-main".into(),
+                    },
+                )
+            })
+            .collect();
+        let global = vec![entry(318, MemoryScope::Global)];
+        let no_project_results =
+            merge_scoped_recall_results("global keyword", vec![agent.clone(), global.clone()], 10);
+        assert_eq!(no_project_results.len(), 10);
+        assert_eq!(no_project_results[0].id, 11);
+        assert_eq!(no_project_results[1].id, 318);
+
+        let results =
+            merge_scoped_recall_results("global keyword", vec![project, agent, global], 10);
+        assert_eq!(results.len(), 10);
+        assert_eq!(
+            results.iter().map(|hit| hit.id).collect::<Vec<_>>()[..3],
+            [1, 11, 318]
+        );
+        assert!(merge_scoped_recall_results(
+            "global keyword",
+            vec![vec![entry(318, MemoryScope::Global)]],
+            0
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn irrelevant_vector_neighbors_do_not_take_reserved_scope_slots() {
+        fn candidate(
+            id: i64,
+            scope: MemoryScope,
+            lexical_match: bool,
+            similarity: f32,
+        ) -> memory::MemoryEntry {
+            memory::MemoryEntry {
+                id,
+                memory_type: MemoryType::Reference,
+                scope,
+                content: format!("memory {id}"),
+                tags: Vec::new(),
+                source: "user".into(),
+                source_session_id: None,
+                pinned: false,
+                created_at: String::new(),
+                updated_at: String::new(),
+                relevance_score: None,
+                retrieval_evidence: Some(memory::MemoryRetrievalEvidence {
+                    lexical_match,
+                    semantic_similarity: Some(similarity),
+                }),
+                attachment_path: None,
+                attachment_mime: None,
+            }
+        }
+        let agent: Vec<_> = (1..=10)
+            .map(|id| {
+                candidate(
+                    id,
+                    MemoryScope::Agent {
+                        id: "ha-main".into(),
+                    },
+                    true,
+                    0.0,
+                )
+            })
+            .collect();
+        let global = vec![candidate(318, MemoryScope::Global, false, 0.49)];
+        let results =
+            merge_scoped_recall_results("global keyword", vec![agent.clone(), global], 10);
+        assert_eq!(
+            results.iter().map(|hit| hit.id).collect::<Vec<_>>(),
+            (1..=10).collect::<Vec<_>>()
+        );
+
+        let global = vec![
+            candidate(318, MemoryScope::Global, false, 0.49),
+            candidate(319, MemoryScope::Global, true, 0.0),
+        ];
+        let results = merge_scoped_recall_results("global keyword", vec![agent, global], 10);
+        assert_eq!(results[1].id, 319);
     }
 }
