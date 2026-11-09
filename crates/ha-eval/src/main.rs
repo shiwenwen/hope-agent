@@ -3,6 +3,7 @@ mod adapters;
 mod model;
 mod model_adapter;
 mod model_app_control;
+mod model_cache;
 mod model_fake;
 mod model_supervisor;
 
@@ -993,7 +994,7 @@ fn command_verify_evidence(
     {
         bail!("evidence schema/ref/tier/runner does not match release request");
     }
-    if evidence.dirty {
+    if evidence.dirty && !allows_dirty_local_inspection(allow_local, &evidence.source, tag) {
         bail!("release evidence was produced from a dirty worktree");
     }
     if !allow_local && evidence.source != "github_actions" {
@@ -1135,6 +1136,10 @@ fn command_verify_evidence(
     Ok(())
 }
 
+fn allows_dirty_local_inspection(allow_local: bool, source: &str, tag: Option<&str>) -> bool {
+    allow_local && source == "local" && tag.is_none()
+}
+
 fn rebuild_expected_plan(root: &Path, reference: &str, policy: &EvalPolicy) -> Result<EvalPlan> {
     let mut suites = Vec::new();
     for selected in &policy.suites {
@@ -1214,4 +1219,21 @@ fn validate_waiver(waiver: &EvalWaiver, reference: &str, tag: Option<&str>) -> R
         bail!("waiver tag does not match the release tag");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod local_evidence_tests {
+    use super::allows_dirty_local_inspection;
+
+    #[test]
+    fn dirty_local_evidence_requires_explicit_inspection_without_release_tag() {
+        assert!(allows_dirty_local_inspection(true, "local", None));
+        assert!(!allows_dirty_local_inspection(false, "local", None));
+        assert!(!allows_dirty_local_inspection(
+            true,
+            "local",
+            Some("v1.0.0")
+        ));
+        assert!(!allows_dirty_local_inspection(true, "github_actions", None));
+    }
 }

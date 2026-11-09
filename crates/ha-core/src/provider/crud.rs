@@ -289,6 +289,7 @@ fn codex_provider_needs_backfill(provider: &ProviderConfig) -> bool {
 fn default_codex_model_ids() -> &'static [&'static str] {
     &[
         "gpt-6.1-sol",
+        "gpt-6.1-terra",
         "gpt-6-astra",
         "gpt-6-sol",
         "gpt-6-luna",
@@ -1111,6 +1112,7 @@ mod tests {
         );
         for (id, context_window) in [
             ("gpt-6.1-sol", 500_000),
+            ("gpt-6.1-terra", 500_000),
             ("gpt-6-astra", 272_000),
             ("gpt-6-sol", 272_000),
             ("gpt-6-luna", 272_000),

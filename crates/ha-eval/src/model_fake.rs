@@ -33,6 +33,7 @@ pub const FAKE_SERVER_TOKEN: &str = "fake-smoke-server-token-00000001";
 struct FakeProviderState {
     expected_model: Arc<str>,
     result_content: Arc<str>,
+    cache_benchmark: bool,
 }
 
 pub struct FakeProvider {
@@ -43,6 +44,14 @@ pub struct FakeProvider {
 
 impl FakeProvider {
     pub async fn start(result_content: String) -> Result<Self> {
+        Self::start_inner(result_content, false).await
+    }
+
+    pub async fn start_cache() -> Result<Self> {
+        Self::start_inner(String::new(), true).await
+    }
+
+    async fn start_inner(result_content: String, cache_benchmark: bool) -> Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
             .await
             .context("binding fake Provider")?;
@@ -50,6 +59,7 @@ impl FakeProvider {
         let state = FakeProviderState {
             expected_model: Arc::from(MODEL_ID),
             result_content: Arc::from(result_content),
+            cache_benchmark,
         };
         let app = Router::new()
             .route("/v1/chat/completions", post(fake_chat_completions))
@@ -211,8 +221,30 @@ fn reserve_loopback_port() -> Result<u16> {
 
 async fn fake_chat_completions(
     State(state): State<FakeProviderState>,
+    headers: HeaderMap,
     Json(request): Json<Value>,
 ) -> Response {
+    if state.cache_benchmark {
+        if headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            != Some(format!("Bearer {FAKE_PROVIDER_KEY}").as_str())
+        {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": {"message": "cache smoke credential missing or invalid"}})),
+            )
+                .into_response();
+        }
+        return match fake_cache_response(&state, &request) {
+            Ok(response) => response,
+            Err(error) => (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": {"message": error.to_string()}})),
+            )
+                .into_response(),
+        };
+    }
     if request.get("stream").and_then(Value::as_bool) != Some(true) {
         return match fake_non_stream_response(&state, &request) {
             Ok(body) => (StatusCode::OK, Json(body)).into_response(),
@@ -239,6 +271,107 @@ async fn fake_chat_completions(
         )
             .into_response(),
     }
+}
+
+/// Deliberately scripted receipts. This exercises real HTTP/tool/summary
+/// plumbing; the reported cache buckets are fixtures, not simulated cache hits.
+fn fake_cache_response(state: &FakeProviderState, request: &Value) -> Result<Response> {
+    if request.get("model").and_then(Value::as_str) != Some(state.expected_model.as_ref()) {
+        bail!("cache smoke received an unexpected model");
+    }
+    let messages = request
+        .get("messages")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("cache smoke requires messages"))?;
+    let streaming = request.get("stream").and_then(Value::as_bool) == Some(true);
+    let last_phase = messages.iter().enumerate().rev().find(|(_, message)| {
+        message.get("role").and_then(Value::as_str) == Some("user")
+            && message
+                .get("content")
+                .and_then(Value::as_str)
+                .is_some_and(|text| text.contains("CACHE_PHASE_"))
+    });
+    let (phase_index, phase_text) = last_phase.map_or((0, ""), |(index, message)| {
+        (index, message["content"].as_str().unwrap_or(""))
+    });
+    let after_tools = messages
+        .iter()
+        .skip(phase_index + 1)
+        .filter(|message| message["role"] == "tool")
+        .count();
+    let delta = if !streaming {
+        let sections = [
+            "Primary Request and Success Criteria",
+            "Current Execution State",
+            "Decisions and Rationale",
+            "Files, Symbols, and Artifacts",
+            "Tool Results Worth Preserving",
+            "Errors, Failed Attempts, and Fixes",
+            "User Feedback and Constraints",
+            "Pending Work and Next Action",
+            "Trust Boundaries and Security Notes",
+        ];
+        let facts = "合成缓存测试。project=ORCHID-7421; entry=/workspace/synthetic/海风/入口.rs; rule=send_unknown 不得自动重试; revision=R2; archiveKey=ARCHIVE-91; markerA=ALPHA-37; markerB=BETA-83; markerC=GAMMA-19。保留原始约束，只依据合成事实输出 JSON。";
+        json!({"role": "assistant", "content": sections.iter().map(|section| format!("## {section}\n{facts}\n")).collect::<Vec<_>>().join("\n")})
+    } else if phase_text.contains("CACHE_PHASE_TOOL") && after_tools < 2 {
+        tool_delta(vec![
+            (
+                "cache_read_a",
+                "read",
+                json!({"path": "fixtures/tool-a.txt"}),
+            ),
+            (
+                "cache_read_b",
+                "read",
+                json!({"path": "fixtures/tool-b.txt"}),
+            ),
+        ])
+    } else if phase_text.contains("CACHE_PHASE_TOOL") && after_tools < 3 {
+        tool_delta(vec![(
+            "cache_read_final",
+            "read",
+            json!({"path": "fixtures/tool-final.txt"}),
+        )])
+    } else {
+        let later = ["TAIL", "TOOL", "PRE", "POST"]
+            .iter()
+            .any(|phase| phase_text.contains(&format!("CACHE_PHASE_{phase}")));
+        let has_tools = ["TOOL", "PRE", "POST"]
+            .iter()
+            .any(|phase| phase_text.contains(&format!("CACHE_PHASE_{phase}")));
+        json!({"role": "assistant", "content": json!({
+            "project": "ORCHID-7421", "entry": "/workspace/synthetic/海风/入口.rs",
+            "archiveKey": if phase_text.contains("CACHE_PHASE_COLD") { None } else { Some("ARCHIVE-91") },
+            "rule": "send_unknown 不得自动重试", "revision": if later { "R2" } else { "R1" },
+            "markerA": if has_tools { Some("ALPHA-37") } else { None },
+            "markerB": if has_tools { Some("BETA-83") } else { None },
+            "markerC": if has_tools { Some("GAMMA-19") } else { None },
+        }).to_string()})
+    };
+    let read = if messages
+        .iter()
+        .any(|message| message["role"] == "assistant")
+    {
+        6000
+    } else {
+        0
+    };
+    let usage = json!({"prompt_tokens": 8000, "completion_tokens": 100, "total_tokens": 8100, "prompt_tokens_details": {"cached_tokens": read, "cache_write_tokens": 0}});
+    if !streaming {
+        return Ok(Json(json!({"id": "cache_summary_fixture", "object": "chat.completion", "model": state.expected_model.as_ref(), "choices": [{"index": 0, "message": delta, "finish_reason": "stop"}], "usage": usage})).into_response());
+    }
+    let finish = if delta.get("tool_calls").is_some() {
+        "tool_calls"
+    } else {
+        "stop"
+    };
+    let chunk = json!({"id": "cache_fixture", "object": "chat.completion.chunk", "model": state.expected_model.as_ref(), "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]});
+    let receipt = json!({"id": "cache_fixture", "object": "chat.completion.chunk", "model": state.expected_model.as_ref(), "choices": [], "usage": usage});
+    Ok((
+        [(header::CONTENT_TYPE, "text/event-stream")],
+        format!("data: {chunk}\n\ndata: {receipt}\n\ndata: [DONE]\n\n"),
+    )
+        .into_response())
 }
 
 fn fake_non_stream_response(state: &FakeProviderState, request: &Value) -> Result<Value> {
@@ -485,11 +618,37 @@ pub fn default_server_bin(root: &Path) -> PathBuf {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn cache_fake_provider_requires_the_runtime_credential() {
+        let provider = FakeProvider::start_cache().await.unwrap();
+        let client = reqwest::Client::new();
+        let request = json!({"model": MODEL_ID, "stream": true, "messages": [{"role": "user", "content": "CACHE_PHASE_COLD"}]});
+        let missing = client
+            .post(format!("{}/v1/chat/completions", provider.base_url))
+            .json(&request)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
+        let valid = client
+            .post(format!("{}/v1/chat/completions", provider.base_url))
+            .bearer_auth(FAKE_PROVIDER_KEY)
+            .json(&request)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(valid.status(), StatusCode::OK);
+        drop(valid);
+        drop(missing);
+        provider.shutdown().await;
+    }
+
     #[test]
     fn fake_provider_progresses_only_from_structured_assistant_tool_calls() {
         let state = FakeProviderState {
             expected_model: Arc::from(MODEL_ID),
             result_content: Arc::from("{}\n"),
+            cache_benchmark: false,
         };
         let first = json!({"model": MODEL_ID, "stream": true, "messages": []});
         let first_body = fake_chat_response(&state, &first).unwrap();

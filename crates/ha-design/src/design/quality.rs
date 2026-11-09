@@ -200,6 +200,41 @@ fn compare_images(current: &DynamicImage, baseline: &DynamicImage) -> (f64, f64)
     )
 }
 
+// The fixed-viewport runner cannot establish that an authored scenario was
+// reached inside the opaque iframe. Never label its default-page capture as
+// evidence for a configured route, state, scenario identity or viewport plan.
+fn ensure_default_scenario(manifest: &super::scenarios::ScenariosManifest) -> Result<()> {
+    let supported = manifest.viewports.is_empty()
+        && manifest.scenarios.len() == 1
+        && manifest.scenarios.first().is_some_and(|scenario| {
+            scenario.id == "default"
+                && scenario.route == "/"
+                && scenario.viewport_ids.is_empty()
+                && (scenario.state.is_null()
+                    || scenario
+                        .state
+                        .as_object()
+                        .is_some_and(|state| state.is_empty()))
+        });
+    anyhow::ensure!(
+        supported,
+        "visual_scenarios_incomplete: configured scenarios are not executed by the fixed-viewport runner"
+    );
+    Ok(())
+}
+
+fn ensure_scenarios_unchanged(
+    current: &super::scenarios::ScenariosEnvelope,
+    expected_hash: &str,
+) -> Result<()> {
+    ensure_default_scenario(&current.manifest)?;
+    anyhow::ensure!(
+        current.hash == expected_hash,
+        "visual_scenarios_incomplete: scenarios changed during capture"
+    );
+    Ok(())
+}
+
 struct QualityRunPreparation {
     artifact_id: String,
     artifact_hash: String,
@@ -207,6 +242,7 @@ struct QualityRunPreparation {
     manifest: QualityManifest,
     findings: Vec<StaticFinding>,
     capture_html: String,
+    scenarios_hash: String,
 }
 
 struct BaselinePreparation {
@@ -215,6 +251,7 @@ struct BaselinePreparation {
     dir: PathBuf,
     manifest: QualityManifest,
     capture_html: String,
+    scenarios_hash: String,
     _artifact_lifecycle_guard: std::fs::File,
 }
 
@@ -302,6 +339,8 @@ fn prepare_quality_run(artifact_id: &str) -> Result<QualityRunPreparation> {
     let artifact = super::service::get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
     let artifact_hash = artifact_hash(artifact_id)?;
+    let scenarios = super::scenarios::get(artifact_id)?;
+    ensure_default_scenario(&scenarios.manifest)?;
     let dir = quality_dir(&artifact.project_id, artifact_id)?;
     let manifest = load_manifest(&dir, artifact_id)?;
     let html = artifact_capture_html(&artifact.project_id, artifact_id)?;
@@ -312,6 +351,7 @@ fn prepare_quality_run(artifact_id: &str) -> Result<QualityRunPreparation> {
         manifest,
         findings: static_findings(&html),
         capture_html: html,
+        scenarios_hash: scenarios.hash,
     })
 }
 
@@ -322,6 +362,10 @@ fn finish_quality_run(
     if artifact_hash(&prepared.artifact_id)? != prepared.artifact_hash {
         anyhow::bail!("artifact changed during visual regression capture");
     }
+    ensure_scenarios_unchanged(
+        &super::scenarios::get(&prepared.artifact_id)?,
+        &prepared.scenarios_hash,
+    )?;
     let mut diffs = Vec::with_capacity(captures.len());
     for (viewport, bytes) in captures {
         let current_hash = blake3::hash(&bytes).to_hex().to_string();
@@ -378,6 +422,8 @@ fn prepare_baseline(input: AcceptBaselineInput) -> Result<BaselinePreparation> {
     if actual != input.expected_artifact_hash {
         anyhow::bail!("stale baseline acceptance: artifact changed");
     }
+    let scenarios = super::scenarios::get(&artifact.id)?;
+    ensure_default_scenario(&scenarios.manifest)?;
     let dir = quality_dir(&artifact.project_id, &artifact.id)?;
     std::fs::create_dir_all(dir.join("screenshots"))?;
     let manifest = load_manifest(&dir, &artifact.id)?;
@@ -388,6 +434,7 @@ fn prepare_baseline(input: AcceptBaselineInput) -> Result<BaselinePreparation> {
         dir,
         manifest,
         capture_html,
+        scenarios_hash: scenarios.hash,
         _artifact_lifecycle_guard: artifact_lifecycle_guard,
     })
 }
@@ -399,6 +446,10 @@ fn finish_baseline(
     if artifact_hash(&prepared.artifact_id)? != prepared.artifact_hash {
         anyhow::bail!("artifact changed during baseline capture");
     }
+    ensure_scenarios_unchanged(
+        &super::scenarios::get(&prepared.artifact_id)?,
+        &prepared.scenarios_hash,
+    )?;
     let now = chrono::Utc::now().to_rfc3339();
     for (viewport, bytes) in captures {
         let image_hash = blake3::hash(&bytes).to_hex().to_string();
@@ -518,6 +569,55 @@ pub async fn accept(input: AcceptBaselineInput) -> Result<QualityManifest> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_scenarios_never_reuse_default_page_evidence() {
+        use super::super::scenarios::ScenariosManifest;
+        let default = ScenariosManifest::default();
+        assert!(ensure_default_scenario(&default).is_ok());
+        let mut state = default.clone();
+        state.scenarios[0].state = serde_json::json!({"checkout": "empty"});
+        assert!(ensure_default_scenario(&state).is_err());
+        state.scenarios[0].state = serde_json::json!({"checkout": "error"});
+        assert!(ensure_default_scenario(&state).is_err());
+        let mut route = default.clone();
+        route.scenarios[0].route = "/checkout".into();
+        assert!(ensure_default_scenario(&route).is_err());
+        let mut multiple = default.clone();
+        let mut other = multiple.scenarios[0].clone();
+        other.id = "empty".into();
+        multiple.scenarios.push(other);
+        assert!(ensure_default_scenario(&multiple).is_err());
+        let mut viewport = default.clone();
+        viewport.viewports.insert(
+            "phone".into(),
+            super::super::scenarios::ScenarioViewport {
+                width: 390,
+                height: 844,
+                label: None,
+            },
+        );
+        viewport.scenarios[0].viewport_ids = vec!["phone".into()];
+        assert!(ensure_default_scenario(&viewport).is_err());
+        let mut renamed = default.clone();
+        renamed.scenarios[0].id = "error".into();
+        assert!(ensure_default_scenario(&renamed).is_err());
+    }
+
+    #[test]
+    fn scenario_changes_invalidate_pending_captures() {
+        use super::super::scenarios::{ScenariosEnvelope, ScenariosManifest};
+        let manifest = ScenariosManifest::default();
+        let before = ScenariosEnvelope {
+            manifest: manifest.clone(),
+            hash: "before".into(),
+        };
+        assert!(ensure_scenarios_unchanged(&before, "before").is_ok());
+        assert!(ensure_scenarios_unchanged(&before, "after").is_err());
+        let mut changed = before;
+        changed.manifest.scenarios[0].state = serde_json::json!({"checkout":"error"});
+        assert!(ensure_scenarios_unchanged(&changed, "before").is_err());
+    }
 
     #[test]
     fn fixed_viewports_are_bounded_and_unique() {

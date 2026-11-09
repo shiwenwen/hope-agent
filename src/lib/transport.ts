@@ -1395,6 +1395,7 @@ export interface DomainQualityRun {
   id: string;
   sessionId: string;
   goalId?: string | null;
+  goalRevision?: number | null;
   domain: string;
   templateId?: string | null;
   templateVersion?: string | null;

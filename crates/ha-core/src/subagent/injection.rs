@@ -1173,6 +1173,7 @@ pub(super) struct PendingInjection {
     /// Readiness gate at this task's exact FIFO position. A blocked head must
     /// not be skipped in favour of a later task for the same session.
     gate: PendingInjectionGate,
+    eval_pending: Option<Arc<crate::eval_context::EvalSessionGuard>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1414,6 +1415,7 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
         }
         let t = task.clone();
         let retry_receipt = t.on_injected.clone();
+        let eval_pending = t.eval_pending.clone();
         let retry_run_id = t.run_id.clone();
         let preclaimed_cleanup = CleanupGuard {
             session_id: t.parent_session_id.clone(),
@@ -1423,6 +1425,7 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
             // Own the dequeue-time session reservation until the async
             // injection returns. If thread/runtime construction fails, dropping
             // the captured guard still releases the claim and advances FIFO.
+            let _eval_pending = eval_pending;
             let mut preclaimed_cleanup = Some(preclaimed_cleanup);
             match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -1665,6 +1668,8 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
     reattachable_ui_guard: Option<crate::permission::ReattachableUiSessionGuard>,
     preclaimed_cleanup: Option<CleanupGuard>,
 ) -> InjectionOutcome {
+    let eval_pending =
+        crate::eval_context::retain_pending_notification(&parent_session_id).map(Arc::new);
     let session_preclaimed = preclaimed_cleanup.is_some();
     let mut _cleanup = preclaimed_cleanup;
 
@@ -1755,6 +1760,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 on_injected: on_injected.clone(),
                 reattachable_ui_guard: reattachable_ui_guard.clone(),
                 gate: PendingInjectionGate::Ready,
+                eval_pending: eval_pending.clone(),
             },
         );
         match admission {
@@ -1839,6 +1845,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 on_injected,
                 reattachable_ui_guard,
                 gate: PendingInjectionGate::Ready,
+                eval_pending: eval_pending.clone(),
             });
             return InjectionOutcome::Queued;
         }
@@ -1907,10 +1914,35 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         error: None,
     });
 
+    // Notifications continue the same Session, including its selected
+    // model. They must not silently use the current global default.
+    let preference_session = parent_session_id.clone();
+    let preferred_model = match session_db
+        .run(move |db| db.get_session_model_preference(&preference_session))
+        .await
+    {
+        Ok(pin) => pin.map(|(provider, model)| format!("{provider}::{model}")),
+        Err(error) => {
+            app_warn!(
+                "subagent",
+                "inject",
+                "Cannot read parent Session model preference: {}",
+                error
+            );
+            release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Abandoned;
+        }
+    };
     // 4. Preflight the parent route without resolving a caller-owned chain.
     // Admission repeats this against its immutable Provider/config snapshot.
     let store = crate::config::cached_config();
-    if crate::turn_kernel::validate_configured_model_route(&parent_agent_id).is_err() {
+    if crate::turn_kernel::validate_configured_model_preference(
+        &parent_agent_id,
+        preferred_model.as_deref(),
+        crate::eval_context::context_for_session(&parent_session_id).is_some(),
+    )
+    .is_err()
+    {
         app_error!(
             "subagent",
             "inject",
@@ -2006,7 +2038,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
     // eval root identity alive while this real parent-injection turn runs so
     // its model/tool calls remain in the originating trial rather than
     // becoming unattributed background usage.
-    let _eval_injection_guard = crate::eval_context::retain_session(&parent_session_id);
+    let _eval_injection_guard = crate::eval_context::retain_parent_injection(&parent_session_id);
 
     if cancel.load(Ordering::SeqCst) {
         app_info!(
@@ -2071,6 +2103,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                     on_injected,
                     reattachable_ui_guard,
                     gate: PendingInjectionGate::Channel { account_id },
+                    eval_pending: eval_pending.clone(),
                 });
 
                 // Close event-before-enqueue: account startup may have emitted
@@ -2164,7 +2197,8 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 .and_then(|def| def.config.model.temperature)
                 .or(store.temperature),
         )
-        .with_reasoning_effort(resolved_reasoning_effort);
+        .with_reasoning_effort(resolved_reasoning_effort)
+        .with_model_preference(preferred_model.clone(), false);
         let engine_result = arm_source_persist_then(
             injection_has_delivery_surface,
             on_injected.as_ref(),
@@ -2430,6 +2464,7 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             on_injected,
             reattachable_ui_guard,
             gate: PendingInjectionGate::Ready,
+            eval_pending: eval_pending.clone(),
         });
         app_info!(
             "subagent",
@@ -3317,6 +3352,7 @@ mod tests {
             on_injected: None,
             reattachable_ui_guard: None,
             gate: PendingInjectionGate::Ready,
+            eval_pending: None,
         };
         let mut queue = vec![
             pending("s1", "run-1"),
@@ -3373,6 +3409,7 @@ mod tests {
             on_injected: None,
             reattachable_ui_guard: None,
             gate,
+            eval_pending: None,
         };
         let mut durable_task = task(
             "session-a",
@@ -3442,6 +3479,7 @@ mod tests {
             on_injected: None,
             reattachable_ui_guard: None,
             gate,
+            eval_pending: None,
         };
         let mut queue = vec![
             task("other", "x", PendingInjectionGate::Ready),
@@ -3499,6 +3537,7 @@ mod tests {
             on_injected: None,
             reattachable_ui_guard: None,
             gate: PendingInjectionGate::Ready,
+            eval_pending: None,
         };
         let mut injecting =
             std::collections::HashMap::from([("session".to_string(), "run-a".to_string())]);
@@ -3567,6 +3606,7 @@ mod tests {
             on_injected: None,
             reattachable_ui_guard: None,
             gate,
+            eval_pending: None,
         };
         let process_releases = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let process_releases_for_receipt = process_releases.clone();
@@ -3620,6 +3660,7 @@ mod tests {
                 gate: PendingInjectionGate::Channel {
                     account_id: Some("account".to_string()),
                 },
+                eval_pending: None,
             }];
             if persisted_surface_releases_channel_gate(persisted_enabled, running) {
                 open_channel_gates(&mut queue, Some("account"));

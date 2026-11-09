@@ -1154,6 +1154,22 @@ async fn chat_inner(
         })
         .transpose()?;
 
+    // A per-turn override alone does not bind manual compaction or implicit
+    // children. Registered model evaluations must pin their synthetic Session
+    // before any Goal, tool or background work can start. Ordinary HTTP turns
+    // keep their existing per-turn override semantics.
+    if let Some((provider_id, model_id)) = registered_eval_model_pin(
+        _eval_session_guard.is_some(),
+        body.model_override.as_deref(),
+    )? {
+        let session_id = sid.clone();
+        db.run(move |db| {
+            ha_core::session::set_session_model_preference(db, &session_id, &provider_id, &model_id)
+        })
+        .await
+        .map_err(|error| AppError::bad_request(error.to_string()))?;
+    }
+
     // Apply draft working dir picked before the session existed. Mirrors the
     // Tauri `chat` command — explicit-session callers must use the dedicated
     // setter to change it.
@@ -1888,12 +1904,31 @@ async fn chat_inner(
     }))
 }
 
+fn registered_eval_model_pin(
+    registered_eval_context: bool,
+    model_override: Option<&str>,
+) -> Result<Option<(String, String)>, AppError> {
+    if !registered_eval_context {
+        return Ok(None);
+    }
+    let Some(model_override) = model_override else {
+        return Ok(None);
+    };
+    let (provider_id, model_id) = model_override
+        .split_once("::")
+        .filter(|(provider_id, model_id)| !provider_id.is_empty() && !model_id.is_empty())
+        .ok_or_else(|| AppError::bad_request("eval modelOverride must be providerId::modelId"))?;
+    Ok(Some((provider_id.to_string(), model_id.to_string())))
+}
+
 fn map_chat_admission_error(error: ha_core::turn_kernel::TurnFailure) -> AppError {
     if error.kind == ha_core::turn_kernel::TurnFailureKind::Cancelled {
         AppError::conflict_with_code(
             ha_core::agent::preflight::CHAT_CANCELLED_DURING_PREFLIGHT_CODE,
             error.to_string(),
         )
+    } else if error.is_pre_dispatch_admission_busy() {
+        AppError::conflict_with_code("chat_admission_busy", error.to_string())
     } else if error.is_invalid_request() {
         AppError::bad_request(error.to_string())
     } else {
@@ -1959,6 +1994,36 @@ pub async fn cleanup_model_eval_trial(
             usize::from(ha_core::memory_extract::cancel_idle_extraction(session_id));
         cancelled_background_tasks +=
             ha_core::memory_extract::cancel_active_extractions(session_id);
+        // Keep the journal/session rows available while the normal Stop path
+        // settles foreground turns, approvals, jobs and autonomous children.
+        // Deleting first makes in-flight model streams fail with missing rows
+        // and loses the distinction between cleanup and Provider failures.
+        let stopped = ha_core::chat_engine::stop::stop_session(
+            ctx.session_db.clone(),
+            session_id,
+            None,
+            false,
+        )
+        .await;
+        if stopped.runtime_cancellation_error.is_some() || stopped.autonomy_pause_error.is_some() {
+            return Err(AppError::internal(
+                "model evaluation work could not be stopped before cleanup",
+            ));
+        }
+    }
+    let settle_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        let closed = ha_core::eval_context::telemetry_snapshot(&trial_id)
+            .is_some_and(|snapshot| snapshot["trace"]["closed"] == true);
+        if closed {
+            break;
+        }
+        if tokio::time::Instant::now() >= settle_deadline {
+            return Err(AppError::internal(
+                "model evaluation work remained active; synthetic sessions were preserved",
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     ctx.session_db
         .run(move |db| {
@@ -2283,14 +2348,23 @@ pub async fn stop_chat(
             already_signalled,
         )
         .await;
-        return Ok(Json(StopChatResult::from_session_outcome(
+        let result = StopChatResult::from_session_outcome(
             if body.session_id.is_some() {
                 "session"
             } else {
                 "request"
             },
             outcome,
-        )));
+        );
+        if body.session_id.is_some()
+            && body.turn_id.is_none()
+            && body.client_request_id.is_none()
+            && result.stopped
+            && !result.turn_mismatch
+        {
+            ha_core::eval_context::record_scripted_owner_stop(sid);
+        }
+        return Ok(Json(result));
     }
 
     if !global_stop {
@@ -2628,6 +2702,37 @@ pub async fn list_capability_mentions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eval_model_pin_requires_registered_context_and_valid_explicit_binding() {
+        assert_eq!(
+            registered_eval_model_pin(false, Some("p::preview")).unwrap(),
+            None
+        );
+        assert_eq!(registered_eval_model_pin(true, None).unwrap(), None);
+        assert_eq!(
+            registered_eval_model_pin(true, Some("p::preview")).unwrap(),
+            Some(("p".to_string(), "preview".to_string()))
+        );
+        for invalid in ["preview", "::preview", "p::"] {
+            assert!(registered_eval_model_pin(true, Some(invalid)).is_err());
+            assert_eq!(
+                registered_eval_model_pin(false, Some(invalid)).unwrap(),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn untyped_active_stream_text_does_not_authorize_http_readmission() {
+        let error = ha_core::turn_kernel::TurnFailure::new(
+            ha_core::turn_kernel::TurnFailureKind::Infrastructure,
+            "active_stream: session fixture already has active stream x from parent_injection",
+        );
+        let mapped = map_chat_admission_error(error);
+        assert_eq!(mapped.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(mapped.code.is_none());
+    }
 
     #[test]
     fn invalid_model_override_admission_remains_a_client_error() {

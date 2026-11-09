@@ -15,24 +15,23 @@ export const internationalTemplates: ProviderTemplate[] = [
     currency: "USD",
     models: [
       {
-        // 2026-10-10 已鉴权 GET /v1/models：pareto 仍指向 26.9。
-        // 官网统一报价为 26.10 Preview，不能套到稳定版；未知 ID 可能被按 Pareto 计费。
+        // The official current alias points to stable 26.10; its rates are the public API rates.
         id: "pareto",
-        name: "Pareto",
-        inputTypes: ["text", "image"],
-        contextWindow: 262_144,
-        // 直连目录未公布最大输出上限，使用可调整的保守配置值。
-        maxTokens: 8_192,
-        reasoning: false,
-        costInput: 2.5,
-        costOutput: 7.5,
-      },
-      {
-        id: "pareto-26.10-preview",
-        name: "Pareto 26.10 Preview",
+        name: "Pareto (current 26.10)",
         inputTypes: ["text", "image"],
         contextWindow: 1_048_576,
-        maxTokens: 8_192,
+        // Vendor integration guidance uses 131,072; this is a preset, not a published hard cap.
+        maxTokens: 131_072,
+        reasoning: false,
+        costInput: 0.8,
+        costOutput: 3.2,
+      },
+      {
+        id: "pareto-26.10",
+        name: "Pareto 26.10 (pinned)",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_048_576,
+        maxTokens: 131_072,
         reasoning: false,
         costInput: 0.8,
         costOutput: 3.2,
@@ -203,6 +202,17 @@ export const internationalTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
+      {
+        id: "gpt-6.1-terra",
+        name: "GPT-6.1 Terra",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_050_000,
+        maxTokens: 128_000,
+        reasoning: true,
+        // Standard short-context prices; cache and long-input tiers are not represented.
+        costInput: 1.0,
+        costOutput: 5.0,
+      },
       {
         id: "gpt-6.1-sol",
         name: "GPT-6.1 Sol",

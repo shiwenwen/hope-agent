@@ -286,6 +286,17 @@ fn default_codex_models() -> Vec<ModelConfig> {
             cost_output: Some(0.0),
         },
         ModelConfig {
+            id: "gpt-6.1-terra".into(),
+            name: "GPT-6.1 Terra".into(),
+            input_types: vec!["text".into(), "image".into()],
+            context_window: 500_000,
+            max_tokens: 16384,
+            reasoning: true,
+            thinking_style: None,
+            cost_input: Some(0.0),
+            cost_output: Some(0.0),
+        },
+        ModelConfig {
             id: "gpt-6-astra".into(),
             name: "GPT-6 Astra".into(),
             input_types: vec!["text".into(), "image".into()],

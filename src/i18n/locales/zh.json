@@ -1999,7 +1999,7 @@
         },
         "custom": {
           "title": "自定义诊断",
-          "description": "从已注册 weekly 场景和对照组中选择有界子集运行。"
+          "description": "从全部已注册 Hope Core 场景和对照组中选择有界子集运行。"
         }
       },
       "profileLimits": "≤{{trials}} 个场景运行 · ≤{{models}} 个模型",
@@ -12345,6 +12345,7 @@
       "fixStarted": "已让 AI 开始修复",
       "fixBusy": "对话进行中，请稍候再试",
       "fixPrompt": "请修复设计自查发现的问题：{{detail}}。用设计系统 token（var(--ds-*)）收敛配色、替换硬编码样式，只做必要的最小改动，保持产物其它内容与整体设计不变。",
+      "visualScenarioIncomplete": "视觉验证未完成：当前仅支持默认场景与固定视口。自定义场景尚未执行，不能接受为基线；场景变化后请重新验证。",
       "visualUnavailable": "视觉回归不可用，请检查浏览器渲染后端",
       "baselineAccepted": "已接受当前画面为视觉基线",
       "baselineFailed": "接受视觉基线失败",
