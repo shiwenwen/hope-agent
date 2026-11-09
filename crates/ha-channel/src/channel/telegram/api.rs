@@ -1,4 +1,5 @@
 use crate::channel::types::{InlineButton, ReplyStreamError, ReplyStreamErrorKind};
+
 use anyhow::{Context, Result};
 use ha_core::security::http_stream::read_bytes_capped;
 use serde::Deserialize;
@@ -187,7 +188,23 @@ impl TelegramBotApi {
         let client = client_builder
             .build()
             .context("Failed to build Telegram HTTP client")?;
-        let mut bot = Bot::with_client(token, client.clone());
+        // teloxide 0.17's public Client type is still on reqwest 0.12. Keep
+        // its client local and preserve exactly the same proxy/timeouts and
+        // no-redirect policy as our 0.13 media/rich-request client above.
+        let mut sdk_builder = reqwest_teloxide::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(60))
+            .redirect(reqwest_teloxide::redirect::Policy::none());
+        if let Some(proxy) = proxy_url {
+            sdk_builder = sdk_builder.proxy(
+                reqwest_teloxide::Proxy::all(proxy)
+                    .map_err(|_| anyhow::anyhow!("Invalid Telegram proxy URL"))?,
+            );
+        }
+        let sdk_client = sdk_builder
+            .build()
+            .context("Failed to build Telegram SDK HTTP client")?;
+        let mut bot = Bot::with_client(token, sdk_client);
         if let Some(root) = api_root {
             bot = bot.set_api_url(root);
         }

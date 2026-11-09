@@ -269,6 +269,8 @@ Deep Resolver 是 claim 层的治理引擎。它有一个自动的保守 sweep�
 
 按 scope 取 active claim，按 `confidence × salience` 排序取前 `maxLinesPerScope`（12，排除 `reference` 类），规则式渲染 Markdown bullet。**idle / cron 走规则式零 LLM**；**manual 额外对每 scope 发一次 LLM 重写**求流畅（只压缩重组、不创作）。写入 `memory_profile_snapshots`（version = MAX+1）及逐行溯源侧车。
 
+手动画像应用独立的 `memory.promptPreferences.profile`：Agent scope 使用对应 Agent 覆盖，Global/Project 使用全局；自动周期不读取补充要求来触发模型。Light 叙事应用 `dreaming` 偏好，保持共享日记与现有一次调用；Agent 覆盖仅指向其候选的标题/说明，不传给 Deep Resolver，模型提名仍须属于本轮有资格的候选，分数与晋升数量继续由执行层过滤。默认偏好不追加提示内容。
+
 ### Deep Resolver 自动裁决的六条不变量
 
 自动 sweep 与手动 resolver 共用一套纯函数管线（分组 → 图谱信号 → LLM 裁决 → 映射 → apply）。下面六条是它如何**约束自己**的核心原理，也是安全属性所在：

@@ -1,6 +1,6 @@
 # 上下文压缩架构
 
-> 返回 [文档索引](../../README.md) | 更新时间：2026-08-14
+> 返回 [文档索引](../../README.md) | 更新时间：2026-11-01
 
 ## 这个子系统解决什么问题
 
@@ -196,10 +196,14 @@ flowchart TD
 内置日常路径在完整请求达到 `summarizationThreshold`（默认 0.85）时直接调用 LLM 把旧历史压成结构化摘要，不先发布第 0/2 层旧前缀改写；容量救援则只在第 0/2 层仍不足时进入第 3 层。流程：
 
 1. **`split_for_summarization`**：从同一个 `BoundarySnapshot` 用 `SummarizeUnderPressure` 模式取分割点，把消息切成 `summarizable`（旧、待摘要）与 `preserved`（近、保留）两段；最近一条真实用户请求始终逐字保留，不会为了制造可摘要前缀而吞进摘要。
-2. **`peel_previous_summary`**：若待摘要前缀已以 `[Previous conversation summary]` 开头，把旧摘要抽出放进提示的“上一份摘要”槽位，避免“摘要摘要”套娃。
-3. **`build_summarization_prompt`**：把消息渲染成可读文本，附上标识符保留指令与自定义指令。
-4. **容量预检与 LLM 调用**：摘要使用独立的单次请求，不重复携带主对话缓存历史。输入按模型无关词元上界计数，并同时预留摘要输出和安全余量；专用摘要模型存在时取它与对话模型中更小的窗口。摘要输入不适配时，先在一次性输入副本依次执行第 0/2 层；副本不写权威历史、不进入主请求投影。仍不适配则在联网前安全拒绝。临时 API 失败走有界自动重试；`summarizationTimeoutSecs`（300 秒）超时后不安装摘要候选，并产生可手动重试的最终失败事件。
+2. **选择摘要请求**：跟随对话模型且未设置摘要专用推理档位时，优先尝试原生前缀分叉；待摘要消息必须与本轮模型服务商请求模板中的连续历史前缀一致。保留原生消息角色、系统提示、工具定义、推理配置和缓存路由键，只在历史末尾追加文本检查点指令，不重复序列化历史。
+3. **独立摘要回退**：专用模型、自定义摘要服务、显式推理覆盖、媒体、服务端工具、强制工具/结构化输出、手动思考预算与摘要输出上限不兼容，或前缀无法确认时，沿用独立摘要。此路径用 `peel_previous_summary` 提取上一份摘要，再由 `build_summarization_prompt` 渲染可读文本；两条路径都附上标识符保留指令和自定义指令。
+4. **容量预检与 LLM 调用**：原生分叉按当前模型的完整原生请求计数，包含系统提示、真实工具定义、历史、追加指令、摘要输出与安全余量；不适配则在联网前选择独立路径。独立路径按模型无关词元上界计数，专用模型存在时取它与对话模型中更小的窗口；输入不适配时只在一次性输入副本依次执行第 0/2 层，仍不足则安全拒绝。模板只驻留当前智能体内存，最多接纳 8 MiB 请求；会话换绑、外部替换历史或成功安装摘要后清除。分叉发送前重新核对协议、模型和凭据/工作区分区，不匹配时拒绝，不把已付费失败自动切成另一种请求。临时 API 失败仍走原有有界重试；超时或取消不安装候选。
 5. **校验与 `apply_summary`**：输出必须含完整 9 段结构。安装前再次检查摘要正文上限，以及摘要、运行时台账和文件恢复的联合注入预算；超限直接拒绝候选，绝不在校验后再次截掉后半段。通过后才清空 `summarizable`，在索引 0 放入摘要消息（`role="user"`，前缀 `[Previous conversation summary]`），其后接 `preserved`。
+
+原生分叉不进入工具循环。返回工具调用时保留真实用量，但拒绝该摘要候选；工具目录只用于保留请求前缀，不赋予执行权。历史中的外部数据维持原有角色与信任边界。用量元数据以 `summary_request_mode=native_prefix_fork/independent` 区分路径，真实命中仍以服务商缓存读写回执为准；模板不代表缓存温度或有效期。
+
+这借鉴了 [Claude Code 官方说明](https://code.claude.com/docs/en/prompt-caching#compacting-the-conversation)中“同一系统提示、工具和历史，末尾追加摘要指令”的做法，以及 [Codex 的原生历史压缩请求](https://github.com/openai/codex/blob/67f0994b532b8740f14b5b738af7b7b2a915b1d6/codex-rs/core/src/compact.rs#L276)。没有接入服务商专属的加密压缩项，也没有根据固定有效期触发额外付费调用。
 
 **摘要系统提示要求的 9 段结构**——摘要是“接续摘要”而非全局状态镜像；下列英文标题属于输出校验协议，必须保持原样：
 
@@ -391,6 +395,10 @@ GUI 默认不显示层级和诊断清单；排障时可通过日志、调试详�
 
 提示缓存命中不减少上下文占用，只影响费用和延迟。`prompt_cache_key` 是路由提示，不是“相同键就一定命中”的承诺；模型服务商仍要求精确前缀相同。当前首版只观察真实缓存读写和无正文投影指标，不根据未知价格主动改写旧前缀。第 4 层、手动摘要和容量救援不受成本收益门阻塞。
 
+历史缓存断点必须落在每轮变化的用户数据之前。Anthropic 在已收敛历史的最后一个可缓存内容块写入显式断点，不再把请求末尾的动态观察数据自动写入缓存；思考块和工具参数不作改写。官方 OpenAI Responses 的显式缓存模式保留系统段断点，并标记最近两个可缓存历史组的末尾：连续并行工具结果算一组，以便新请求仍可查到上一轮的写入位置。动态数据和摘要指令不带历史断点；兼容网关、旧型号和 Codex 不猜测其支持这些字段。摘要分叉只归一化这些已知缓存注解及等价文本块包装来核对来源，工具参数和嵌套用户数据仍逐项精确比较。投影渲染器版本随请求形态推进到 2。
+
+断点规则分别依据 [Anthropic 的写入位置与回查机制](https://platform.claude.com/docs/en/build-with-claude/prompt-caching#how-automatic-prefix-checking-works)和 [OpenAI 的显式缓存查找边界](https://developers.openai.com/api/docs/guides/prompt-caching#how-prefix-matching-works)。仅有共享文本而没有对应写入断点，不能推断历史已缓存。
+
 ## 词元估算
 
 统一契约见[词元核算](token-accounting.md)。主聊天把当前模型服务商、模型、请求形态、实际加载的工具定义和历史交给 `TokenAccountingService`；`CompactionTokenCounter` 作为纯同步快照注入 `CompactionContext`，压缩层不联网、不读凭据、不访问 SQLite。所有容量决策使用 `TokenCount.upper_bound`。
@@ -454,8 +462,9 @@ GUI 默认不显示层级和诊断清单；排障时可通过日志、调试详�
 
 | 配置（`compact.*`） | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `modelOverride` | `Option<ActiveModel>` | — | 摘要专用模型。`None` 表示使用对话自身模型。摘要始终使用独立的单次请求形态，不重复携带主历史缓存；临时失败走有界重试，不跨模型降级、不落到 `function_models.automation` |
+| `modelOverride` | `Option<ActiveModel>` | — | 摘要专用模型。`None` 时可使用对话模型的原生前缀分叉；专用模型仍使用独立请求。两者均有界重试，不跨模型降级、不落到 `function_models.automation` |
 | `summarizationModel` | `Option<String>` | — | **已废弃**，被 `modelOverride` 取代。格式 `"providerId:modelId"`；`modelOverride` 未设时仍会被解析，GUI 不再写入 |
+| `summaryReasoningEffort` | `Option<SummaryReasoningEffort>` | `null` | 仅摘要使用的推理覆盖：`none/minimal/low/medium/high/xhigh/max`；空值保持现有协议策略，显式覆盖失败不自动改用其它模型或增加输出预算 |
 | `summarizationThreshold` | `f64` | `0.85` | 内置日常摘要高水位；达到后直接进入第 3 层，不先发布第 0/2 层 |
 | `identifierPolicy` | `String` | `"strict"` | 标识符保留策略：`strict` / `off` / `custom` |
 | `identifierInstructions` | `Option<String>` | — | 自定义标识符指令，仅 `identifierPolicy="custom"` 时生效 |
@@ -465,6 +474,19 @@ GUI 默认不显示层级和诊断清单；排障时可通过日志、调试详�
 | `maxHistoryShare` | `f64` | `0.5` | 裁剪时历史消息最大允许占窗口比例，钳 `0.10–0.90` |
 | `maxCompactionSummaryChars` | `usize` | `16000` | 摘要文本最大字节数，钳 `4000–64000`；超出即拒绝候选，不截断安装 |
 | `maxCompactionInjectedContextShare` | `f64` | `0.5` | 第 3 层联合注入预算（摘要、运行时台账和文件恢复合计占窗口的比例），运行时钳 `0.05..=maxHistoryShare` |
+
+### 摘要专用推理覆盖
+
+显式覆盖通过 `OneShotMode::Summary` 携带独立摘要系统提示、所选档位及实际模型的思考格式；专用摘要模型与跟随对话模型共用这条路径，HTTP/桌面/ACP 的统一快照构建会传播同一配置。`null` 时，符合条件的原生分叉保留主请求推理配置以利缓存复用；独立回退仍保持 Chat 原有省略行为、Responses/Codex 的原有 `low` 和 Anthropic 原有绑定策略。其它一次性调用、主对话档位和模型配置不变。
+
+- Chat 的 OpenAI 格式把显式 `none` 真正写为 `reasoning_effort: "none"`，不走把它归一化成省略的通用映射。官方直连 DeepSeek 用 `thinking.type=disabled`，启用时按其公开档位映射；兼容网关仅使用用户配置的格式，不以相似模型名推断直连能力。
+- Responses 写 `reasoning.effort`；官方 GPT-6 不支持的组合在发送前拒绝。Codex OAuth 后端不推断公共 API 的关闭能力，首版显式 `none` 不支持，正档位不得静默钳位。
+- Anthropic 原生格式按已核验的直连 Claude 5 模型使用 adaptive/effort，其余预算格式要求所选预算小于原输出上限；不足时拒绝，不自动加大上限。明确支持的关闭方式发送 `thinking.type=disabled`，已知不接受 `disabled` 的直连模型拒绝关闭。
+- Qwen 格式首版只支持明确关闭 `enable_thinking=false`，不把有等级的请求伪装成布尔开启。Z.AI 格式使用 `thinking.type` 与 `reasoning_effort`，官方 GLM-5.3 系列不能关闭；未声明思考格式的模型不能静默丢弃覆盖。
+
+已知不支持的本地组合返回 `ProviderRequestContractError`。服务端通过HTTP 400/422 明确拒绝 reasoning/thinking 参数时，只在显式摘要路径将其转换为同一终止错误，丢弃不可信的原始错误回显；其它请求的分类与重试不变。其它临时失败仍在所选摘要模型内进行原有有界重试，耗尽后显式覆盖不再落到对话模型。已配置摘要模型不可用、正文为空或结构校验失败同样不替换权威历史；输出上限、凭据轮换和主对话档位不随失败改变。
+
+协议来源：[OpenAI](https://developers.openai.com/api/docs/guides/reasoning)、[DeepSeek](https://api-docs.deepseek.com/guides/thinking_mode/)、[Claude](https://platform.claude.com/docs/en/build-with-claude/thinking)、[Qwen](https://help.aliyun.com/zh/model-studio/deep-thinking/)、[Z.AI](https://docs.z.ai/guides/capabilities/thinking)。这些来源不代表第三方网关的真实兼容性验收。
 
 ### 后压缩文件恢复
 
@@ -514,6 +536,7 @@ GUI 默认不显示层级和诊断清单；排障时可通过日志、调试详�
 | `context_compact/projection.rs` | 仅用于请求的投影动作、稳定定位标识/来源校验值和投影清单 |
 | `ha-config-schema/src/context_compact.rs` | `CompactConfig` 协议类型定义、默认值、`clamp()` 和 `default_tool_policies()` |
 | `agent/context.rs` | 轮次开始阶段/循环中压缩编排、第 3 层 LLM 调用、注入预算分配、钩子和进度事件 |
+| `agent/summary_fork.rs` | 有界内存中的原生摘要前缀、来源核对、完整容量证明和凭据分区校验 |
 | `agent/runtime_ledger.rs` | 从实时作业/子智能体存储收集台账快照，并执行无痕会话门控 |
 | `agent/streaming_adapter.rs` / `ha-agent-runtime/src/provider_adapters/` | 冻结精确请求正文、单次发送与响应完成证明 |
 | `session/context_projection.rs` | 单次请求作用域的投影代次、精确请求计划、发送状态机与手动歧义收敛 |

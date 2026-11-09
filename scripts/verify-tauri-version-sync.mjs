@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 //
-// Assert the Rust `tauri` crate and the npm `@tauri-apps/api` package agree on
-// major.minor.
+// Assert the Rust `tauri` crate and every installed official plugin agree
+// with their npm counterparts on major.minor.
 //
 // Why this exists: the Tauri CLI refuses to build when they disagree —
 //
@@ -12,7 +12,7 @@
 // — and nothing else in CI catches it, because `cargo clippy` / `cargo test` /
 // `vitest` never invoke `tauri build`. So the mismatch is invisible until a tag
 // is pushed and the real release workflow runs, at which point every platform
-// lane fails within minutes and the tag has to be deleted and re-cut.
+// lane fails within minutes. Published tags must not be moved to repair it.
 //
 // That is exactly what happened to v0.30.0: #621 bumped the locked `tauri`
 // crate 2.10.3 → 2.11.5 as an incidental dependency update, `@tauri-apps/api`
@@ -74,18 +74,24 @@ function resolvedNpmVersion(pkg) {
 
 const majorMinor = (v) => v.split(".").slice(0, 2).join(".");
 
-const crateVersion = lockedCrateVersion("tauri");
-const npm = resolvedNpmVersion("@tauri-apps/api");
+const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const dependencies = { ...manifest.devDependencies, ...manifest.dependencies };
+const pairs = [["tauri", "@tauri-apps/api"], ...Object.keys(dependencies)
+  .filter((name) => name.startsWith("@tauri-apps/plugin-"))
+  .sort()
+  .map((name) => [name.replace("@tauri-apps/", "tauri-"), name])];
 
-if (majorMinor(crateVersion) !== majorMinor(npm.version)) {
-  fail(
-    `tauri crate (Cargo.lock) is ${crateVersion} but @tauri-apps/api resolves to ${npm.version} (declared ${npm.specifier}).\n` +
-      `  The Tauri CLI requires the same major.minor, so \`tauri build\` — and therefore the\n` +
-      `  entire release workflow — will fail on every platform.\n` +
-      `  Fix: set "@tauri-apps/api" to ^${majorMinor(crateVersion)}.x in package.json and run \`pnpm install\`.`,
-  );
+const mismatches = [];
+for (const [crate, pkg] of pairs) {
+  const crateVersion = lockedCrateVersion(crate);
+  const npm = resolvedNpmVersion(pkg);
+  if (majorMinor(crateVersion) !== majorMinor(npm.version)) {
+    mismatches.push(`${crate} (Cargo.lock ${crateVersion}) ↔ ${pkg} (pnpm-lock.yaml ${npm.version}; declared ${npm.specifier})`);
+  }
 }
 
-console.log(
-  `[verify-tauri-version-sync] OK — tauri ${crateVersion} ↔ @tauri-apps/api ${npm.version} (declared ${npm.specifier}; both ${majorMinor(crateVersion)}.x)`,
-);
+if (mismatches.length) {
+  fail(`Tauri CLI requires matching major.minor versions:\n  ${mismatches.join("\n  ")}\n` +
+    "  Align the npm and Cargo lockfiles before building a release.");
+}
+console.log(`[verify-tauri-version-sync] OK — ${pairs.length} Rust/npm package pairs agree on major.minor`);

@@ -5,7 +5,7 @@ pub(crate) mod openai_chat_adapter;
 pub(crate) mod openai_responses_adapter;
 
 #[cfg(test)]
-mod test_support {
+pub(crate) mod test_support {
     use crate::agent::streaming_adapter::RoundRequest;
     use serde_json::Value;
 

@@ -776,6 +776,7 @@ pub struct TurnFailure {
     reason: Option<crate::failover::FailoverReason>,
     route_all_codex: bool,
     invalid_request: bool,
+    pre_dispatch_admission_busy: bool,
 }
 
 impl TurnFailure {
@@ -787,7 +788,20 @@ impl TurnFailure {
             reason: None,
             route_all_codex: false,
             invalid_request: false,
+            pre_dispatch_admission_busy: false,
         }
+    }
+
+    /// Only the interactive stream-acquisition boundary can mint this proof.
+    pub(crate) fn admission_busy(error: crate::chat_engine::stream_seq::ActiveStreamError) -> Self {
+        let mut failure = Self::new(TurnFailureKind::Infrastructure, error.to_string());
+        failure.pre_dispatch_admission_busy = true;
+        failure
+    }
+
+    /// The request owns no durable user turn and has dispatched no model call.
+    pub fn is_pre_dispatch_admission_busy(&self) -> bool {
+        self.pre_dispatch_admission_busy
     }
 
     #[doc(hidden)]
@@ -815,6 +829,7 @@ impl TurnFailure {
             reason,
             route_all_codex: false,
             invalid_request: false,
+            pre_dispatch_admission_busy: false,
         }
     }
 

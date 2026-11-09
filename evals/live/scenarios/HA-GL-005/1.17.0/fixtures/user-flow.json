@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "scripted-user-flow.v1",
+  "turns": [
+    {
+      "message": "需求修订：保留已经验证过的事实，但停止旧交付方案。请把 Goal 修订为只交付 JSON 结果和验证摘要，并确保最终证据只对应修订后的目标。",
+      "delayMs": 0
+    }
+  ]
+}

@@ -197,7 +197,7 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
     let (output_format, mime) = resolve_output_format(params.extra);
 
     let request_timeout = params.timeout_secs.max(MIN_REQUEST_TIMEOUT_SECS);
-    let client = ha_core::provider::apply_proxy(
+    let client = ha_core::provider::apply_model_proxy(
         Client::builder()
             .connect_timeout(Duration::from_secs(30))
             .timeout(Duration::from_secs(request_timeout)),

@@ -1,0 +1,34 @@
+{
+  "path": "deliverables/result.json",
+  "expectedByFaultProfile": {
+    "clean": {
+      "expectedSubset": {
+        "scenarioId": "HA-E2E-002",
+        "status": "verified",
+        "inputSha256": "433f8b221afea060911d4bf73a0102a0539b91d101a1374d12666ac7f506d736",
+        "itemCount": 3
+      },
+      "exactFields": {
+        "citations": [
+          "fixture:HA-E2E-002-A",
+          "fixture:HA-E2E-002-B",
+          "fixture:HA-E2E-002-C"
+        ]
+      }
+    },
+    "chaos": {
+      "expectedSubset": {
+        "scenarioId": "HA-E2E-002",
+        "status": "verified",
+        "inputSha256": "433f8b221afea060911d4bf73a0102a0539b91d101a1374d12666ac7f506d736",
+        "itemCount": 2
+      },
+      "exactFields": {
+        "citations": [
+          "fixture:HA-E2E-002-A",
+          "fixture:HA-E2E-002-B"
+        ]
+      }
+    }
+  }
+}

@@ -177,6 +177,53 @@ pub struct ModelTaskOutput {
     pub usage: crate::agent::ChatUsage,
 }
 
+// Ordinary automation keeps its configured chain. In an isolated evaluation,
+// every background consumer must use the real Session's admitted model pin.
+async fn admitted_task_chain(
+    config: &AppConfig,
+    session_key: &str,
+    configured: &[ActiveModel],
+) -> Result<Vec<ActiveModel>> {
+    crate::eval_context::ensure_model_budget(Some(session_key))?;
+    let evaluating = crate::eval_context::context_for_session(session_key).is_some();
+    if !evaluating {
+        if crate::eval_context::model_eval_mode_enabled() {
+            return Err(anyhow!(
+                "evaluation model admission denied: automation Session is unregistered"
+            ));
+        }
+        return Ok(configured.to_vec());
+    }
+    let db = crate::get_session_db().cloned().ok_or_else(|| {
+        anyhow!("evaluation model admission denied: Session database unavailable")
+    })?;
+    let session = session_key.to_string();
+    let pin = db
+        .run(move |db| db.get_session_model_preference(&session))
+        .await?
+        .map(|(provider_id, model_id)| ActiveModel {
+            provider_id,
+            model_id,
+        });
+    resolve_admitted_task_chain(config, configured, Some(pin))
+}
+
+fn resolve_admitted_task_chain(
+    config: &AppConfig,
+    configured: &[ActiveModel],
+    evaluation_pin: Option<Option<ActiveModel>>,
+) -> Result<Vec<ActiveModel>> {
+    match evaluation_pin {
+        None => Ok(configured.to_vec()),
+        Some(Some(pin)) if crate::provider::model_ref_is_available(&config.providers, &pin) => {
+            Ok(vec![pin])
+        }
+        Some(_) => Err(anyhow!(
+            "evaluation model admission denied: admitted Session model is missing or unavailable"
+        )),
+    }
+}
+
 /// Shared per-candidate setup: resolve provider, construct agent, wire
 /// failover context + session id. Used by both [`run`] and [`run_vision`] —
 /// this setup is identical between them; only the final query call (text vs.
@@ -227,9 +274,10 @@ pub async fn run(spec: ModelTaskSpec<'_>) -> Result<ModelTaskOutput> {
     }
 
     let config = crate::config::cached_config();
+    let chain = admitted_task_chain(&config, spec.session_key, &spec.chain).await?;
     let mut last_err: Option<anyhow::Error> = None;
 
-    for candidate in &spec.chain {
+    for candidate in &chain {
         let agent = match build_candidate_agent(&config, candidate, spec.session_key).await {
             Ok(agent) => agent,
             Err(e) => {
@@ -287,9 +335,10 @@ pub async fn run_streaming(
     }
 
     let config = crate::config::cached_config();
+    let chain = admitted_task_chain(&config, spec.session_key, &spec.chain).await?;
     let mut last_err: Option<anyhow::Error> = None;
 
-    for candidate in &spec.chain {
+    for candidate in &chain {
         // Cancellation between candidates: without this, a cancel landing just
         // as one candidate fails would still fire a full request at the next.
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {
@@ -436,11 +485,12 @@ pub async fn run_vision(spec: VisionTaskSpec<'_>) -> Result<ModelTaskOutput> {
     }
 
     let config = crate::config::cached_config();
+    let chain = admitted_task_chain(&config, spec.session_key, &spec.chain).await?;
     let mut last_err: Option<anyhow::Error> = None;
     let mut attempted_vision_capable = false;
     let mut saw_any_live_provider = false;
 
-    for candidate in &spec.chain {
+    for candidate in &chain {
         let Some(provider) = find_provider(&config.providers, &candidate.provider_id) else {
             last_err = Some(anyhow!(
                 "provider '{}' not found or disabled for model '{}'",
@@ -535,11 +585,12 @@ pub async fn run_vision_streaming(
     }
 
     let config = crate::config::cached_config();
+    let chain = admitted_task_chain(&config, spec.session_key, &spec.chain).await?;
     let mut last_err: Option<anyhow::Error> = None;
     let mut attempted_vision_capable = false;
     let mut saw_any_live_provider = false;
 
-    for candidate in &spec.chain {
+    for candidate in &chain {
         // Cancellation between candidates (mirrors `run_streaming`).
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(
@@ -650,6 +701,19 @@ mod terminal_provider_tests {
     use super::*;
 
     #[test]
+    fn unregistered_evaluation_automation_cannot_retry_or_fall_back() {
+        let error =
+            anyhow!("evaluation model admission denied: registered Session context is required");
+        assert_eq!(
+            crate::failover::classify_error(&error.to_string()),
+            crate::failover::FailoverReason::RequestContract
+        );
+        let mut last = None;
+        assert!(retain_recoverable_failure(&mut last, error).is_err());
+        assert!(last.is_none());
+    }
+
+    #[test]
     fn automation_chains_preserve_provider_block_through_side_query_wrapping() {
         use crate::failover::{executor::ExecutorError, FailoverReason, ProviderApiError};
         let error = ProviderApiError::from_http_response(
@@ -726,6 +790,30 @@ mod legacy_agent_tests {
             fallbacks: vec![],
         });
         config
+    }
+
+    #[test]
+    fn evaluation_automation_uses_session_pin_and_never_recovers_to_default_model() {
+        let config = config();
+        let default_chain = vec![model("automation")];
+        assert_eq!(
+            resolve_admitted_task_chain(&config, &default_chain, Some(Some(model("catalog"))))
+                .unwrap(),
+            vec![model("catalog")]
+        );
+        assert!(resolve_admitted_task_chain(&config, &default_chain, Some(None)).is_err());
+        assert!(
+            resolve_admitted_task_chain(&config, &default_chain, Some(Some(model("missing"))))
+                .is_err()
+        );
+        assert!(
+            resolve_admitted_task_chain(&config, &default_chain, Some(Some(model("legacy"))))
+                .is_err()
+        );
+        assert_eq!(
+            resolve_admitted_task_chain(&config, &default_chain, None).unwrap(),
+            default_chain
+        );
     }
 
     #[test]

@@ -221,4 +221,91 @@ mod tests {
         assert!(validate_safe_rest_path("assets/style.css").is_ok());
         assert!(validate_safe_rest_path("deeply/nested/path/file.txt").is_ok());
     }
+
+    #[tokio::test]
+    async fn file_service_preserves_ranges_and_rejects_multipart_ranges() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::{header, Request, StatusCode};
+        use tower::ServiceExt;
+        use tower_http::services::ServeFile;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("sample.txt");
+        std::fs::write(&path, b"0123456789").unwrap();
+        let response = ServeFile::new(&path)
+            .oneshot(
+                Request::builder()
+                    .uri("/sample.txt")
+                    .header(header::RANGE, "bytes=2-5")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes 2-5/10");
+        assert_eq!(
+            to_bytes(Body::new(response.into_body()), 1024)
+                .await
+                .unwrap()
+                .as_ref(),
+            b"2345"
+        );
+
+        let response = ServeFile::new(&path)
+            .oneshot(
+                Request::builder()
+                    .uri("/sample.txt")
+                    .header(header::RANGE, "bytes=0-1,4-5")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert!(!response.headers().contains_key(header::CONTENT_TYPE));
+        assert!(!response.headers().contains_key(header::CONTENT_ENCODING));
+    }
+
+    #[tokio::test]
+    async fn static_directory_preserves_spa_fallback_and_rejects_file_trailing_slash() {
+        use axum::body::{to_bytes, Body};
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+        use tower_http::services::{ServeDir, ServeFile};
+
+        let directory = tempfile::tempdir().unwrap();
+        let index = directory.path().join("index.html");
+        std::fs::write(&index, b"SPA").unwrap();
+        let service = ServeDir::new(directory.path()).fallback(ServeFile::new(index));
+        let response = service
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/chat/42")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(Body::new(response.into_body()), 1024)
+                .await
+                .unwrap()
+                .as_ref(),
+            b"SPA"
+        );
+        // Without the SPA fallback a file path with a trailing slash is rejected.
+        let response = ServeDir::new(directory.path())
+            .oneshot(
+                Request::builder()
+                    .uri("/index.html/")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
 }
