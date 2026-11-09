@@ -33,7 +33,8 @@ Provider 相同 MD 仍按成功回执精确路径、生成时间和摘要配对�
 Argon/Gemini/TTS 检查点；没有新保存账号或受影响默认项证据，不自动迁移配置。
 #765 搜索不可信信封、A21/A22 流式合同、Design 场景执行/参考配对、Chrome 四平台资源及原生证据、
 Intel 桌面 updater 继续沿各自主责和证据门。统一决策队列无新增问题，不重复询问。
-本包验证为 Markdown 链接、差异、指令体积与普通 hooks，交付仍要求精确头复审/必需 CI、保护合入及远端读回。
+本包变更见 [PR #901](https://github.com/shiwenwen/hope-agent/pull/901)；验证为 Markdown 链接、差异、指令体积与普通 hooks，
+交付仍要求精确头复审/必需 CI、保护合入及远端读回。
 
 ## 2026-11-07：Gemini 嵌入预览转路由证据吸收
 
