@@ -824,6 +824,32 @@ fn handle_openai_sse_event_block(
                     }
 
                     if let Some(u) = &resp_obj.usage {
+                        usage.cache_receipt.read = u
+                            .cache_read_input_tokens
+                            .or_else(|| {
+                                u.input_tokens_details
+                                    .as_ref()
+                                    .and_then(|details| details.cached_tokens)
+                            })
+                            .or_else(|| {
+                                u.prompt_tokens_details
+                                    .as_ref()
+                                    .and_then(|details| details.cached_tokens)
+                            })
+                            .or(usage.cache_receipt.read);
+                        usage.cache_receipt.write = u
+                            .cache_creation_input_tokens
+                            .or_else(|| {
+                                u.input_tokens_details
+                                    .as_ref()
+                                    .and_then(|details| details.cache_write_tokens)
+                            })
+                            .or_else(|| {
+                                u.prompt_tokens_details
+                                    .as_ref()
+                                    .and_then(|details| details.cache_write_tokens)
+                            })
+                            .or(usage.cache_receipt.write);
                         if let Some(it) = u.input_tokens {
                             usage.input_tokens = it;
                             usage.input_coverage = crate::token_accounting::UsageCoverage::Complete;
@@ -930,11 +956,14 @@ fn build_responses_request(
         api_input.push(json!({ "role": "developer", "content": content }));
     }
     api_input.extend(expand_responses_image_markers_for_api(req.history_for_api));
+    let explicit_prompt_cache = supports_explicit_prompt_cache(base_url, model);
+    if explicit_prompt_cache {
+        super::super::streaming_adapter::mark_responses_history_cache_boundaries(&mut api_input);
+    }
     if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
         api_input.push(json!({ "role": "user", "content": content }));
     }
 
-    let explicit_prompt_cache = supports_explicit_prompt_cache(base_url, model);
     if explicit_prompt_cache {
         api_input.insert(
             0,
@@ -1048,7 +1077,11 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
     }
 
     fn token_count_history_for(&self, history: &[Value]) -> Vec<Value> {
-        project_responses_image_markers_for_token_count(history)
+        let mut history = project_responses_image_markers_for_token_count(history);
+        if supports_explicit_prompt_cache(self.base_url, self.model) {
+            super::super::streaming_adapter::mark_responses_history_cache_boundaries(&mut history);
+        }
+        history
     }
 
     fn prepare_history_for_api(&self, history: &[Value]) -> Vec<Value> {
@@ -1878,10 +1911,20 @@ mod tests {
         assert_eq!(input[0]["content"][0]["text"], "stable");
         let contents = input[1..]
             .iter()
-            .map(|item| item["content"].as_str().unwrap_or_default())
+            .map(|item| {
+                item["content"]
+                    .as_str()
+                    .or_else(|| item["content"][0]["text"].as_str())
+                    .unwrap_or_default()
+            })
             .collect::<Vec<_>>();
         assert_eq!(&contents[..3], &["run", "coding", "question"]);
         assert_eq!(input[3]["role"], "user");
+        assert_eq!(
+            input[3]["content"][0]["prompt_cache_breakpoint"]["mode"],
+            "explicit"
+        );
+        assert!(input[4]["content"].is_string());
         assert!(contents[3].contains("source=\"active_memory\""));
         assert!(contents[3].contains("source=\"legacy_memory\""));
         assert!(contents[3].contains("source=\"task_and_hook_context\""));
@@ -1909,7 +1952,8 @@ mod tests {
             counted_dynamic,
             vec![input[1].clone(), input[2].clone(), input[4].clone()]
         );
-        assert_eq!(accounting.history, history);
+        assert_eq!(accounting.history, vec![input[3].clone()]);
+        assert_eq!(history[0]["content"], "question");
         assert_eq!(
             adapter.token_count_tool_schemas(&req),
             request_tools.clone()

@@ -3,6 +3,7 @@ mod adapters;
 mod model;
 mod model_adapter;
 mod model_app_control;
+mod model_cache;
 mod model_fake;
 mod model_supervisor;
 

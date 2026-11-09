@@ -22,7 +22,9 @@
     "standard@1.0.0": "93647cdc309fb34b80c75ad46f5c1f874a943129f77dd65de098c0ec82c7e51e",
     "standard@1.1.0": "192b7560bae63f73a229ec71ee0894ec27ce05ddc3885c432a9f1719c3ed93db",
     "standard@1.2.0": "bbdb2ece67f9fcce880b1c0adb38cf41d2691cae909639f29e4c79e4dfd247a1",
-    "standard@1.3.0": "691ba47c9be7db338a15bbd4768c77fbaa6e75ca2512b4cf360b81868503c193"
+    "standard@1.3.0": "691ba47c9be7db338a15bbd4768c77fbaa6e75ca2512b4cf360b81868503c193",
+    "prompt-cache-auto@1.0.0": "7bdb707ce09069e45f63930d333aa410cbf238414147ff6f5fb2d2f06db7083c",
+    "prompt-cache@1.0.0": "bb3dd64c40c3bd4a60e6561d69041d8660ada24a9d2067081cc072fed29907b9"
   },
   "policies": {
     "live-monthly@1.0.4": "ec8552b72aee2947c239a7516f0c09112fbe12963172aa4dc58f8b5e3e595c29",
@@ -645,7 +647,9 @@
     "HA-WF-006@1.5.0": "d4af5e9cb5d26a073e02aad8a2cd3a810bf8dc1fce6ad4d6f8174498a6e8d0e1",
     "HA-WF-006@1.6.0": "38b142a1dde0e3f0e07525c07fb5277b9cce5d5406f971e6cf2e10a8581e3be4",
     "HA-WF-006@1.7.0": "13d8a8581d6b6ab9a802b9d0c08b8f7281ba74bb2b618beb26d5d561bfe89375",
-    "HA-WF-006@1.8.0": "a8ffe7204d6f844c744d3c306b88ab850b25896d05fb6528340c07f38d10b1f9"
+    "HA-WF-006@1.8.0": "a8ffe7204d6f844c744d3c306b88ab850b25896d05fb6528340c07f38d10b1f9",
+    "HA-CACHE-001@1.0.0": "7e69b2335a612ba105e8c1d0372c2878f3a2db3dd3a11404e6238d7f48428143",
+    "HA-CACHE-002@1.0.0": "5046e3a1d28c6e5e7ebeed3998b67664e4a827306641d5e3b6bb50b637b0971e"
   },
   "schemaVersion": "model-campaign-version-lock.v1",
   "suites": {
@@ -686,7 +690,10 @@
     "hope-core-orchestration@1.6.0": "2a18742739f1c6354cf779c0d892242772235c70cc0e1d6d2727678360a46f04",
     "hope-core-orchestration@1.7.0": "7aae8c11cb9ef57218285b0a9b6988d53a59a9db09d834986f7edead6e20a496",
     "hope-core-orchestration@1.8.0": "acdf0226da92ef2486164f8d6f2fe5d4246b77e2518e6e0d2cb51ecac028032a",
-    "hope-core-orchestration@1.9.0": "aefc2147dd62231a267d45d7113e2f0066808aca07eac18d39a40e36c80c7f23"
+    "hope-core-orchestration@1.9.0": "aefc2147dd62231a267d45d7113e2f0066808aca07eac18d39a40e36c80c7f23",
+    "prompt-cache-auto@1.0.0": "3da4e01174c3f253a838bc6459223b20a6bbf460f5281a79529104196e4c38ef",
+    "prompt-cache@1.0.0": "05d0f40a141e5f39dab57c70c1bf6c4614978fb720bc4df67531d003f939ff5f",
+    "prompt-cache@1.0.1": "3b5703f17e48a4f6f02b0a22854ca1af17bb44d9c1e85cb2ad71d073d8ada186"
   },
   "trustRegistries": {}
 }
