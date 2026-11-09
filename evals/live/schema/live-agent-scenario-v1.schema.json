@@ -98,7 +98,17 @@
       "items": { "type": "string", "minLength": 1 }
     },
     "budgets": { "type": "object" },
-    "comparison": { "type": "object" },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseline": { "type": "string" },
+        "budgetMode": { "type": "string" },
+        "ablations": { "type": "array", "items": { "type": "string" } },
+        "singleAgentPromptPath": { "type": "string" },
+        "singleAgentUnsupportedFaults": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
     "network": {
       "type": "object",
       "additionalProperties": false,

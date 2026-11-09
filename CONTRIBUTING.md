@@ -38,6 +38,8 @@ git checkout -b feat/xxx   # 或 fix/xxx, docs/xxx
 
 ### 2. 装环境 + 跑起来
 
+推荐使用与 CI / Docker 一致的 Node.js 24。`@testing-library/jest-dom` 7 要求 Node.js 22+，并以现有 `@testing-library/dom` 10 为 peer dependency；测试继续通过 `@testing-library/jest-dom/vitest` 加载匹配器。
+
 ```bash
 pnpm install              # 装前端依赖 + Husky pre-push 钩子
 pnpm dev:desktop          # 启动默认桌面开发模式（前端 + Rust 后端 + 热重载）
@@ -169,7 +171,7 @@ node scripts/sync-i18n.mjs --apply   # 从模板补齐
 - 子系统架构变化 → `docs/architecture/<name>.md`
 - 新增架构级能力 → `docs/architecture/` 新建 + `docs/README.md` 索引
 - 改 Tauri 命令 / HTTP 路由 → [`docs/architecture/system/api-reference.md`](docs/architecture/system/api-reference.md)
-- 修 README 任一语言 → 同 PR 同步另一语言（`README.md` ↔ `README.en.md`）
+- 修 README 任一语言 → 同 PR 同步另一语言（`README.md` 英文 ↔ `README.zh-CN.md` 中文）
 - 修 Release Notes → 同 PR 内中英双份
 
 ## 给资深 contributor / AI 助手

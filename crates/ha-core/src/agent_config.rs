@@ -348,6 +348,9 @@ impl Default for CapabilitiesConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryConfig {
+    /// Independent stage overrides; absent stages inherit global preferences.
+    #[serde(default)]
+    pub prompt_preferences: crate::memory::prompt_preferences::MemoryPromptOverrides,
     /// Whether memory is enabled for this agent
     #[serde(default = "crate::default_true")]
     pub enabled: bool,
@@ -681,6 +684,7 @@ fn default_memory_budget() -> usize {
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
+            prompt_preferences: Default::default(),
             enabled: true,
             shared: true,
             prompt_budget: default_memory_budget(),

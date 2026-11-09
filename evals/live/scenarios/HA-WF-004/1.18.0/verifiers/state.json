@@ -1,0 +1,15 @@
+{
+  "path": "/api/sessions/{sessionId}/workflow-runs",
+  "expectedByFaultProfile": {
+    "clean": {
+      "anyItemSubset": {
+        "state": "completed"
+      }
+    },
+    "chaos": {
+      "anyItemSubset": {
+        "state": "completed"
+      }
+    }
+  }
+}

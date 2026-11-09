@@ -3,7 +3,7 @@
 > [简体中文](../README.md) · **English**
 
 > This is a complete user-facing manual that covers Hope Agent's installation, getting started, and the usage and settings for every feature.
-> If you want to understand the code architecture and implementation details, see [`docs/architecture/`](../../architecture/); for a quick tour of the product highlights, see the root [README.md](../../../README.en.md).
+> If you want to understand the code architecture and implementation details, see [`docs/architecture/`](../../architecture/); for a quick tour of the product highlights, see the root [README.md](../../../README.md).
 
 ---
 

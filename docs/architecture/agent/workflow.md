@@ -187,7 +187,7 @@ flowchart TD
 | `parent_run_id` | 修复 run 来源，自引用外键，删父 run 时置空。 |
 | `origin` | run 来源，例如 `repair`、`template:<id>`、`loop:<id>`、`agent:workflow`。 |
 | `goal_id` | 可选 Goal 归属；不显式传时自动绑定当前 session 的 open Goal 或 pending closure Goal，删 Goal 时置空。 |
-| `goal_criterion_id` / `goal_criterion_text` / `goal_criterion_kind` / `goal_revision` | 可选的推进标准快照：绑定具体 Goal criterion 时写入，供 Goal detail 按 criteria 聚合。 |
+| `goal_criterion_id` / `goal_criterion_text` / `goal_criterion_kind` / `goal_revision` | 推进标准与版本快照：具体 criterion 的 id/text/kind 可选；所有绑定 Goal 的新 run 都保存 goal_revision，供 Goal detail 聚合及修复审计隔离。 |
 | `worktree_id` | 可选 Managed Worktree 归属；绑定后本 run 的工具、读取、校验、diff 默认在 worktree 路径执行。 |
 | `created_at` / `updated_at` / `completed_at` | 时间戳。 |
 
@@ -434,6 +434,8 @@ flowchart TD
 ## 10. Host API
 
 脚本只能通过 `workflow` host object 产生副作用——这是唯一的副作用面，没有 raw fs/network/process/env。
+
+`workflow(action="guide")` 按需返回 Host API 的调用格式。`workflow.tool` 接收一个 `{ name, args, label? }` 对象；位置参数形式会被权限预览标记为动态调用，必须等待用户审批，不能由无人值守脚本绕过。`workflow.validate` 接收 `{ commands, reason?, label? }`，其中 `commands` 是命令字符串数组。
 
 | API | effect | 说明 |
 | --- | --- | --- |

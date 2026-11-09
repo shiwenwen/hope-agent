@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "model-call-bindings-regression.v1",
+  "expected": {
+    "role": "anchor",
+    "providerId": "test-provider",
+    "modelId": "preview"
+  },
+  "cases": [
+    {
+      "id": "root_review_and_parent_pinned",
+      "calls": [
+        {
+          "providerId": "test-provider",
+          "modelId": "preview",
+          "operation": "chat_round"
+        },
+        {
+          "providerId": "test-provider",
+          "modelId": "preview",
+          "operation": "skills.auto_review"
+        },
+        {
+          "providerId": "test-provider",
+          "modelId": "preview",
+          "operation": "chat_round"
+        }
+      ],
+      "expectedMatch": true
+    },
+    {
+      "id": "parent_silently_uses_default",
+      "calls": [
+        {
+          "providerId": "test-provider",
+          "modelId": "preview",
+          "operation": "chat_round"
+        },
+        {
+          "providerId": "test-provider",
+          "modelId": "preview",
+          "operation": "skills.auto_review"
+        },
+        {
+          "providerId": "test-provider",
+          "modelId": "stable",
+          "operation": "chat_round"
+        }
+      ],
+      "expectedMatch": false
+    },
+    {
+      "id": "identity_missing",
+      "calls": [
+        {
+          "providerId": "test-provider",
+          "modelId": "preview",
+          "operation": "chat_round"
+        },
+        {
+          "providerId": "test-provider",
+          "modelId": null,
+          "operation": "skills.auto_review"
+        }
+      ],
+      "expectedMatch": false
+    }
+  ]
+}
