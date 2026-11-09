@@ -482,6 +482,8 @@ pub fn search_messages(
 - snippet 用 STX/ETX（U+0002/U+0003）作 mark 边界——不可能出现在用户文本里，前端按字符 split 后白名单包回 `<mark>...</mark>`，避免 HTML escape/unescape 攻击面
 - 结果 `SessionSearchResult` 含 `message_id` / `session_id` / `session_title` / `agent_id` / `message_role` / `content_snippet` / `timestamp` / `relevance_rank` / `is_cron` / `parent_session_id` / `project_id` / `channel_type` / `channel_chat_type` / `match_kind`（`match_kind` 区分命中的是消息正文还是会话标题）；命中后经 `load_session_messages_around` 加载上下文 + 滚动定位 + pulse 高亮，Cmd+F 与全局搜索复用同一路径
 
+通用 `/sessions` 选择器通过 `search_distinct_session_snippets` 返回会话级匹配。标题、正文词元和 trigram 子串路径均在限额前排除无痕、导入、私人助手及其私有工作会话。正文路径先在物化公共表表达式（`MATERIALIZED` CTE）中计算 FTS 片段和排名，再按会话做窗口去重，最后应用会话数量限额；这样既符合 SQLite 的 FTS 辅助函数调用约束，也保留多消息命中时其他合格会话的名额。
+
 ### Subagent / ACP 运行记录
 
 `subagent_db.rs` / `acp_db.rs` 提供两套运行记录 CRUD：

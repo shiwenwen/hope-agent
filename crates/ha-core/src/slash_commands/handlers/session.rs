@@ -705,6 +705,43 @@ mod tests {
     }
 
     #[test]
+    fn distinct_body_search_keeps_two_sessions_when_one_has_many_matching_messages() {
+        let (_dir, db) = test_db();
+        let chatty = db.create_session("ha-main").unwrap();
+        let other = db.create_session("ha-main").unwrap();
+        db.update_session_title(&chatty.id, "Ordinary first work")
+            .unwrap();
+        db.update_session_title(&other.id, "Ordinary second work")
+            .unwrap();
+        for n in 0..40 {
+            db.append_message(
+                &chatty.id,
+                &NewMessage::user(&format!("needle public chatty {n}")),
+            )
+            .unwrap();
+        }
+        db.append_message(&other.id, &NewMessage::user("needle public second"))
+            .unwrap();
+        // Neither title matches. Full token and token-infix queries must both
+        // execute the body-search SQL, with LIMIT applied to distinct sessions.
+        for query in ["needle", "eed"] {
+            let hits = db.search_distinct_session_snippets(query, 2).unwrap();
+            assert_eq!(hits.len(), 2, "query={query}");
+            let ids = hits
+                .iter()
+                .map(|hit| hit.0.as_str())
+                .collect::<std::collections::HashSet<_>>();
+            assert!(ids.contains(chatty.id.as_str()));
+            assert!(ids.contains(other.id.as_str()));
+            assert!(hits.iter().all(|hit| hit.1.contains("public")));
+            assert_eq!(
+                db.search_distinct_session_snippets(query, 1).unwrap().len(),
+                1
+            );
+        }
+    }
+
+    #[test]
     fn imported_sessions_are_neither_pickable_nor_attachable_by_id() {
         let (_dir, db) = test_db();
         let live = db.create_session("ha-main").unwrap();

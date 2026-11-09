@@ -125,7 +125,9 @@ async fn continue_assistant_target(
         "resumed": outcome.resumed, "pauseId": outcome.pause_id,
         "goalId": outcome.goal_id, "workflowRunIds": outcome.workflow_run_ids,
         "subagentRunIds": outcome.subagent_run_ids,
-        "message": "Only receipt-captured controllers were resumed; no interrupted ordinary turn was resubmitted. Inspect its persisted results before a new delegation."
+        "message": if outcome.resumed {
+            "Only receipt-captured controllers were resumed; no interrupted ordinary turn was resubmitted. Inspect persisted results before a new delegation."
+        } else { "No active receipt was consumed; no work was resubmitted." }
     }))?)
 }
 

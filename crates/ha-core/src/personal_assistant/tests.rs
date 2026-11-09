@@ -520,7 +520,8 @@ fn home_edit_resend_rejects_without_changing_source_or_queued_dispatch() {
             ("http", crate::session::QueuedTurnMessageSource::Http),
         ] {
             let replacement_turn = format!("rewrite-{source}");
-            let admission = db.reserve_direct_turn_admission(&home.id, &replacement_turn, queue_source, None)
+            let admission = db
+                .reserve_direct_turn_admission(&home.id, &replacement_turn, queue_source, None)
                 .unwrap()
                 .expect("reserve direct admission");
             let error = db
@@ -553,7 +554,10 @@ fn home_edit_resend_rejects_without_changing_source_or_queued_dispatch() {
             assert_eq!(queued.len(), 1);
             assert_eq!(queued[0].id, request.id);
             assert_eq!(queued[0].instruction, request.instruction);
-            assert_eq!(db.render_personal_assistant_receipts().unwrap(), original_receipts);
+            assert_eq!(
+                db.render_personal_assistant_receipts().unwrap(),
+                original_receipts
+            );
         }
     });
 }
