@@ -540,6 +540,16 @@ async fn do_extraction(
     let prompt = prompt_template
         .replace("{EXISTING}", &existing_summary)
         .replace("{MESSAGES}", &messages_text);
+    let preference = ha_core::memory::prompt_preferences::resolve_preference(
+        &ha_core::config::cached_config().memory.prompt_preferences,
+        agent_mem.map(|m| &m.prompt_preferences),
+        ha_core::memory::prompt_preferences::MemoryPromptStage::Extraction,
+    );
+    let prompt = prompt
+        + &ha_core::memory::prompt_preferences::render_preference(
+            &preference,
+            "extracted facts and enabled reflection",
+        );
 
     // Execute through the kernel-owned dedicated Memory Extract model port.
     // The port captures the resolved provider before this background task is
@@ -1076,6 +1086,16 @@ pub async fn flush_before_compact(
     let prompt = FLUSH_PROMPT
         .replace("{EXISTING}", &existing_summary)
         .replace("{MESSAGES}", &messages_text);
+    let preference = ha_core::memory::prompt_preferences::load_preference(
+        ha_core::memory::prompt_preferences::MemoryPromptStage::Extraction,
+        Some(agent_id),
+    )
+    .await;
+    let prompt = prompt
+        + &ha_core::memory::prompt_preferences::render_preference(
+            &preference,
+            "pre-compaction extracted facts",
+        );
 
     let response = tokio::time::timeout(FLUSH_EXTRACTION_LLM_TIMEOUT, async {
         let instruction = memory_extraction_instruction(&prompt);

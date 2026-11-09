@@ -857,16 +857,47 @@ impl TurnKernel {
                     "Imported Codex conversations are read-only",
                 ));
             }
-            admit_model_selection(
-                &mut submission.params,
+            let evaluation_pin = if submission.params.source != ChatSource::Eval
+                && crate::eval_context::context_for_session(&submission.params.session_id).is_some()
+            {
+                let session = submission.params.session_id.clone();
+                Some(
+                    submission
+                        .params
+                        .session_db
+                        .run(move |db| db.get_session_model_preference(&session))
+                        .await
+                        .map_err(|error| {
+                            TurnFailure::new(TurnFailureKind::Infrastructure, error.to_string())
+                        })?
+                        .map(|(provider, model)| format!("{provider}::{model}"))
+                        .ok_or_else(|| {
+                            TurnFailure::invalid_request(
+                                "registered evaluation Session has no model pin",
+                            )
+                        })?,
+                )
+            } else {
+                None
+            };
+            let selection = pin_registered_evaluation_selection(
                 submission.model_selection.take().ok_or_else(|| {
                     TurnFailure::new(
                         TurnFailureKind::Infrastructure,
                         "turn submission has no model-selection capability",
                     )
                 })?,
+                evaluation_pin.as_deref(),
+            )?;
+            admit_model_selection(
+                &mut submission.params,
+                selection,
                 submission.routing_config.as_deref(),
             )?;
+            if evaluation_pin.is_some() {
+                // A fixed-model comparison cannot acquire global fallbacks.
+                submission.params.model_chain.truncate(1);
+            }
             admit_provider_lease(&submission.params)?;
             if let Some(proof) = submission.source_proof.take() {
                 admit_source_proof(&mut submission.params, proof).await?;
@@ -1015,6 +1046,37 @@ fn admitted_route_all_codex(params: &ChatEngineParams) -> bool {
                 .find(|provider| provider.id == model.provider_id)
                 .is_some_and(|provider| provider.api_type.is_codex())
         })
+}
+
+fn pin_registered_evaluation_selection(
+    selection: ModelSelection,
+    required: Option<&str>,
+) -> Result<ModelSelection, TurnFailure> {
+    let Some(required) = required else {
+        return Ok(selection);
+    };
+    match selection {
+        ModelSelection::Configured {
+            preferred_model, ..
+        } => {
+            if preferred_model
+                .as_deref()
+                .is_some_and(|preferred| preferred != required)
+            {
+                return Err(TurnFailure::invalid_request(
+                    "turn model preference conflicts with the registered evaluation Session",
+                ));
+            }
+            Ok(ModelSelection::Configured {
+                preferred_model: Some(required.to_string()),
+                strict_preference: true,
+            })
+        }
+        ModelSelection::Evaluation(_) => Err(TurnFailure::new(
+            TurnFailureKind::Infrastructure,
+            "production evaluation Session cannot bypass configured model admission",
+        )),
+    }
 }
 
 fn admit_model_selection(
@@ -1492,7 +1554,7 @@ async fn admit_interactive(
     let title_attachments_meta = admission.user_message.attachments_meta.clone();
 
     let stream_id = crate::chat_engine::stream_seq::begin(&params.session_id, source)
-        .map_err(|error| TurnFailure::new(TurnFailureKind::Infrastructure, error.to_string()))?;
+        .map_err(TurnFailure::admission_busy)?;
     let run_id = uuid::Uuid::new_v4().to_string();
     let create = crate::session::CreateStreamRun {
         run_id,
@@ -1982,6 +2044,44 @@ mod tests {
     }
 
     #[test]
+    fn registered_evaluation_parent_turn_inherits_pin_and_rejects_model_switch() {
+        let selection = pin_registered_evaluation_selection(
+            ModelSelection::Configured {
+                preferred_model: None,
+                strict_preference: false,
+            },
+            Some("provider::preview"),
+        )
+        .unwrap();
+        assert!(
+            matches!(selection, ModelSelection::Configured { preferred_model: Some(ref pin), strict_preference: true } if pin == "provider::preview")
+        );
+        assert!(pin_registered_evaluation_selection(
+            ModelSelection::Configured {
+                preferred_model: Some("provider::stable".into()),
+                strict_preference: false,
+            },
+            Some("provider::preview")
+        )
+        .is_err());
+        let ordinary = pin_registered_evaluation_selection(
+            ModelSelection::Configured {
+                preferred_model: None,
+                strict_preference: false,
+            },
+            None,
+        )
+        .unwrap();
+        assert!(matches!(
+            ordinary,
+            ModelSelection::Configured {
+                preferred_model: None,
+                strict_preference: false
+            }
+        ));
+    }
+
+    #[test]
     fn strict_model_preference_fails_closed_before_fallback() {
         let config = crate::config::AppConfig::default();
         let error = resolve_configured_model_chain(
@@ -2028,6 +2128,64 @@ mod tests {
         let error = admit_model_selection(&mut params, selection, None)
             .expect_err("production source must not admit fixture-selected models");
         assert!(error.to_string().contains("forbidden for production turns"));
+    }
+
+    #[tokio::test]
+    async fn busy_stream_rejection_precedes_durable_user_turn_and_model_dispatch() {
+        let _lock = crate::chat_engine::active_turn::test_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(
+            crate::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .unwrap(),
+        );
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let turn_id = "not-admitted-busy-turn".to_string();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let foreground = crate::chat_engine::active_turn::begin_durable_foreground_request(
+            db.as_ref(),
+            Some(&session.id),
+        )
+        .unwrap();
+        let lease = TurnKernel::begin_desktop(
+            foreground,
+            &session.id,
+            turn_id.clone(),
+            None,
+            cancel.clone(),
+        )
+        .unwrap();
+        let request = interactive_request(db.clone(), session.id.clone(), turn_id.clone(), cancel);
+        let admission = InteractiveAdmission::desktop(
+            lease,
+            crate::session::NewMessage::user("must not persist"),
+            None,
+            None,
+            None,
+            false,
+            false,
+        );
+        let stream_id =
+            crate::chat_engine::stream_seq::begin(&session.id, ChatSource::ParentInjection)
+                .unwrap();
+        let mut submission = TurnSubmission::desktop(request, admission);
+        let admission = submission.interactive.take().unwrap();
+        let failure = admit_interactive(&mut submission.params, admission)
+            .await
+            .unwrap_err();
+        assert!(failure.is_pre_dispatch_admission_busy());
+        assert!(db.load_session_messages(&session.id).unwrap().is_empty());
+        assert!(db.get_chat_turn(&turn_id).unwrap().is_none());
+        assert!(db.latest_stream_run(&session.id).unwrap().is_none());
+        assert!(crate::chat_engine::stream_seq::end_if_stream(
+            &session.id,
+            &stream_id
+        ));
+        assert!(
+            !TurnFailure::new(TurnFailureKind::ProviderExhausted, failure.to_string())
+                .is_pre_dispatch_admission_busy()
+        );
     }
 
     #[tokio::test]

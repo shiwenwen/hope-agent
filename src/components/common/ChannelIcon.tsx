@@ -1,4 +1,4 @@
-import { MessageCircle } from "lucide-react"
+import { Building2, MessageCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   SiTelegram, SiTelegramHex,
@@ -80,6 +80,7 @@ const CHANNEL_ICONS: Record<string, ChannelIconEntry> = {
   discord: { icon: SiDiscord, color: SiDiscordHex },
   whatsapp: { icon: SiWhatsapp, color: SiWhatsappHex },
   wechat: { icon: SiWechat, color: SiWechatHex },
+  wecom: { icon: Building2, color: "#2BAD31" },
   weixin: { icon: SiWechat, color: SiWechatHex },
   slack: { icon: SlackIcon, color: SLACK_HEX },
   feishu: { icon: FeishuIcon, color: FEISHU_HEX },

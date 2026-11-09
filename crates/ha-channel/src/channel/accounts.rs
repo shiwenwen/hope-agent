@@ -28,6 +28,7 @@ fn credential_fingerprint(channel_id: &ChannelId, credentials: &Value) -> Option
         ChannelId::Slack => str_field("botToken"),
         ChannelId::Feishu | ChannelId::QqBot => str_field("appId"),
         ChannelId::Line => str_field("channelAccessToken"),
+        ChannelId::WeCom => str_field("botId"),
         ChannelId::WeChat => str_field("userId")
             .or_else(|| str_field("remoteAccountId"))
             .or_else(|| str_field("token")),
@@ -138,7 +139,7 @@ pub async fn add_account(
 
     let account = ChannelAccountConfig {
         id: id.clone(),
-        channel_id: parsed_channel_id,
+        channel_id: parsed_channel_id.clone(),
         label,
         enabled: true,
         agent_id,
@@ -146,8 +147,8 @@ pub async fn add_account(
         settings,
         security,
         auto_approve_tools: false,
-        notify_session_eviction: true,
-        notify_startup: true,
+        notify_session_eviction: parsed_channel_id != ChannelId::WeCom,
+        notify_startup: parsed_channel_id != ChannelId::WeCom,
     };
 
     // Duplicate check + push happen inside `mutate_config_async` so two

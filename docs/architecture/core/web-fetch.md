@@ -86,7 +86,7 @@ V1 的 `{url}`、`max_chars` 和 `extract_mode=markdown|text` 调用保持有效
 | HTML / XHTML | CSS scope + 默认移除 `script/style/noscript/nav/svg/template` + 自定义 excludes；Readability 优先，失败回退基础正文；Markdown 用 `htmd` |
 | JSON / `+json` | 可解析时 pretty-print；被字节截断时保留不完整文本并给 warning |
 | Markdown / XML / CSV / RTF / 普通文本 | 按字符集解码后返回确定性文本 |
-| PDF | 复用 PDF 字节级文本服务；被下载上限截断时直接报错；低文本量提示可能是扫描件 |
+| PDF | 复用 PDF 字节级文本服务，按实际页树提取并保留空页；内容流或后续页解析失败时整个抽取报错，不返回前页作为完整成功；被下载上限截断时直接报错；低文本量提示可能是扫描件 |
 | 图片 | `image_content` typed error，不做 lossy UTF-8；提示改用图片能力 |
 | ZIP / gzip 文件 / TAR / RAR / 7z | `archive_content` typed error |
 | 其他二进制 | `unsupported_content_type` typed error |

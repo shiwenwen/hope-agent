@@ -506,6 +506,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   delete_provider: { method: "DELETE", path: "/api/providers/{providerId}" },
   reorder_providers: { method: "POST", path: "/api/providers/reorder" },
   test_provider: { method: "POST", path: "/api/providers/test" },
+  discover_provider_models: { method: "POST", path: "/api/providers/discover-models" },
   test_model: { method: "POST", path: "/api/providers/test-model" },
   test_proxy: { method: "POST", path: "/api/config/proxy/test" },
   has_providers: { method: "GET", path: "/api/providers/has-any" },
@@ -2094,7 +2095,7 @@ function normalizeHttpCommandArgs(
       ? (request as Record<string, unknown>)
       : args
   }
-  if (command === "add_provider" || command === "test_provider") {
+  if (command === "add_provider" || command === "test_provider" || command === "discover_provider_models") {
     return providerConfigFromArgs(args) ?? args
   }
   if (command === "update_provider") {
@@ -3414,9 +3415,10 @@ export class HttpTransport implements Transport {
     )
   }
 
-  async listServerDirectory(path?: string): Promise<DirListing> {
+  async listServerDirectory(path?: string, directoriesOnly?: boolean): Promise<DirListing> {
     const url = new URL(`${this.baseUrl}/api/filesystem/list-dir`)
     if (path) url.searchParams.set("path", path)
+    if (directoriesOnly) url.searchParams.set("directoriesOnly", "true")
     const auth = this.authSnapshot()
     const headers: Record<string, string> = {}
     if (auth.apiKey) headers["Authorization"] = `Bearer ${auth.apiKey}`

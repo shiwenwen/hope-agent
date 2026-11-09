@@ -172,6 +172,174 @@ pub struct ProviderAccountingInput {
     pub history: Vec<Value>,
 }
 
+/// Cache the settled history before volatile per-request user data. Cache
+/// annotations affect provider bookkeeping, not the role or content of a
+/// message; never add them inside tool arguments or other untrusted JSON.
+pub fn mark_anthropic_history_cache_boundary(history: &mut [Value]) {
+    for message in history.iter_mut() {
+        if let Some(parts) = message.get_mut("content").and_then(Value::as_array_mut) {
+            for part in parts {
+                if let Some(part) = part.as_object_mut() {
+                    part.remove("cache_control");
+                }
+            }
+        }
+    }
+    for message in history.iter_mut().rev() {
+        if let Some(text) = message.get("content").and_then(Value::as_str) {
+            if text.is_empty() {
+                continue;
+            }
+            message["content"] = serde_json::json!([{"type":"text", "text":text}]);
+        }
+        if let Some(parts) = message.get_mut("content").and_then(Value::as_array_mut) {
+            if let Some(part) = parts.iter_mut().rev().find(|part| {
+                matches!(
+                    part.get("type").and_then(Value::as_str),
+                    Some("text" | "tool_use" | "tool_result" | "image" | "document")
+                )
+            }) {
+                part["cache_control"] = serde_json::json!({"type":"ephemeral"});
+                return;
+            }
+        }
+    }
+}
+
+/// Keep the current and previous eligible request boundaries in explicit
+/// Responses mode. Marking only the newest boundary would hide the previous
+/// write from explicit-only lookup and force a fresh history write each round.
+pub fn mark_responses_history_cache_boundaries(history: &mut [Value]) {
+    for item in history.iter_mut() {
+        let field = if item.get("type").and_then(Value::as_str) == Some("function_call_output") {
+            "output"
+        } else {
+            "content"
+        };
+        if let Some(parts) = item.get_mut(field).and_then(Value::as_array_mut) {
+            for part in parts {
+                if let Some(part) = part.as_object_mut() {
+                    part.remove("prompt_cache_breakpoint");
+                }
+            }
+        }
+    }
+    let mut marked = 0;
+    let mut previous_kind = None;
+    let mut marked_in_group = false;
+    for item in history.iter_mut().rev() {
+        let kind = if item.get("type").and_then(Value::as_str) == Some("function_call_output") {
+            Some("output")
+        } else if item.get("role").and_then(Value::as_str) == Some("user") {
+            Some("content")
+        } else {
+            None
+        };
+        if previous_kind != kind {
+            marked_in_group = false;
+        }
+        previous_kind = kind;
+        let Some(field) = kind.filter(|_| !marked_in_group) else {
+            continue;
+        };
+        if let Some(text) = item.get(field).and_then(Value::as_str) {
+            if text.is_empty() {
+                continue;
+            }
+            item[field] = serde_json::json!([{"type":"input_text", "text":text}]);
+        }
+        if let Some(parts) = item.get_mut(field).and_then(Value::as_array_mut) {
+            if let Some(part) = parts
+                .iter_mut()
+                .rev()
+                .find(|part| part.get("type").and_then(Value::as_str) == Some("input_text"))
+            {
+                part["prompt_cache_breakpoint"] = serde_json::json!({"mode":"explicit"});
+                marked_in_group = true;
+                marked += 1;
+                if marked == 2 {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod history_cache_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn history_cache_anthropic_marks_settled_content_and_preserves_thinking_and_tool_data() {
+        let mut history = vec![
+            json!({"role":"user","content":"request"}),
+            json!({"role":"assistant","content":[
+                {"type":"tool_use","id":"call","name":"read","input":{"cache_control":{"user_owned":true}}},
+                {"type":"thinking","thinking":"private chain","signature":"unchanged"}
+            ]}),
+        ];
+        mark_anthropic_history_cache_boundary(&mut history);
+        assert_eq!(
+            history[1]["content"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+        assert_eq!(
+            history[1]["content"][0]["input"]["cache_control"]["user_owned"],
+            true
+        );
+        assert_eq!(
+            history[1]["content"][1],
+            json!({"type":"thinking","thinking":"private chain","signature":"unchanged"})
+        );
+        history.push(json!({"role":"user","content":[{"type":"tool_result","tool_use_id":"call","content":"settled result"}]}));
+        mark_anthropic_history_cache_boundary(&mut history);
+        assert!(history[1]["content"][0].get("cache_control").is_none());
+        assert_eq!(
+            history[2]["content"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+    }
+
+    #[test]
+    fn history_cache_responses_keeps_previous_parallel_group_boundary_when_history_grows() {
+        let mut history = vec![
+            json!({"role":"user","content":"request"}),
+            json!({"type":"function_call","name":"read","call_id":"call-1","arguments":"{}"}),
+            json!({"type":"function_call_output","call_id":"call-1","output":"result one"}),
+            json!({"type":"function_call_output","call_id":"call-2","output":"result two"}),
+            json!({"role":"assistant","content":"next round"}),
+            json!({"type":"function_call_output","call_id":"call-3","output":"result three"}),
+            json!({"type":"function_call_output","call_id":"call-4","output":"result four"}),
+        ];
+        mark_responses_history_cache_boundaries(&mut history);
+        assert_eq!(
+            history[3]["output"][0]["prompt_cache_breakpoint"]["mode"],
+            "explicit"
+        );
+        assert_eq!(
+            history[6]["output"][0]["prompt_cache_breakpoint"]["mode"],
+            "explicit"
+        );
+        assert!(history[0]["content"].is_string());
+        assert!(history[2]["output"].is_string());
+        let previous_endpoint = history[6].clone();
+        history.extend([
+            json!({"role":"assistant","content":"completed previous round"}),
+            json!({"role":"user","content":"new request"}),
+        ]);
+        mark_responses_history_cache_boundaries(&mut history);
+        assert_eq!(history[6], previous_endpoint);
+        assert_eq!(
+            history[8]["content"][0]["prompt_cache_breakpoint"]["mode"],
+            "explicit"
+        );
+        assert!(history[3]["output"][0]
+            .get("prompt_cache_breakpoint")
+            .is_none());
+    }
+}
+
 /// Stable, credential-free endpoint identity retained with a frozen request.
 ///
 /// This deliberately names a logical endpoint instead of retaining a URL:

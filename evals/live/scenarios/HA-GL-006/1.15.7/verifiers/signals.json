@@ -1,0 +1,8 @@
+{
+  "signals": [
+    "model",
+    "tool",
+    "goal",
+    "loop"
+  ]
+}

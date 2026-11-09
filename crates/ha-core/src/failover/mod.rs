@@ -44,6 +44,7 @@ pub struct ProviderApiError {
     status: Option<u16>,
     code: Option<String>,
     error_type: Option<String>,
+    parameter: Option<String>,
     message: Option<String>,
     retry_after_ms: Option<u64>,
     transport: ProviderErrorTransport,
@@ -83,6 +84,9 @@ impl ProviderApiError {
         let message = decoded
             .as_ref()
             .and_then(|value| json_string_at(value, &["/error/message", "/message", "/detail"]));
+        let parameter = decoded
+            .as_ref()
+            .and_then(|value| json_string_at(value, &["/error/param", "/param"]));
         let public_detail = message
             .as_deref()
             .or(code.as_deref())
@@ -100,6 +104,7 @@ impl ProviderApiError {
             status: Some(status),
             code,
             error_type,
+            parameter,
             message,
             retry_after_ms: None,
             transport: ProviderErrorTransport::HttpResponse,
@@ -119,6 +124,7 @@ impl ProviderApiError {
             status: None,
             code: code.map(ToOwned::to_owned),
             error_type: error_type.map(ToOwned::to_owned),
+            parameter: None,
             message: message.map(ToOwned::to_owned),
             retry_after_ms: None,
             transport: ProviderErrorTransport::StreamEvent,
@@ -143,6 +149,44 @@ impl ProviderApiError {
 
     pub fn retry_after_ms(&self) -> Option<u64> {
         self.retry_after_ms
+    }
+
+    /// A summary-only caller can stop on an explicitly rejected reasoning
+    /// contract without changing normal request retry/failover classification.
+    /// Raw provider text remains private and is never returned by this predicate.
+    pub fn rejects_reasoning_parameter(&self) -> bool {
+        if !matches!(self.status, Some(400 | 422)) {
+            return false;
+        }
+        let fields = [
+            "reasoning",
+            "thinking",
+            "enable_thinking",
+            "budget_tokens",
+            "output_config",
+        ];
+        if self.parameter.as_deref().is_some_and(|parameter| {
+            fields.iter().any(|field| {
+                parameter == *field
+                    || parameter.starts_with(&format!("{field}."))
+                    || parameter.starts_with(&format!("{field}_"))
+            })
+        }) {
+            return true;
+        }
+        self.message.as_deref().is_some_and(|message| {
+            let message = message.to_ascii_lowercase();
+            fields.iter().any(|field| message.contains(field))
+                && [
+                    "unsupported",
+                    "not support",
+                    "not allowed",
+                    "invalid",
+                    "must be",
+                ]
+                .iter()
+                .any(|marker| message.contains(marker))
+        })
     }
 
     fn is_thinking_signature_rejection(&self) -> bool {
@@ -350,21 +394,30 @@ impl FailoverReason {
 
 // ── Error Classification ──────────────────────────────────────────
 
-// Known semantic phrases use substring matching. Ambiguous generic 500/504
-// codes require explicit HTTP/API-status context so token counts and request
-// IDs cannot accidentally trigger retries or profile cooldowns.
+// Known semantic phrases use substring matching. All numeric status codes
+// require explicit HTTP/API-status context so token counts and request/session
+// IDs cannot accidentally trigger retries or global profile cooldowns.
 
 static HTTP_STATUS_CODE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(
         r#"(?ix)
         (?:
-            \bhttp(?:/\d(?:\.\d)?)?\s* |
-            \bstatus(?:\s+code)?\s*[:=]?\s* |
-            \bresponse\s+code\s*[:=]?\s* |
-            \bapi\s+(?:error|错误)\s*[\(:=]?\s* |
-            ["']status["']\s*:\s*
+            (?:
+                \bhttp(?:/\d(?:\.\d)?)?\s* |
+                \bstatus(?:\s+code)?\s*[:=]?\s* |
+                \bresponse\s+code\s*[:=]?\s* |
+                \bapi\s+(?:error|错误)\s*[\(:=]?\s* |
+                ["']status["']\s*:\s*
+            )
+            (?P<code>[1-5][0-9]{2})\b
+            |
+            ^\s*(?P<reason_code>[1-5][0-9]{2})\s+
+            (?:unauthorized|forbidden|payment\s+required|not\s+found|
+                too\s+many\s+requests|internal\s+server\s+error|
+                bad\s+gateway|service\s+unavailable|gateway\s+timeout|
+                web\s+server\s+is\s+down|connection\s+timed\s+out|
+                a\s+timeout\s+occurred)\b
         )
-        (?P<code>[1-5][0-9]{2})\b
         "#,
     )
     .expect("valid HTTP status code regex")
@@ -376,6 +429,7 @@ fn contains_http_status(error_msg: &str, expected: &str) -> bool {
         .any(|captures| {
             captures
                 .name("code")
+                .or_else(|| captures.name("reason_code"))
                 .is_some_and(|code| code.as_str() == expected)
         })
 }
@@ -575,8 +629,12 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
         return FailoverReason::EvaluationBudget;
     }
 
+    if lower.contains("evaluation model admission denied") {
+        return FailoverReason::RequestContract;
+    }
+
     // ── Rate limit (retryable) ────────────────────────────────────
-    if lower.contains("429")
+    if contains_http_status(&lower, "429")
         || lower.contains("rate limit")
         || lower.contains("rate_limit")
         || lower.contains("too many requests")
@@ -589,18 +647,18 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
 
     // ── Overloaded (retryable) ────────────────────────────────────
     if contains_http_status(&lower, "500") // Internal Server Error
-        || lower.contains("503")
+        || contains_http_status(&lower, "503")
         || lower.contains("overloaded")
         || lower.contains("service unavailable")
         || lower.contains("temporarily unavailable")
         || lower.contains("server_error")
         || lower.contains("internal server error")
         || lower.contains("an error occurred while processing your request")
-        || lower.contains("502")  // Bad Gateway
+        || contains_http_status(&lower, "502")  // Bad Gateway
         || contains_http_status(&lower, "504") // Gateway Timeout
-        || lower.contains("521")  // Cloudflare origin down
-        || lower.contains("522")  // Cloudflare connection timed out
-        || lower.contains("524")
+        || contains_http_status(&lower, "521")  // Cloudflare origin down
+        || contains_http_status(&lower, "522")  // Cloudflare connection timed out
+        || contains_http_status(&lower, "524")
     // Cloudflare timeout
     {
         return FailoverReason::Overloaded;
@@ -638,12 +696,12 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
     }
 
     // ── Auth (skip to next model) ─────────────────────────────────
-    if lower.contains("401")
+    if contains_http_status(&lower, "401")
         || lower.contains("unauthorized")
         || lower.contains("invalid api key")
         || lower.contains("invalid_api_key")
         || lower.contains("authentication")
-        || lower.contains("403")
+        || contains_http_status(&lower, "403")
         || lower.contains("forbidden")
         || lower.contains("permission denied")
     {
@@ -651,7 +709,7 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
     }
 
     // ── Billing (skip to next model) ──────────────────────────────
-    if lower.contains("402")
+    if contains_http_status(&lower, "402")
         || lower.contains("payment required")
         || lower.contains("billing")
         || lower.contains("quota")
@@ -662,7 +720,7 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
     }
 
     // ── Model not found (skip to next model) ──────────────────────
-    if lower.contains("404")
+    if contains_http_status(&lower, "404")
         || lower.contains("model not found")
         || lower.contains("model_not_found")
         || lower.contains("provider not found")
@@ -1007,6 +1065,44 @@ mod tests {
             classify_error("using model v504-preview"),
             FailoverReason::Unknown
         );
+    }
+
+    #[test]
+    fn session_identifiers_cannot_cool_down_provider_credentials() {
+        let observed = "session not found: 9afd3617-9b5d-416c-b6d5-5d3d07403626";
+        let reason = classify_error(observed);
+        assert_eq!(reason, FailoverReason::Unknown);
+        let tracker = ProfileCooldownTracker::new();
+        tracker.mark_cooldown("isolated-eval-key", &reason);
+        assert!(tracker.is_available("isolated-eval-key"));
+        for code in [
+            "401", "402", "403", "404", "429", "500", "502", "503", "504", "521", "522", "524",
+        ] {
+            assert_eq!(
+                classify_error(&format!("session not found: abc-{code}-def")),
+                FailoverReason::Unknown
+            );
+            assert_eq!(
+                classify_error(&format!("token usage: 1{code}7")),
+                FailoverReason::Unknown
+            );
+        }
+        for (code, expected) in [
+            (401, FailoverReason::Auth),
+            (403, FailoverReason::Auth),
+            (402, FailoverReason::Billing),
+            (404, FailoverReason::ModelNotFound),
+            (429, FailoverReason::RateLimit),
+            (503, FailoverReason::Overloaded),
+        ] {
+            assert_eq!(classify_error(&format!("HTTP {code}")), expected);
+            assert_eq!(
+                classify_error(&format!("API error ({code}): request failed")),
+                expected
+            );
+        }
+        tracker.mark_cooldown("real-rejected-key", &classify_error("HTTP 403"));
+        assert!(!tracker.is_available("real-rejected-key"));
     }
 
     #[test]
