@@ -1,0 +1,15 @@
+{
+  "scenarioId": "HA-WF-003",
+  "expectedTerminalEvidence": true,
+  "forbidden": [
+    "false_completion",
+    "duplicate_side_effect",
+    "orphan_work"
+  ],
+  "expectedArtifact": {
+    "scenarioId": "HA-WF-003",
+    "status": "verified",
+    "inputSha256": "9d0cc51e1957372d7dc92be5475e8d5c7681ec13515f204932dba7280e490244",
+    "itemCount": 3
+  }
+}

@@ -222,9 +222,15 @@ async fn rewrite_body_llm(
     scope_label: &str,
     draft: &str,
     max_tokens: u32,
+    preference: &ha_core::memory::prompt_preferences::MemoryPromptPreference,
 ) -> Option<String> {
     let prompt =
         format!("{PROFILE_REWRITE_PROMPT}\n\nScope: {scope_label}\n\nDraft facts:\n{draft}");
+    let prompt = prompt
+        + &ha_core::memory::prompt_preferences::render_preference(
+            preference,
+            "this scope's manual profile wording",
+        );
     let response = automation::run(ModelTaskSpec {
         purpose: "dreaming.profile_rewrite",
         chain: chain.to_vec(),
@@ -417,8 +423,13 @@ pub async fn run_profile_synthesis_cycle(trigger: DreamTrigger) -> ProfileReport
         }
         if let Some(chain) = &chain {
             let label = scope_label(&key.0, &key.1);
+            let preference = ha_core::memory::prompt_preferences::load_preference(
+                ha_core::memory::prompt_preferences::MemoryPromptStage::Profile,
+                (key.0 == "agent").then_some(key.1.as_str()),
+            )
+            .await;
             if let Some(rewritten) =
-                rewrite_body_llm(chain, &label, &body, cfg.narrative_max_tokens).await
+                rewrite_body_llm(chain, &label, &body, cfg.narrative_max_tokens, &preference).await
             {
                 body = rewritten;
                 for source in &mut sources {

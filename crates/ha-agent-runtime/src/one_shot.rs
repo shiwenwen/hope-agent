@@ -11,7 +11,9 @@
 //!   through. If the snapshot's format mismatches the adapter, falls back to
 //!   `Bare`.
 //! - [`OneShotMode::Independent`]: fresh request with the given system prompt
-//!   and a single user message — used by Tier 3 summarization.
+//!   and a single user message — including the independent Tier 3 fallback.
+//! - [`OneShotMode::SummaryFork`]: a counted native-history checkpoint fork;
+//!   preserves the main request's settings and never executes tools.
 //! - [`OneShotMode::Bare`]: minimal user-only request, no system, no tools.
 //!
 //! Tool-loop chat is **not** in scope here. A streaming *sibling*
@@ -21,9 +23,12 @@
 //! `one_shot` path — and every caller of it (side_query / recap / judge) — is
 //! byte-for-byte untouched.
 
+mod summary_reasoning;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use summary_reasoning::apply_summary_reasoning;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -31,7 +36,9 @@ use std::sync::Arc;
 use super::config::{build_api_url, CODEX_API_URL};
 use super::errors::parse_error_response;
 use super::provider_adapters::anthropic_adapter::parse_anthropic_sse;
-use super::provider_adapters::codex_adapter::{apply_codex_headers, codex_user_agent};
+use super::provider_adapters::codex_adapter::{
+    apply_codex_headers, codex_tool_schemas, codex_user_agent,
+};
 use super::provider_adapters::openai_chat_adapter::parse_chat_completions_sse;
 use super::provider_adapters::openai_responses_adapter::parse_openai_sse;
 #[cfg(test)]
@@ -130,7 +137,17 @@ impl OneShotRuntime for Runtime {
         client: &reqwest::Client,
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult> {
-        as_adapter(provider).one_shot(client, req).await
+        if let OneShotMode::SummaryFork(fork) = req.mode {
+            anyhow::ensure!(
+                fork.matches_provider(provider),
+                "summary prefix provider mismatch"
+            );
+        }
+        let explicit_summary = matches!(req.mode, OneShotMode::Summary { .. });
+        as_adapter(provider)
+            .one_shot(client, req)
+            .await
+            .map_err(|error| summary_reasoning::classify_summary_error(explicit_summary, error))
     }
 
     async fn one_shot_stream(
@@ -141,9 +158,15 @@ impl OneShotRuntime for Runtime {
         cancel: &Arc<AtomicBool>,
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
+        anyhow::ensure!(
+            !matches!(req.mode, OneShotMode::SummaryFork(_)),
+            "Native summary forks require single-response dispatch"
+        );
+        let explicit_summary = matches!(req.mode, OneShotMode::Summary { .. });
         as_adapter(provider)
             .one_shot_stream(client, req, cancel, on_delta)
             .await
+            .map_err(|error| summary_reasoning::classify_summary_error(explicit_summary, error))
     }
 }
 
@@ -164,6 +187,13 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult> {
         let mut body = build_anthropic_body(self.model, &req);
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::Anthropic,
+            &req,
+            &mut body,
+        )?;
         super::provider_adapters::anthropic_adapter::apply_thinking_binding_policy(
             self.base_url,
             self.model,
@@ -189,7 +219,7 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
             &|_| {},
         );
         Ok(OneShotResult {
-            text: extract_anthropic_text(&result),
+            text: summary_text_only(&req, &result, extract_anthropic_text(&result)),
             usage: extract_anthropic_usage(&result),
         })
     }
@@ -202,6 +232,13 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
         let mut body = build_anthropic_body(self.model, &req);
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::Anthropic,
+            &req,
+            &mut body,
+        )?;
         super::provider_adapters::anthropic_adapter::apply_thinking_binding_policy(
             self.base_url,
             self.model,
@@ -238,7 +275,10 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
 }
 
 fn build_anthropic_body(model: &str, req: &OneShotRequest<'_>) -> Value {
-    if let OneShotMode::Independent { system } = req.mode {
+    if let Some(body) = summary_fork_body(req, ProviderFormat::Anthropic, model) {
+        return body;
+    }
+    if let Some(system) = req.mode.independent_system() {
         return json!({
             "model": model,
             "max_tokens": req.max_tokens,
@@ -298,12 +338,19 @@ impl<'a> LlmApiAdapter for OpenAIChatAdapter<'a> {
     ) -> Result<OneShotResult> {
         let mut body = build_openai_chat_body(self.model, &req);
         apply_astra_chat_contract(self.base_url, self.model, &mut body)?;
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::OpenAIChat,
+            &req,
+            &mut body,
+        )?;
         let api_url = build_api_url(self.base_url, "/v1/chat/completions");
         let bearer = format!("Bearer {}", self.key);
         let result =
             send_json_request(client, &api_url, &body, &[("Authorization", &bearer)]).await?;
         Ok(OneShotResult {
-            text: extract_chat_text(&result),
+            text: summary_text_only(&req, &result, extract_chat_text(&result)),
             usage: extract_openai_usage(&result),
         })
     }
@@ -317,6 +364,13 @@ impl<'a> LlmApiAdapter for OpenAIChatAdapter<'a> {
     ) -> Result<OneShotResult> {
         let mut body = build_openai_chat_body(self.model, &req);
         apply_astra_chat_contract(self.base_url, self.model, &mut body)?;
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::OpenAIChat,
+            &req,
+            &mut body,
+        )?;
         if let Some(obj) = body.as_object_mut() {
             obj.insert("stream".into(), json!(true));
             // Chat Completions only reports usage in the stream when asked.
@@ -346,7 +400,10 @@ impl<'a> LlmApiAdapter for OpenAIChatAdapter<'a> {
 }
 
 fn build_openai_chat_body(model: &str, req: &OneShotRequest<'_>) -> Value {
-    if let OneShotMode::Independent { system } = req.mode {
+    if let Some(body) = summary_fork_body(req, ProviderFormat::OpenAIChat, model) {
+        return body;
+    }
+    if let Some(system) = req.mode.independent_system() {
         return json!({
             "model": model,
             "max_tokens": req.max_tokens,
@@ -420,13 +477,20 @@ impl<'a> LlmApiAdapter for OpenAIResponsesAdapter<'a> {
         client: &reqwest::Client,
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult> {
-        let body = build_responses_body(self.model, &req, ProviderFormat::OpenAIResponses);
+        let mut body = build_responses_body(self.model, &req, ProviderFormat::OpenAIResponses);
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::OpenAIResponses,
+            &req,
+            &mut body,
+        )?;
         let api_url = build_api_url(self.base_url, "/v1/responses");
         let bearer = format!("Bearer {}", self.key);
         let result =
             send_json_request(client, &api_url, &body, &[("Authorization", &bearer)]).await?;
         Ok(OneShotResult {
-            text: extract_responses_text(&result),
+            text: summary_text_only(&req, &result, extract_responses_text(&result)),
             usage: extract_openai_usage(&result),
         })
     }
@@ -439,6 +503,13 @@ impl<'a> LlmApiAdapter for OpenAIResponsesAdapter<'a> {
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
         let mut body = build_responses_body(self.model, &req, ProviderFormat::OpenAIResponses);
+        apply_summary_reasoning(
+            self.base_url,
+            self.model,
+            ProviderFormat::OpenAIResponses,
+            &req,
+            &mut body,
+        )?;
         if let Some(obj) = body.as_object_mut() {
             obj.insert("stream".into(), json!(true));
         }
@@ -509,7 +580,14 @@ impl<'a> CodexAdapter<'a> {
         cancel: &AtomicBool,
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
-        let body = build_responses_body(self.model, &req, ProviderFormat::Codex);
+        let mut body = build_responses_body(self.model, &req, ProviderFormat::Codex);
+        apply_summary_reasoning(
+            CODEX_API_URL,
+            self.model,
+            ProviderFormat::Codex,
+            &req,
+            &mut body,
+        )?;
         let body_size = serde_json::to_string(&body).map(|s| s.len()).unwrap_or(0);
         let input_count = body
             .get("input")
@@ -604,7 +682,7 @@ impl<'a> CodexAdapter<'a> {
 
         // 合并语义：设计流式要求 cancel / on_delta 真透传（HEAD），SSE 解析随 main 升级为
         // 6 元组（多出 provider_items，一次性调用不消费）。
-        let (text, _tool_calls, _provider_items, mut usage, _thinking, _ttft) =
+        let (mut text, tool_calls, _provider_items, mut usage, _thinking, _ttft) =
             match parse_openai_sse(resp, request_start, cancel, on_delta).await {
                 Ok(parsed) => parsed,
                 Err(e) => {
@@ -630,6 +708,11 @@ impl<'a> CodexAdapter<'a> {
                     return Err(e);
                 }
             };
+        if matches!(req.mode, OneShotMode::SummaryFork(_)) && !tool_calls.is_empty() {
+            // Preserve real usage but reject this candidate at the existing
+            // summary validator. No one-shot path executes returned tools.
+            text.clear();
+        }
         // One-shot is single-round: last == only round.
         usage.last_input_tokens = usage.input_tokens;
         usage.last_cache_creation_input_tokens = usage.cache_creation_input_tokens;
@@ -664,11 +747,14 @@ fn build_responses_body(
     req: &OneShotRequest<'_>,
     expected_format: ProviderFormat,
 ) -> Value {
+    if let Some(body) = summary_fork_body(req, expected_format, model) {
+        return body;
+    }
     let is_codex = matches!(expected_format, ProviderFormat::Codex);
     let stream = is_codex;
 
     let mut body = match req.mode {
-        OneShotMode::Independent { system } => json!({
+        OneShotMode::Independent { system } | OneShotMode::Summary { system, .. } => json!({
             "model": model,
             "store": false,
             "stream": stream,
@@ -687,7 +773,11 @@ fn build_responses_body(
                     "stream": stream,
                     "instructions": &params.system_prompt,
                     "input": input,
-                    "tools": &params.tool_schemas,
+                    "tools": if is_codex {
+                        codex_tool_schemas(&params.tool_schemas)
+                    } else {
+                        params.tool_schemas.clone()
+                    },
                 })
             } else {
                 json!({
@@ -712,6 +802,41 @@ fn one_shot_user_content(req: &OneShotRequest<'_>) -> Value {
     req.user_content
         .clone()
         .unwrap_or_else(|| json!(req.instruction))
+}
+
+fn summary_fork_body(
+    req: &OneShotRequest<'_>,
+    format: ProviderFormat,
+    model: &str,
+) -> Option<Value> {
+    match req.mode {
+        OneShotMode::SummaryFork(fork) => fork.body_for(format, model),
+        _ => None,
+    }
+}
+
+fn summary_text_only(req: &OneShotRequest<'_>, response: &Value, text: String) -> String {
+    fn has_tool_calls(value: &Value) -> bool {
+        match value {
+            Value::Array(values) => values.iter().any(has_tool_calls),
+            Value::Object(object) => {
+                matches!(
+                    object.get("type").and_then(Value::as_str),
+                    Some("tool_use" | "server_tool_use" | "function_call")
+                ) || object
+                    .get("tool_calls")
+                    .and_then(Value::as_array)
+                    .is_some_and(|calls| !calls.is_empty())
+                    || object.values().any(has_tool_calls)
+            }
+            _ => false,
+        }
+    }
+    if matches!(req.mode, OneShotMode::SummaryFork(_)) && has_tool_calls(response) {
+        String::new()
+    } else {
+        text
+    }
 }
 
 // ── Shared HTTP + response-extraction helpers ───────────────────────
@@ -803,8 +928,14 @@ pub(super) fn extract_responses_text(result: &Value) -> String {
 /// Extract usage from Anthropic Messages API response.
 pub(super) fn extract_anthropic_usage(result: &Value) -> ChatUsage {
     let usage = result.get("usage");
-    let input_present = usage.and_then(|u| u.get("input_tokens")).is_some();
-    let output_present = usage.and_then(|u| u.get("output_tokens")).is_some();
+    let input_present = usage
+        .and_then(|u| u.get("input_tokens"))
+        .and_then(Value::as_u64)
+        .is_some();
+    let output_present = usage
+        .and_then(|u| u.get("output_tokens"))
+        .and_then(Value::as_u64)
+        .is_some();
     let input_tokens = usage
         .and_then(|u| u.get("input_tokens"))
         .and_then(|v| v.as_u64())
@@ -817,7 +948,7 @@ pub(super) fn extract_anthropic_usage(result: &Value) -> ChatUsage {
         .and_then(|u| u.get("cache_read_input_tokens"))
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    ChatUsage {
+    let mut parsed = ChatUsage {
         input_tokens,
         output_tokens: usage
             .and_then(|u| u.get("output_tokens"))
@@ -850,26 +981,64 @@ pub(super) fn extract_anthropic_usage(result: &Value) -> ChatUsage {
         },
         rounds_observed: 1,
         token_accounting_observations: Vec::new(),
-    }
+        cache_receipt: Default::default(),
+    };
+    parsed.cache_receipt.read = usage
+        .and_then(|u| u.get("cache_read_input_tokens"))
+        .and_then(Value::as_u64);
+    parsed.cache_receipt.write = usage
+        .and_then(|u| u.get("cache_creation_input_tokens"))
+        .and_then(Value::as_u64);
+    parsed.normalize_anthropic_round();
+    parsed
 }
 
 /// Extract usage from OpenAI Chat/Responses API response.
 pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
     let usage = result.get("usage");
-    let input_present =
-        usage.is_some_and(|u| u.get("input_tokens").is_some() || u.get("prompt_tokens").is_some());
+    let input_present = usage
+        .and_then(|u| u.get("input_tokens").or_else(|| u.get("prompt_tokens")))
+        .and_then(Value::as_u64)
+        .is_some();
     let output_present = usage
-        .is_some_and(|u| u.get("output_tokens").is_some() || u.get("completion_tokens").is_some());
-    let cached = usage
-        .and_then(|u| u.get("prompt_tokens_details"))
-        .and_then(|d| d.get("cached_tokens"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+        .and_then(|u| {
+            u.get("output_tokens")
+                .or_else(|| u.get("completion_tokens"))
+        })
+        .and_then(Value::as_u64)
+        .is_some();
+    let cached_receipt = usage.and_then(|u| {
+        u.get("cache_read_input_tokens")
+            .and_then(Value::as_u64)
+            .or_else(|| {
+                u.pointer("/input_tokens_details/cached_tokens")
+                    .and_then(Value::as_u64)
+            })
+            .or_else(|| {
+                u.pointer("/prompt_tokens_details/cached_tokens")
+                    .and_then(Value::as_u64)
+            })
+            .or_else(|| u.get("cached_tokens").and_then(Value::as_u64))
+            .or_else(|| u.get("prompt_cache_hit_tokens").and_then(Value::as_u64))
+    });
+    let write_receipt = usage.and_then(|u| {
+        u.get("cache_creation_input_tokens")
+            .and_then(Value::as_u64)
+            .or_else(|| {
+                u.pointer("/input_tokens_details/cache_write_tokens")
+                    .and_then(Value::as_u64)
+            })
+            .or_else(|| {
+                u.pointer("/prompt_tokens_details/cache_write_tokens")
+                    .and_then(Value::as_u64)
+            })
+    });
+    let cached = cached_receipt.unwrap_or(0);
     let input_tokens = usage
         .and_then(|u| u.get("input_tokens").or_else(|| u.get("prompt_tokens")))
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    ChatUsage {
+    let mut parsed = ChatUsage {
         input_tokens,
         output_tokens: usage
             .and_then(|u| {
@@ -878,7 +1047,7 @@ pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
             })
             .and_then(|v| v.as_u64())
             .unwrap_or(0),
-        cache_creation_input_tokens: 0,
+        cache_creation_input_tokens: write_receipt.unwrap_or(0),
         cache_read_input_tokens: cached,
         context_input_tokens: input_tokens,
         fresh_input_tokens: input_tokens.saturating_sub(cached),
@@ -886,7 +1055,7 @@ pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
         last_input_tokens: input_tokens,
         last_context_input_tokens: input_tokens,
         last_fresh_input_tokens: input_tokens.saturating_sub(cached),
-        last_cache_creation_input_tokens: 0,
+        last_cache_creation_input_tokens: write_receipt.unwrap_or(0),
         last_cache_read_input_tokens: cached,
         input_coverage: if input_present {
             crate::token_accounting::UsageCoverage::Complete
@@ -900,19 +1069,64 @@ pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
         },
         rounds_observed: 1,
         token_accounting_observations: Vec::new(),
-    }
+        cache_receipt: Default::default(),
+    };
+    parsed.cache_receipt.read = cached_receipt;
+    parsed.cache_receipt.write = write_receipt;
+    parsed.normalize_openai_round();
+    parsed
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
 //
 // The body builders are pure functions, so we can verify their output
-// shape without any HTTP. This is the only line of defense against
-// byte-level prompt-cache regressions: if a JSON key insertion order
-// changes, Anthropic's `cache_control` will miss and OpenAI's prefix
-// cache will rebuild from scratch.
+// shape without any HTTP. These protect rendered prompt prefixes and native
+// cache annotations; JSON object key ordering alone is not a cache identity.
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cache_usage_receipts_distinguish_omission_zero_and_responses_details() {
+        let deepseek = super::extract_openai_usage(&serde_json::json!({"usage": {
+            "prompt_tokens": 100, "completion_tokens": 10,
+            "prompt_cache_hit_tokens": 80, "prompt_cache_miss_tokens": 20
+        }}));
+        assert_eq!(deepseek.cache_read_input_tokens, 80);
+        assert_eq!(deepseek.cache_receipt.read, Some(80));
+        assert_eq!(deepseek.cache_receipt.context, Some(100));
+        assert_eq!(deepseek.cache_receipt.fresh, Some(20));
+        assert_eq!(deepseek.cache_receipt.write, None);
+        let absent = super::extract_openai_usage(
+            &serde_json::json!({"usage": {"input_tokens": 100, "output_tokens": 10}}),
+        );
+        assert_eq!(absent.cache_receipt.read, None);
+        assert_eq!(absent.cache_receipt.write, None);
+        assert_eq!(absent.cache_receipt.context, Some(100));
+        assert_eq!(absent.cache_receipt.fresh, None);
+        let zero = super::extract_openai_usage(
+            &serde_json::json!({"usage": {"input_tokens": 100, "output_tokens": 10, "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0}}}),
+        );
+        assert_eq!(zero.cache_receipt.read, Some(0));
+        assert_eq!(zero.cache_receipt.write, Some(0));
+        assert_eq!(zero.cache_receipt.fresh, Some(100));
+        let responses = super::extract_openai_usage(
+            &serde_json::json!({"usage": {"input_tokens": 100, "output_tokens": 10, "input_tokens_details": {"cached_tokens": 80, "cache_write_tokens": 5}}}),
+        );
+        assert_eq!(responses.cache_read_input_tokens, 80);
+        assert_eq!(responses.cache_receipt.write, Some(5));
+        assert_eq!(responses.cache_receipt.context, Some(100));
+        let anthropic = super::extract_anthropic_usage(
+            &serde_json::json!({"usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 80, "cache_creation_input_tokens": 10}}),
+        );
+        assert_eq!(anthropic.cache_receipt.context, Some(100));
+        assert_eq!(anthropic.cache_receipt.fresh, Some(20));
+        let missing = super::extract_anthropic_usage(
+            &serde_json::json!({"usage": {"input_tokens": 10, "output_tokens": 5}}),
+        );
+        assert_eq!(missing.cache_receipt.read, None);
+        assert_eq!(missing.cache_receipt.context, None);
+    }
+
     #[test]
     fn astra_background_chat_contract_refuses_cached_tools_and_preserves_relays() {
         let tools = serde_json::json!({"model":"gpt-6-astra","tools":[{"type":"function","function":{"name":"read"}}]});
@@ -934,6 +1148,315 @@ mod tests {
         assert_eq!(text["reasoning_effort"], "low");
     }
     use super::*;
+
+    fn native_summary_fork(
+        format: ProviderFormat,
+    ) -> (
+        LlmProvider,
+        ha_core::agent::summary_fork::SummaryForkRequest,
+        Value,
+    ) {
+        use crate::agent::streaming_adapter::{RoundRequest, StreamingChatAdapter};
+        use crate::provider_adapters::{
+            anthropic_adapter::AnthropicStreamingAdapter, codex_adapter::CodexStreamingAdapter,
+            openai_chat_adapter::OpenAIChatStreamingAdapter,
+            openai_responses_adapter::OpenAIResponsesStreamingAdapter,
+        };
+        let source = vec![
+            json!({"role":"user","content":"original request"}),
+            json!({"role":"assistant","content":"completed work"}),
+            json!({"role":"user","content":"protected recent request"}),
+        ];
+        let tools = match format {
+            ProviderFormat::Anthropic => vec![
+                json!({"name":"read","description":"read a file","input_schema":{"type":"object"}}),
+            ],
+            ProviderFormat::OpenAIChat => vec![
+                json!({"name":"read","description":"read a file","parameters":{"type":"object"}}),
+            ],
+            _ => vec![
+                json!({"type":"function","name":"read","description":"read a file","parameters":{"type":"object"}}),
+            ],
+        };
+        let req = RoundRequest {
+            session_id: None,
+            system_prompt: "stable system",
+            run_instruction_suffix: Some("trusted run frame"),
+            run_data_suffix: None,
+            awareness_suffix: Some("untrusted changing observation"),
+            active_memory_suffix: None,
+            legacy_memory_suffix: None,
+            coding_profile_suffix: None,
+            procedure_memory_suffix: None,
+            related_notes_suffix: None,
+            attached_knowledge_suffix: None,
+            capability_catalog_suffix: None,
+            user_profile_suffix: None,
+            environment_context_suffix: None,
+            lsp_diagnostics_suffix: None,
+            task_reminder_suffix: None,
+            tool_schemas: &tools,
+            deferred_tool_schemas: &[],
+            eager_tool_count: 1,
+            deferred_tool_count: 0,
+            activated_tool_count: 0,
+            prompt_cache_key: Some("same-route"),
+            history_for_api: &source,
+            vision_bridge_available: false,
+            reasoning_effort: Some("medium"),
+            reasoning_disabled: false,
+            temperature: Some(0.2),
+            max_tokens: 8192,
+            is_final_round: false,
+            round: 0,
+        };
+        let reasoning = Some(crate::agent::api_types::ReasoningConfig {
+            effort: "medium".into(),
+            summary: Some("auto".into()),
+        });
+        let provider = match format {
+            ProviderFormat::Anthropic => LlmProvider::Anthropic {
+                api_key: "synthetic".into(),
+                base_url: "https://synthetic.example".into(),
+                model: "test-model".into(),
+                workspace_id: None,
+            },
+            ProviderFormat::OpenAIChat => LlmProvider::OpenAIChat {
+                api_key: "synthetic".into(),
+                base_url: "https://synthetic.example".into(),
+                model: "test-model".into(),
+            },
+            ProviderFormat::OpenAIResponses => LlmProvider::OpenAIResponses {
+                api_key: "synthetic".into(),
+                base_url: "https://synthetic.example".into(),
+                model: "test-model".into(),
+            },
+            ProviderFormat::Codex => LlmProvider::Codex {
+                access_token: "synthetic".into(),
+                account_id: "synthetic-account".into(),
+                model: "test-model".into(),
+            },
+        };
+        let thinking_style = crate::provider::ThinkingStyle::Openai;
+        let adapter: Box<dyn StreamingChatAdapter> = match format {
+            ProviderFormat::Anthropic => Box::new(AnthropicStreamingAdapter {
+                api_key: "synthetic",
+                base_url: "https://synthetic.example",
+                model: "test-model",
+                workspace_id: None,
+            }),
+            ProviderFormat::OpenAIChat => Box::new(OpenAIChatStreamingAdapter {
+                api_key: "synthetic",
+                base_url: "https://synthetic.example",
+                model: "test-model",
+                thinking_style: &thinking_style,
+                provider_config: None,
+                vision_runtime_disabled: Arc::new(AtomicBool::new(false)),
+                vision_notice_emitted: Arc::new(AtomicBool::new(false)),
+                prepared_history_had_images: AtomicBool::new(false),
+            }),
+            ProviderFormat::OpenAIResponses => Box::new(OpenAIResponsesStreamingAdapter {
+                api_key: "synthetic",
+                base_url: "https://synthetic.example",
+                model: "test-model",
+                reasoning,
+            }),
+            ProviderFormat::Codex => Box::new(CodexStreamingAdapter {
+                access_token: "synthetic",
+                account_id: "synthetic-account",
+                model: "test-model",
+                reasoning,
+            }),
+        };
+        let prepared = adapter.prepare_round_request(&req).unwrap();
+        let original: Value = serde_json::from_slice(&prepared.body()).unwrap();
+        let template = ha_core::agent::summary_fork::SummaryForkTemplate::from_prepared(
+            &provider, &prepared, &source,
+        )
+        .unwrap_or_else(|| panic!("native summary template rejected for {format:?}"));
+        let fork = template
+            .build(&source[..2], "checkpoint only", 8192, 100_000)
+            .unwrap();
+        (provider, fork, original)
+    }
+
+    #[test]
+    fn summary_fork_roundtrips_real_main_request_builders_without_resetting_prefix_settings() {
+        for format in [
+            ProviderFormat::Anthropic,
+            ProviderFormat::OpenAIChat,
+            ProviderFormat::OpenAIResponses,
+            ProviderFormat::Codex,
+        ] {
+            let (_provider, fork, original) = native_summary_fork(format);
+            let req = OneShotRequest {
+                instruction: "must not serialize a second history",
+                max_tokens: 8192,
+                mode: OneShotMode::SummaryFork(&fork),
+                user_content: None,
+            };
+            let body = match format {
+                ProviderFormat::Anthropic => build_anthropic_body("test-model", &req),
+                ProviderFormat::OpenAIChat => build_openai_chat_body("test-model", &req),
+                _ => build_responses_body("test-model", &req, format),
+            };
+            for field in [
+                "system",
+                "instructions",
+                "tools",
+                "thinking",
+                "output_config",
+                "reasoning",
+                "reasoning_effort",
+                "temperature",
+                "prompt_cache_key",
+            ] {
+                assert_eq!(
+                    body.get(field),
+                    original.get(field),
+                    "changed {field} for {format:?}"
+                );
+            }
+            assert_eq!(body.to_string().matches("original request").count(), 1);
+            assert_eq!(body.to_string().matches("checkpoint only").count(), 1);
+            assert!(!body.to_string().contains("protected recent request"));
+            assert!(!body.to_string().contains("second history"));
+            assert!(!body.to_string().contains("changing observation"));
+            assert_eq!(body["stream"], format == ProviderFormat::Codex);
+            if format != ProviderFormat::Codex {
+                assert!(body.get("stream_options").is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn summary_fork_tool_responses_cannot_be_installed_as_summaries() {
+        let (_, fork, _) = native_summary_fork(ProviderFormat::Anthropic);
+        let req = OneShotRequest {
+            instruction: "checkpoint",
+            max_tokens: 8192,
+            mode: OneShotMode::SummaryFork(&fork),
+            user_content: None,
+        };
+        for response in [
+            json!({"content":[{"type":"text","text":"summary"},{"type":"tool_use","id":"call","name":"write","input":{"path":"must-not-run"}}]}),
+            json!({"choices":[{"message":{"content":"summary","tool_calls":[{"id":"call","function":{"name":"write"}}]}}]}),
+            json!({"output":[{"type":"function_call","name":"write","arguments":"{}"}]}),
+        ] {
+            assert!(summary_text_only(&req, &response, "summary".into()).is_empty());
+        }
+        assert_eq!(
+            summary_text_only(
+                &req,
+                &json!({"content":[{"type":"text","text":"summary"}]}),
+                "summary".into()
+            ),
+            "summary"
+        );
+    }
+
+    #[test]
+    fn summary_fork_reuses_explicit_responses_history_boundary_without_caching_directive() {
+        use crate::provider_adapters::openai_responses_adapter::OpenAIResponsesStreamingAdapter;
+        use crate::streaming_adapter::StreamingChatAdapter;
+        let source = vec![
+            json!({"role":"user","content":"original request"}),
+            json!({"role":"assistant","content":"old answer"}),
+            json!({"role":"user","content":"protected current request"}),
+        ];
+        let mut req = crate::provider_adapters::test_support::round_request(&source);
+        req.awareness_suffix = Some("volatile data");
+        let provider = LlmProvider::OpenAIResponses {
+            api_key: "synthetic".into(),
+            base_url: "https://api.openai.com".into(),
+            model: "gpt-5.6".into(),
+        };
+        let adapter = OpenAIResponsesStreamingAdapter {
+            api_key: "synthetic",
+            base_url: "https://api.openai.com",
+            model: "gpt-5.6",
+            reasoning: None,
+        };
+        let prepared = adapter.prepare_round_request(&req).unwrap();
+        let main: Value = serde_json::from_slice(&prepared.body()).unwrap();
+        let template = ha_core::agent::summary_fork::SummaryForkTemplate::from_prepared(
+            &provider, &prepared, &source,
+        )
+        .unwrap();
+        let fork = template
+            .build(&source[..2], "checkpoint only", 4096, 200_000)
+            .unwrap();
+        let body = build_responses_body(
+            "gpt-5.6",
+            &OneShotRequest {
+                instruction: "unused",
+                max_tokens: 4096,
+                mode: OneShotMode::SummaryFork(&fork),
+                user_content: None,
+            },
+            ProviderFormat::OpenAIResponses,
+        );
+        assert_eq!(body["prompt_cache_options"], main["prompt_cache_options"]);
+        assert_eq!(body["input"][1], main["input"][1]);
+        assert_eq!(
+            body["input"][1]["content"][0]["prompt_cache_breakpoint"]["mode"],
+            "explicit"
+        );
+        assert_eq!(
+            body["input"].as_array().unwrap().last().unwrap()["content"],
+            "checkpoint only"
+        );
+        assert!(!body.to_string().contains("volatile data"));
+        assert!(!body.to_string().contains("protected current request"));
+    }
+
+    #[tokio::test]
+    async fn summary_fork_provider_mismatch_is_rejected_before_network_io() {
+        let (_, fork, _) = native_summary_fork(ProviderFormat::Anthropic);
+        let provider = LlmProvider::Anthropic {
+            api_key: "different-account".into(),
+            base_url: "https://synthetic.example".into(),
+            model: "test-model".into(),
+            workspace_id: None,
+        };
+        let error = Runtime
+            .one_shot(
+                &provider,
+                &reqwest::Client::new(),
+                OneShotRequest {
+                    instruction: "checkpoint",
+                    max_tokens: 8192,
+                    mode: OneShotMode::SummaryFork(&fork),
+                    user_content: None,
+                },
+            )
+            .await
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("prefix provider mismatch"));
+    }
+
+    #[tokio::test]
+    async fn summary_fork_cannot_enter_the_general_streaming_path() {
+        let (provider, fork, _) = native_summary_fork(ProviderFormat::Anthropic);
+        let error = Runtime
+            .one_shot_stream(
+                &provider,
+                &reqwest::Client::new(),
+                OneShotRequest {
+                    instruction: "checkpoint",
+                    max_tokens: 8192,
+                    mode: OneShotMode::SummaryFork(&fork),
+                    user_content: None,
+                },
+                &Arc::new(AtomicBool::new(false)),
+                &|_| {},
+            )
+            .await
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("single-response dispatch"));
+    }
 
     fn cached_anthropic() -> CacheSafeParams {
         CacheSafeParams {
@@ -1366,6 +1889,32 @@ mod tests {
             !instructions.trim().is_empty(),
             "Codex rejects one-shot requests without instructions"
         );
+    }
+
+    #[test]
+    fn codex_cached_side_query_preserves_optional_tool_arguments() {
+        let mut params = cached_codex();
+        let parameters = json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "limit": {"type": "integer"}
+            },
+            "required": ["path"]
+        });
+        params.tool_schemas = vec![json!({
+            "type": "function", "name": "read", "parameters": parameters
+        })];
+        let request = OneShotRequest {
+            instruction: "summarize the cached conversation",
+            max_tokens: 100,
+            mode: OneShotMode::Cached(&params),
+            user_content: None,
+        };
+        let body = build_responses_body("gpt-6.1-sol", &request, ProviderFormat::Codex);
+        assert_eq!(body["tools"][0]["strict"], false);
+        assert_eq!(body["tools"][0]["parameters"], parameters);
+        assert!(params.tool_schemas[0].get("strict").is_none());
     }
 
     #[test]

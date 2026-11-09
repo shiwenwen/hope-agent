@@ -13,6 +13,7 @@ pub mod import;
 pub mod import_prompt;
 pub mod mmr;
 pub mod pending;
+pub mod prompt_preferences;
 pub mod recall_planner;
 pub mod recall_summary;
 pub mod reembed_job;

@@ -4397,6 +4397,9 @@ mod tests {
     }
 
     fn temp_session_db() -> (tempfile::TempDir, Arc<SessionDB>) {
+        ha_agent_runtime::wire();
+        ha_workflow::wire();
+        ha_improve::wire();
         let dir = tempfile::tempdir().expect("temp db dir");
         let db = Arc::new(
             SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))

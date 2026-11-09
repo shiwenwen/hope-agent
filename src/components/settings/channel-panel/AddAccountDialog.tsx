@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
@@ -34,7 +34,8 @@ import WeChatConnectSection from "./WeChatConnectSection"
 import TelegramGroupChannelConfig from "./TelegramGroupConfig"
 import TelegramConnectionFields from "./TelegramConnectionFields"
 import SaveErrorBanner from "./SaveErrorBanner"
-import { defaultWeChatLabel, parseChannelSaveError, withTelegramApiRoot } from "./utils"
+import { WeComConnectionFields, WeComGroupFields } from "./WeComFields"
+import { defaultWeChatLabel, parseChannelSaveError, withTelegramApiRoot, withWeComGroups } from "./utils"
 import type {
   AgentInfo,
   ChannelPluginInfo,
@@ -62,6 +63,14 @@ export default function AddAccountDialog({
   const [step, setStep] = useState<"select" | "configure">("select")
   const [channelId, setChannelId] = useState("")
   const [label, setLabel] = useState("")
+  const [formTransport, setFormTransport] = useState(getTransport)
+  const [wecomBotId, setWeComBotId] = useState("")
+  const [wecomSecret, setWeComSecret] = useState("")
+  const [wecomGroupIds, setWeComGroupIds] = useState("")
+  useEffect(() => {
+    if (open) setFormTransport(getTransport())
+    else { setWeComBotId(""); setWeComSecret(""); setWeComGroupIds("") }
+  }, [open])
 
   // Sync initialChannelId when dialog opens
   useEffect(() => {
@@ -130,6 +139,8 @@ export default function AddAccountDialog({
 
   const buildCredentials = () => {
     switch (channelId) {
+      case "wecom":
+        return { botId: wecomBotId.trim(), secret: wecomSecret.trim() }
       case "slack":
         return { botToken: slackBotToken.trim(), appToken: slackAppToken.trim() }
       case "feishu":
@@ -169,6 +180,7 @@ export default function AddAccountDialog({
   }
 
   const buildSettings = (): Record<string, unknown> => {
+    if (channelId === "wecom") return { imReplyMode: "final" }
     if (channelId === "telegram") {
       return withTelegramApiRoot({}, telegramApiRoot)
     }
@@ -203,6 +215,7 @@ export default function AddAccountDialog({
       case "slack": return !!slackBotToken.trim() && !!slackAppToken.trim()
       case "feishu": return !!feishuAppId.trim() && !!feishuAppSecret.trim()
       case "qqbot": return !!qqAppId.trim() && !!qqClientSecret.trim()
+      case "wecom": return !!wecomBotId.trim() && !!wecomSecret.trim() && getTransport() === formTransport
       case "wechat": return !!wechatConnection
       case "irc": return !!ircServer.trim() && !!ircNick.trim()
       case "signal": return !!signalAccount.trim()
@@ -247,7 +260,26 @@ export default function AddAccountDialog({
     }
   }, [channelId, label, wechatConnection])
 
+  const previousSecurityChannel = useRef("")
+  useEffect(() => {
+    const previous = previousSecurityChannel.current
+    previousSecurityChannel.current = channelId
+    if (channelId === "wecom" || previous === "wecom") {
+      // A WeCom draft must neither grant access on reopen nor leave its
+      // deny-by-default policies attached to a different channel's new draft.
+      const policy = channelId === "wecom" ? "allowlist" : "open"
+      setDmPolicy(policy)
+      setGroupPolicy(policy)
+      setUserAllowlist([])
+      setAllowlistInput("")
+      setGroups({})
+      setChannels({})
+      setWeComGroupIds("")
+    }
+  }, [channelId, open])
+
   const handleSave = async () => {
+    if (channelId === "wecom" && getTransport() !== formTransport) { setSaveError(t("channels.wecomHostChanged")); return }
     if (!canSave()) return
 
     setSaving(true)
@@ -269,10 +301,14 @@ export default function AddAccountDialog({
           userAllowlist,
           adminIds: [],
           groupPolicy,
-          groups,
+          groups: channelId === "wecom" ? withWeComGroups(groups, wecomGroupIds) : groups,
           channels,
         },
       })
+      if (channelId === "wecom" && getTransport() !== formTransport) {
+        setSaveError(t("channels.wecomHostChanged"))
+        return
+      }
       // Reset form
       setStep("select")
       setChannelId("")
@@ -284,6 +320,9 @@ export default function AddAccountDialog({
       setFeishuAppId("")
       setFeishuAppSecret("")
       setFeishuDomain("feishu")
+      setWeComBotId("")
+      setWeComSecret("")
+      setWeComGroupIds("")
       setQqAppId("")
       setQqClientSecret("")
       setAgentId("")
@@ -349,7 +388,7 @@ export default function AddAccountDialog({
           <>
             <DialogHeader>
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleBack}>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleBack} aria-label={t("common.back")}>
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <div className="flex items-center gap-2">
@@ -360,6 +399,10 @@ export default function AddAccountDialog({
             </DialogHeader>
 
             <div className="space-y-4">
+              {channelId === "wecom" && (
+                <WeComConnectionFields botId={wecomBotId} secret={wecomSecret}
+                  onBotIdChange={setWeComBotId} onSecretChange={setWeComSecret} sourceTransport={formTransport} />
+              )}
               {/* Telegram token + optional Bot API reverse proxy */}
               {channelId === "telegram" && (
                 <TelegramConnectionFields
@@ -800,6 +843,10 @@ export default function AddAccountDialog({
                 />
               )}
 
+              {channelId === "wecom" && (
+                <WeComGroupFields policy={groupPolicy} onPolicyChange={setGroupPolicy}
+                  ids={wecomGroupIds} onIdsChange={setWeComGroupIds} />
+              )}
               {/* Telegram-specific: Group & Channel Config */}
               {channelId === "telegram" && (
                 <TelegramGroupChannelConfig
