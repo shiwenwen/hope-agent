@@ -4156,6 +4156,10 @@
       "description": "멀티모델 라우팅 게이트웨이, 하나의 Key 로 수백 개 모델",
       "name": "Requesty"
     },
+    "standardcompute": {
+      "description": "멀티모델 라우팅 게이트웨이, 요청마다 처리 가능한 가장 저렴한 모델을 자동 선택",
+      "name": "Standard Compute"
+    },
     "together": {
       "description": "오픈소스 모델 클라우드 추론 플랫폼",
       "name": "Together AI"

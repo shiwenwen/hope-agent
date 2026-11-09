@@ -4156,6 +4156,10 @@
       "description": "多模型路由閘道器，一個 Key 用數百個模型",
       "name": "Requesty"
     },
+    "standardcompute": {
+      "description": "多模型路由閘道器，預設依請求自動選擇能勝任的最低成本模型",
+      "name": "Standard Compute"
+    },
     "together": {
       "description": "開源模型雲推理平臺",
       "name": "Together AI"
