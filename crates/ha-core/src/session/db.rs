@@ -1833,6 +1833,7 @@ impl SessionDB {
 
         crate::personal_assistant::ensure_tables(&conn)?;
         crate::personal_assistant_continue::migrate(&conn)?;
+        crate::personal_assistant_im::migrate(&conn)?;
 
         // Read-only connection pool. WAL lets these run concurrently with the
         // writer; opened AFTER all migrations above so they observe the final
@@ -4012,7 +4013,7 @@ impl SessionDB {
         let conn = self.read_conn()?;
         let mut sql = format!(
             "{} WHERE s.incognito = 0 AND s.archived_at IS NULL
-             AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
+             AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')
              AND (?1 IS NULL OR s.agent_id = ?1)
              AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
              AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)",
@@ -4402,7 +4403,7 @@ impl SessionDB {
         // main session list / picker — hide them unconditionally (no active
         // exception, unlike incognito below).
         where_clauses.push(
-            "s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')"
+            "s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')"
                 .to_string(),
         );
         where_clauses.push("s.archived_at IS NULL".to_string());
@@ -4477,7 +4478,7 @@ impl SessionDB {
     ) -> Result<(Vec<SessionMeta>, u32)> {
         let conn = self.read_conn()?;
         let where_sql = " WHERE s.archived_at IS NOT NULL AND s.incognito = 0
-              AND s.kind NOT IN ('side', 'eval_fixture', 'personal_assistant')";
+              AND s.kind NOT IN ('side', 'eval_fixture', 'personal_assistant','personal_assistant_im')";
         let total: u32 = conn.query_row(
             &format!("SELECT COUNT(*) FROM sessions s{where_sql}"),
             [],
@@ -7216,7 +7217,7 @@ impl SessionDB {
                    FROM sessions s
                   WHERE s.is_cron = 0
                     AND s.archived_at IS NULL
-                    AND s.kind NOT IN ('side', 'knowledge', 'eval_fixture', 'personal_assistant')
+                    AND s.kind NOT IN ('side', 'knowledge', 'eval_fixture', 'personal_assistant','personal_assistant_im')
                     AND (
                         (s.project_id IS NULL
                          AND s.parent_session_id IS NULL
@@ -7646,7 +7647,7 @@ impl SessionDB {
             // session and is allowed to search its content while it is open.
             where_clauses.push("s.incognito = 0".to_string());
             where_clauses.push(
-                "s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')"
+                "s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')"
                     .to_string(),
             );
             where_clauses.push("s.archived_at IS NULL".to_string());
@@ -7659,7 +7660,7 @@ impl SessionDB {
                 for t in type_list {
                     match t {
                         SessionTypeFilter::Regular => type_clauses.push(
-                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant'))".to_string(),
+                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im'))".to_string(),
                         ),
                         SessionTypeFilter::Cron => {
                             type_clauses.push("s.is_cron = 1".to_string())
@@ -7978,7 +7979,7 @@ impl SessionDB {
                  FROM sessions s
                  WHERE s.incognito = 0
                    AND s.archived_at IS NULL
-                   AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
+                   AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')
                    AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
                    AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                    AND COALESCE(s.title, '') LIKE ?1 ESCAPE '\\'
@@ -8019,7 +8020,7 @@ impl SessionDB {
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
                        AND s.archived_at IS NULL
-                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
+                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')
                        AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
                        AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                  )
@@ -8062,7 +8063,7 @@ impl SessionDB {
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
                        AND s.archived_at IS NULL
-                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
+                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')
                        AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
                        AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                  )

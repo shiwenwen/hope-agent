@@ -5313,6 +5313,8 @@ export default function ChatScreen({
           )}
           {isPersonalAssistant && (
             <PersonalAssistantPanel
+              visible={isViewVisible}
+              sessions={session.sessions}
               state={assistant}
               onOpenRequest={openAssistantRequest}
               onOpenGoal={openAssistantGoal}

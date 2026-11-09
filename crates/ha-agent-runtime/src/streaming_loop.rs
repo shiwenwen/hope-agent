@@ -1386,7 +1386,9 @@ async fn fire_post_tool_use_hook(
     elapsed_ms: u64,
 ) -> PostToolHookProjection {
     use crate::hooks::{HookDispatcher, HookEvent, HookInput};
-
+    if ctx.tool_scope == Some(crate::tool_defs::ToolScope::PersonalAssistantIm) {
+        return PostToolHookProjection::default();
+    }
     let event = if is_error {
         HookEvent::PostToolUseFailure
     } else {
@@ -1467,6 +1469,9 @@ async fn drain_queued_turn_user_messages<F>(
 where
     F: Fn(&str) + Send + Sync,
 {
+    if agent.is_restricted_assistant_im() {
+        return 0;
+    }
     let Some(session_id) = agent.runtime_session_id() else {
         return 0;
     };
@@ -2562,7 +2567,10 @@ impl RuntimeAgentExt for AssistantAgent {
         self.warm_memory_agent_config().await;
         let agent_caps = self.agent_caps();
         let app_config = crate::config::cached_config();
-        if agent_caps.mcp_enabled && app_config.mcp_global.enabled {
+        if !self.is_restricted_assistant_im()
+            && agent_caps.mcp_enabled
+            && app_config.mcp_global.enabled
+        {
             // Initialization starts eager MCP connections in the background.
             // This process-wide one-shot barrier only closes the startup race;
             // failure recovery never blocks later chat turns. Lazy servers are
@@ -2607,7 +2615,9 @@ impl RuntimeAgentExt for AssistantAgent {
         };
         let (session_policy_instruction, session_policy_data) = session_policy_context;
         let capability_catalog_suffix = self.current_capability_catalog_suffix();
-        let environment_context_suffix = {
+        let environment_context_suffix = if self.is_restricted_assistant_im() {
+            None
+        } else {
             let session_db = self.runtime_session_db().cloned();
             let session_id = self.runtime_session_id().map(str::to_string);
             let build_environment = run_serialized_round_environment_scan(move || {
@@ -2707,7 +2717,11 @@ impl RuntimeAgentExt for AssistantAgent {
         let mut deferred_tool_count = tool_inventory.deferred_count;
         let mut deferred_tool_schemas = tool_inventory.deferred_schemas;
         let mut tool_schemas = tool_inventory.schemas;
-        let max_rounds_cfg = super::config::get_max_tool_rounds(self.runtime_agent_id());
+        let max_rounds_cfg = if self.is_restricted_assistant_im() {
+            6
+        } else {
+            super::config::get_max_tool_rounds(self.runtime_agent_id())
+        };
         let mut loop_machine = LoopStateMachine::from_configured_max(max_rounds_cfg);
         let max_rounds = loop_machine.configured_max_or_unlimited();
         let round_limit_enabled = loop_machine.is_limited();
@@ -3172,7 +3186,10 @@ impl RuntimeAgentExt for AssistantAgent {
             // per turn (memoized) and only once diagnostics exist — so a
             // diagnostic introduced by an earlier round's edit is picked up on
             // the next round even if the turn started clean (P1).
-            let lsp_diagnostics_suffix = if !lsp_incognito && crate::lsp::has_any_diagnostics() {
+            let lsp_diagnostics_suffix = if !lsp_incognito
+                && !self.is_restricted_assistant_im()
+                && crate::lsp::has_any_diagnostics()
+            {
                 let working_dir = lsp_working_dir_memo.get_or_insert_with(|| {
                     self.lookup_session_meta()
                         .as_ref()
@@ -4569,7 +4586,8 @@ impl RuntimeAgentExt for AssistantAgent {
             let mut post_batch_stop: Option<String> = None;
             let post_tool_batch_wd =
                 crate::session::effective_session_working_dir(self.runtime_session_id());
-            if !executed.is_empty()
+            if !self.is_restricted_assistant_im()
+                && !executed.is_empty()
                 && crate::hooks::scopes::any_handlers_for(
                     crate::hooks::HookEvent::PostToolBatch,
                     post_tool_batch_wd.as_deref().map(std::path::Path::new),

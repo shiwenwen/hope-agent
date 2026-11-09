@@ -378,6 +378,9 @@ pub(crate) async fn tool_sessions_list(
     args: &Value,
     ctx: &super::execution::ToolExecContext,
 ) -> Result<String> {
+    if crate::personal_assistant_im::scoped_tools::restricted(ctx) {
+        return crate::personal_assistant_im::scoped_tools::list(ctx).await;
+    }
     let agent_id = args.get("agent_id").and_then(|v| v.as_str());
     let limit = args
         .get("limit")
@@ -439,6 +442,9 @@ pub(crate) async fn tool_session_status(
     args: &Value,
     ctx: &super::execution::ToolExecContext,
 ) -> Result<String> {
+    if crate::personal_assistant_im::scoped_tools::restricted(ctx) {
+        return crate::personal_assistant_im::scoped_tools::status(args, ctx).await;
+    }
     let session_id = args
         .get("session_id")
         .and_then(|v| v.as_str())
@@ -787,6 +793,9 @@ pub(crate) async fn tool_sessions_send(
     args: &Value,
     ctx: &super::execution::ToolExecContext,
 ) -> Result<String> {
+    if crate::personal_assistant_im::scoped_tools::restricted(ctx) {
+        return crate::personal_assistant_im::scoped_tools::send(args, ctx).await;
+    }
     let foreground_admission = crate::chat_engine::active_turn::begin_foreground_request();
     if ctx.incognito {
         return Ok("Refusing cross-session messaging from an incognito session.".to_string());
@@ -1045,11 +1054,26 @@ async fn pump_personal_assistant(db: Arc<crate::session::SessionDB>) -> Result<(
                 continue;
             }
         };
+        let source_turn = request.source_turn_id.clone();
+        let from_im = db
+            .run(move |db| -> Result<bool> {
+                let turn = db
+                    .get_chat_turn(&source_turn)?
+                    .ok_or_else(|| anyhow::anyhow!("Assistant source turn unavailable"))?;
+                Ok(db.get_session(&turn.session_id)?.is_some_and(|source| {
+                    source.kind == crate::session::SessionKind::PersonalAssistantIm
+                }))
+            })
+            .await?;
         let context = crate::tool_defs::ToolExecContext {
             session_id: Some(home.id),
             session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
             turn_admitted_global_stop_epoch: Some(request.global_stop_epoch),
-            origin_chat_source: Some(crate::knowledge::KbAccessSource::Gui),
+            origin_chat_source: Some(if from_im {
+                crate::knowledge::KbAccessSource::Im
+            } else {
+                crate::knowledge::KbAccessSource::Gui
+            }),
             ..Default::default()
         };
         let admission = crate::chat_engine::active_turn::begin_foreground_request();

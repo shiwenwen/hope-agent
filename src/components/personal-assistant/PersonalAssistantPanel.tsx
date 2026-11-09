@@ -4,6 +4,8 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { requestNeedsResponse } from "./usePersonalAssistant"
+import { PersonalAssistantImPanel } from "./PersonalAssistantImPanel"
+import type { SessionMeta } from "@/types/chat"
 import type {
   AssistantRequest,
   AssistantWatch,
@@ -14,10 +16,14 @@ export function PersonalAssistantPanel({
   state,
   onOpenRequest,
   onOpenGoal,
+  sessions = [],
+  visible = true,
 }: {
   state: PersonalAssistantState
   onOpenRequest: (request: AssistantRequest) => Promise<void>
   onOpenGoal: (watch: AssistantWatch) => Promise<void>
+  sessions?: SessionMeta[]
+  visible?: boolean
 }) {
   const { t } = useTranslation()
   const [pending, setPending] = useState<string | null>(null)
@@ -34,14 +40,19 @@ export function PersonalAssistantPanel({
   return (
     <section
       aria-label={t("personalAssistant.title")}
-      className="border-b border-border-soft px-4 py-2"
+      className="min-w-0 border-b border-border-soft px-4 py-2"
     >
       <Tabs defaultValue="work">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{t("personalAssistant.title")}</span>
-          <TabsList>
+          <TabsList className="h-auto max-w-full flex-wrap justify-start">
             <TabsTrigger value="work">{t("personalAssistant.work")}</TabsTrigger>
             <TabsTrigger value="goals">{t("personalAssistant.goals")}</TabsTrigger>
+            {state.authorized && (
+              <TabsTrigger value="im">
+                {t("personalAssistant.im.title", "Connect Telegram")}
+              </TabsTrigger>
+            )}
           </TabsList>
           <Button
             variant="ghost"
@@ -75,7 +86,11 @@ export function PersonalAssistantPanel({
                 </span>
               </div>
               <p className="whitespace-pre-wrap break-words">{request.instruction}</p>
-              {request.resultPreview && <blockquote className="mt-2 whitespace-pre-wrap break-words border-l-2 border-border pl-3 text-muted-foreground">{request.resultPreview}</blockquote>}
+              {request.resultPreview && (
+                <blockquote className="mt-2 whitespace-pre-wrap break-words border-l-2 border-border pl-3 text-muted-foreground">
+                  {request.resultPreview}
+                </blockquote>
+              )}
               {requestNeedsResponse(request) && (
                 <p role="status" className="text-amber-700 dark:text-amber-400">
                   {t("chat.pendingInteractionHint")}
@@ -142,6 +157,11 @@ export function PersonalAssistantPanel({
             </article>
           ))}
         </TabsContent>
+        {state.authorized && (
+          <TabsContent value="im" className="max-h-[60vh] overflow-y-auto">
+            <PersonalAssistantImPanel sessions={sessions} visible={visible} />
+          </TabsContent>
+        )}
       </Tabs>
     </section>
   )
