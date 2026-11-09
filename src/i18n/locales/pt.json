@@ -4068,6 +4068,10 @@
       "description": "Plataforma internacional de modelos BytePlus AI",
       "name": "Byte Plus"
     },
+    "cheaperinference": {
+      "description": "Gateway LLM compatível com OpenAI, modelos de vários laboratórios com uma única key",
+      "name": "Cheaper Inference"
+    },
     "chutes": {
       "description": "Inferência IA em ambientes de execução confiáveis (TEE)",
       "name": "Chutes (TEE)"

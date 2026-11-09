@@ -4068,6 +4068,10 @@
       "description": "BytePlus AI 国際版大規模モデルプラットフォーム",
       "name": "バイトプラス"
     },
+    "cheaperinference": {
+      "description": "OpenAI 互換の LLM ゲートウェイ、1 つの Key で複数ベンダーのモデル",
+      "name": "Cheaper Inference"
+    },
     "chutes": {
       "description": "TEE 信頼実行環境 AI 推論",
       "name": "Chutes (TEE)"

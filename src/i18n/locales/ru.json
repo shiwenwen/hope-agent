@@ -4068,6 +4068,10 @@
       "description": "Международная платформа моделей BytePlus AI",
       "name": "БайтПлюс"
     },
+    "cheaperinference": {
+      "description": "OpenAI-совместимый LLM-шлюз, модели нескольких разработчиков по одному ключу",
+      "name": "Cheaper Inference"
+    },
     "chutes": {
       "description": "AI-инференс в доверенной среде выполнения (TEE)",
       "name": "Chutes (TEE)"

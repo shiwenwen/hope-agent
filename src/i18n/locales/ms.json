@@ -4068,6 +4068,10 @@
       "description": "Platform model AI antarabangsa BytePlus",
       "name": "BytePlus"
     },
+    "cheaperinference": {
+      "description": "Get laluan LLM serasi OpenAI, model daripada beberapa makmal dengan satu key",
+      "name": "Cheaper Inference"
+    },
     "chutes": {
       "description": "Inferens AI dalam persekitaran pelaksanaan dipercayai (TEE)",
       "name": "Chutes (TEE)"

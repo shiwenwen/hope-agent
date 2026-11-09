@@ -4068,6 +4068,10 @@
       "description": "BytePlus AI 國際版大模型平臺",
       "name": "BytePlus（海外火山）"
     },
+    "cheaperinference": {
+      "description": "OpenAI 相容的 LLM 閘道器，一個 Key 呼叫多家廠商模型",
+      "name": "Cheaper Inference"
+    },
     "chutes": {
       "description": "TEE 可信執行環境 AI 推理",
       "name": "Chutes (TEE)"
