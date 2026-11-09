@@ -46,7 +46,7 @@ pub async fn cancel_personal_assistant_request(
 ) -> Result<Json<AssistantRequest>, AppError> {
     require_owner(&auth)?;
     Ok(Json(
-        ha_core::tools::cancel_personal_assistant_dispatch(session_db()?, id).await?,
+        ha_core::tools::cancel_personal_assistant_dispatch(session_db()?.clone(), id).await?,
     ))
 }
 
