@@ -272,7 +272,7 @@ jobs:
             echo "docs/release-notes/${TAG}.en.md"
             # Public setup guides linked by recent notes. Older tags can
             # predate these paths; only stage guides shipped by this tag.
-            for p in "docs/user-guide/02-模型与Provider.md" "docs/user-guide/en/02-models-and-providers.md"; do
+            for p in "docs/user-guide/02-模型与Provider.md" "docs/user-guide/en/02-models-and-providers.md" "docs/user-guide/03-对话与会话.md" "docs/user-guide/en/03-chat-and-sessions.md"; do
               if git cat-file -e "${TAG}:${p}" 2>/dev/null; then
                 echo "$p"
               fi

@@ -270,7 +270,7 @@ gotcha that most often explains a failure. Open every DB read-only.
 - PDF 解析失败沿文本回退处理；深层输入的受控错误与进程 abort 分别记录。quick-xml 自有/Excel 为 0.41，xcb 旧构建链与 GTK/glib 平台债不冒称已消除。
 - 客户端 MP4 导出分别定位编码、异步封装与清理错误；成功须有最终 MP4 bytes，不能以抓帧数或 encoder flush 完成认定已交付。Mediabunny 仅为隔离候选，合成读回不证明平台 H.264 编码/播放可用，生产默认未切换。
 - 裸二进制/桌面验签共同锁定 minisign-verify 0.3.0（2026-11-05）；验签失败先核 payload、签名、公钥及 legacy 模式，不放宽校验。原0.2.5也检查规范S，版本差异不能当漏洞证据；公开测试公钥夹具不替代真实安装验收。
-- 桌面 updater 的 Rust/JS 两端固定 2.14.0（2026-10-19 配对维护）；降级开关来自应用配置且固定 false，不通过 renderer 参数覆盖版本门，不关闭验签/重启确认。
+- 桌面 updater 的 Rust/JS 分别固定 2.14.1 / 2.14.0（2026-11-06 发版核对，主次版本一致）；降级开关来自应用配置且固定 false，不通过 renderer 参数覆盖版本门，不关闭验签/重启确认。
 - R2 镜像或 Linux 仓库发布在安装 rclone 时失败：检查共用 `scripts/install-rclone.sh` 的固定版本、大小和官方 SHA，以及离线 version/flags 步骤；大小/摘要错误在解压执行前拒绝，版本/flag错误在原子安装前拒绝。不改成 apt 或跳过核验，不为排障带入桶凭据或重发生产工作流。
 - 桌面发布在编译前报 `Found version mismatched Tauri packages` → 对照 Cargo.lock 与 pnpm-lock.yaml 的全部官方插件，而非只看 tauri/API/updater；dialog、notification、process 同样要求 major.minor 配对。运行 `node scripts/verify-tauri-version-sync.mjs`，再按发布流程验证，不能用普通 Rust 测试通过代替 Tauri CLI 预检。
 - Linux 桌面构建在 `tauri-plugin-deep-link 2.6.2` 的 `ParseOption` 报 E0063 缺字段：核对 `rust-ini 0.21.3` 及根 Cargo patch 的完整官方提交 `463977675da7bbb257dee59669b5e122c8d681db`；不要重跑不变源码或降级到已撤回 INI 版本。普通 Rust CI 不编译 Tauri 壳，应按发布流程先验证待发提交的四平台 dry-run，再创建新 tag。
