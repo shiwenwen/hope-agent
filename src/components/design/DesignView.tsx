@@ -7460,7 +7460,12 @@ export default function DesignView({
                   {t("design.review.acceptBaseline", "接受为基线")}
                 </Button>
               </div>
-              <div className="grid grid-cols-3 gap-1.5">
+              <div
+                className="grid max-h-[40vh] grid-cols-3 gap-1.5 overflow-y-auto"
+                role="region"
+                aria-label={t("design.review.visualTitle", "确定性视觉回归")}
+                tabIndex={0}
+              >
                 {visualQuality.diffs.map((diff) => (
                   <div
                     key={`${diff.scenarioId ?? "default"}:${diff.viewport.width}x${diff.viewport.height}`}
