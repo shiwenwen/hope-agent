@@ -91,6 +91,7 @@ windows-sys = { version = "0.52", features = [
 # Only the integration tests drive the server over real HTTP; all outbound
 # HTTP in the product lives in ha-core.
 [dev-dependencies]
+ha-core = { path = "../ha-core", features = ["test-support"] }
 reqwest = { workspace = true }
 
 [lints]

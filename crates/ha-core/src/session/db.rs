@@ -1831,6 +1831,8 @@ impl SessionDB {
         // presets via Settings → Teams panel; see AGENTS.md Team 系统 section).
         let _ = conn.execute("DELETE FROM team_templates WHERE builtin = 1", []);
 
+        crate::personal_assistant::ensure_tables(&conn)?;
+
         // Read-only connection pool. WAL lets these run concurrently with the
         // writer; opened AFTER all migrations above so they observe the final
         // schema. busy_timeout is connection-level, so each reader sets its own.
@@ -2433,7 +2435,57 @@ impl SessionDB {
         source_session_id: Option<&str>,
         title: Option<&str>,
     ) -> Result<Option<SessionMeta>> {
+        self.create_session_full_checked_with_assistant(
+            agent_id,
+            parent_session_id,
+            project_id,
+            incognito,
+            origin,
+            source_session_id,
+            title,
+            None,
+        )
+    }
+
+    pub(crate) fn create_session_for_personal_assistant(
+        &self,
+        agent_id: &str,
+        project_id: Option<&str>,
+        title: Option<&str>,
+        creation: &crate::personal_assistant::AssistantSessionCreation<'_>,
+    ) -> Result<SessionMeta> {
+        self.create_session_full_checked_with_assistant(
+            agent_id,
+            None,
+            project_id,
+            false,
+            None,
+            None,
+            title,
+            Some(creation),
+        )?
+        .ok_or_else(|| anyhow::anyhow!("assistant session creation was rejected"))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_session_full_checked_with_assistant(
+        &self,
+        agent_id: &str,
+        parent_session_id: Option<&str>,
+        project_id: Option<&str>,
+        incognito: bool,
+        origin: Option<&crate::session::SessionOrigin>,
+        source_session_id: Option<&str>,
+        title: Option<&str>,
+        assistant: Option<&crate::personal_assistant::AssistantSessionCreation<'_>>,
+    ) -> Result<Option<SessionMeta>> {
         let id = uuid::Uuid::new_v4().to_string();
+        let kind = match assistant {
+            Some(crate::personal_assistant::AssistantSessionCreation::Home) => {
+                SessionKind::PersonalAssistant
+            }
+            _ => SessionKind::Regular,
+        };
         let now = chrono::Utc::now().to_rfc3339();
         let origin_json = origin.map(serde_json::to_string).transpose()?;
 
@@ -2480,6 +2532,15 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(creation) = assistant {
+            if let Some(existing) =
+                crate::personal_assistant::existing_created_session(&tx, creation)?
+            {
+                tx.commit()?;
+                drop(conn);
+                return self.get_session(&existing);
+            }
+        }
         if let Some(source_session_id) = source_session_id {
             let source_incognito = tx
                 .query_row(
@@ -2496,8 +2557,8 @@ impl SessionDB {
             }
         }
         tx.execute(
-            "INSERT INTO sessions (id, title, agent_id, provider_id, provider_name, model_id, temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito, origin_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            "INSERT INTO sessions (id, title, agent_id, provider_id, provider_name, model_id, temperature, reasoning_effort, runtime_defaults_initialized, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito, origin_json, kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 id,
                 title,
@@ -2515,8 +2576,12 @@ impl SessionDB {
                 initial_sandbox_mode.as_str(),
                 incognito,
                 origin_json,
+                kind.as_str(),
             ],
         )?;
+        if let Some(creation) = assistant {
+            crate::personal_assistant::record_created_session(&tx, creation, &id)?;
+        }
         tx.commit()?;
 
         Ok(Some(SessionMeta {
@@ -2557,7 +2622,7 @@ impl SessionDB {
             channel_info: None,
             incognito,
             working_dir: None,
-            kind: SessionKind::Regular,
+            kind,
             autonomy_paused: false,
         }))
     }
@@ -3225,6 +3290,14 @@ impl SessionDB {
             if is_cron != 0 || parent_session_id.is_some() || !is_forkable_kind {
                 anyhow::bail!("only regular top-level sessions can be forked");
             }
+            let private_assistant_history: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM personal_assistant_private_sessions WHERE session_id = ?1)",
+                [source_session_id],
+                |row| row.get(0),
+            )?;
+            if private_assistant_history {
+                anyhow::bail!("Private assistant work must remain in its original conversation");
+            }
             if mode == ForkMode::SideChat {
                 let has_channel_table: bool = tx.query_row(
                     "SELECT EXISTS(
@@ -3876,6 +3949,31 @@ impl SessionDB {
         Ok(sessions)
     }
 
+    /// Owner assistant discovery includes its private work conversations while
+    /// requiring the same live eligibility used at actual dispatch.
+    pub fn list_sessions_for_personal_assistant(
+        &self,
+        agent_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<SessionMeta>> {
+        let conn = self.read_conn()?;
+        let sql = format!(
+            "{} WHERE s.incognito = 0 AND s.archived_at IS NULL
+             AND s.kind = 'regular' AND s.is_cron = 0 AND s.parent_session_id IS NULL
+             AND cc.session_id IS NULL AND (?1 IS NULL OR s.agent_id = ?1)
+             AND NOT EXISTS (SELECT 1 FROM session_import_sources i WHERE i.session_id = s.id)
+             ORDER BY s.updated_at DESC LIMIT ?2",
+            session_meta_select()
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            params![agent_id, limit.min(200) as i64],
+            Self::row_to_session_meta,
+        )?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
     /// Model-facing discovery excludes externally imported transcripts. Owner
     /// UI listings continue to use `list_sessions` and can display the copies.
     pub fn list_sessions_for_model(
@@ -3887,8 +3985,9 @@ impl SessionDB {
         let conn = self.read_conn()?;
         let mut sql = format!(
             "{} WHERE s.incognito = 0 AND s.archived_at IS NULL
-             AND s.kind NOT IN ('side','knowledge','design','eval_fixture')
+             AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
              AND (?1 IS NULL OR s.agent_id = ?1)
+             AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
              AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)",
             session_meta_select()
         );
@@ -4275,8 +4374,10 @@ impl SessionDB {
         // Knowledge-space sidebar conversations live in the KB panel, never the
         // main session list / picker — hide them unconditionally (no active
         // exception, unlike incognito below).
-        where_clauses
-            .push("s.kind NOT IN ('side','knowledge','design','eval_fixture')".to_string());
+        where_clauses.push(
+            "s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')"
+                .to_string(),
+        );
         where_clauses.push("s.archived_at IS NULL".to_string());
         if exclude_imported {
             where_clauses.push(
@@ -4349,7 +4450,7 @@ impl SessionDB {
     ) -> Result<(Vec<SessionMeta>, u32)> {
         let conn = self.read_conn()?;
         let where_sql = " WHERE s.archived_at IS NOT NULL AND s.incognito = 0
-              AND s.kind NOT IN ('side', 'eval_fixture')";
+              AND s.kind NOT IN ('side', 'eval_fixture', 'personal_assistant')";
         let total: u32 = conn.query_row(
             &format!("SELECT COUNT(*) FROM sessions s{where_sql}"),
             [],
@@ -7088,7 +7189,7 @@ impl SessionDB {
                    FROM sessions s
                   WHERE s.is_cron = 0
                     AND s.archived_at IS NULL
-                    AND s.kind NOT IN ('side', 'knowledge', 'eval_fixture')
+                    AND s.kind NOT IN ('side', 'knowledge', 'eval_fixture', 'personal_assistant')
                     AND (
                         (s.project_id IS NULL
                          AND s.parent_session_id IS NULL
@@ -7476,8 +7577,10 @@ impl SessionDB {
             // The in-session search path (Some(sid)) already scopes to one
             // session and is allowed to search its content while it is open.
             where_clauses.push("s.incognito = 0".to_string());
-            where_clauses
-                .push("s.kind NOT IN ('side','knowledge','design','eval_fixture')".to_string());
+            where_clauses.push(
+                "s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')"
+                    .to_string(),
+            );
             where_clauses.push("s.archived_at IS NULL".to_string());
         }
 
@@ -7488,7 +7591,7 @@ impl SessionDB {
                 for t in type_list {
                     match t {
                         SessionTypeFilter::Regular => type_clauses.push(
-                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind NOT IN ('side','knowledge','design','eval_fixture'))".to_string(),
+                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant'))".to_string(),
                         ),
                         SessionTypeFilter::Cron => {
                             type_clauses.push("s.is_cron = 1".to_string())
@@ -7807,7 +7910,7 @@ impl SessionDB {
                  FROM sessions s
                  WHERE s.incognito = 0
                    AND s.archived_at IS NULL
-                   AND s.kind NOT IN ('side','knowledge','design','eval_fixture')
+                   AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
                    AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                    AND COALESCE(s.title, '') LIKE ?1 ESCAPE '\\'
                  ORDER BY s.updated_at DESC
@@ -7847,7 +7950,7 @@ impl SessionDB {
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
                        AND s.archived_at IS NULL
-                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture')
+                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
                        AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                  ) WHERE rn = 1
                  ORDER BY rank
@@ -7885,7 +7988,7 @@ impl SessionDB {
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
                        AND s.archived_at IS NULL
-                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture')
+                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
                        AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                  ) WHERE rn = 1
                  ORDER BY rank

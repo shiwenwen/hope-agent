@@ -312,6 +312,14 @@ Type `/` in the chat input box or in any IM channel to trigger a slash command. 
 
 ---
 
+## 3.10 Personal assistant
+
+Open **Personal assistant** in the sidebar to return to the same ongoing conversation. Ask it to find existing work conversations, check their progress, or delegate separate tasks. The work panel shows queued, running, and terminal results. Open a source conversation to take over or cancel a single delegation.
+
+Use **Follow with personal assistant** in a Goal panel to establish a baseline. New blockers and pending acceptance appear in the assistant. Reading an item or unfollowing a Goal does not change its outcome.
+
+The first implementation delegates to local regular work conversations. Conversations that receive private work retain a private marker and cannot be attached to ordinary work IM. Web access requires a configured server owner token and a signed-in owner.
+
 ## Next steps
 
 - Make the AI remember your preferences → [04 Memory](04-memory.md)

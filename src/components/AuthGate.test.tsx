@@ -46,6 +46,31 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+test("explains owner setup before allowing login and rechecks after desktop configuration", async () => {
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({
+    authRequired: true, authenticated: false, ownerTokenSetupRequired: true,
+  }), { status: 200 }))
+  render(<AuthGate><div>authenticated app</div></AuthGate>)
+  expect(await screen.findByText("auth.ownerTokenSetupBody")).toBeTruthy()
+  expect(screen.queryByLabelText("auth.tokenLabel")).toBeNull()
+  expect(screen.queryByText("authenticated app")).toBeNull()
+  fireEvent.click(screen.getByRole("button", { name: "auth.retry" }))
+  expect(await screen.findByLabelText("auth.tokenLabel")).toBeTruthy()
+  expect(authenticateWebOwnerToken).not.toHaveBeenCalled()
+})
+
+test("rechecks setup requirements when an anonymous app receives an authorization failure", async () => {
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ authRequired: false, authenticated: true }), { status: 200 }))
+  render(<AuthGate><div>authenticated app</div></AuthGate>)
+  await screen.findByText("authenticated app")
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({
+    authRequired: true, authenticated: false, ownerTokenSetupRequired: true,
+  }), { status: 200 }))
+  fireEvent(window, new Event("ha:auth-required"))
+  expect(await screen.findByText("auth.ownerTokenSetupBody")).toBeTruthy()
+  expect(screen.queryByText("authenticated app")).toBeNull()
+})
+
 test("uses the configured API origin and the remote Bearer authentication flow", async () => {
   authenticateWebOwnerToken.mockResolvedValue(true)
   render(<AuthGate><div>authenticated app</div></AuthGate>)

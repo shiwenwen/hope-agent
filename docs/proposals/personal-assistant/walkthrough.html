@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>个人助手主对话 · Hope 交互原型</title>
+<style>
+:root{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#172c29;background:#f4f4ed;font-size:16px;line-height:1.55;--edge:#d8dcd1;--ink:#173c35;--sub:#4c6057;--paper:#fffef9;--green:#155544}
+*{box-sizing:border-box}
+body{margin:0}
+main,header,footer{max-width:1090px;margin:auto;padding:0 clamp(16px,4vw,48px)}
+header{padding-top:29px;padding-bottom:26px;border-bottom:1px solid var(--edge);display:flex;align-items:baseline;gap:14px;justify-content:space-between;flex-wrap:wrap}
+.brand{font-weight:750;color:var(--ink);letter-spacing:.01em}
+.sim{font-size:.86rem;color:var(--sub)}
+h1,h2,h3,p{margin:0}
+h1{font-size:clamp(2rem,5vw,3.25rem);line-height:1.17;letter-spacing:-.045em;color:var(--ink);margin:35px 0 11px}
+.intro{color:var(--sub);max-width:47rem;margin-bottom:27px}
+.columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:18px;align-items:start}
+.panel{border:1px solid var(--edge);border-radius:16px;padding:clamp(18px,2.5vw,28px);background:var(--paper);min-width:0}
+.panel+.panel{margin-top:16px}
+.columns>.panel{margin:0}
+h2{font-size:1.25rem;color:var(--ink);line-height:1.35;margin-bottom:12px}
+h3{font-size:1rem;margin-bottom:5px}
+.hint,small,.meta{color:var(--sub);font-size:.91rem}
+fieldset{border:0;margin:0;padding:0;min-width:0}
+label,legend{font-weight:620;margin:.9rem 0 .4rem;display:block}
+select,button{font:inherit;border-radius:8px;min-height:42px}
+select{color:var(--ink);border:1px solid #acb9ad;background:white;padding:7px 10px;width:100%}
+button{cursor:pointer;border:1px solid #aeb9b0;color:var(--ink);background:transparent;padding:7px 12px}
+button:hover:enabled{background:#eef3ec}
+button.primary{background:var(--green);color:white;border-color:var(--green);font-weight:650}
+button.primary:hover:enabled{background:#0c4335}
+button:disabled,select:disabled{opacity:.59;cursor:not-allowed}
+button:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #ab640f;outline-offset:3px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.recipient{padding:10px 12px;border-left:3px solid #adbbaa;background:#f1f4ec;color:var(--ink);font-size:.9rem;margin-top:10px}
+.rule{margin:17px 0;border-top:1px solid var(--edge)}
+.result{padding:14px;background:#edf3e8;border-radius:10px;margin:14px 0 0;overflow-wrap:anywhere}
+.result strong{display:block;margin-bottom:4px}
+.result p{color:var(--sub);font-size:.94rem}
+.notice{border:1px solid #d9cfad;background:#faf5e5;margin-top:12px;border-radius:10px;padding:12px;font-size:.94rem}
+.empty{padding:15px;border:1px dashed #bac5b8;color:var(--sub);border-radius:9px}
+.card{border:1px solid var(--edge);border-radius:9px;padding:15px;margin:10px 0;background:white;overflow-wrap:anywhere}
+.card p,.notice p{margin:4px 0}.card .meta{margin-top:9px}
+.tag{display:inline-block;letter-spacing:.02em;font-weight:700;font-size:.78rem;color:#33594a;background:#edf3e8;padding:3px 7px;border-radius:5px;margin-bottom:8px}
+.details{margin-top:14px;font-size:.87rem;color:var(--sub)}
+summary{cursor:pointer;min-height:32px}
+ol{padding-left:1.45rem;margin:5px 0}li{margin:.35rem 0}
+footer{color:var(--sub);font-size:.85rem;padding-top:23px;padding-bottom:28px}
+[hidden]{display:none!important}
+.desk{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:18px;align-items:start}.desk .panel{margin:0}.chatline{padding:12px 15px;margin:.6rem 0;background:#f1f3eb;border-radius:10px}.chatline.mine{margin-left:12%;background:#e4eee3}.chatline small{display:block;font-weight:650;margin-bottom:3px}.work{padding:14px 0;border-top:1px solid var(--edge)}.work button{margin-top:9px}.secondary{margin:28px 0 0;border-top:1px solid var(--edge);padding-top:12px}.secondary>summary{font-weight:650;color:var(--ink);padding:7px 0}.secondary>p{margin:7px 0 16px}dialog{border:1px solid var(--edge);border-radius:14px;background:var(--paper);color:var(--ink);max-width:min(490px,90vw);padding:24px}dialog::backdrop{background:#122a2455}dialog p{margin:8px 0}dialog button{margin-top:10px}
+@media(max-width:760px){.desk{grid-template-columns:1fr}.columns{grid-template-columns:1fr}h1{margin-top:25px}header{padding-top:18px;padding-bottom:16px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<header><span class="brand">Hope Agent ／ 个人助手</span><span class="sim">离线交互原型 · 数据与投递均为模拟</span></header>
+<main>
+  <h1>和 Hope 的主对话</h1>
+  <p class="intro">今天接着昨天聊。你可以在这里交办多件事，分别交给已有会话办理。需要选择或有了结果，Hope 会回到这里找你。</p>
+  <div class="desk">
+    <section class="panel" aria-labelledby="thread-title">
+      <h2 id="thread-title">我和 Hope</h2>
+      <div class="chatline"><small>Hope · 昨天 17:40</small><p>周五要发版，发布准备和用户手册已经各有一个工作会话。明天回来，可以接着安排。</p></div>
+      <div id="main-log" role="log" aria-live="polite" aria-label="主对话消息"></div>
+      <div id="command-preview" class="recipient"><strong>示例指令</strong><p>请让「发布准备」核对上线时间，让「用户手册」准备更新说明。各自在原会话办理，有结果回这里告诉我。</p></div>
+      <div class="row"><button id="assign-main" class="primary" type="button">发送这条交办</button><button id="reply-manual" type="button" hidden>回复手册：只写用户操作</button><button id="main-reset" type="button" hidden>重演主对话</button></div>
+    </section>
+    <section class="panel" aria-labelledby="work-title">
+      <h2 id="work-title">这次交办的两个会话</h2>
+      <div class="work"><h3>发布准备</h3><span class="tag" id="pub-state"></span><p class="hint" id="pub-summary"></p><div class="row"><button type="button" id="pub-source">打开发布准备来源</button><button type="button" id="pub-finish" hidden>模拟发布核对完成</button></div></div>
+      <div class="work"><h3>用户手册</h3><span class="tag" id="doc-state"></span><p class="hint" id="doc-summary"></p><div class="row"><button type="button" id="doc-source">打开用户手册来源</button><button type="button" id="doc-finish" hidden>模拟手册草稿完成</button></div></div>
+    </section>
+  </div>
+  <dialog id="source-dialog" aria-labelledby="source-title"><h2 id="source-title"></h2><p class="hint" id="source-id"></p><p id="source-body"></p><button type="button" id="source-back">回到主对话</button></dialog>
+  <details class="secondary" id="notifications-demo"><summary>专项演练：接入专用 Telegram 机器人，决定何时提醒</summary>
+  <p class="hint">已有的「项目工作机器人」继续处理普通 IM。要从 Telegram 找个人助手，请另连一个专用机器人，并在它的私聊里配对。也可以只用本地收件箱。以下均使用虚构账号。</p>
+  <div class="columns">
+    <div>
+      <section class="panel" aria-labelledby="setup-title">
+        <h2 id="setup-title">跟踪委托</h2>
+        <p class="hint">只读示例项目的发布日程，跟踪至 11 月 9 日 18:00。时间均为上海时间。</p>
+        <label for="route">接收变化的位置</label>
+        <select id="route"><option value="local">仅本地收件箱</option><option value="telegram">本地收件箱 + Telegram 个人助手机器人</option></select>
+        <div class="recipient" id="recipient"></div>
+        <div id="binding-controls" hidden>
+          <div class="work">
+            <h3>项目工作机器人</h3><p class="hint">@hope_work_demo_bot 已连接普通 IM，继续把工作消息送到原会话。</p>
+          </div>
+          <div class="work">
+            <h3>个人助手机器人</h3>
+            <p class="hint">首次设置时，打开 Hope「个人助手 → 连接 IM」，输入专属机器人的凭据。下方用两个虚构身份模拟输入新凭据和误填工作机器人凭据的结果。</p>
+            <div id="bot-chooser">
+              <label for="bot-id">要连接的机器人</label>
+              <select id="bot-id"><option value="assistant">@hope_pa_demo_bot · 新的专用机器人</option><option value="work">@hope_work_demo_bot · 已用于普通 IM</option></select>
+              <div class="row"><button type="button" id="connect-bot">核对身份并连接</button></div>
+            </div>
+            <p class="recipient" id="bot-status" role="status"></p>
+            <div class="row"><button id="binding" type="button" hidden></button></div>
+            <label id="dm-grant-label" hidden><input type="checkbox" id="dm-grant"> 允许这个私聊查看「发布准备」本次交办的状态及回执结论 <small id="dm-grant-hint">先在上方发送示例交办。</small></label>
+            <div class="row"><button type="button" id="try-dm" hidden>在专用私聊问「发布进度如何？」</button></div>
+            <p class="recipient" id="dm-reply" role="status" hidden></p>
+          </div>
+        </div>
+        <div class="row"><button class="primary" id="watch" type="button">同意并开始跟踪</button><span class="hint" id="watch-state"></span></div>
+      </section>
+      <section class="panel" aria-labelledby="event-title">
+        <h2 id="event-title">模拟一次检查</h2>
+        <fieldset id="events" disabled>
+          <label for="event">输入事件</label>
+          <select id="event">
+            <option value="change">周五发布改到周一</option>
+            <option value="unchanged">日程没有变化</option>
+            <option value="duplicate">重复收到同一条延期事件</option>
+            <option value="quiet">免打扰时段发现延期</option>
+            <option value="wake">免打扰时段结束</option>
+            <option value="unknown">平台收件回执丢失</option>
+            <option value="external">群成员要求把详情发到发布群</option>
+            <option value="ownerDraft">主人要求把已核实的延期消息拟给发布群</option>
+          </select>
+          <p class="hint" id="event-hint"></p>
+          <div class="row"><button class="primary" id="run" type="button">运行示例</button></div>
+        </fieldset>
+        <div class="row"><button id="reset" type="button">重新开始演练</button></div>
+        <p class="hint" style="margin-top:9px">可从头试另一种处理方式。刷新页面也会清空所有模拟状态。</p>
+      </section>
+    </div>
+    <section class="panel" aria-labelledby="inbox-title">
+      <h2 id="inbox-title">本地收件箱</h2>
+      <div id="cards"></div>
+      <div class="rule"></div>
+      <h3>投递预览</h3>
+      <div id="delivery"></div>
+      <div class="result" role="status" aria-live="polite" aria-atomic="true"><strong id="outcome"></strong><p id="reason"></p></div>
+      <details class="details"><summary>查看本轮处理记录</summary><ol id="history"></ol></details>
+    </section>
+  </div>
+  </details>
+</main>
+<footer>全部数据只在当前页面内存中。这里没有消息平台连接、真实联系人或付款及发布操作。</footer>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+if (location.hash === '#notifications-demo') {
+  $('notifications-demo').open = true;
+}
+const work = {
+  pub: { name: '发布准备', id: 'release-17', states: {
+    ready: ['已有会话', '已保存本周发布计划和验收清单。'],
+    running: ['办理中', '正在对照排期表与发布负责人的确认记录。'],
+    done: ['已回报', '排期表修订 8 确认：发布时间从周五 16:00 改为周一 16:00。']
+  }},
+  doc: { name: '用户手册', id: 'manual-42', states: {
+    ready: ['已有会话', '已保存用户手册目录和上一版说明。'],
+    waiting: ['等你选择', '需要确定这次更新说明的读者与篇幅。'],
+    running: ['办理中', '已收到你的选择，正在原会话整理用户操作步骤。'],
+    done: ['已回报', '原会话已备好三步草稿：打开设置、选择更新、验证版本。等待你审阅。']
+  }}
+};
+let pubStage='ready', docStage='ready';
+const instruction=$('command-preview').querySelector('p').textContent;
+function postLine(speaker, message) {
+  const line=node('div','', speaker.startsWith('你') ? 'chatline mine' : 'chatline');
+  line.append(node('small',speaker),node('p',message)); $('main-log').append(line);
+}
+function syncMain() {
+  for (const [id,stage] of [['pub',pubStage],['doc',docStage]]) {
+    const [state,summary]=work[id].states[stage];
+    $(id+'-state').textContent=state; $(id+'-summary').textContent=summary;
+  }
+  const assigned=pubStage!=='ready';
+  $('dm-grant').disabled=!assigned; $('dm-grant-hint').hidden=assigned;
+  $('assign-main').hidden=assigned; $('command-preview').hidden=assigned;
+  $('main-reset').hidden=!assigned && !$('main-log').childElementCount; $('reply-manual').hidden=docStage!=='waiting';
+  $('pub-finish').hidden=pubStage!=='running'; $('doc-finish').hidden=docStage!=='running';
+}
+function openSource(id) {
+  const item=work[id], stage=id==='pub'?pubStage:docStage;
+  const [state,summary]=item.states[stage];
+  $('source-title').textContent=item.name+' · 原工作会话';
+  $('source-id').textContent='模拟会话 '+item.id+' ／ '+state;
+  $('source-body').textContent=summary+(stage==='ready'?' 还没有收到今天的新交办。':' 本次委托：'+(id==='pub'?'核对上线时间。':'准备更新说明。'));
+  $('source-dialog').showModal();
+}
+$('assign-main').addEventListener('click',()=>{
+  if(pubStage!=='ready') return;
+  postLine('你',instruction);
+  postLine('Hope','我已将核对时间交给「发布准备」，将更新说明交给「用户手册」。两个会话分别办理。');
+  postLine('Hope · 用户手册需要你决定','手册要面向普通用户只写操作，还是也包含管理员的配置说明？发布准备会继续核对，无需等待。');
+  pubStage='running'; docStage='waiting'; syncMain(); $('reply-manual').focus();
+});
+$('reply-manual').addEventListener('click',()=>{
+  if(docStage!=='waiting') return;
+  postLine('你','回复「用户手册」：只写普通用户的操作步骤。');
+  postLine('Hope','已将这条补充交给原来的「用户手册」会话。');
+  docStage='running'; syncMain(); $('doc-finish').focus();
+});
+for (const id of ['pub','doc']) {
+  $(id+'-source').addEventListener('click',()=>openSource(id));
+  $(id+'-finish').addEventListener('click',()=>{
+    if((id==='pub'?pubStage:docStage)!=='running') return;
+    if(id==='pub') pubStage='done'; else docStage='done';
+    postLine('Hope · '+work[id].name+'回执',work[id].states.done[1]);
+    syncMain(); $(id+'-source').focus();
+  });
+}
+$('source-back').addEventListener('click',()=>$('source-dialog').close());
+$('main-reset').addEventListener('click',()=>{
+  pubStage='ready'; docStage='ready'; $('main-log').replaceChildren();
+  $('dm-grant').checked=false; $('dm-reply').textContent=''; $('dm-reply').hidden=true;
+  syncMain(); $('assign-main').focus();
+});
+syncMain();
+const route = $('route'), eventSelect = $('event');
+const hints = {
+  change:'模拟 11 月 6 日 13:00 收到发布计划更新。',
+  unchanged:'检查成功，两个版本的发布日期相同。',
+  duplicate:'连续提交两次完全相同的更新，检查有几张卡、几次投递。',
+  quiet:'模拟 11 月 5 日 23:10 收到更新。免打扰是 22:00 至次日 08:00。',
+  wake:'模拟次日 08:00，只处理仍有效的暂缓通知。',
+  unknown:'模拟向已配对的 Telegram 提交通知后断线，平台没有返回回执。',
+  external:'群成员发来的指令不在这份发布日程委托的来源范围内。',
+  ownerDraft:'模拟主人从 Hope 主对话提出一个新动作。先检查有无已核实的延期，再准备含收件人和正文的待审草稿。'
+};
+const title='周五发布延期至周一';
+const detail='原定 11 月 6 日（周五）16:00，现改为 11 月 9 日（周一）16:00。';
+const dm='Telegram · @hope_pa_demo_bot 与主人「我的演示账号」的私聊';
+let active, paired, connected, pairStep, conflict, bindingVersion, watchBindingVersion, release, request, entries, result, lastDelivery;
+function node(tag, txt, cls) {
+  const el = document.createElement(tag);
+  if (txt) el.textContent = txt;
+  if (cls) el.className = cls;
+  return el;
+}
+function record(head, why) {
+  result = [head,why];
+  entries.unshift(head+'。'+why);
+  if(entries.length>16) entries.pop();
+}
+function render() {
+  const telegram = route.value==='telegram';
+  route.disabled=active;
+  const currentGrant=paired && watchBindingVersion===bindingVersion;
+  $('recipient').textContent=telegram ? (active&&!currentGrant?'当前委托仅保留本地记录。重新配对后，需暂停并重新同意本项跟踪，才可恢复私聊通知。':paired?'本项可授权的目标：'+dm+'。':'选择专用机器人并配对后，再为本项跟踪同意私聊通知。') : '目标：此设备的个人收件箱。';
+  $('binding-controls').hidden=!telegram;
+  $('bot-chooser').hidden=connected;
+  $('bot-status').textContent=!connected ? (conflict?'连接被拒绝：核对到同一个已在工作的机器人。原配置、会话和消息路由保持原样。请选择另一个 bot。':'尚未连接专用机器人。') :
+    paired?'@hope_pa_demo_bot 的本人私聊已启用。从点「启用」之后新发的指令开始受理。':
+    pairStep==='code'?'演示配对码 DEMO-4821。请在 @hope_pa_demo_bot 的本人私聊中提交此码。':
+    pairStep==='proof'?'已核对来自 @hope_pa_demo_bot 的本人私聊。请在 Hope 确认主人「我的演示账号」和这个专用机器人。':
+    pairStep==='activate'?'Hope 已确认主人身份。请在该专属私聊点一次「启用」。此前发来的消息只标为已处理，不会执行。':
+    '专用机器人 @hope_pa_demo_bot 已连接，主人未配对。它只受理配对，普通 IM 不接管它的私聊。';
+  $('binding').hidden=!connected; $('try-dm').hidden=!connected;
+  $('dm-grant-label').hidden=!paired;
+  $('binding').textContent=paired?'撤销主人私聊配对':pairStep==='code'?'模拟在专用私聊提交配对码':pairStep==='proof'?'在 Hope 确认此私聊':pairStep==='activate'?'在专属私聊点「启用」':'生成模拟配对码';
+  $('watch').textContent=active?'暂停跟踪':release||entries.length?'启用跟踪':'同意并开始跟踪';
+  $('watch').disabled=!active && telegram && !paired;
+  $('watch-state').textContent=active?'正在跟踪':'未在跟踪';
+  $('events').disabled=!active;
+  $('event-hint').textContent=hints[eventSelect.value];
+  const cards=$('cards'); cards.replaceChildren();
+  if(!release&&!request) cards.append(node('p','还没有卡片。开始跟踪后，只有值得处理的新情况才会出现在这里。','empty'));
+  if(release) {
+    const card=node('article','', 'card');
+    card.append(node('span','发布日程更新','tag'),node('h3',title),node('p',detail),node('p','来源：示例发布计划 · 修订 2，相较已确认的修订 1。','meta'));
+    cards.append(card);
+  }
+  if(request) {
+    const card=node('article','', 'card');
+    card.append(node('span','需要主人决定','tag'), node('h3','给发布群的待审草稿'),node('p','主人在 Hope 主对话里另行要求准备这份草稿。发布群尚未收到消息。'));
+    const preview=node('details','','details');
+    preview.append(node('summary','查看待审动作'),node('p','收件目标：示例发布群（其他成员可见）。草稿：'+detail+' 只有主人从受信任界面明确批准这项具体动作后，执行器才可另行处理。此演练停在审批前。'));
+    card.append(preview); cards.append(card);
+  }
+  const delivery=$('delivery'); delivery.replaceChildren();
+  delivery.append(node('p', lastDelivery || '尚无向 IM 投递的尝试。','empty'));
+  $('outcome').textContent=result[0]; $('reason').textContent=result[1];
+  $('history').replaceChildren(...(entries.length?entries:['尚未开始。']).map(x=>node('li',x)));
+}
+function reset() {
+  active=false; paired=false; connected=false; pairStep='none'; conflict=false; bindingVersion=0; watchBindingVersion=null; $('bot-id').value='assistant'; release=null; request=false; entries=[]; lastDelivery='';
+  $('dm-grant').checked=false; $('dm-reply').textContent=''; $('dm-reply').hidden=true;
+  result=['等待授权','请选择接收位置，并明确开始这份委托。'];
+  route.value='local'; eventSelect.value='change'; render();
+}
+function cancelPending(why) {
+  if(release?.status==='pending') {
+    release.status='cancelled';
+    lastDelivery='已取消暂缓的通知。'+why;
+  }
+}
+$('bot-id').addEventListener('change',()=>{ conflict=false; render(); });
+$('connect-bot').addEventListener('click',()=>{
+  if(connected) return;
+  conflict=$('bot-id').value==='work';
+  if(conflict) record('机器人用途冲突，未连接','工作机器人身份已被普通 IM 使用。不重配、不切换会话；请换一个专用机器人。');
+  else { connected=true; record('专用机器人已连接，等待配对','工作机器人照常使用。个人助手暂不接受工作指令。'); }
+  render();
+});
+$('binding').addEventListener('click',()=>{
+  if(!connected) return;
+  if(paired) {
+    paired=false; bindingVersion++; pairStep='none';
+    $('dm-grant').checked=false; $('dm-reply').textContent=''; $('dm-reply').hidden=true;
+    cancelPending('主人私聊已解绑，专用机器人不会改作普通 IM。');
+    record('已撤销主人私聊配对','停止私聊投递，专用机器人的后续消息只可重新配对；不转发到工作机器人。');
+  } else if(pairStep==='none') { pairStep='code'; record('已生成示例配对码','配对码只用于这一个专用机器人的本人私聊。'); }
+  else if(pairStep==='code') { pairStep='proof'; record('已收到模拟私聊证明','回到 Hope 核对机器人与主人身份，再到专属私聊启用。'); }
+  else if(pairStep==='proof') { pairStep='activate'; record('Hope 已确认，等待私聊启用','专属私聊显示一次性「启用」按钮。此刻还不能查进度或接收主动通知。'); }
+  else if(pairStep==='activate') { paired=true; bindingVersion++; pairStep='none'; record('主人私聊已启用','只受理此后新发的指令。此前的积压消息不补办，旧授权不恢复。'); }
+  render();
+});
+$('dm-grant').addEventListener('change',()=>{ $('dm-reply').textContent=''; $('dm-reply').hidden=true; });
+$('try-dm').addEventListener('click',()=>{
+  if(!connected) return;
+  if(!paired) {
+    $('dm-reply').textContent=''; $('dm-reply').hidden=true;
+    record('启用前的私聊消息已忽略',pairStep==='activate'?'主人身份已确认，手机尚未启用。这条问题不会进入主对话，启用后请重新发送。':'这个私聊尚未启用。此次消息未写入主对话，也未转交普通 IM。');
+    render(); return;
+  }
+  let answer;
+  if(!$('dm-grant').checked) answer='这个私聊尚无权限查看该项工作。可以在 Hope 选择允许披露的内容。';
+  else {
+    answer='「发布准备」'+work.pub.states[pubStage][0]+'。'+work.pub.states[pubStage][1];
+    postLine('你 · Telegram 本人私聊','发布进度如何？'); postLine('Hope · 回复本人私聊',answer); syncMain();
+  }
+  $('dm-reply').textContent='专用私聊中的回复：'+answer; $('dm-reply').hidden=false;
+  record('已模拟回复本人私聊',!$('dm-grant').checked?'缺少该工作会话的披露许可，未读取进展。':'仅查看已授权的发布事项。此次追问沿用同一主对话，没有再发起交办。');
+  render();
+});
+$('watch').addEventListener('click',()=>{
+  active=!active;
+  if(active) { watchBindingVersion=route.value==='telegram'?bindingVersion:null; record('跟踪已启用','只读指定的发布计划，有延期时按本次所选的位置通知。'); }
+  else { cancelPending('委托已暂停。'); record('跟踪已暂停','停止受理新事件并取消暂缓通知。历史卡片仍可查阅。'); }
+  render();
+});
+function deliver(unknown) {
+  if(release.route==='local') {
+    release.status='local'; lastDelivery='只投递到本地收件箱。'; record('已留在本地','发现发布日期变化，仅本地收件箱获准接收。'); return;
+  }
+  if(!paired || release.bindingVersion!==bindingVersion) {
+    release.status='cancelled'; lastDelivery='本地保留；原定私聊投递已取消。'; record('已留在本地','投递时原绑定已失效。不会改发其他账号或群聊。'); return;
+  }
+  release.status=unknown?'unknown':'accepted';
+  lastDelivery=unknown ? dm+'：已尝试，结果未知；此卡不会自动重发。' : dm+'（模拟平台已接收一次）：「'+title+'。'+detail+'」';
+  record(unknown?'私聊投递结果未知':'模拟平台已接收', unknown?'提交后没有收到平台回执。为避免重复打扰，保留本地卡片，停止自动重试。':'平台返回接收回执，用户设备到达与已读状态未知。');
+}
+function observe(kind) {
+  if(release) {record('重复事件，已忽略','相同来源修订已产生卡片。保持现有投递状态，不再发消息。');return;}
+  release={status:'new',route:route.value,bindingVersion:watchBindingVersion};
+  if(kind==='quiet' && release.route==='telegram' && paired && watchBindingVersion===bindingVersion) {
+    release.status='pending'; lastDelivery='暂缓至次日 08:00。目标：'+dm+'。';
+    record('卡片已保存，暂缓私聊','现在是 23:10。免打扰结束后，还要重新核对委托和绑定。'); return;
+  }
+  deliver(kind==='unknown');
+}
+$('run').addEventListener('click',()=>{
+  if(!active) return;
+  const kind=eventSelect.value;
+  if(kind==='unchanged') record('没有变化，保持安静','读取成功，日期与上次一致。本次不新建卡片或投递消息。');
+  else if(kind==='external') record('已忽略群成员的指令','来源不在委托范围内。此次事件未读取日程、创建卡片、请求审批或向群里发送消息。');
+  else if(kind==='ownerDraft') {
+    if(!release) record('尚无已核实的延期','先运行发布日程变化示例，再请主人准备草稿。');
+    else if(request) record('已有这份草稿','本地待审动作可供主人查看。');
+    else {request=true; record('主人要求的草稿待审','依据已核实的延期拟稿，来源、收件人与正文可在卡片中核对。');}
+  } else if(kind==='wake') {
+    if(release?.status==='pending') deliver(false);
+    else record('没有待投递通知','此次免打扰结束时，没有仍有效的暂缓通知。');
+  } else if(kind==='unknown' && (route.value!=='telegram'||!paired||watchBindingVersion!==bindingVersion)) {
+    record('未向平台提交，无法模拟回执丢失','回执丢失场景需要已配对的 Telegram 路由。可重新开始演练并选择主人私聊。');
+  } else if(kind==='duplicate') { observe('change'); observe('change'); }
+  else observe(kind);
+  render();
+});
+route.addEventListener('change',render);
+eventSelect.addEventListener('change',render);
+$('reset').addEventListener('click',reset);
+reset();
+</script>
+</body>
+</html>

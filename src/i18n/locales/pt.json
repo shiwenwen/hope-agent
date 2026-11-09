@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Aprovação tratada em outro dispositivo"
   },
   "auth": {
+    "ownerTokenSetupBody": "Este servidor contém dados privados do assistente. Defina um Server Owner Token nas configurações do aplicativo ou de inicialização do servidor e volte aqui para entrar.",
     "checking": "Verificando a segurança do servidor…",
     "fingerprint": "Impressão digital do token: {{fingerprint}}",
     "retry": "Tentar novamente",
@@ -12909,6 +12910,31 @@
       "supported": "Compatível",
       "degraded": "Degradado",
       "blocked": "Bloqueado"
+    }
+  },
+  "personalAssistant": {
+    "stop": "Parar trabalho",
+    "title": "Assistente pessoal",
+    "work": "Trabalho delegado",
+    "goals": "Objetivos acompanhados",
+    "emptyWork": "Peça ao assistente para coordenar o trabalho nas suas conversas existentes.",
+    "emptyGoals": "Acompanhe um objetivo no espaço de trabalho para receber novos bloqueios e pedidos de aceitação aqui.",
+    "watchGoal": "Acompanhar no assistente",
+    "unwatchGoal": "Parar de acompanhar",
+    "opening": "Abrindo seu assistente…",
+    "source": "Abrir origem",
+    "unavailable": "Este item não está mais disponível.",
+    "attention": "Precisam de atenção ({{count}})",
+    "blocked": "Novo bloqueio",
+    "awaiting_acceptance": "Aguardando sua aceitação",
+    "status": {
+      "queued": "Na fila",
+      "running": "Em andamento",
+      "cancellation_requested": "Parada solicitada",
+      "completed": "Concluído",
+      "interrupted": "Interrompido",
+      "cancelled": "Cancelado",
+      "failed": "Falhou"
     }
   }
 }

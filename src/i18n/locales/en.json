@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Approval handled on another device"
   },
   "auth": {
+    "ownerTokenSetupBody": "This server contains private assistant data. Set a Server Owner Token in the desktop settings or server startup configuration, then return here to sign in.",
     "checking": "Checking server security…",
     "fingerprint": "Server token fingerprint: {{fingerprint}}",
     "retry": "Try again",
@@ -12909,6 +12910,31 @@
       "supported": "Supported",
       "degraded": "Degraded",
       "blocked": "Blocked"
+    }
+  },
+  "personalAssistant": {
+    "stop": "Stop work",
+    "title": "Personal assistant",
+    "work": "Delegated work",
+    "goals": "Followed goals",
+    "emptyWork": "Ask your assistant to coordinate work in your existing conversations.",
+    "emptyGoals": "Follow a goal from its workspace to receive new blockers and acceptance requests here.",
+    "watchGoal": "Follow in assistant",
+    "unwatchGoal": "Stop following",
+    "opening": "Opening your assistant…",
+    "source": "Open source",
+    "unavailable": "This item is no longer available.",
+    "attention": "Needs attention ({{count}})",
+    "blocked": "New blocker",
+    "awaiting_acceptance": "Awaiting your acceptance",
+    "status": {
+      "queued": "Queued",
+      "running": "Working",
+      "cancellation_requested": "Stop requested",
+      "completed": "Completed",
+      "interrupted": "Interrupted",
+      "cancelled": "Cancelled",
+      "failed": "Failed"
     }
   }
 }

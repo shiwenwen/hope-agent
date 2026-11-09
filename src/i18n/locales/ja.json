@@ -164,6 +164,7 @@
     "resolvedElsewhere": "承認は別のデバイスで処理されました"
   },
   "auth": {
+    "ownerTokenSetupBody": "このサーバーには個人アシスタントのデータがあります。デスクトップ設定またはサーバー起動設定で Server Owner Token を設定してから、ここに戻ってサインインしてください。",
     "checking": "サーバーのセキュリティを確認しています…",
     "fingerprint": "サーバートークンのフィンガープリント: {{fingerprint}}",
     "retry": "再試行",
@@ -12909,6 +12910,31 @@
       "supported": "サポート対象",
       "degraded": "制限あり",
       "blocked": "利用不可"
+    }
+  },
+  "personalAssistant": {
+    "stop": "作業を停止",
+    "title": "パーソナルアシスタント",
+    "work": "依頼した作業",
+    "goals": "フォロー中の目標",
+    "emptyWork": "既存の作業チャットへの依頼をここからまとめて行えます。",
+    "emptyGoals": "ワークスペースで目標をフォローすると、新たな障害や確認依頼がここに表示されます。",
+    "watchGoal": "アシスタントでフォロー",
+    "unwatchGoal": "フォローを停止",
+    "opening": "アシスタントを開いています…",
+    "source": "元のチャットを開く",
+    "unavailable": "この項目は利用できなくなりました。",
+    "attention": "要対応（{{count}}）",
+    "blocked": "新たな障害",
+    "awaiting_acceptance": "確認待ち",
+    "status": {
+      "queued": "待機中",
+      "running": "実行中",
+      "cancellation_requested": "停止を要求済み",
+      "completed": "完了",
+      "interrupted": "中断",
+      "cancelled": "キャンセル済み",
+      "failed": "失敗"
     }
   }
 }

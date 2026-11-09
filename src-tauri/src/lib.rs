@@ -1219,6 +1219,12 @@ pub fn run() {
             commands::execution_mode::get_workflow_mode,
             commands::execution_mode::set_workflow_mode,
             // Goals (top-level completion criteria and evidence)
+            commands::personal_assistant::ensure_personal_assistant_home,
+            commands::personal_assistant::list_personal_assistant_requests,
+            commands::personal_assistant::cancel_personal_assistant_request,
+            commands::personal_assistant::personal_assistant_inbox,
+            commands::personal_assistant::watch_personal_goal,
+            commands::personal_assistant::unwatch_personal_goal,
             commands::goal::get_active_goal,
             commands::goal::get_autonomy_activity,
             commands::goal::get_goal,

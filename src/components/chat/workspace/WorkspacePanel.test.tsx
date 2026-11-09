@@ -2,6 +2,7 @@
 
 import type { ComponentProps } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { toast } from "sonner"
 import {
   act,
   cleanup,
@@ -256,6 +257,31 @@ function renderPanel(
     </TooltipProvider>,
   )
 }
+
+it("waits for the requested Goal's session and refuses to focus its successor", async () => {
+  let finishGoal!: (snapshot: GoalSnapshot) => void
+  const originalCall = transportMock.call.getMockImplementation()!
+  transportMock.call.mockImplementation((name, args) => {
+    if (name === "get_active_goal") return new Promise(resolve => { finishGoal = resolve })
+    return originalCall(name, args)
+  })
+  const handled = vi.fn()
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView")
+  const error = vi.spyOn(toast, "error")
+  renderPanel(null, {
+    focusRequest: { sessionId: "s1", section: "goal", itemId: "old-goal", nonce: 42 },
+    onFocusRequestHandled: handled,
+  })
+  expect(handled).not.toHaveBeenCalled()
+  expect(scroll).not.toHaveBeenCalled()
+  await waitFor(() => expect(finishGoal).toBeTypeOf("function"))
+  await act(async () => { finishGoal(goalSnapshotWithWorkflowTemplate()) })
+  await waitFor(() => expect(handled).toHaveBeenCalledWith(42))
+  expect(error).toHaveBeenCalledWith("personalAssistant.unavailable")
+  expect(scroll).not.toHaveBeenCalled()
+  error.mockRestore()
+  scroll.mockRestore()
+})
 
 async function clickTextButton(text: string) {
   const matches = await screen.findAllByText(text)

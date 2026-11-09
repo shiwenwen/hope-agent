@@ -21,6 +21,26 @@ fn live_source_is_incognito(
     Ok(source.incognito)
 }
 
+fn may_read_private_session(
+    db: &crate::session::SessionDB,
+    target: &str,
+    ctx: &super::execution::ToolExecContext,
+) -> Result<bool> {
+    if !db.is_personal_assistant_private_session(target)? {
+        return Ok(true);
+    }
+    if ctx.session_id.as_deref() == Some(target) {
+        return Ok(true);
+    }
+    let source = ctx
+        .session_id
+        .as_deref()
+        .map(|id| db.get_session(id))
+        .transpose()?
+        .flatten();
+    Ok(source.is_some_and(|s| s.kind.as_str() == "personal_assistant"))
+}
+
 fn cross_session_causal_depth(ctx: &super::execution::ToolExecContext) -> Result<u32> {
     let agent_id = ctx
         .agent_id
@@ -141,10 +161,22 @@ pub(crate) async fn tool_sessions_create(
         .or_else(|| crate::get_session_db().cloned())
         .ok_or_else(|| anyhow::anyhow!("Session database not initialized"))?;
     let db_for_create = db.clone();
+    if let Some(source_id) = ctx.session_id.as_deref() {
+        if db.is_personal_assistant_private_session(source_id)?
+            && !db
+                .get_session(source_id)?
+                .is_some_and(|s| s.kind.as_str() == "personal_assistant")
+        {
+            anyhow::bail!("Private delegated work cannot create another conversation; return a proposal to the owner");
+        }
+    }
     let agent_id_for_create = agent_id.clone();
     let title_for_create = title.clone();
     let project_id_for_create = project_id.clone();
     let source_session_id = ctx.session_id.clone();
+    let create_turn_id = ctx.turn_id.clone();
+    let create_item_key = ctx.tool_call_id.clone();
+    let create_stop_epoch = ctx.turn_admitted_global_stop_epoch;
     let created = crate::blocking::run_blocking(move || -> Result<_> {
         let _agent_admission = crate::agent_lifecycle::begin_agent_run(&agent_id_for_create)
             .map_err(|error| {
@@ -154,6 +186,29 @@ pub(crate) async fn tool_sessions_create(
                     error
                 )
             })?;
+        if source_session_id
+            .as_deref()
+            .map(|id| db_for_create.get_session(id))
+            .transpose()?
+            .flatten()
+            .is_some_and(|s| s.kind.as_str() == "personal_assistant")
+        {
+            return db_for_create
+                .create_personal_assistant_target(
+                    create_turn_id
+                        .as_deref()
+                        .ok_or_else(|| anyhow::anyhow!("A live owner turn is required"))?,
+                    create_item_key
+                        .as_deref()
+                        .ok_or_else(|| anyhow::anyhow!("A durable tool identity is required"))?,
+                    &agent_id_for_create,
+                    project_id_for_create.as_deref(),
+                    title_for_create.as_deref(),
+                    create_stop_epoch
+                        .ok_or_else(|| anyhow::anyhow!("Stop admission is required"))?,
+                )
+                .map(Some);
+        }
         let Some(session) = db_for_create.create_session_with_project_if_source_not_incognito(
             &agent_id_for_create,
             project_id_for_create.as_deref(),
@@ -176,6 +231,39 @@ pub(crate) async fn tool_sessions_create(
     };
     session.title = title.clone();
 
+    if ctx
+        .session_id
+        .as_deref()
+        .map(|id| db.get_session(id))
+        .transpose()?
+        .flatten()
+        .is_some_and(|s| s.kind.as_str() == "personal_assistant")
+    {
+        emit_session_created(&session, session.project_id.as_deref());
+        if has_initial_turn {
+            let input = crate::personal_assistant::AssistantDispatchInput {
+                source_turn_id: ctx
+                    .turn_id
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("A live owner turn is required"))?,
+                item_key: ctx
+                    .tool_call_id
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("A durable tool identity is required"))?,
+                target_session_id: session.id,
+                instruction: message,
+                global_stop_epoch: ctx
+                    .turn_admitted_global_stop_epoch
+                    .ok_or_else(|| anyhow::anyhow!("Stop admission is required"))?,
+            };
+            return db
+                .run(move |db| db.enqueue_personal_assistant_request(input))
+                .await
+                .and_then(|request| serde_json::to_string(&request).map_err(Into::into));
+        }
+        return Ok(serde_json::to_string(&session)?);
+    }
+
     crate::app_info!(
         "tool",
         "sessions_create",
@@ -194,6 +282,7 @@ pub(crate) async fn tool_sessions_create(
             foreground_admission,
             causal_subagent_depth.expect("initial turn has causal depth"),
             true,
+            None,
         )
         .await;
         match start {
@@ -284,7 +373,10 @@ pub(crate) async fn tool_sessions_create(
 }
 
 /// Tool: sessions_list — list all chat sessions with metadata.
-pub(crate) async fn tool_sessions_list(args: &Value) -> Result<String> {
+pub(crate) async fn tool_sessions_list(
+    args: &Value,
+    ctx: &super::execution::ToolExecContext,
+) -> Result<String> {
     let agent_id = args.get("agent_id").and_then(|v| v.as_str());
     let limit = args
         .get("limit")
@@ -296,10 +388,25 @@ pub(crate) async fn tool_sessions_list(args: &Value) -> Result<String> {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let db = crate::get_session_db()
+    let db = ctx
+        .session_db
+        .as_ref()
+        .map(|handle| handle.0.clone())
+        .or_else(|| crate::get_session_db().cloned())
         .ok_or_else(|| anyhow::anyhow!("Session database not initialized"))?;
 
-    let filtered = db.list_sessions_for_model(agent_id, include_cron, limit)?;
+    let from_home = ctx
+        .session_id
+        .as_deref()
+        .map(|id| db.get_session(id))
+        .transpose()?
+        .flatten()
+        .is_some_and(|s| s.kind.as_str() == "personal_assistant");
+    let filtered = if from_home {
+        db.list_sessions_for_personal_assistant(agent_id, limit)?
+    } else {
+        db.list_sessions_for_model(agent_id, include_cron, limit)?
+    };
 
     if filtered.is_empty() {
         return Ok("No sessions found.".to_string());
@@ -327,15 +434,25 @@ pub(crate) async fn tool_sessions_list(args: &Value) -> Result<String> {
 }
 
 /// Tool: session_status — query detailed status of a specific session.
-pub(crate) async fn tool_session_status(args: &Value) -> Result<String> {
+pub(crate) async fn tool_session_status(
+    args: &Value,
+    ctx: &super::execution::ToolExecContext,
+) -> Result<String> {
     let session_id = args
         .get("session_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'session_id' parameter"))?;
 
-    let db = crate::get_session_db()
+    let db = ctx
+        .session_db
+        .as_ref()
+        .map(|handle| handle.0.clone())
+        .or_else(|| crate::get_session_db().cloned())
         .ok_or_else(|| anyhow::anyhow!("Session database not initialized"))?;
 
+    if !may_read_private_session(&db, session_id, ctx)? {
+        anyhow::bail!("Session is unavailable to this source");
+    }
     match db.get_session(session_id)? {
         Some(s) => {
             if db.is_codex_imported_session(session_id)? {
@@ -404,6 +521,9 @@ pub(crate) async fn tool_sessions_history(
         .ok_or_else(|| anyhow::anyhow!("Session database not initialized"))?;
 
     let is_cross_session = ctx.session_id.as_deref() != Some(session_id);
+    if !may_read_private_session(&db, session_id, ctx)? {
+        anyhow::bail!("Session is unavailable to this source");
+    }
     if is_cross_session
         && (ctx.incognito || live_source_is_incognito(&db, ctx.session_id.as_deref())?)
     {
@@ -615,6 +735,9 @@ pub(crate) async fn tool_sessions_search(
             let target = db
                 .get_session(&session_id)?
                 .ok_or_else(|| anyhow::anyhow!("Session '{}' not found", session_id))?;
+            if !may_read_private_session(&db, &session_id, ctx)? {
+                anyhow::bail!("Session is unavailable to this source");
+            }
             if db.is_codex_imported_session(&session_id)? {
                 return Ok("Imported Codex sessions are available only in the owner UI.".into());
             }
@@ -625,7 +748,18 @@ pub(crate) async fn tool_sessions_search(
                 ));
             }
 
-            db.search_message_content_for_model(query, None, Some(&session_id), None, limit)?
+            if ctx
+                .session_id
+                .as_deref()
+                .map(|id| db.get_session(id))
+                .transpose()?
+                .flatten()
+                .is_some_and(|source| source.kind.as_str() == "personal_assistant")
+            {
+                db.search_message_content(query, None, Some(&session_id), None, limit)?
+            } else {
+                db.search_message_content_for_model(query, None, Some(&session_id), None, limit)?
+            }
         }
         other => {
             return Ok(format!(
@@ -689,6 +823,40 @@ pub(crate) async fn tool_sessions_send(
         .map(|handle| handle.0.clone())
         .or_else(|| crate::get_session_db().cloned())
         .ok_or_else(|| anyhow::anyhow!("Session database not initialized"))?;
+    if let Some(home_id) = ctx.session_id.as_deref() {
+        if db
+            .get_session(home_id)?
+            .is_some_and(|s| s.kind.as_str() == "personal_assistant")
+        {
+            if !attachments.is_empty() {
+                anyhow::bail!("Personal assistant delegation currently accepts text only");
+            }
+            let input = crate::personal_assistant::AssistantDispatchInput {
+                source_turn_id: ctx
+                    .turn_id
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("A live owner turn is required"))?,
+                item_key: ctx
+                    .tool_call_id
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("A durable tool call identity is required"))?,
+                target_session_id: target_session_id.to_owned(),
+                instruction: message,
+                global_stop_epoch: ctx
+                    .turn_admitted_global_stop_epoch
+                    .ok_or_else(|| anyhow::anyhow!("A durable Stop admission is required"))?,
+            };
+            let result = db
+                .run(move |db| db.enqueue_personal_assistant_request(input))
+                .await?;
+            return Ok(serde_json::to_string(&result)?);
+        }
+        if db.is_personal_assistant_private_session(home_id)? {
+            anyhow::bail!(
+                "Private delegated work cannot forward instructions to another conversation"
+            );
+        }
+    }
     let target_session_id_owned = target_session_id.to_string();
     let source_session_id = ctx.session_id.clone();
     let prepared = crate::blocking::run_blocking(
@@ -706,6 +874,17 @@ pub(crate) async fn tool_sessions_send(
                     "Refusing to send to incognito session '{}'.",
                     target_session_id_owned
                 )));
+            }
+            let source_is_home = source_session_id
+                .as_deref()
+                .map(|id| db.get_session(id))
+                .transpose()?
+                .flatten()
+                .is_some_and(|source| source.kind.as_str() == "personal_assistant");
+            if db.is_personal_assistant_private_session(&target_session_id_owned)?
+                && !source_is_home
+            {
+                return Ok(Err("Target session is unavailable to this source".into()));
             }
             if !session.is_regular_chat()
                 || db.is_codex_imported_session(&target_session_id_owned)?
@@ -737,6 +916,7 @@ pub(crate) async fn tool_sessions_send(
         foreground_admission,
         causal_subagent_depth,
         false,
+        None,
     )
     .await?;
     let started = match started {
@@ -757,6 +937,141 @@ pub(crate) async fn tool_sessions_send(
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
+
+/// Cancellation is bound to one admitted request, never to the whole session.
+pub async fn cancel_personal_assistant_dispatch(
+    db: Arc<crate::session::SessionDB>,
+    request_id: String,
+) -> Result<crate::personal_assistant::AssistantRequest> {
+    let outcome = db
+        .run(move |db| db.cancel_personal_assistant_request(&request_id))
+        .await?;
+    if let Some(turn_id) = outcome.cancel_turn_id.as_deref() {
+        crate::chat_engine::active_turn::cancel_current(
+            &outcome.request.target_session_id,
+            Some(turn_id),
+        );
+    }
+    Ok(outcome.request)
+}
+
+/// The Primary owns queue consumption. Target turns still use the ordinary
+/// sealed kernel, permissions, usage accounting and terminal cleanup.
+pub fn spawn_personal_assistant_worker() {
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    tokio::spawn(async {
+        let mut ticks = tokio::time::interval(std::time::Duration::from_secs(2));
+        ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticks.tick().await;
+            let Some(db) = crate::get_session_db().cloned() else {
+                continue;
+            };
+            if let Err(error) = pump_personal_assistant(db).await {
+                crate::app_warn!(
+                    "chat",
+                    "personal_assistant",
+                    "Assistant queue reconciliation failed: {}",
+                    crate::logging::redact_sensitive(&error.to_string())
+                );
+            }
+        }
+    });
+}
+
+async fn pump_personal_assistant(db: Arc<crate::session::SessionDB>) -> Result<()> {
+    db.run(|db| db.reconcile_personal_assistant_requests())
+        .await?;
+    let requests = db.run(|db| db.list_personal_assistant_requests()).await?;
+    for request in requests {
+        if request.status == "running" || request.status == "cancellation_requested" {
+            if request.status == "cancellation_requested" {
+                if let Some(turn_id) = request.turn_id.as_deref() {
+                    crate::chat_engine::active_turn::cancel_current(
+                        &request.target_session_id,
+                        Some(turn_id),
+                    );
+                }
+            }
+            let id = request.id.clone();
+            db.run(move |db| db.finish_personal_assistant_request(&id))
+                .await?;
+            continue;
+        }
+        if request.status != "queued"
+            || crate::chat_engine::active_turn::has_entry(&request.target_session_id)
+        {
+            continue;
+        }
+        let id = request.id.clone();
+        let target = request.target_session_id.clone();
+        if !db
+            .run(move |db| db.personal_assistant_queue_is_ready(&id, &target))
+            .await?
+        {
+            continue;
+        }
+        let home = db.run(|db| db.ensure_personal_assistant_home()).await?;
+        let target_id = request.target_session_id.clone();
+        let session = db
+            .run(move |db| {
+                db.validate_personal_assistant_target(&target_id)?;
+                db.get_session(&target_id)?
+                    .ok_or_else(|| anyhow::anyhow!("Target session no longer exists"))
+            })
+            .await;
+        let session = match session {
+            Ok(session) => session,
+            Err(error) => {
+                let id = request.id;
+                let error = error.to_string();
+                db.run(move |db| db.fail_personal_assistant_request(&id, &error))
+                    .await?;
+                continue;
+            }
+        };
+        let context = crate::tool_defs::ToolExecContext {
+            session_id: Some(home.id),
+            session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
+            turn_admitted_global_stop_epoch: Some(request.global_stop_epoch),
+            origin_chat_source: Some(crate::knowledge::KbAccessSource::Gui),
+            ..Default::default()
+        };
+        let admission = crate::chat_engine::active_turn::begin_foreground_request();
+        let result = start_proactive_turn(
+            db.clone(),
+            session,
+            request.instruction,
+            Vec::new(),
+            &context,
+            admission,
+            1,
+            false,
+            Some(request.id.clone()),
+        )
+        .await;
+        let error = match result {
+            Ok(ProactiveTurnStart::Started(_)) => None,
+            Ok(ProactiveTurnStart::Blocked { reason }) => Some(reason),
+            Ok(ProactiveTurnStart::Interrupted { message }) => Some(message),
+            Err(error) => Some(error.to_string()),
+        };
+        if let Some(error) = error {
+            // A competing foreground admission may have won after the head check.
+            if crate::chat_engine::active_turn::has_entry(&request.target_session_id) {
+                continue;
+            }
+            let id = request.id;
+            db.run(move |db| db.fail_personal_assistant_request(&id, &error))
+                .await?;
+        }
+    }
+    db.run(|db| db.personal_assistant_inbox()).await?;
+    Ok(())
+}
 
 type ProactiveTurnReceiver = tokio::sync::oneshot::Receiver<std::result::Result<String, String>>;
 
@@ -949,6 +1264,7 @@ async fn start_proactive_turn(
     foreground_admission: crate::chat_engine::active_turn::ForegroundRequestAdmission,
     causal_subagent_depth: u32,
     publish_created_session: bool,
+    assistant_request: Option<String>,
 ) -> Result<ProactiveTurnStart> {
     let expected_global_stop_epoch = ctx.turn_admitted_global_stop_epoch.ok_or_else(|| {
         anyhow::anyhow!("Cross-session turns require a durable Global Stop admission")
@@ -981,7 +1297,10 @@ async fn start_proactive_turn(
         crate::agent_lifecycle::begin_agent_run(&session.agent_id).map_err(|error| {
             anyhow::anyhow!("Agent '{}' is not available: {error}", session.agent_id)
         })?;
-    let turn_id = uuid::Uuid::new_v4().to_string();
+    let turn_id = assistant_request
+        .as_ref()
+        .map(|id| format!("assistant-{id}"))
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let cancel = Arc::new(AtomicBool::new(false));
     let active_turn_guard = crate::chat_engine::active_turn::try_acquire_foreground_request(
         foreground_admission,
@@ -1055,6 +1374,14 @@ async fn start_proactive_turn(
                     attachment_meta,
                 );
                 title_meta = user_message.attachments_meta.clone();
+                if let Some(request_id) = assistant_request.as_ref() {
+                    user_message.attachments_meta = Some(
+                        serde_json::json!({
+                            "personal_assistant_request_id": request_id
+                        })
+                        .to_string(),
+                    );
+                }
                 db_for_persist
                     .append_message_and_create_session_tool_turn_with_id(
                         &turn_id_for_persist,
@@ -1544,6 +1871,35 @@ mod tests {
         })
         .expect("create channel conversations fixture table");
         (dir, db)
+    }
+
+    #[tokio::test]
+    async fn private_home_is_unreadable_from_another_model_session() {
+        let (_dir, db) = test_db("private-home-tools");
+        let home = db.ensure_personal_assistant_home().unwrap();
+        let ordinary = db.create_session("ha-main").unwrap();
+        db.append_message(&home.id, &NewMessage::user("private-needle"))
+            .unwrap();
+        let context = crate::tool_defs::ToolExecContext {
+            session_id: Some(ordinary.id),
+            session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
+            ..Default::default()
+        };
+        let args = serde_json::json!({"session_id": home.id});
+        assert!(tool_session_status(&args, &context).await.is_err());
+        assert!(tool_sessions_history(&args, &context).await.is_err());
+        assert!(tool_sessions_search(
+            &serde_json::json!({
+                "query": "private-needle", "scope": "session", "session_id": home.id
+            }),
+            &context
+        )
+        .await
+        .is_err());
+        let listed = tool_sessions_list(&serde_json::json!({}), &context)
+            .await
+            .unwrap();
+        assert!(!listed.contains(&home.id));
     }
 
     #[test]

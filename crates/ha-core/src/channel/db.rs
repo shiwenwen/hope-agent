@@ -394,6 +394,8 @@ impl ChannelDB {
                 ON channel_conversations(channel_id, account_id, chat_id);",
         )?;
 
+        crate::personal_assistant::ensure_channel_guards(&conn)?;
+
         // Preserve modern 1:1 attach rows created before provider tenant
         // identity became durable. Dropping this table would detach every IM
         // chat, so this migration is deliberately additive.
