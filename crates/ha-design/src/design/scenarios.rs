@@ -22,6 +22,13 @@ pub struct ScenarioViewport {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ScenarioReady {
+    pub selector: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DesignScenario {
     pub id: String,
     pub title: String,
@@ -31,6 +38,8 @@ pub struct DesignScenario {
     pub state: Value,
     #[serde(default)]
     pub viewport_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready: Option<ScenarioReady>,
 }
 
 fn default_route() -> String {
@@ -58,6 +67,7 @@ impl Default for ScenariosManifest {
                 route: "/".into(),
                 state: Value::Object(Default::default()),
                 viewport_ids: Vec::new(),
+                ready: None,
             }],
         }
     }
@@ -78,7 +88,7 @@ fn valid_id(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
 }
 
-fn validate(manifest: &ScenariosManifest) -> Result<()> {
+pub(crate) fn validate(manifest: &ScenariosManifest) -> Result<()> {
     if manifest.version != 1 {
         anyhow::bail!("unsupported scenarios manifest version");
     }
@@ -112,6 +122,24 @@ fn validate(manifest: &ScenariosManifest) -> Result<()> {
         }
         if !scenario.state.is_object() && !scenario.state.is_null() {
             anyhow::bail!("scenario state must be a JSON object");
+        }
+        if let Some(ready) = &scenario.ready {
+            if ready.selector.is_empty()
+                || ready.selector.len() > 256
+                || ready.text.trim().is_empty()
+                || ready.text.len() > 512
+                || scraper::Selector::parse(&ready.selector).is_err()
+            {
+                anyhow::bail!("scenario ready requires a bounded CSS selector and expected text");
+            }
+        }
+        let mut viewport_ids = std::collections::BTreeSet::new();
+        if scenario
+            .viewport_ids
+            .iter()
+            .any(|id| !viewport_ids.insert(id))
+        {
+            anyhow::bail!("scenario contains duplicate viewport ids");
         }
         if scenario
             .viewport_ids
@@ -252,6 +280,7 @@ mod tests {
                 route: "/".into(),
                 state: serde_json::json!({}),
                 viewport_ids: vec![],
+                ready: None,
             })
             .collect();
         assert!(validate(&manifest).is_err());

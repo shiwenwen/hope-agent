@@ -3221,13 +3221,15 @@ export default function DesignView({
         "review_design_artifact_cmd",
         { id: aid },
       )
+      if (activeArtifactRef.current?.id !== aid) return
       setReviewFindings(Array.isArray(f) ? f : [])
       try {
         const visual = await tx.call<DesignQualityRun>("run_design_visual_regression_cmd", {
           artifactId: aid,
         })
-        setVisualQuality(visual)
+        if (activeArtifactRef.current?.id === aid) setVisualQuality(visual)
       } catch (e) {
+        if (activeArtifactRef.current?.id !== aid) return
         setVisualQuality(null)
         logger.warn("design", "DesignView::visualRegression", "visual regression unavailable", e)
         toast.warning(
@@ -3245,18 +3247,25 @@ export default function DesignView({
   }, [tx, reviewing, t])
 
   const acceptVisualBaseline = useCallback(async () => {
-    if (!visualQuality || acceptingBaseline) return
+    if (
+      !visualQuality ||
+      acceptingBaseline ||
+      visualQuality.artifactId !== activeArtifactRef.current?.id
+    )
+      return
     setAcceptingBaseline(true)
     try {
       await tx.call("accept_design_visual_baseline_cmd", {
         input: {
           artifactId: visualQuality.artifactId,
           expectedArtifactHash: visualQuality.artifactHash,
+          expectedScenariosHash: visualQuality.scenariosHash,
         },
       })
       const rerun = await tx.call<DesignQualityRun>("run_design_visual_regression_cmd", {
         artifactId: visualQuality.artifactId,
       })
+      if (activeArtifactRef.current?.id !== visualQuality.artifactId) return
       setVisualQuality(rerun)
       toast.success(t("design.review.baselineAccepted", "已接受当前画面为视觉基线"))
     } catch (e) {
@@ -7436,7 +7445,7 @@ export default function DesignView({
                   </p>
                   <p className="text-[11px] text-muted-foreground">
                     {visualQuality.deterministicPassed
-                      ? t("design.review.visualPassed", "固定视口与静态检查均通过")
+                      ? t("design.review.visualPassed", "场景视口与静态检查均通过")
                       : t("design.review.visualNeedsBaseline", "存在差异或尚未建立基线")}
                   </p>
                 </div>
@@ -7444,7 +7453,7 @@ export default function DesignView({
                   size="sm"
                   variant="outline"
                   className="h-7 text-xs"
-                  disabled={acceptingBaseline}
+                  disabled={acceptingBaseline || reviewing}
                   onClick={() => void acceptVisualBaseline()}
                 >
                   {acceptingBaseline && <Loader2Icon className="mr-1 h-3.5 w-3.5 animate-spin" />}
@@ -7454,7 +7463,7 @@ export default function DesignView({
               <div className="grid grid-cols-3 gap-1.5">
                 {visualQuality.diffs.map((diff) => (
                   <div
-                    key={`${diff.viewport.width}x${diff.viewport.height}`}
+                    key={`${diff.scenarioId ?? "default"}:${diff.viewport.width}x${diff.viewport.height}`}
                     className={cn(
                       "rounded border px-1.5 py-1 text-center text-[10px]",
                       diff.passed
@@ -7462,6 +7471,11 @@ export default function DesignView({
                         : "border-amber-500/30 text-amber-600",
                     )}
                   >
+                    {diff.scenarioTitle && (
+                      <div className="truncate" data-ha-title-tip={diff.scenarioTitle}>
+                        {diff.scenarioTitle}
+                      </div>
+                    )}
                     {diff.viewport.width}×{diff.viewport.height}
                     <br />
                     {diff.changedRatio == null

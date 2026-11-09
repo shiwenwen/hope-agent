@@ -246,8 +246,11 @@ export interface CritiqueResult {
 export interface DesignQualityRun {
   artifactId: string
   artifactHash: string
+  scenariosHash?: string
   deterministicPassed: boolean
   diffs: {
+    scenarioId?: string
+    scenarioTitle?: string
     viewport: { width: number; height: number }
     currentHash: string
     baselineHash?: string

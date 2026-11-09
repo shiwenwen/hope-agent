@@ -319,6 +319,17 @@ pub trait BrowserBackend: Send + Sync {
 
     // ── Control ─────────────────────────────────────────────────────────
     async fn evaluate(&self, script: &str) -> Result<Value>;
+    /// Commit a fixed inert capture document in a disposable blank page.
+    /// No caller-controlled URL or external request is accepted.
+    async fn prepare_capture_page(&self) -> Result<()> {
+        bail!("This browser backend does not support isolated capture documents")
+    }
+    /// Internal capture support: inspect the sole direct `about:srcdoc` child
+    /// in an isolated world, without granting same-origin or universal access.
+    /// This is not exposed as a model tool or a raw-CDP permission bypass.
+    async fn evaluate_sandboxed_frame(&self, _script: &str) -> Result<Value> {
+        bail!("This browser backend does not support isolated srcdoc inspection")
+    }
     async fn raw_cdp(&self, _params: RawCdpParams) -> Result<Value> {
         bail!("This browser backend does not support raw CDP commands")
     }
