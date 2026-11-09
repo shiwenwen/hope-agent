@@ -133,6 +133,9 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         {
             (0.10, 0.40)
         }
+        // Gemini 4 Argon promotional Standard rate is $2/$10 through 2026-11-30.
+        // https://ai.google.dev/gemini-api/docs/pricing (2026-10-19 verified)
+        m if m.contains("gemini-4-argon") => (2.0, 10.0),
         // 3.8 / 3.7 / 3.6 Flash 标准付费层促销至 2026-12-31，之后回 $1.5/$7.5。
         // https://ai.google.dev/gemini-api/docs/pricing （2026-09-08 核验）
         m if m.contains("gemini-3.8-flash")
@@ -645,6 +648,8 @@ mod tests {
     /// 这几项对应 templates/*.ts 里直连厂商的价格，改模板时一并改这里。
     #[test]
     fn estimator_matches_direct_provider_template_prices() {
+        assert_eq!(prices("gemini-4-argon"), (2.0, 10.0));
+        assert_eq!(prices("google/gemini-4-argon"), (2.0, 10.0));
         assert_eq!(prices("gemini-3.8-flash"), (0.75, 3.75));
         assert_eq!(prices("google/gemini-3.8-flash"), (0.75, 3.75));
         assert_eq!(prices("deepseek-reasoner"), (0.44, 1.32));
@@ -682,6 +687,7 @@ mod tests {
             "gpt-5.5",
             "gpt-5.4",
             "gemini-3.1-pro-preview",
+            "gemini-4-argon",
             "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",

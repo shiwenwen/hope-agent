@@ -1999,7 +1999,7 @@
         },
         "custom": {
           "title": "Custom diagnosis",
-          "description": "A user-selected subset of registered weekly cases and arms with bounded repetitions."
+          "description": "A user-selected subset of all registered Hope Core cases and arms with bounded repetitions."
         }
       },
       "profileLimits": "≤{{trials}} trials · ≤{{models}} models",
@@ -4151,6 +4151,10 @@
     "qwen": {
       "description": "نماذج Alibaba Cloud DashScope",
       "name": "Qwen"
+    },
+    "unbiased": {
+      "name": "Unbiased",
+      "description": "نموذج Pareto المدمج، متوافق مع OpenAI Chat"
     },
     "requesty": {
       "description": "بوابة توجيه متعددة النماذج، مئات النماذج بمفتاح واحد",
@@ -12341,6 +12345,7 @@
       "fixStarted": "بدأ الذكاء الاصطناعي بالإصلاح",
       "fixBusy": "هناك محادثة قيد التنفيذ، يرجى المحاولة مرة أخرى بعد قليل",
       "fixPrompt": "يرجى إصلاح المشكلة التي اكتشفها الفحص الذاتي للتصميم: {{detail}}. استخدم رموز نظام التصميم (var(--ds-*)) لتوحيد الألوان واستبدال الأنماط المضمّنة. أجرِ الحد الأدنى الضروري من التغييرات فقط وحافظ على بقية التصميم كما هي.",
+      "visualScenarioIncomplete": "التحقق المرئي غير مكتمل: لا يُدعم سوى السيناريو الافتراضي وأحجام العرض الثابتة. لم تُنفّذ السيناريوهات المخصصة ولا يمكن اعتمادها كخط أساس؛ أعد التحقق بعد تغيير السيناريوهات.",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",
       "baselineFailed": "Failed to accept the visual baseline",

@@ -25,6 +25,17 @@ export const infrastructureTemplates: ProviderTemplate[] = [
         costOutput: 50,
       },
       {
+        id: "openai/gpt-6.1-terra",
+        name: "GPT-6.1 Terra",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_050_000,
+        maxTokens: 128_000,
+        reasoning: true,
+        // Base OpenAI route rate; OpenRouter routing and long-input rates vary.
+        costInput: 1,
+        costOutput: 5,
+      },
+      {
         id: "openai/gpt-6.1-sol",
         name: "GPT-6.1 Sol",
         inputTypes: ["text", "image"],

@@ -145,6 +145,7 @@ impl Drop for DispatchClaimGuard {
 /// A terminal tool-job completion waiting in the merge window. Carries exactly
 /// the fields [`dispatch_injection`] needs (session id is the buffer key).
 struct PendingJobInjection {
+    _eval_pending: Option<crate::eval_context::EvalSessionGuard>,
     parent_agent_id: Option<String>,
     job_id: String,
     tool_name: String,
@@ -184,6 +185,7 @@ pub fn enqueue_injection(
         .async_tools
         .completion_merge_window_secs;
     let mut pending = Some(PendingJobInjection {
+        _eval_pending: crate::eval_context::retain_pending_notification(&session_id),
         parent_agent_id,
         job_id,
         tool_name,
@@ -287,6 +289,7 @@ fn flush_merge_buffer(session_id: &str) {
 /// `<task-notification-batch>`, and marks every claimed row injected on the
 /// single terminal landing (each callback fires exactly once, per gotcha I7).
 fn dispatch_merged_injection(session_id: String, jobs: Vec<PendingJobInjection>) {
+    let eval_pending = crate::eval_context::retain_pending_notification(&session_id);
     let session_db = match crate::get_session_db() {
         Some(db) => db.clone(),
         None => {
@@ -393,6 +396,7 @@ fn dispatch_merged_injection(session_id: String, jobs: Vec<PendingJobInjection>)
     let ids_for_injected = claimed_ids;
 
     std::thread::spawn(move || {
+        let _eval_pending = eval_pending;
         let mut dispatch_claim = DispatchClaimGuard::new(ids_for_release);
 
         match tokio::runtime::Builder::new_current_thread()
@@ -472,6 +476,7 @@ pub fn dispatch_injection(
     result_path: Option<String>,
     error: Option<String>,
 ) {
+    let eval_pending = crate::eval_context::retain_pending_notification(&session_id);
     let session_db = match crate::get_session_db() {
         Some(db) => db.clone(),
         None => {
@@ -566,6 +571,7 @@ pub fn dispatch_injection(
     let db_clone = session_db.clone();
 
     std::thread::spawn(move || {
+        let _eval_pending = eval_pending;
         // Runtime setup/panic keeps an emergency release guard. Normal queued
         // ownership is transferred into the receipt instead of ending with
         // this short-lived dispatch thread.
@@ -943,6 +949,7 @@ mod tests {
 
     fn pending(job_id: &str, status: JobStatus) -> PendingJobInjection {
         PendingJobInjection {
+            _eval_pending: None,
             parent_agent_id: None,
             job_id: job_id.to_string(),
             tool_name: "exec".to_string(),

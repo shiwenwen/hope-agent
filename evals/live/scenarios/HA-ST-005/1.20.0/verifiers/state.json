@@ -1,0 +1,20 @@
+{
+  "path": "/api/subagent/runs?sessionId={sessionId}",
+  "expectedByFaultProfile": {
+    "clean": {
+      "anyItemSubset": {
+        "status": "completed"
+      }
+    },
+    "chaos": {
+      "anyItemSubset": {
+        "status": "killed"
+      }
+    }
+  },
+  "expectedByOrchestrationProfile": {
+    "single_agent_compute_matched": {
+      "expectedExact": []
+    }
+  }
+}

@@ -6,6 +6,8 @@
 
 ---
 
+服务商品牌图标统一由 `src/components/common/ProviderIcon.tsx` 映射。彩色模式优先使用上游提供的 `Color` 组件；没有彩色组件或指定品牌色时使用继承主题前景色的单色图标。`@lobehub/icons` 5.22.0 的 Stepfun 仅提供单色标识，保持这一降级路径，避免强制黑色导致深色主题下不可见。
+
 ## 核心思想
 
 Hope Agent 要面对一个碎片化的现实：市面上有几十家大模型服务商，它们**协议不同**（Anthropic Messages、OpenAI Chat、OpenAI Responses、ChatGPT OAuth）、**表达"多想一会儿"的方式不同**（有的传 `reasoning_effort`，有的传 `thinking budget_tokens`，有的传 `enable_thinking`）、**流式事件格式不同**、**可靠性也参差不齐**（限流、过载、超时、上下文溢出随时可能发生）。
@@ -27,6 +29,21 @@ Hope Agent 要面对一个碎片化的现实：市面上有几十家大模型服
 ---
 
 ## 1. Provider 系统
+
+### 单条系统消息的端点兼容
+
+Hetzner `https://inference.hetzner.com/api/v1` 与 OVHcloud
+`https://oai.endpoints.kepler.ai.cloud.ovh.net/v1` 的 OpenAI Chat 请求将稳定 system、
+受信 Run instruction 与 Coding Profile 按原顺序用空行合并到首条 system。Qwen3.8-27B
+[固定版本模板](https://huggingface.co/Qwen/Qwen3.8-27B/blob/3121a14ab17816cbc8b7897b15149ddacb2e39ce/chat_template.jinja)
+拒绝位于索引 0 以外的 system，即使它们连续处于请求开头；单 user 消息的模型测试不能覆盖该限制。
+
+匹配仅限上述 HTTPS 主机、443 端口与规范路径，允许末尾 `/`；其它端点保持原形状。
+合并只消费受信 instruction，不移动会话历史，不提升 `<hope_round_data>`、召回或外部内容权限。
+计量使用同一合并函数：混合了运行指令的完整 system 条目计入固定动态输入，稳定段计量留空，
+避免把整条动态消息声称为稳定缓存；历史仍是可独立预算的历史 lane。Provider 返回的实际用量照常入账。
+该兼容仅经离线请求形状与模板验证，不表示真实账号、全部模型、工具续轮或生产端点验收。
+
 
 ### 1.1 两个核心枚举
 
@@ -120,7 +137,7 @@ flowchart TD
 
 | 文件 | 类别 | Provider 数（约） | 特点 |
 |------|------|:---:|------|
-| `international.ts` | 国际 | 7 | Anthropic / OpenAI / Google / xAI / Mistral / DeepSeek 等一线厂商 |
+| `international.ts` | 国际 | 8 | Anthropic / OpenAI / Google / xAI / Mistral / DeepSeek / Unbiased 等 |
 | `china.ts` | 国内 | 11 | Kimi / 通义千问 / 豆包 / 智谱 / MiniMax 等，多标 CNY 计价 |
 | `infrastructure.ts` | 基础设施 / 聚合 | 26 | OpenRouter / Groq / Together / Fireworks / 各类网关与 TEE 推理 |
 | `local.ts` | 本地 / 自托管 | 5 | Ollama / LiteLLM / vLLM / LM Studio / SGLang，指向 `127.0.0.1` |
@@ -128,6 +145,8 @@ flowchart TD
 > 精确复核：Provider 数量以四个模板数组的顶层 `key` 为准，模型数量以各 Provider 的 `models[*].id` 为准；`templateHygiene.test.ts` 负责校验关键能力与模型参数。不要用全文 `id:` 行数推导 Provider 数量。
 
 模板里最值得记的是**协议归类**——大多数国内/聚合服务商都用 `openai-chat`（OpenAI 兼容），少数走原生 `anthropic`（MiniMax、Kimi Coding、Synthetic 等），OpenAI 官方与 GitHub Copilot 走 `openai-responses`。推理格式则跟着服务商走：智谱标 `zai`、通义/百炼标 `qwen`、Anthropic 系标 `anthropic`，其余多为 `openai`。这套"模板 → ApiType → ThinkingStyle"的映射就是新增服务商时要填对的三件事。
+
+Unbiased 直连模板使用 `openai-chat` 和 `https://api.unbiased.ai/v1`，复用现有流式、工具与用量路径。官方 26.10 发布页确认当前别名 `pareto` 指向 26.10，固定 ID `pareto-26.10` 也可用；`pareto-26.9` 仍保留，`pareto-26.10-preview` 正在退役。26.10 支持文本/图片输入、工具调用和 1M 上下文，API 标准价为输入/输出 USD `0.8/3.2` 每百万 Token，缓存输入 `0.03`；26.9 为 `2.5/7.5`。模板输出 `131_072` 取自官方集成示例，作为产品预算而非服务端上限。[官方 API 文档](https://unbiased.ai/developers/)明确未实现 `GET /v1/models`、未知 ID 不拒绝且可能按 Pareto 计费，故模板仅列出官方文档 ID。新账户人工审核，Team 需预付额度，生产用途需要单独书面协议；缓存价不在现有标量成本字段拆分展示。模板显式使用 `thinkingStyle: none`，不发送未经文档确认的推理参数。
 
 #### 2026-10-12 稳定模型适配
 
@@ -150,7 +169,7 @@ flowchart TD
 
 请求经过现有 SSRF 策略、显式私网选择和可信主机列表，固定已核准解析地址，禁止重定向。响应每页上限 2 MiB、总计最多 2000 个模型和 10 页；Anthropic 只在同一端点以 `last_id` / `after_id` 翻页，总发现操作有 30 秒超时。其它分页形式、重复/缺失游标或上限命中标为 `truncated`，不跟随厂商返回的任意 URL。错误不回显响应正文、地址或凭据，候选反射当前密钥时拒绝结果。
 
-列表仅投影模型 ID 与显示名，不把第三方自定义预算、能力或价格字段直接当配置。`ModelDiscovery` 默认不选候选，过滤已有的大小写敏感 ID，要求用户填写正整数上下文/输出上限（输出不超过上下文）并确认文本对话与工具兼容性；修改选择或上限会撤销确认。加入仅追加到当前表单，沿既有 `provider/crud.rs` 的普通保存路径生效，active/fallback 不由发现操作改写。新模型明确文本输入、推理关闭、价格未标价；能力可继续由用户编辑。端点/凭据/档案变化或取消会使在途结果失效，旧响应不能写入新表单。
+列表仅投影模型 ID 与显示名，不把第三方自定义预算、能力或价格字段直接当配置。`ModelDiscovery` 默认不选候选，过滤已有的大小写敏感 ID，要求用户填写正整数上下文/输出上限（输出不超过上下文）并确认文本对话与工具兼容性；修改选择或上限会撤销确认。点击弹窗外部不关闭发现窗口；添加、取消、关闭按钮与 Esc 仍可明确退出，避免误触丢失草稿。加入仅追加到当前表单，沿既有 `provider/crud.rs` 的普通保存路径生效，active/fallback 不由发现操作改写。新模型明确文本输入、推理关闭、价格未标价；能力可继续由用户编辑。端点/凭据/档案变化或取消会使在途结果失效，旧响应不能写入新表单。
 
 接口契约依据 [OpenAI 模型列表](https://developers.openai.com/api/reference/resources/models/methods/list)与 [Anthropic 模型列表](https://platform.claude.com/docs/en/api/models/list)。列表成功不等于真实账号的聊天、工具调用或模型能力验收；隔离 fixture 不调用真实服务商。
 
@@ -194,6 +213,12 @@ Google 直连模板提供 `gemini-3.8-flash`，OpenRouter 模板提供独立核�
 Google 官方 HTTPS 端点的精确 ID 将 `minimal` 调整为 `low`、`xhigh/max` 调整为 `high`，保留 `low/medium/high`。未指定档位或关闭参数发送时继续省略字段，由模型采用默认思考；这不等于关闭 Gemini 服务端推理。中转不套用官方档位特例，已有配置与用户价格不自动覆盖。
 
 两个模板及大盘兜底估价补齐当前标准输入/输出价 0.75/3.75 美元每百万令牌。Google 此价格有效至 2026-12-31，2027-01-01 起为 1.5/7.5；到期前需重新核验并更新模板和估价表。OpenRouter 以其渠道当期报价为准。缓存、Batch/Flex/Priority 及用户账户的实际账单不由基础单价表达；本次仅离线契约验证，没有真实模型质量、延迟或费用实测。[Google 定价](https://ai.google.dev/gemini-api/docs/pricing)
+
+#### 2026-10-19 Gemini 4 Argon 稳定型号
+
+Google 于 2026-10-13 将 `gemini-4-argon` 标为 GA。其模型页给出统一 1,048,576 输入/输出上下文与同步 65,536 最大输出；超过 65,536 的 long decode 需 Interactions API 后台执行，Hope 当前适配器不走该协议。模板只声明文本/图片，因为这是已核验的 OpenAI Chat 兼容输入；不把原生音频、视频、PDF 或服务端工具计为 Hope 已接入。官方 OpenAI 兼容层列出此模型的 `reasoning_effort` 映射，并支持 Chat Completions、流式与函数调用；仅官方 Google HTTPS 主机、443 端口及精确模型 ID 应用 `minimal → low`、`xhigh/max → high` 映射，未设置或 `none` 不发送参数并保留 Google 默认 `medium`，因此不能表示为关闭思考。
+
+模板与成本估算同步标准付费档当前输入/输出价 $2/$10 每百万令牌，官方促销截止 2026-11-30，12-01 起为 $4/$20。它不支持 Free tier 或 Google AI Pro；缓存仅隐式，费用不在标量模板价格内。当前数据可用于同期估算，不代表账单；到期前须重新核价。[GA 更新](https://ai.google.dev/gemini-api/docs/changelog)、[模型限制](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon)、[OpenAI 兼容](https://ai.google.dev/gemini-api/docs/openai)、[官方价格](https://ai.google.dev/gemini-api/docs/pricing)。
 
 #### Anthropic 工作区鉴权
 
@@ -498,10 +523,14 @@ SSE 事件处理：
 `crates/ha-agent-runtime/src/provider_adapters/codex_adapter.rs`（SSE 解析复用 Responses 的 `parse_openai_sse`）。请求/响应格式与 Responses API 相同，额外特性集中在**认证、模型目录与失败策略**：
 
 - **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` 头
+- **采样参数**：GPT-6 的 Codex 订阅请求省略 `temperature`，包括配置值 `0`；其他既有型号继续遵循对应适配契约。Codex 基线报告必须注明这一协议差异，不能把配置温度当作实际生效参数。
+- **可选工具参数**：Codex 的 function 工具在请求与 Token 计量中统一显式设置 `strict: false`，与 Responses 适配器一致，保留 schema 中字段可省略的契约。
 - **终端登录**：`hope-agent auth codex login` 复用同一 PKCE loopback 流程，成功后写 `~/.hope-agent/credentials/auth.json` 并调 `ensure_codex_provider_persisted(...)`；`--no-open` 只打印 URL，适合 SSH/headless 配合 `ssh -L 1455:127.0.0.1:1455 <host>`
 - **内置模型目录三处必须同步**：`agent::config::get_codex_models()` / `provider::helpers::default_codex_models()` / `provider::crud::default_codex_model_ids()`（id 集合 + 顺序一致，单测锁长度）。`DEFAULT_CODEX_MODEL_ID` 当前是 `gpt-5.6-terra`——**不是**列表里的旗舰 `gpt-5.6-sol`。原因：GPT-5.6 按 ChatGPT 套餐分级（Free/Go 只有 Terra，Sol 需付费套餐），而这个常量会通过 `ActiveModelUpdate::Always` 套到每个新登录账号，必须选所有 Codex 账号都有的那一档
-- **GPT-6 目录与参数**：三份内建目录按相同顺序补齐 `gpt-6.1-sol`、`gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`。依据 [Codex 官方内建目录](https://github.com/openai/codex/blob/e762c05bd686dd1eb3595aef2e14cc37c739f401/codex-rs/models-manager/models.json) 使用 272000 上下文、text/image 与订阅估算价 0，保留既有 16384 输出预留（Codex 不接收 `max_output_tokens`）。补齐缺失模型仍由既有 `ensure_codex_provider` / CRUD 写入口执行，保留用户已选模型、限制、其它条目和禁用状态；套餐和工作区权限由服务端裁决。
-- **GPT-6 推理差异**：Codex 四项只发送 `low/medium/high/xhigh/max`，未设置时省略推理参数以保留服务端/模型默认，`minimal/明确关闭 → low`，不发送温度；关闭思考仍由既有展示守卫丢弃推理输出。新增 GPT-6 原厂规则限定 Responses 与 Codex；Chat 保留原有 Astra 保护及其它型号的既有兼容映射，不声称完整 GPT-6 Chat 合同。API Responses 则只在精确 `api.openai.com` HTTPS 默认端口应用原厂规则，Sol/Luna 的显式关闭发送 `none`，Astra/6.1 Sol 的关闭发送 `low`，保留 `max`，未设置时保留官方默认（6.1 Sol/Sol/Luna 为 medium），推理启用时省略温度；网关与未知 ID 保持既有映射。官方 Codex `ultra` 是客户端委派模式，本轮不扩展 Hope 的工具或调度权限。
+- **GPT-6 目录与参数**：三份 Codex 内建目录按相同顺序补齐 `gpt-6.1-sol`、`gpt-6.1-terra`、`gpt-6-astra`、`gpt-6-sol`、`gpt-6-luna`。Codex CLI 目录列出 Terra 的 500000 `context_window` / 872000 `max_context_window`，并支持订阅目录中列明的套餐；OAuth 模板采用其 500000 默认上下文，不把 872000 当默认预算。其他 GPT-6 仍取 CLI 目录的 272000；API Responses 保持独立的 1.05M 上下文和 128K 最大输出。Codex 模型使用 text/image 与订阅估算价 0，保留既有 16384 输出预留（Codex 不接收 `max_output_tokens`）。已有用户保存的上下文值不自动覆盖；补齐缺失模型仍由既有 `ensure_codex_provider` / CRUD 写入口执行，并保留用户已选模型、限制、其它条目和禁用状态。账号可用性仍由套餐、工作区设置和上线资格控制；自带 API Key 按 API 价格计费。
+- **GPT-6 推理差异**：Codex 五项只发送 `low/medium/high/xhigh/max`，未设置时省略推理参数以保留服务端/模型默认，`minimal/明确关闭 → low`，不发送温度；关闭思考仍由既有展示守卫丢弃推理输出。API Responses 则只在精确 `api.openai.com` HTTPS 默认端口应用原厂规则，Terra/Sol/Luna 的显式关闭发送 `none`，Astra/6.1 Sol 的关闭发送 `low`，保留 `max`，未设置时保留官方默认；推理启用时省略温度。直连 OpenAI 新建目录只通过 Responses 暴露 GPT-6；Terra 的工具调用要求 Responses，GPT-6 Sol/Luna 在 Chat Completions 中仅以 `reasoning_effort: none` 支持函数调用，其他型号另有约束。OpenRouter 的 Terra 路由单独按其当前兼容目录提供。网关与未知 ID 保持既有映射。官方 Codex `ultra` 是客户端委派模式，Hope 不把它作为 API 推理参数或新增工具调度权限。
+- **Moonshot / Ark Kimi K3.1 Pro**：Moonshot 仅对精确型号 `kimi-k3.1-pro`、`kimi-k3.1-pro-highspeed` + HTTPS `api.moonshot.ai:443` 应用契约；Ark 只对 `kimi-k3-1-pro-261024` + HTTPS `ark.cn-beijing.volces.com:443` 应用契约。两者省略固定采样字段与 `thinking`，显式 effort 映射 `minimal/low/medium → low`、`high → high`、`xhigh/max → max`；未设置或关闭时省略 effort，模型思考始终开启。高速版同为 1,048,576 上下文，Hope 使用 131,072 输出预设，单价为输入/输出每百万 $4/$20；官方未单独声明高速版输出硬上限。网关、其他型号和同名自建端点保留原有行为。Moonshot 记录美元基础价、Ark 记录人民币基础价；缓存计费不在当前成本字段中体现。Moonshot K2 系列对新注册账号关闭后只从新建模板移除，不改写已保存配置。
+- **Ark DeepSeek V4.1 Flash**：仅对 `deepseek-v4-1-flash-261017` + HTTPS `ark.cn-beijing.volces.com:443` 使用原厂 Chat 推理档位，`minimal/low → low`、`medium/high/xhigh → high`、`max → max`，显式关闭发送 `reasoning_effort: none`，未设置则省略字段。新建模板采用官方图像/工具/结构化输出能力、1,024K 上下文、384K 最大回答，以及按高峰价 ¥2/¥8 每百万输入/输出 Token 做估算；空闲价 ¥1/¥4、缓存与真实账单不在标量成本字段表达。旧 V4 预览快照替换为当前 GA ID，不迁移已保存配置。[模型规格](https://docs.volcengine.com/docs/ark/model-list?lang=en)、[模型参数与兼容性](https://console.volcengine.com/ark/region:cn-beijing/docs/deepseek-v4-1-flash)、[模型价格](https://docs.volcengine.com/docs/ark/model-pricing?lang=zh&redirect=1)
 - **Codex 生命周期**：新目录移除 GPT-5.4、GPT-5.3-Codex-Spark 与 2026-10-14 退役的 GPT-5.5；`ensure_codex_provider` 不删除已保存的旧条目，不自动迁移 active/fallback。Codex 退役不传播到 OpenAI API 目录。证据见 [官方模型](https://learn.chatgpt.com/docs/models) 与 [官方变更日志](https://learn.chatgpt.com/docs/changelog)。新 Sign in with ChatGPT 的公共 API token-sharing 流程使用另一授权契约，本轮不将现有 Codex PKCE 凭据或端点改成该流程。
 - **重试与降级**：Codex adapter 的一次 dispatch claim 严格只发送一次，不在内部隐藏传输层重试。明确未发送或收到完整 HTTP 拒绝的 retryable 错误由外层执行器按 policy 退避；每次重试都重新准备精确正文、建立新计划并取得新 claim。收到响应前发送状态未知、流中断或 WAL 收敛失败统一进入 `DispatchUnknown`，禁止自动重发；Codex 仍不参与 profile 轮换，只有**非 terminal** 错误耗尽当前模型后才允许外层 fallback model 链换模型
 - **不参与 profile 轮换**：OAuth 无 api_key profile，执行器硬编码跳过 Codex 的 profile 选择；凭据失败直接走标准失败路径到下一模型

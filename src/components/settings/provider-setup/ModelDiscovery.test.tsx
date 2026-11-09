@@ -52,6 +52,60 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
+test.each(["mouse", "touch"])(
+  "outside %s interaction preserves the discovery draft",
+  async (pointerType) => {
+    const add = vi.fn()
+    mock.call.mockResolvedValue(discovery)
+    render(<ModelDiscovery config={config} onAdd={add} />)
+    fireEvent.click(screen.getByRole("button", { name: "provider.discovery.action" }))
+    fireEvent.click(await screen.findByRole("switch", { name: "provider.discovery.select new" }))
+    fireEvent.change(screen.getByRole("spinbutton", { name: "provider.discovery.context new" }), {
+      target: { value: "16000" },
+    })
+    fireEvent.change(screen.getByRole("spinbutton", { name: "provider.discovery.output new" }), {
+      target: { value: "2000" },
+    })
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "New model" } })
+    fireEvent.click(screen.getByRole("switch", { name: "provider.discovery.confirm" }))
+    // Radix installs its document pointer listener after the opening interaction.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    const overlay = screen.getByRole("dialog").previousElementSibling!
+    fireEvent.pointerDown(overlay, { pointerType, button: 0 })
+    fireEvent.click(overlay)
+    expect(screen.getByRole("dialog")).toBeVisible()
+    expect(screen.getByRole("searchbox")).toHaveValue("New model")
+    expect(screen.getByRole("spinbutton", { name: "provider.discovery.context new" })).toHaveValue(
+      16000,
+    )
+    expect(screen.getByRole("spinbutton", { name: "provider.discovery.output new" })).toHaveValue(
+      2000,
+    )
+    expect(screen.getByRole("switch", { name: "provider.discovery.confirm" })).toBeChecked()
+    expect(add).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "provider.discovery.add 1" }))
+    expect(add).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "new", contextWindow: 16000, maxTokens: 2000 }),
+    ])
+    expect(screen.queryByRole("dialog")).toBeNull()
+  },
+)
+
+test.each(["cancel", "close", "escape"])(
+  "explicit %s still dismisses discovery",
+  async (method) => {
+    mock.call.mockResolvedValue(discovery)
+    const add = vi.fn()
+    render(<ModelDiscovery config={config} onAdd={add} />)
+    fireEvent.click(screen.getByRole("button", { name: "provider.discovery.action" }))
+    await screen.findByText("New model")
+    if (method === "escape") fireEvent.keyDown(document, { key: "Escape" })
+    else fireEvent.click(screen.getByRole("button", { name: `common.${method}` }))
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(add).not.toHaveBeenCalled()
+  },
+)
+
 test("requires explicit selection, valid budgets and capability confirmation without overwriting saved models", async () => {
   const before = structuredClone(config)
   const add = vi.fn()

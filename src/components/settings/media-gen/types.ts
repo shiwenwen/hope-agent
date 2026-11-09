@@ -186,6 +186,10 @@ export const VALID_ASPECT_RATIOS = [
   "9:16",
   "16:9",
   "21:9",
+  "1:4",
+  "4:1",
+  "1:8",
+  "8:1",
 ]
 
 export const VALID_RESOLUTIONS = ["1K", "2K", "4K"]

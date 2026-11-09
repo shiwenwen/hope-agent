@@ -52,6 +52,12 @@ MCP 客户端要解决的问题很直接：**外部世界的能力千差万别�
 - **默认不信任**。stdio server 本质是任意二进制、网络 server 的 URL 可能指向内网。所以出站 URL 全程过 SSRF 门、工具调用默认过审批门、子进程只继承白名单环境变量——放宽任何一道都要用户显式声明 `Trusted`。
 - **零 Tauri、一套代码三处跑**。全部业务逻辑在纯 Rust 特征 crate 里，桌面 GUI、HTTP 守护进程、ACP stdio 三种运行模式共用同一条代码路径。
 
+依赖维护：当前锁定 `rmcp 3.7.0`，沿用已有客户端角色与协议协商。Streamable HTTP 仍使用
+`BoundedMcpHttpClient` 和应用构造的禁止重定向客户端，stdio / WebSocket 仍使用应用的消息大小限制；
+不因 SDK 默认适配器新增同源重定向或认证能力而替换这些入口。OAuth discovery、凭据写入和刷新
+继续由 `ha-mcp` 自身实现。SDK 对放弃请求的取消通知与连接结束清理只影响已有请求生命周期，
+不增加工具授权或新的服务端执行入口。
+
 覆盖范围一览：
 
 - **四种 transport**：stdio、Streamable HTTP、legacy SSE、WebSocket

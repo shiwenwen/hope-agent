@@ -3,6 +3,52 @@ import type { ProviderTemplate } from "../types"
 export const internationalTemplates: ProviderTemplate[] = [
   // ── 国际 Provider ──
   {
+    key: "unbiased",
+    name: "Unbiased",
+    description: "Pareto 多模型融合，兼容 OpenAI Chat",
+    icon: "⚖️",
+    apiType: "openai-chat",
+    baseUrl: "https://api.unbiased.ai/v1",
+    apiKeyPlaceholder: "sk_...",
+    requiresApiKey: true,
+    thinkingStyle: "none",
+    currency: "USD",
+    models: [
+      {
+        // The official current alias points to stable 26.10; its rates are the public API rates.
+        id: "pareto",
+        name: "Pareto (current 26.10)",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_048_576,
+        // Vendor integration guidance uses 131,072; this is a preset, not a published hard cap.
+        maxTokens: 131_072,
+        reasoning: false,
+        costInput: 0.8,
+        costOutput: 3.2,
+      },
+      {
+        id: "pareto-26.10",
+        name: "Pareto 26.10 (pinned)",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_048_576,
+        maxTokens: 131_072,
+        reasoning: false,
+        costInput: 0.8,
+        costOutput: 3.2,
+      },
+      {
+        id: "pareto-26.9",
+        name: "Pareto 26.9",
+        inputTypes: ["text", "image"],
+        contextWindow: 262_144,
+        maxTokens: 8_192,
+        reasoning: false,
+        costInput: 2.5,
+        costOutput: 7.5,
+      },
+    ],
+  },
+  {
     key: "anthropic",
     name: "Anthropic",
     description: "Claude 系列模型",
@@ -156,6 +202,17 @@ export const internationalTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
+      {
+        id: "gpt-6.1-terra",
+        name: "GPT-6.1 Terra",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_050_000,
+        maxTokens: 128_000,
+        reasoning: true,
+        // Standard short-context prices; cache and long-input tiers are not represented.
+        costInput: 1.0,
+        costOutput: 5.0,
+      },
       {
         id: "gpt-6.1-sol",
         name: "GPT-6.1 Sol",
@@ -518,6 +575,18 @@ export const internationalTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "AIza...",
     requiresApiKey: true,
     models: [
+      // Gemini 4 Argon Standard pricing is promotional through 2026-11-30; recheck before 2026-12-01.
+      // Google OpenAI compatibility supports Chat Completions; Hope uses synchronous output only.
+      {
+        id: "gemini-4-argon",
+        name: "Gemini 4 Argon",
+        inputTypes: ["text", "image"],
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 2.0,
+        costOutput: 10.0,
+      },
       // 3.8 / 3.7 / 3.6 Flash 标准付费层促销至 2026-12-31，之后回到 $1.5/$7.5。
       // 2026-09-08 核验：https://ai.google.dev/gemini-api/docs/pricing
       // 这里只记录当期标准输入/输出价；缓存、Batch、Flex、Priority 另计。
@@ -738,6 +807,17 @@ export const internationalTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
+      {
+        id: "zai-glm-5-3-flash",
+        name: "Z.ai GLM 5.3 Flash",
+        inputTypes: ["text", "image"],
+        contextWindow: 1_000_000,
+        maxTokens: 128_000,
+        reasoning: false,
+        thinkingStyle: "none",
+        costInput: 0.15,
+        costOutput: 0.5,
+      },
       {
         id: "mistral-medium-3-5",
         name: "Mistral Medium 3.5",

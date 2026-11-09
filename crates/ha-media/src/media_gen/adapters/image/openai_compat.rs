@@ -389,6 +389,48 @@ mod tests {
     }
 
     #[test]
+    fn xai_template_quality_survives_config_and_reaches_generation_body() {
+        use crate::media_gen::adapters::XAI_IMAGE;
+        use crate::media_gen::catalog::media_provider_templates;
+        use ha_core::media_gen::types::MediaModelConfig;
+
+        let template = media_provider_templates()
+            .into_iter()
+            .find(|t| t.key == "xai")
+            .unwrap();
+        assert_eq!(template.models.len(), 2);
+        for (preset, expected_id, quality) in [
+            (&template.models[0], "grok-imagine-image", None),
+            (&template.models[1], "grok-imagine-image-2.0", Some("low")),
+        ] {
+            // Templates seed saved model configs; exercise that boundary and
+            // the actual vendor profile without any account or network call.
+            let model: MediaModelConfig =
+                serde_json::from_value(serde_json::to_value(preset).unwrap()).unwrap();
+            assert_eq!(model.id, expected_id);
+            assert!(model.image.as_ref().unwrap().edit.is_none());
+            assert!(!model.image.as_ref().unwrap().supports_mask);
+            let mut request = params(&model.extra, "1024x1024");
+            request.model = &model.id;
+            let body = build_body(&XAI_IMAGE.0, &request);
+            let mut expected = json!({
+                "model": expected_id,
+                "prompt": "p",
+                "n": 2,
+                "response_format": "b64_json",
+                "aspect_ratio": "16:9",
+                "resolution": "2k"
+            });
+            if let Some(quality) = quality {
+                expected["quality"] = json!(quality);
+            }
+            assert_eq!(body, expected);
+            assert_eq!(XAI_IMAGE.0.path, "/v1/images/generations");
+            assert!(XAI_IMAGE.0.input_image_field.is_none());
+        }
+    }
+
+    #[test]
     fn colon_style_rewrites_size_separator() {
         let extra = HashMap::new();
         let p = CompatProfile {

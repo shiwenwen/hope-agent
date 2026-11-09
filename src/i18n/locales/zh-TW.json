@@ -1999,7 +1999,7 @@
         },
         "custom": {
           "title": "自訂診斷",
-          "description": "從已註冊 weekly 場景與對照組中選擇有界子集執行。"
+          "description": "從全部已註冊 Hope Core 場景與對照組中選擇有界子集執行。"
         }
       },
       "profileLimits": "≤{{trials}} 個試驗 · ≤{{models}} 個模型",
@@ -4151,6 +4151,10 @@
     "qwen": {
       "description": "阿里雲 DashScope 大模型",
       "name": "通義千問（Qwen）"
+    },
+    "unbiased": {
+      "name": "Unbiased",
+      "description": "Pareto 多模型融合，相容 OpenAI Chat"
     },
     "requesty": {
       "description": "多模型路由閘道器，一個 Key 用數百個模型",
@@ -12341,6 +12345,7 @@
       "fixStarted": "已讓 AI 開始修復",
       "fixBusy": "對話進行中，請稍候再試",
       "fixPrompt": "請修復設計自查發現的問題：{{detail}}。用設計系統 token（var(--ds-*)）收斂配色、替換硬編碼樣式，只做必要的最小改動，保持產物其它內容與整體設計不變。",
+      "visualScenarioIncomplete": "視覺驗證未完成：目前僅支援預設場景與固定視口。自訂場景尚未執行，無法接受為基線；場景變更後請重新驗證。",
       "visualUnavailable": "视觉回归不可用，请检查浏览器渲染后端",
       "baselineAccepted": "已接受当前画面为视觉基线",
       "baselineFailed": "接受视觉基线失败",

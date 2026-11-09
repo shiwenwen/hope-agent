@@ -41,6 +41,8 @@ Thirteen channels are built in, with the capabilities listed below:
 
 **Entry point**: Settings → IM Channels → Add account → pick a channel → enter that channel's credentials (for example, a Bot Token for Telegram, which can be verified instantly).
 
+If Feishu cannot obtain an access token, the error shows the HTTP status or service error code without the raw response body. Share that code when troubleshooting; do not copy your App Secret or access token.
+
 Telegram also accepts an optional **Bot API Base URL**. You can enter the root URL of a trusted HTTPS reverse proxy you operate (for example, `https://tg.example.com`); leave it empty to keep using the official API. Enter only the root—do not append `/bot<TOKEN>/getMe`. The proxy must forward both `/bot…` API requests and `/file/bot…` media downloads. A reverse proxy can see the Bot Token, messages, and media, so do not use an untrusted public proxy.
 
 **WeCom text first version:** obtain Bot ID and Secret from the WeCom AI-bot administration page and enter them only in Channel Settings. Use one client per bot. Validation briefly subscribes, or reuses an existing healthy local connection; do not run another client concurrently. Stop the running account before validating a changed Secret for the same bot. Validation of an unsaved or cancelled credential draft does not open a second connection that replaces the running account.
@@ -56,8 +58,11 @@ In the account editor you can configure:
 - **Group policy and user allowlist** — control who can use it.
 - **Auto-approve tools**, **takeover notifications**, **startup online alerts**, **automatic voice transcription**, **Knowledge Space access**, **reply mode**, **thinking display**, and more.
 - Telegram/Slack can disable native streaming per account. iMessage, Google Chat, and Discord expose protocol or rollout switches and fall back to their compatibility paths when disabled.
+- Google Chat's Standard Markdown switch applies to new replies. Preview and final edits keep the original syntax, regardless of the app's cloud default or later switch changes. After a restart, or when the original syntax is unknown, editing stops without posting a duplicate reply.
 - iMessage health checks show the reported imsg version. Versions below 0.15.8 prompt a manual update; older builds without a version show “unverified” and are neither upgraded nor blocked automatically.
+- iMessage edits, unsends, and unknown update types do not trigger a new reply. They do not currently change or delete Hope Agent's message history, and historical mutations after a disconnect are not reconciled.
 - Signal and WhatsApp account cards show detected sidecar/Bridge versions. Unknown versions are warning-only; a known-vulnerable Baileys Bridge is blocked at startup and before sends.
+- Signal reception preserves Chinese text and emoji across network chunks and supports multiline SSE messages. Stopping an account cancels connections and queue waits. Invalid events or events exceeding 1 MiB disconnect and reconnect; disconnected-message replay is not yet supported.
 
 ---
 

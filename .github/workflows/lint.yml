@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version: "24.22.1"
           cache: "pnpm"
 
       - name: Install deps
@@ -68,7 +68,9 @@ jobs:
       # bump in #621 moved tauri 2.10.3 → 2.11.5 while the npm side stayed on
       # 2.10.1, and four PRs merged green on top of it.
       - name: Tauri crate ↔ npm api version sync
-        run: node scripts/verify-tauri-version-sync.mjs
+        run: |
+          node scripts/verify-tauri-version-sync.mjs
+          node --test scripts/__tests__/tauri-version-sync.test.mjs
 
       # Catch release.yml / update-*.yml path bugs at PR time instead of
       # at tag-push time. Covers the workspace target/ vs src-tauri/target/

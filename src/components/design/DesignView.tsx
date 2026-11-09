@@ -3230,7 +3230,11 @@ export default function DesignView({
       } catch (e) {
         setVisualQuality(null)
         logger.warn("design", "DesignView::visualRegression", "visual regression unavailable", e)
-        toast.warning(t("design.review.visualUnavailable", "视觉回归不可用，请检查浏览器渲染后端"))
+        toast.warning(
+          String(e).includes("visual_scenarios_incomplete")
+            ? t("design.review.visualScenarioIncomplete")
+            : t("design.review.visualUnavailable", "视觉回归不可用，请检查浏览器渲染后端"),
+        )
       }
     } catch (e) {
       logger.error("design", "DesignView::qualityReview", "review failed", e)
@@ -3257,7 +3261,12 @@ export default function DesignView({
       toast.success(t("design.review.baselineAccepted", "已接受当前画面为视觉基线"))
     } catch (e) {
       logger.error("design", "DesignView::acceptBaseline", "accept baseline failed", e)
-      toast.error(t("design.review.baselineFailed", "接受视觉基线失败"))
+      setVisualQuality(null)
+      toast.error(
+        String(e).includes("visual_scenarios_incomplete")
+          ? t("design.review.visualScenarioIncomplete")
+          : t("design.review.baselineFailed", "接受视觉基线失败"),
+      )
     } finally {
       setAcceptingBaseline(false)
     }

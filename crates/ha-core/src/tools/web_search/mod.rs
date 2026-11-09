@@ -105,6 +105,30 @@ pub(super) fn record_llm_web_search_usage(
     error: Option<String>,
     response_body: Option<&Value>,
 ) {
+    crate::model_usage::record_model_usage_best_effort(llm_web_search_usage_event(
+        ctx,
+        operation,
+        provider_id,
+        provider_name,
+        model_id,
+        duration_ms,
+        success,
+        error,
+        response_body,
+    ));
+}
+
+fn llm_web_search_usage_event(
+    ctx: &WebSearchUsageContext,
+    operation: &'static str,
+    provider_id: &'static str,
+    provider_name: &'static str,
+    model_id: &'static str,
+    duration_ms: u64,
+    success: bool,
+    error: Option<String>,
+    response_body: Option<&Value>,
+) -> crate::model_usage::ModelUsageEvent {
     let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_WEB_SEARCH);
     event.operation = Some(operation.to_string());
     event.source = Some("web_search".to_string());
@@ -138,7 +162,7 @@ pub(super) fn record_llm_web_search_usage(
             .and_then(|v| v.as_u64());
     }
 
-    crate::model_usage::record_model_usage_best_effort(event);
+    event
 }
 
 pub(crate) async fn tool_web_search(args: &Value, ctx: &ToolExecContext) -> Result<String> {

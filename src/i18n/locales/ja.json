@@ -1999,7 +1999,7 @@
         },
         "custom": {
           "title": "Custom diagnosis",
-          "description": "A user-selected subset of registered weekly cases and arms with bounded repetitions."
+          "description": "A user-selected subset of all registered Hope Core cases and arms with bounded repetitions."
         }
       },
       "profileLimits": "≤{{trials}} trials · ≤{{models}} models",
@@ -4151,6 +4151,10 @@
     "qwen": {
       "description": "Alibaba Cloud DashScope モデル",
       "name": "Qwen"
+    },
+    "unbiased": {
+      "name": "Unbiased",
+      "description": "Pareto の複数モデル融合、OpenAI Chat 互換"
     },
     "requesty": {
       "description": "マルチモデルルーティングゲートウェイ、1 つの Key で数百のモデル",
@@ -12341,6 +12345,7 @@
       "fixStarted": "AI が修正を開始しました",
       "fixBusy": "会話の実行中です。しばらくしてからお試しください",
       "fixPrompt": "デザインの自己チェックで見つかった問題を修正してください：{{detail}}。デザインシステムのトークン（var(--ds-*)）で配色をまとめ、ハードコードされたスタイルを置き換えてください。必要最小限の変更のみを行い、他の部分とデザイン全体はそのまま保ってください。",
+      "visualScenarioIncomplete": "視覚検証は未完了です。既定のシナリオと固定ビューポートのみ対応しています。カスタムシナリオは未実行のため基準として承認できません。シナリオ変更後は再検証してください。",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",
       "baselineFailed": "Failed to accept the visual baseline",

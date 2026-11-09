@@ -1999,7 +1999,7 @@
         },
         "custom": {
           "title": "Custom diagnosis",
-          "description": "A user-selected subset of registered weekly cases and arms with bounded repetitions."
+          "description": "A user-selected subset of all registered Hope Core cases and arms with bounded repetitions."
         }
       },
       "profileLimits": "≤{{trials}} trials · ≤{{models}} models",
@@ -4151,6 +4151,10 @@
     "qwen": {
       "description": "Modelos de Alibaba Cloud DashScope",
       "name": "Qwen"
+    },
+    "unbiased": {
+      "name": "Unbiased",
+      "description": "Modelo combinado Pareto, compatible con OpenAI Chat"
     },
     "requesty": {
       "description": "Puerta de enlace de enrutamiento multi-modelo, cientos de modelos con una sola key",
@@ -12341,6 +12345,7 @@
       "fixStarted": "La IA está corrigiéndolo",
       "fixBusy": "Hay una conversación en curso, inténtalo de nuevo en breve",
       "fixPrompt": "Corrige el problema detectado por la autoverificación de diseño: {{detail}}. Usa tokens del sistema de diseño (var(--ds-*)) para consolidar los colores y reemplazar estilos codificados. Haz solo los cambios mínimos necesarios y mantén intacto el resto del diseño.",
+      "visualScenarioIncomplete": "Validación visual incompleta: solo se admiten el escenario predeterminado y las ventanas fijas. Los escenarios personalizados no se han ejecutado y no pueden aceptarse como referencia; repita la validación tras cambiar los escenarios.",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",
       "baselineFailed": "Failed to accept the visual baseline",

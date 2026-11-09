@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "scripted-user-flow.v1",
+  "turns": [
+    {
+      "message": "现在取消父任务。必须停止所有嵌套 Agent 和仍在执行的工具进程，不要等待它们自然完成。",
+      "delayMs": 0
+    }
+  ]
+}

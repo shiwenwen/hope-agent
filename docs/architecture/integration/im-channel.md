@@ -542,7 +542,7 @@ sequenceDiagram
 
 **SSRF 策略：** 用户可控的 URL（Slack / Discord / QQ Bot / WhatsApp bridge）必经 `security::ssrf::check_url`；官方固定 host（飞书 / Google Chat / LINE / Telegram / 微信 CDN）跳过。共用入口 `stream_to_disk` 不内置 SSRF，调用前自行 check——新接渠道严禁自写 IP 校验。
 
-**微信的流式解密。** 微信媒体密文必须经 AES-128-ECB + PKCS#7 解密。为避免同时在内存里持有密文和明文两份 buffer（100 MB 文件峰值超 200 MB RSS），实现改成磁盘缓冲二段法：先 `stream_to_disk` 把密文落到 `.enc`，再 `spawn_blocking` 逐 16 字节块解密写出，末块留在 carry 里到 EOF 才做 PKCS#7 unpad，最后强制删除中间文件。ECB 块相互独立所以可流式，**RSS 与文件大小完全解耦**。解密用纯 Rust `aes` + `md-5` crate（不再依赖 `openssl`）；`openssl` 仅在 Linux 作为 target 依赖保留（`vendored`），用途是让 `native-tls` 静态打包 OpenSSL，使 Docker / 裸 Linux 发布包运行时无需系统 libssl。
+**微信的流式解密。** 微信媒体密文必须经 AES-128-ECB + PKCS#7 解密。为避免同时在内存里持有密文和明文两份 buffer（100 MB 文件峰值超 200 MB RSS），实现改成磁盘缓冲二段法：先 `stream_to_disk` 把密文落到 `.enc`，再 `spawn_blocking` 逐 16 字节块解密写出，末块留在 carry 里到 EOF 才做 PKCS#7 unpad，最后强制删除中间文件。ECB 块相互独立所以可流式，**RSS 与文件大小完全解耦**。加解密使用纯 Rust `aes` 0.9（`cipher` 0.5 的 `BlockCipherEncrypt` / `BlockCipherDecrypt` 与定长 `aes::Block`），保留 AES-128-ECB + PKCS#7 的协议字节和流式末块校验；摘要沿用 `md-5` crate（不再依赖 `openssl`）；`openssl` 仅在 Linux 作为 target 依赖保留（`vendored`），用途是让 `native-tls` 静态打包 OpenSSL，使 Docker / 裸 Linux 发布包运行时无需系统 libssl。
 
 ---
 
@@ -922,6 +922,7 @@ Bot API 的 token 天然在 URL path，所有 Telegram request error 进 watchdo
 ### 飞书 / Lark
 
 - **认证**：`appId` + `appSecret` → `tenant_access_token`（2 小时 TTL，80% 时自动刷新）；**域名**：`feishu`→`open.feishu.cn`、`lark`→`open.larksuite.com`，自定义 URL 用于私有部署；**传输**：WebSocket 事件订阅。
+- **鉴权诊断**：获取令牌的 HTTP、业务代码和 JSON 类型错误只返回固定说明及状态/代码，不回显响应正文或 `msg`，传输错误剥离 URL。失败不写令牌缓存。两个合成账号已覆盖至少 4 KiB 配置凭据往返、令牌获取、完整 Bearer 头与逐账号缓存；这只证明本地兼容性，不证明真实租户、分页/限流或其它 API 错误路径安全。
 - **格式**：飞书 text 消息不支持 Markdown，`markdown_to_native` 剥标记输出纯文本。
 - **出站附件两步**：`im/v1/images` 或 `im/v1/files` 上传换 key → `im/v1/messages`（`msg_type=image|file`）。image/file 消息**不带 caption**，同轮 `payload.text` 由 dispatcher 单独发。`MediaType` → `file_type` 映射：Video/Animation→`mp4`、Audio/Voice→`opus`、Document 按扩展名→`pdf`/`doc`/`xls`/`ppt`/`stream`。
 
@@ -939,6 +940,8 @@ Bot API 的 token 天然在 URL path，所有 Telegram request error 进 watchdo
 ask_user / approval 的**按钮卡片**也走 schema 2.0，但**不**走 cardkit API——按钮卡片一次性、不需后续 update，直接把卡片 JSON 塞进 `im/v1/messages` 的 `content`（`msg_type=interactive`）一次发完。回调走 `card.action.trigger` WS 事件，从 `event.action.value.hope_callback` 取字符串按前缀分流（`slash:` 回环 / `approval:` `ask_user:` 进状态机）。
 
 ### QQ Bot
+
+- **键盘正文**：C2C/群键盘按 `msg_type=2` 发送嵌套 `markdown.content`，省略顶层 `content`/`ark`。提示按字面文本转义 Markdown 与实体/QQ 标签，按钮 callback 与 `msg_id`/`msg_seq`/`event_id` 元数据沿既有路径；普通文本仍为 `msg_type=0`，频道/频道私信沿数字回复。错误或未知投递不补发；审批/问答发送失败清理本地 pending，不能视作同意。仅完成本机合成合同验证，真实展示与回调往返仍待测试应用验收。
 
 - **域名证据边界**：10-02 雷达已记录官方统一 `api.bot.qq.com` 通知；当前 REST 生产/沙箱与取凭证仍沿既有域名。统一沙箱隔离和新取凭证路由未完整核验，迁移由行动卡 `10-A12` 跟踪，不在发送失败后跨域重放。
 
@@ -970,9 +973,11 @@ WhatsApp 仍通过用户自部署的 HTTP Bridge 接入。`GET /api/health` 的�
 ### Signal、iMessage 与 Google Chat
 
 - **Signal**：对解析后的 `signal-cli` 二进制执行 3 秒、无凭据参数的 `--version` 探测，输出只提取长度受限的版本 token。未知或低于当前观测基线 `0.14.0` 只告警、不阻断消息；账号健康页展示白名单能力快照。
+  接收端按完整UTF-8行解码SSE，支持CR、LF、CRLF、流首BOM与多行data；字段仅移除冒号后的一个ASCII空格。单连接未完成行与事件合计最多1MiB，非法UTF-8或超限时明确断连并走既有退避，未完成EOF不投递；错误只报告固定类别，不回显载荷。连接响应头、流读取和入站队列背压均可取消。默认/receive事件沿既有MsgContext入口，其他事件仍忽略；解析器随连接重建，不持久化消息或游标。`id`/`Last-Event-ID`重放尚未启用，逐账号/daemon代次、过期与乱序去重仍待独立验收，不能据解析修复宣称断线零丢失。协议格式依据[HTML SSE标准](https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation)。
 - **iMessage**：`imsgProtocolV1` 默认开启。reader 就绪后依次协商 `initialize` / `status`，保存版本与能力；旧版本仅在方法不存在或参数不支持时回退 legacy。`-32001` / `-32004` 与超时后的未知投递均禁止自动重放；`watch.overflow` 通过 `messages.after` 有界补追、GUID/rowid 去重和 cursor 重订阅，任一补追分页或重订阅瞬时失败都保持降级态，并以有上限的指数退避从已确认 cursor 持续恢复；重复 overflow 合并且不得阻塞 RPC reader。子进程退出后受控重启但不重发 mutation。重启后的子进程在 `initialize` / `status` / `watch.subscribe` 全部恢复前保持降级态，并以有上限的指数退避持续重试；每代子进程拥有独立取消令牌，退出或停止时取消旧恢复任务，禁止跨代竞态。
+- **iMessage 变更分类**：按 [imsg v0.19.0 watch 合同](https://github.com/openclaw/imsg/blob/v0.19.0/docs/watch.md)，新插入消息省略 `type`，编辑/撤回复用原 ID/GUID。`inbound_kind` 对直接载荷和 `message` 包装统一分类；`edited`、`unsent` 及任何显式未知或畸形 `type` 在插入游标和去重前丢弃，`parse_notification` 同样拒绝。实时通知、补追和重启空缓存均不能把变更转成新指令，也不占用原消息 GUID 或推进插入高水位。当前仅分类/drop，不发送带外编辑/撤回事件、不更新会话历史、不增加历史读取；ROWID 重放无法覆盖历史变更，真实设备与变更对账仍待独立验收。
   启动日志和健康探测仅用经长度/字符限制的 `status.version` 做只读安全下限诊断：明确低于 `0.15.8` 提示手工升级；未知、legacy 或不可解析版本显示未核验，不视作已修复。运行中账户通过已协商的缓存状态进入 `channel_health` / `channel_health_all`，每 10 秒设置页轮询不另启子进程；运行中缓存若在 Stop 竞态中消失，也不回退启动临时进程。停止账户的聚合状态不触发临时探测，单账户手动健康检查保留原探测路径。健康探测仍可成功、旧安装不被版本提示阻断；此判断不读取凭据、不发送消息、不自动安装二进制。macOS 实机版本与投递行为仍需独立验收。
-- **Google Chat**：`googleChatStandardMarkdown` 默认开启，仅消息创建 body 发送 `markupSyntax=MARKUP_SYNTAX_MARKDOWN`；编辑仍走旧语法，因为该字段是 create-only。标准 Markdown mention 只接受结构化 `users/...` 标识并跳过行内代码、缩进代码及围栏代码；围栏与缩进判定会先剥离引用块 / 列表容器前缀，容器内的 `<users/...>` 同样不能被编译。原始 HTML/mention 字符串不能穿透。
+- **Google Chat**：`googleChatStandardMarkdown` 默认开启，创建显式发送 `markupSyntax=MARKUP_SYNTAX_MARKDOWN`，关闭时显式发送 `MARKUP_SYNTAX_CHAT`，不依赖应用的云端默认。创建和编辑共用文本编译路径；依据 [Message 合同](https://developers.google.com/workspace/chat/api/reference/rest/v1/spaces.messages)，编辑 body 同时带 `text` 与 `markupSyntax`，`updateMask` 只含 `text`，不改线程和卡片。进程内至多保留 4096 条按账户、space、message 隔离的创建语法记录，账号开关变化不改变既有回复的模式；记录缺失、重启或容量淘汰后拒绝编辑，不猜原语法，也不补发新消息。删除成功清除记录；失败与超时保留原身份。此记录只含资源标识与语法枚举，不持久化正文或凭据。标准 Markdown mention 只接受结构化 `users/...` 标识并跳过行内代码、缩进代码及围栏代码；围栏与缩进判定会先剥离引用块 / 列表容器前缀，容器内的 `<users/...>` 同样不能被编译。原始 HTML/mention 字符串不能穿透。回环夹具不等于真实 Workspace 展示或通知验收，不改云端配置或 `chat.bot` scope。
 
 Microsoft Teams 当前不属于内建渠道：只有达到至少 3 个有效设计伙伴且连续 4 周周活不低于 20，或存在明确企业合同后，才进入隔离 connector/plugin PoC；不因生态可用性提前引入 Entra、租户同意和公网 webhook 维护面。
 
@@ -1280,7 +1285,7 @@ crates/ha-channel/src/channel/{name}/
 | 飞书 | `feishu/{mod,api,auth,format,media,inbound_media,ws_event}.rs` |
 | QQ Bot | `qqbot/{mod,api,auth,format,inbound_media,gateway}.rs` |
 | IRC | `irc/{mod,client,format,protocol}.rs` |
-| Signal | `signal/{mod,client,daemon,format,media,inbound_media}.rs` |
+| Signal | `signal/{mod,client,daemon,format,media,inbound_media,sse}.rs` |
 | iMessage | `imessage/{mod,client,format,media}.rs` |
 | WhatsApp | `whatsapp/{mod,api,format,media,inbound_media,polling}.rs` |
 | Google Chat | `googlechat/{mod,api,auth,format,inbound_media,webhook}.rs` |
@@ -1301,6 +1306,6 @@ crates/ha-channel/src/channel/{name}/
 | `teloxide` | 0.17 | Telegram Bot API 框架 |
 | `tokio-tungstenite` | 0.29 | WebSocket 客户端（Discord / Slack / 飞书 / QQ Bot） |
 | `tokio-util` | 0.7 | `CancellationToken`（优雅关闭） |
-| `aes` + `md-5` | 0.8 / 0.10 | 微信媒体 AES-128-ECB 解密（替代 openssl） |
+| `aes` + `md-5` | 0.9 / 0.10 | 微信媒体 AES-128-ECB 解密（替代 openssl） |
 
 Discord / Slack / 飞书 / QQ Bot 不引各自的 SDK，而是复用 `tokio-tungstenite` + 共享的 `ws.rs` 直接对接各平台的 WebSocket 协议——所以新增一个 WebSocket 渠道通常不需要引入新依赖。

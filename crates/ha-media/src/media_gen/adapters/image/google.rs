@@ -332,3 +332,112 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
 
     Ok(ImageGenResult { images, text })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::media_gen::adapters::InputImage;
+    use ha_core::security::ssrf::SsrfPolicy;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn nano_banana_template_reaches_generate_content_with_panorama_and_references() {
+        let _config =
+            ha_core::test_support::replace_config_cache(ha_core::config::AppConfig::default());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut raw = Vec::new();
+            let header_end = loop {
+                let mut buf = [0; 4096];
+                let len = socket.read(&mut buf).await.unwrap();
+                assert_ne!(len, 0);
+                raw.extend_from_slice(&buf[..len]);
+                if let Some(end) = raw.windows(4).position(|b| b == b"\r\n\r\n") {
+                    break end + 4;
+                }
+            };
+            let headers = String::from_utf8(raw[..header_end].to_vec()).unwrap();
+            let lower = headers.to_ascii_lowercase();
+            assert!(headers.starts_with(
+                "POST /v1beta/models/gemini-nano-banana-2.1:generateContent HTTP/1.1"
+            ));
+            assert!(lower.contains("x-goog-api-key: synthetic-key\r\n"));
+            let len: usize = lower
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length: "))
+                .unwrap()
+                .parse()
+                .unwrap();
+            while raw.len() < header_end + len {
+                let mut buf = [0; 4096];
+                let n = socket.read(&mut buf).await.unwrap();
+                assert_ne!(n, 0);
+                raw.extend_from_slice(&buf[..n]);
+            }
+            let body: serde_json::Value =
+                serde_json::from_slice(&raw[header_end..header_end + len]).unwrap();
+            let parts = body["contents"][0]["parts"].as_array().unwrap();
+            assert_eq!(parts.len(), 15);
+            for (index, part) in parts[..14].iter().enumerate() {
+                assert_eq!(part["inlineData"]["mimeType"], "image/png");
+                assert_eq!(
+                    part["inlineData"]["data"],
+                    base64::engine::general_purpose::STANDARD.encode([index as u8])
+                );
+            }
+            assert_eq!(parts[14]["text"], "Change the sky, keep the subjects");
+            assert_eq!(
+                body["generationConfig"]["imageConfig"],
+                serde_json::json!({"aspectRatio":"8:1","imageSize":"4K"})
+            );
+            assert_eq!(
+                body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+                "MINIMAL"
+            );
+            let response = serde_json::json!({"candidates":[{"content":{"parts":[{"text":"synthetic caption"},{"inlineData":{"mimeType":"image/png","data":"c3ludGhldGljLWltYWdl"}}]}}]}).to_string();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).as_bytes()).await.unwrap();
+        });
+        let template = crate::media_gen::catalog::media_provider_templates()
+            .into_iter()
+            .find(|t| t.key == "google")
+            .unwrap();
+        let model = &template.models[0];
+        let inputs: Vec<_> = (0..14)
+            .map(|i| InputImage {
+                data: vec![i],
+                mime: "image/png".into(),
+            })
+            .collect();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            GoogleProvider.generate(ImageGenParams {
+                api_key: "synthetic-key",
+                base_url: Some(&base),
+                model: &model.id,
+                prompt: "Change the sky, keep the subjects",
+                size: "1024x1024",
+                n: 1,
+                timeout_secs: 3,
+                extra: &model.extra,
+                aspect_ratio: Some("8:1"),
+                resolution: Some("4K"),
+                input_images: &inputs,
+                mask: None,
+                ssrf: SsrfPolicy::AllowPrivate,
+            }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result.images.len(), 1);
+        assert_eq!(result.images[0].data, b"synthetic-image");
+        assert_eq!(result.text.as_deref(), Some("synthetic caption"));
+        tokio::time::timeout(std::time::Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+}

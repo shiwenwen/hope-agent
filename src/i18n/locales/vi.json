@@ -1999,7 +1999,7 @@
         },
         "custom": {
           "title": "Custom diagnosis",
-          "description": "A user-selected subset of registered weekly cases and arms with bounded repetitions."
+          "description": "A user-selected subset of all registered Hope Core cases and arms with bounded repetitions."
         }
       },
       "profileLimits": "≤{{trials}} trials · ≤{{models}} models",
@@ -4151,6 +4151,10 @@
     "qwen": {
       "description": "Các mô hình Alibaba Cloud DashScope",
       "name": "Qwen"
+    },
+    "unbiased": {
+      "name": "Unbiased",
+      "description": "Mô hình kết hợp Pareto, tương thích OpenAI Chat"
     },
     "requesty": {
       "description": "Cổng định tuyến đa mô hình, hàng trăm mô hình với một key duy nhất",
@@ -12341,6 +12345,7 @@
       "fixStarted": "AI đang sửa",
       "fixBusy": "Cuộc trò chuyện đang diễn ra, vui lòng thử lại sau",
       "fixPrompt": "Vui lòng sửa vấn đề được phát hiện qua tự kiểm tra thiết kế: {{detail}}. Dùng token hệ thống thiết kế (var(--ds-*)) để gom màu sắc và thay thế kiểu mã hóa cứng. Chỉ thực hiện thay đổi tối thiểu cần thiết và giữ nguyên phần còn lại của thiết kế.",
+      "visualScenarioIncomplete": "Xác minh hình ảnh chưa hoàn tất: chỉ hỗ trợ kịch bản mặc định và khung nhìn cố định. Kịch bản tùy chỉnh chưa chạy nên không thể chấp nhận làm đường cơ sở; hãy xác minh lại sau khi thay đổi kịch bản.",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",
       "baselineFailed": "Failed to accept the visual baseline",
