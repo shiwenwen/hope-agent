@@ -18,6 +18,8 @@ pub mod export;
 mod helpers;
 pub(crate) use helpers::workspace_root;
 mod ide_context;
+mod model_search;
+pub(crate) use model_search::{ModelHistorySource, ModelSearchWindow};
 mod pending;
 pub mod pet_activity;
 pub(crate) mod request_payload_store;

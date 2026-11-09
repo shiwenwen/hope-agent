@@ -7525,7 +7525,7 @@ impl SessionDB {
         types: Option<&[SessionTypeFilter]>,
         limit: usize,
     ) -> Result<Vec<SessionSearchResult>> {
-        self.search_messages_inner(query, agent_id, session_id, types, limit, true, false)
+        self.search_messages_inner(query, agent_id, session_id, types, limit, true, false, None)
     }
 
     /// Search persisted chat message content only.
@@ -7541,11 +7541,13 @@ impl SessionDB {
         types: Option<&[SessionTypeFilter]>,
         limit: usize,
     ) -> Result<Vec<SessionSearchResult>> {
-        self.search_messages_inner(query, agent_id, session_id, types, limit, false, false)
+        self.search_messages_inner(
+            query, agent_id, session_id, types, limit, false, false, None,
+        )
     }
 
-    /// Model-facing history search excludes imported transcripts while owner
-    /// UI search remains able to find them.
+    /// Model-facing history search excludes imported and private assistant
+    /// transcripts while owner UI search remains able to find them.
     pub fn search_message_content_for_model(
         &self,
         query: &str,
@@ -7554,9 +7556,37 @@ impl SessionDB {
         types: Option<&[SessionTypeFilter]>,
         limit: usize,
     ) -> Result<Vec<SessionSearchResult>> {
-        self.search_messages_inner(query, agent_id, session_id, types, limit, false, true)
+        self.search_messages_inner(query, agent_id, session_id, types, limit, false, true, None)
     }
 
+    pub(crate) fn search_message_content_from_model_source(
+        &self,
+        query: &str,
+        session_id: Option<&str>,
+        types: Option<&[SessionTypeFilter]>,
+        limit: usize,
+        source: &super::ModelHistorySource,
+    ) -> Result<Vec<SessionSearchResult>> {
+        if let Some(target) = session_id {
+            if !source.may_read_window(&*self.read_conn()?, target, false)? {
+                anyhow::bail!("Requested session history is unavailable to this source");
+            }
+        }
+        self.search_messages_inner(
+            query,
+            None,
+            session_id,
+            types,
+            limit,
+            false,
+            true,
+            Some(source),
+        )
+    }
+
+    // Shared owner UI/model query builder; the source is sealed backend context,
+    // not another public filter that a caller can use to widen model access.
+    #[allow(clippy::too_many_arguments)]
     fn search_messages_inner(
         &self,
         query: &str,
@@ -7566,6 +7596,7 @@ impl SessionDB {
         limit: usize,
         include_title_matches: bool,
         exclude_imported: bool,
+        model_source: Option<&super::ModelHistorySource>,
     ) -> Result<Vec<SessionSearchResult>> {
         if limit == 0 {
             return Ok(Vec::new());
@@ -7584,6 +7615,16 @@ impl SessionDB {
         let mut filter_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         if exclude_imported {
+            // Shared by FTS, trigram, and any title query, before LIMIT.
+            // Owner UI calls never enter this model-only branch.
+            let private_filter = if let Some(source) = model_source {
+                source.private_filter(&*self.read_conn()?, session_id)?
+            } else {
+                Some(super::model_search::NONPRIVATE_SEARCH_SQL)
+            };
+            if let Some(filter) = private_filter {
+                where_clauses.push(format!("({filter})"));
+            }
             where_clauses.push(
                 "NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)"
                     .to_string(),
@@ -8074,6 +8115,22 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
+        Self::load_session_messages_around_with_conn(
+            &conn,
+            session_id,
+            target_message_id,
+            before,
+            after,
+        )
+    }
+
+    fn load_session_messages_around_with_conn(
+        conn: &Connection,
+        session_id: &str,
+        target_message_id: i64,
+        before: u32,
+        after: u32,
+    ) -> Result<(Vec<SessionMessage>, u32, bool, bool)> {
         let total: u32 = conn.query_row(
             "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
             params![session_id],
@@ -8145,6 +8202,51 @@ impl SessionDB {
         let mut messages = before_msgs;
         messages.extend(after_msgs);
         Ok((messages, total, has_more_before, has_more_after))
+    }
+
+    pub(crate) fn load_model_search_window(
+        &self,
+        source: &super::ModelHistorySource,
+        hit: &SessionSearchResult,
+        query: &str,
+        global: bool,
+        before: u32,
+        after: u32,
+    ) -> Result<Option<super::ModelSearchWindow>> {
+        let conn = self.read_conn()?;
+        let tx = conn.unchecked_transaction()?;
+        if !source.may_read_window(&tx, &hit.session_id, global)? {
+            return Ok(None);
+        }
+        let live: Option<(Option<String>,String,String,String)> = tx.query_row(
+            "SELECT s.title,m.content,m.role,m.timestamp FROM messages m JOIN sessions s ON s.id=m.session_id
+             WHERE m.id=?1 AND m.session_id=?2", params![hit.message_id,hit.session_id],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
+        ).optional()?;
+        let Some((title, content, role, timestamp)) = live else {
+            return Ok(None);
+        };
+        let (messages, total, has_more_before, has_more_after) =
+            Self::load_session_messages_around_with_conn(
+                &tx,
+                &hit.session_id,
+                hit.message_id,
+                before,
+                after,
+            )?;
+        let mut hit = hit.clone();
+        hit.session_title = title;
+        hit.content_snippet = highlighted_search_snippet(&content, query, 80);
+        hit.message_role = role;
+        hit.timestamp = timestamp;
+        tx.commit()?;
+        Ok(Some(super::ModelSearchWindow {
+            hit,
+            messages,
+            total,
+            has_more_before,
+            has_more_after,
+        }))
     }
 
     // ── Behavior awareness helpers ──────────────────────────────

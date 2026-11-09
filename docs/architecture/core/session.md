@@ -484,6 +484,8 @@ pub fn search_messages(
 
 通用 `/sessions` 选择器通过 `search_distinct_session_snippets` 返回会话级匹配。标题、正文词元和 trigram 子串路径均在限额前排除无痕、导入、私人助手及其私有工作会话。正文路径先在物化公共表表达式（`MATERIALIZED` CTE）中计算 FTS 片段和排名，再按会话做窗口去重，最后应用会话数量限额；这样既符合 SQLite 的 FTS 辅助函数调用约束，也保留多消息命中时其他合格会话的名额。
 
+模型正文检索经 `ModelHistorySource` 从实际工具上下文确定来源。默认模型入口在命中前排除私人主对话和私有工作标记；明确绑定的当前会话及经真实主人轮次验证的个人助手分别保留其已有读取范围。命中后的资格校验与标题、正文、邻文加载共用只读事务，格式化阶段仅消费已授权窗口。主人界面的 `search_messages` 不受模型默认过滤影响。
+
 ### Subagent / ACP 运行记录
 
 `subagent_db.rs` / `acp_db.rs` 提供两套运行记录 CRUD：
