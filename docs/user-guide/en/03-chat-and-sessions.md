@@ -185,7 +185,9 @@ The priority is "session setting > project setting > default workspace". A sessi
 
 The amount of conversation a model can remember is limited (the context window). As a conversation grows and approaches the limit, Hope Agent **compacts it automatically in layers**, so long conversations and long tasks can continue without suddenly "losing memory" or erroring out. Compaction happens automatically; you'll usually just see a (gray, when it completes) compaction notice at the top. If compaction doesn't finish cleanly, the notice turns into an amber banner instead, with a title spelling out the specific reason—for example "Summary generation timed out", "Cleaned up context, but summary generation timed out", "Summary was needed, but was not completed", or "Cleaned up context, but summary was not completed", falling back to "Context compression paused" when it doesn't fit those cases—plus a subtitle with how many messages were processed, how many files were recovered, and so on. The banner also has a "Retry compression" button on the right, which spins and disables itself while it's running to prevent double-clicks.
 
-Compaction starts with deterministic projections that do not call another model, then works its way up to summarizing old history. Projection changes can still invalidate part of the prompt cache, so they are not literally free. A summary preserves known file touchpoints and managed references; file contents are re-injected only when the current session has a verified authorization binding. Otherwise Hope Agent safely skips the body and the model can use the normal file tools when needed—it never treats an old tool argument as permission to read a host path.
+Ordinary requests keep the history prefix stable and summarize old history at the summary threshold. Deterministic projections reclaim space when the request cannot fit. Projections and summaries can still invalidate part of the prompt cache. With the chat model and default summary policy, eligible text summaries try to share the main conversation's cache; a dedicated model with a lower token price does not always lower the total cost. A summary preserves known file touchpoints and managed references; file contents are re-injected only when the current session has a verified authorization binding. Otherwise Hope Agent safely skips the body and the model can use the normal file tools when needed—it never treats an old tool argument as permission to read a host path.
+
+To inspect cache behavior, select **缓存成本与延迟专项 (Cache cost and latency)** in the evaluation center. Synthetic conversations check warm-up, state updates, tools and fact retention after summaries. **自动摘要缓存对照专项 (Automatic summary cache comparison)** observes automatic summaries during continued conversation; record the configured window size. Review the budget before a real-model run. Cache usage and latency come from Provider receipts, while modeled costs require explicit cache prices. The zero-cost local smoke verifies collection only. See the [cache benchmark](../../architecture/agent/cache-benchmark.md).
 
 **Manual commands**:
 
@@ -197,13 +199,13 @@ Compaction starts with deterministic projections that do not call another model,
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Enable automatic context compaction | On | When off, only the most basic truncation and fallback are kept |
-| Reactive micro-compaction | On | Cleans up old tool results as needed at the end of each round |
-| Trigger ratio | 0.75 | Reactive cleanup is triggered when context usage exceeds this ratio |
-| Summarization model | Empty (uses the chat model) | The model used to generate summaries; you can specify a cheaper model to save cost |
+| Reactive micro-compaction | On | Cleanup switch for compatibility paths; the built-in ordinary path preserves the history prefix |
+| Trigger ratio | 0.75 | Micro-compaction threshold for compatibility paths; ordinary summaries use the summary threshold below |
+| Summarization model | Empty (uses the chat model) | Choose a dedicated summary model; total cost also depends on cache reuse |
 | Summary reasoning override | Keep current summary policy | Changes reasoning only for summaries; failures preserve history without switching models or raising the output limit |
 | Summarization trigger threshold | 0.85 | Summary-based compaction is triggered when usage exceeds this ratio |
 
-If reasoning consumes the output budget and leaves an empty summary, choose an off or lower level that the summary model actually supports. Some models cannot disable reasoning. Unsupported choices produce an explicit error, and an empty summary never replaces the original history. Choose **Keep current summary policy** to restore the previous behavior; this setting does not affect the main conversation or other background one-shot tasks.
+If reasoning consumes the output budget and leaves an empty summary, choose an off or lower level that the summary model actually supports. Some models cannot disable reasoning. Unsupported choices produce an explicit error, and an empty summary never replaces the original history. Choose **Keep current summary policy** for automatic selection: eligible prefix-sharing summaries inherit the main request's reasoning settings; other cases use the independent summary policy. This setting does not affect the main conversation or other background one-shot tasks.
 
 
 > These are "behavior adjustment" settings (medium risk) that affect context and cost. The vast majority of users can keep the defaults. Compaction also has a full set of finer parameters (trim ratio, number of recent rounds to keep, file recovery, and so on), all in the "Advanced" area of the same panel—adjust them as needed.

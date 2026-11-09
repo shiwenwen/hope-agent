@@ -1,6 +1,6 @@
 [package]
 name = "hope-agent"
-version = "0.70.0"
+version = "0.72.0"
 description = "Hope Agent - Personal AI Assistant with deep system integration"
 license.workspace = true
 authors.workspace = true
@@ -80,7 +80,7 @@ objc2-vision = { version = "0.3.2", default-features = false, features = ["std",
 xcap = "0.9"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
-tauri-plugin-updater = "=2.14.0"
+tauri-plugin-updater = "=2.14.1"
 
 [lints]
 workspace = true

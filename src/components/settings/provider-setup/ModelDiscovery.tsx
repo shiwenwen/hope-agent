@@ -158,7 +158,10 @@ export function ModelDiscovery({
           }
         }}
       >
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+        <DialogContent
+          className="max-h-[85vh] max-w-2xl overflow-y-auto"
+          onPointerDownOutside={(event) => event.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>{t("provider.discovery.action")}</DialogTitle>
             <DialogDescription>{t("provider.discovery.description")}</DialogDescription>

@@ -213,6 +213,7 @@ fn build_anthropic_body(
         .reasoning_effort
         .and_then(|effort| clamp_reasoning_effort(model, effort));
     let mut messages = expand_anthropic_image_markers_for_api(req.history_for_api);
+    super::super::streaming_adapter::mark_anthropic_history_cache_boundary(&mut messages);
     if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
         append_anthropic_user_context(&mut messages, content);
     }
@@ -276,9 +277,8 @@ fn build_anthropic_body(
     {
         body["temperature"] = json!(temp);
     }
-    if base_url.contains("api.anthropic.com") {
-        body["cache_control"] = json!({ "type": "ephemeral" });
-    }
+    // Explicit history caching ends before the volatile user-data envelope.
+    // Automatic caching at the request tail would write that changing data.
     apply_thinking_binding_policy(base_url, model, &mut body);
     (body, tools_with_cache, native_deferred)
 }
@@ -361,7 +361,9 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
     }
 
     fn token_count_history_for(&self, history: &[Value]) -> Vec<Value> {
-        project_anthropic_image_markers_for_token_count(history)
+        let mut history = project_anthropic_image_markers_for_token_count(history);
+        super::super::streaming_adapter::mark_anthropic_history_cache_boundary(&mut history);
+        history
     }
 
     fn prepare_history_for_api(&self, history: &[Value]) -> Vec<Value> {
@@ -1196,9 +1198,11 @@ pub(crate) async fn parse_anthropic_sse(
                             }
                             if let Some(ct) = u.cache_creation_input_tokens {
                                 usage.cache_creation_input_tokens = ct;
+                                usage.cache_receipt.write = Some(ct);
                             }
                             if let Some(cr) = u.cache_read_input_tokens {
                                 usage.cache_read_input_tokens = cr;
+                                usage.cache_receipt.read = Some(cr);
                             }
                         }
                     }
@@ -2004,7 +2008,21 @@ mod tests {
             counted_dynamic[1]["content"][0],
             body["messages"][0]["content"][1]
         );
-        assert_eq!(accounting.history, history);
+        assert_eq!(
+            accounting.history,
+            vec![serde_json::json!({
+                "role":"user", "content":[body["messages"][0]["content"][0].clone()]
+            })]
+        );
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+        assert!(body["messages"][0]["content"][1]
+            .get("cache_control")
+            .is_none());
+        assert!(body.get("cache_control").is_none());
+        assert_eq!(history[0]["content"], "question");
         assert_eq!(body["max_tokens"], req.max_tokens);
         assert_eq!(adapter.token_count_tool_schemas(&req), tools);
         let prepared = adapter.prepare_round_request(&req).unwrap();

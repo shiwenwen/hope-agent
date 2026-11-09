@@ -52,7 +52,7 @@ flowchart TB
 
 ### 桌面深链依赖的临时上游补丁
 
-工作区将 `tauri-plugin-deep-link 2.6.2` 固定到官方签名提交 `463977675da7bbb257dee59669b5e122c8d681db`，仅补齐 Linux INI 解析选项的新增字段，保留原有引号与转义处理设置，以及该版本的 XDG 注册归属与错误上报修复。`rust-ini 0.21.3` 及所有已锁定包的版本保持不变，Cargo 重新解析已有跨平台依赖边；不回退到已撤回的 INI 版本。来源由 `Cargo.toml` 与 `Cargo.lock` 的完整提交摘要固定；有兼容的正式 crate 发布后再移除补丁，并以真实桌面构建与 Linux 相关验证验收。普通不含 Tauri 壳的 Rust CI 不构成此路径的编译证明。
+工作区将 `tauri-plugin-deep-link 2.6.2` 固定到官方签名提交 `463977675da7bbb257dee59669b5e122c8d681db`，仅补齐 Linux INI 解析选项的新增字段，保留原有引号与转义处理设置，以及该版本的 XDG 注册归属与错误上报修复。`rust-ini 0.21.3` 及所有已锁定包的版本保持不变，Cargo 重新解析已有跨平台依赖边；不回退到已撤回的 INI 版本。来源由 `Cargo.toml` 与 `Cargo.lock` 的完整提交摘要固定；有兼容的正式 crate 发布后再移除补丁，并以真实桌面构建与 Linux 相关验证验收。普通不含 Tauri 壳的 Rust CI 不构成此路径的编译证明。 本轮兼容依赖维护保留 `single-instance 2.5.4`，避免 `2.5.5` 要求 `deep-link ^2.6.3` 后令该补丁失效；正式版替换仍按上述桌面构建合同单独验收。通知插件的 Rust 与 npm 包同步到 `2.8.0`，由 `verify-tauri-version-sync.mjs` 检查主次版本一致。
 
 ---
 
@@ -381,3 +381,19 @@ DOMPurify 的 [模板与 shadow root](https://github.com/cure53/DOMPurify/securi
 项目没有直接调用 webpki 或穷举其错误；`rustls` 0.23.46 经 chromiumoxide/reqwest 等传递路径使用验证器。`rustls-platform-verifier` 0.7.0 的随包根证书用于 wasm32 路线；原生平台分别使用系统信任，不因锁中包含该包就声称每个平台都使用随包根。补丁保留现有 ring/std/tls12 特征、直接 reqwest 的 native-tls 路线、SSRF、重定向守卫及证书验证策略，不写用户证书库或 Provider 配置。`webpki-root-certs` 的最低 Rust 版本由 1.70 升至 1.71，低于项目既有工具链，不新增宿主升级要求。
 
 本地编译、锁文件范围核验与隔离的上游合成证书路径测试分别留证；它们不替代真实 Provider、设备系统信任库、跨平台 TLS 或生产验收。回滚应保留受支持的已修补兼容图，不恢复上述已知受影响版本，也不通过关闭证书验证恢复连接。
+
+## 2026-10-29 测试 HTTP 依赖安全补丁
+
+[#868](https://github.com/shiwenwen/hope-agent/pull/868) 将原 npm 分组收敛为 `jsdom 29.0.2 → undici 7.30.1` 的锁文件修补，替换 7.25.0；符合 jsdom 的 `^7.24.5` 范围，Node 下限仍为 20.18.1。package.json、React、UI、ESLint 与 Hooks 规则保持基线版本；本包不承担分组中其余版本迁移。
+
+上游 [7.30.1 正式发布说明](https://github.com/nodejs/undici/releases/tag/v7.30.1) 与八项 GHSA 公告分别涉及 Agent 的 TLS 回调丢失、TLS 1.2 重协商错误、跨源重定向缓存、内容编码和解压异常、SRI 算法名大小写、EventSource 缓冲与 WebSocket PONG 背压；锁中版本匹配不等于当前应用可被远程利用。发布包 SHA-512 与 npm 元数据和锁文件一致。实际调用只在 jsdom 开发依赖链：jsdom 使用 Dispatcher、全局 dispatcher、私有 wrap/unwrap handler 和 WebSocket，因此兼容核验包含这些接口及本地 HTTP 重定向、Cookie、压缩正文和子资源加载。
+
+jsdom 自有重定向、解压与 SRI 实现不因 Undici 补丁自动获得安全验收。该补丁不替换 Node 内置 fetch 或桌面 WebView 的网络栈，也不改变 Rust 的 SSRF、证书验证、CSP 或权限守卫。隔离合成检查、普通测试与 CI 各自留证，不代表真实 Provider、生产、宿主升级或全入口攻击验收；回滚须保留已修补的兼容版本。
+
+## 2026-11-05 更新验签依赖统一
+
+自有 `ha-updater` 与桌面插件共同锁定 `minisign-verify 0.3.0`，消除 0.2.5 重复支线；公钥、manifest、下载/解包顺序、`allow_legacy=false` 和确认门保持原合同。
+[上游 0.2.5](https://github.com/jedisct1/rust-minisign-verify/blob/0.2.5/src/crypto/ed25519.rs) 与
+[0.3.0](https://github.com/jedisct1/rust-minisign-verify/blob/0.3.0/src/crypto/ed25519.rs) 的 Ed25519 实现相同，均检查 `S < L`。
+SDK-21 的版本差异只能作为维护线索，不能推导旧锁可接受非规范签名；专项原归档只读，纠偏证据留在行动卡与本轮受控记录。
+相同公开测试公钥及签名在升级前后覆盖合法/篡改/legacy/非规范全局签名，不读取任何发布私钥，不宣称真实更新安装、任意 payload 伪造或全图安全验收。

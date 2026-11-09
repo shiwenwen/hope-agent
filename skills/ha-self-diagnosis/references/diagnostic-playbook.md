@@ -85,6 +85,8 @@ gotcha that most often explains a failure. Open every DB read-only.
 - State: `sessions.db` (`context_json` snapshot, `messages.stream_status`, `messages.is_side_snapshot`, `chat_turns`, `session_autonomy_pauses`, session-free `runtime_control_epochs`), `memory.db`. Config: `compact.*` (`cacheTtlSecs=300`, override at usage ≥0.95), `memoryExtract.*`, `memory_embedding`.
 - Grep: `category IN ('chat_engine','memory')`; compaction logs under `category='context'` (source `compact`) plus `category='agent'` (`reactive_microcompact`).
 - 摘要正文为空或推理档位失败 → 检查 `compact.summaryReasoningEffort`（null 保持默认）；仅摘要请求应用显式覆盖，不改变主对话推理或输出上限。不支持的档位/关闭参数以 request-contract 终态停止且保留原历史；先核对摘要专用模型、协议和错误类型，不自动切换模型或扩预算，第三方网关需单独验收。
+- 长上下文摘要费用偏高 → 核对摘要用量元数据 `summary_request_mode` 与实际缓存读写。`native_prefix_fork` 只表示保留了本轮原生前缀，不证明缓存仍有效；`independent` 可由专用模型、显式推理覆盖、容量、媒体或服务端工具触发。工具调用型摘要候选会被拒绝，不执行工具。前缀身份变更导致拒绝时保留历史，不绕过账号/工作区校验，也不打印模板正文。
+- 主请求历史反复重建缓存 → 核对 Anthropic 的历史断点是否位于动态用户数据前，以及官方 OpenAI Responses 显式模式是否保留当前、上一历史组两个断点。并行工具结果按整组计，不按单个结果挤掉上一轮位置；兼容端点与 Codex 不强发官方缓存字段。缓存注解不改变工具权限或权威历史，真实命中只认服务商回执。
 - Codex 本地记录导入：入口 `session/codex_import.rs`，台账 `sessions.db.session_import_sources`；`category='session' AND source='codex_import'` 只记录汇总计数。`SELECT source_id,session_id FROM session_import_sources WHERE provider='codex'` 可检查去重关系；这些会话故意只读，`TurnKernel` 和消息插入触发器均拒绝续写。检查失败时不要读取或贴出 JSONL 正文、凭据与工作目录。
 - 主对话关闭镜像后侧聊无法自动打开 → 检查浏览器与 Mac 是否都经 `useMirrorPanelSessionScope` 绑定当前对话面，显示与关闭状态不能再由父会话工作台缓存覆盖。
 - 侧聊宠物提示点击无效 → 检查所属主会话是否仍符合 `regular_session_scope_sql`、侧聊自身是否未归档；归档或恢复应触发 `pet:activity_changed`，不能为不可打开的主会话继续投影侧聊活动。
@@ -125,12 +127,15 @@ gotcha that most often explains a failure. Open every DB read-only.
 - Skill installation: `skills/ha-skill-installer/scripts/install_skill.py` prepares a temporary snapshot, verifies its digest, and atomically publishes without replacement. The installed `.hope-skill-install.json` records source and file hashes. Use `skill({name, action:"inspect"})` to refresh the catalog and compare `baseDir` with the intended destination; inspect never activates the skill. Trace `category='skills'`, `source='inspect'`. Missing prerequisites or a different winning source are distinct from failed file installation.
 
 - Entry: `tools/dispatch.rs` (visibility), `tools/execution.rs`, `tool_defs/` (kernel-shared contract: `TOOL_*` names, `ToolDefinition`/tier, `ToolExecContext`, scope predicates), `permission/engine.rs` (`resolve_async`), `ha-mcp/src/invoke.rs` (runtime; kernel facade `ha-core/src/mcp/`), ha-channel 的 `channel/worker/dispatcher.rs`, ha-skills 的 `skills/discovery.rs`·`skills/author.rs`·`tools/skill/`（阶段 5 第七刀迁出；kernel 回调面 `skills_hooks.rs` 九槽，契约 `skills/types.rs` + 台账 `skills/activation.rs` 仍在 ha-core）, `logging/db.rs`, `async_jobs/manager.rs` (`JobManager`).
+- QQ 审批/问答键盘检查 `qqbot/api.rs`：C2C/群请求须为 `msg_type=2` + `markdown.content`，不能同时带顶层 `content`/`ark`；提示为转义后的字面文本。频道/频道私信仍为数字回复。400/429/超时不可重发为普通文本，投递失败应清理交互 pending；本机 mock 不代表实际 Markdown 显示或平台回调已验收。
 - 企业微信首版入口 `ha-channel/src/channel/wecom/{mod,connection}.rs`，配置 `channels.accounts[*]` 的 `channelId=wecom`。健康页分开看 worker 存活与 probe_ok；poll 仅读缓存。鉴权拒绝后同凭据不自动重连，被其它客户端替换后也不竞争重连；同一 Bot 更改 Secret 时先停止本机运行账户，再显式校验新值；校验不会为不同凭据的同 Bot 建第二条连接。被替换时先停止其它客户端再重启。`category='channel' AND source='wecom'` 拒绝日志只含脱敏 ID、每账号最多30秒一条，可核对 `single:<userid>` / `group:<chatid>` 与 allowlist；不要打印正文、Secret、完整 credentials/frame。无原始锚点、超过10分钟/512项容量/重连后的锚点、已用锚点、媒体/主动投递都拒绝；ACK 未知不可重发。新群 requireMention=false 需 owner 明确加入，已有 mention-only 不迁移放行。审批/提问从应用界面处理，未作真实租户验收。
 - State: `sessions.db` (`channel_conversations`, `sessions.permission_mode`, `learning_events`), `background_jobs.db`, `permission/*.json`, `credentials/mcp/{id}.json`. Config: `mcp_global.enabled`, `permission.global_yolo`, `deferredTools.enabled`.
 - Grep: `category IN ('tool','mcp','channel','skills','permission','async_jobs')` (permission decisions log under `permission`; background-job lifecycle logs under `async_jobs`).
 - 免 Key 搜索：`tools/web_search/keyless.rs` 先尝试 Brave 网页、再回退 360 网页搜索，日志仍用 `category='tool'` / `source='web_search'`，用量操作为 `keyless_search`。403 / 429 后该引擎冷却 60 秒；上游限流、页面变更和确实没有结果须区分。360 网页入口不支持时效过滤，指定 `freshness` 时跳过；不能把免 Key 当作始终可用的保证。
 - MCP successful tool data: `ha-mcp/src/invoke.rs::normalize_result_for` preserves `structuredContent` (including explicit null) after text/media fallbacks; absent means legacy output. `_meta` stays out of model text. Error results remain `ToolFailed` with existing text-only diagnostics; structured error payloads are not copied into Learning events. This is data forwarding, not output-schema validation or full protocol acceptance. MCP hooks use caller-selected protocol output: recognized, typed hook JSON is a candidate, including empty nested and nullable protocol fields; metadata/malformed values fall back to legacy text. For two protocol payloads, event-specific stricter decisions and continue:false take precedence; permission_allow requires agreement from both protocol channels, while contexts and legacy rewrites are retained. Check `ha-mcp/tests/mcp_hook_results.rs` for the in-memory wire-to-hook parser regression; conversation suffixes must never reach HookOutput.
 - Gotcha: tool not callable → trace `resolve_tool_fate` (visibility) then `resolve_async` (Decision); check `sessions.permission_mode` (`default|smart|yolo`) and `permission.global_yolo`. Hiding a tool is never a security boundary. MCP handshake 401/403 → `ServerState::NeedsAuth` (no retry loop). IM not replying / wrong session → `SELECT * FROM channel_conversations WHERE session_id=?` (1:1 attach both ways). **Background jobs (R1 naming split)**: the DB is `background_jobs.db` (table `background_jobs`, `JobKind` tool/subagent(R6)/group(R5) — all three populated) and the single code entry is `async_jobs::JobManager`, but the Rust **module + log category stay `async_jobs`** (lineage) — so grep job lifecycle under `category='async_jobs'`, not `background_jobs`. Stale-schema probe is `SELECT group_id` (newest col); on upgrade a pre-R5 table + the legacy `async_jobs.db` / `async_jobs/` are best-effort dropped/deleted (pure rebuildable cache, no migration). EventBus lifecycle events use the `job:*` prefix (R3, was `async_tool_job:*`) — distinct from the `async_jobs` LOG category; `subagent` kind keeps `subagent:*` events (no double-emit), so the R4 panel merges both streams.
+- 飞书获取令牌失败：`feishu/auth.rs` 仅保留 HTTP 状态或业务代码；JSON 类型错误不带正文，失败不入缓存。按该代码定位，不索取或打印 App Secret / tenant_access_token；本地至少4KiB双账号夹具不等同真实租户或其它 API 错误路径验收。
+- Google Chat 预览格式变化：创建与编辑均显式选择 `markupSyntax`，PATCH 的 `updateMask` 仅为 `text`；不要将语法加入 mask 或修改云端默认。编辑按账户、space、message 的进程内有界记录固定创建模式；记录缺失、重启或淘汰会拒绝编辑，不猜语法、不重新发送。账号切换、4xx/429/超时仅有回环证据，真实 Workspace 展示/mention 通知仍需独立授权验收。
 - Signal 接收乱码/停止卡住：检查 `channel` / `signal-sse` 与 `signal/sse.rs`；按完整UTF-8行解析，CR/LF/CRLF及多行data保留。非法UTF-8或未完成行+事件超过1MiB时仅报固定错误类别并退避重连，不输出原消息；响应头和入站队列等待也应可取消。未启用Last-Event-ID重放，断连期间消息与真实daemon互操作另行验收，不删除队列或自动重放工具。
 - iMessage 编辑/撤回不触发回复：`ha-channel/src/channel/imessage/client.rs` 在入站和 catch-up 的游标/去重前分类；imsg v0.19 新消息省略 `type`，`edited` / `unsent` 及任何显式未知或畸形类型均丢弃。它们不推进插入游标、不占原消息 GUID，也不更新/删除会话历史。ROWID 恢复不能证明历史变更完整；不要为排查自动扫描 Messages 数据库或打印原始载荷。真实设备与带外变更同步仍未验收。
 
@@ -164,6 +169,10 @@ gotcha that most often explains a failure. Open every DB read-only.
 - Gotcha: desktop-only — `mac_control` returns `supported=false` off macOS-Tauri and needs live TCC perms (Accessibility + Screen Recording); start with `action='status'`/`'permissions'`. Browser launch failures → `launch_circuit.rs` trip + 3-tier fallback. Missing `browser:frame`/`mac_control:frame` EventBus frames = capture failed. Stale `el_N`/`ref_id` only valid within their originating snapshot. Panel timeline (`tool_actions`) is memory-only — empty after restart is normal, not data loss; entries are purged on session delete/burn, typed text is redacted to `text(N chars)` by design. **macOS TCC (`permissions.rs`)**: `request_item` dispatches by **`def.id`** (NOT `request_mode` — that field is catalog metadata for the frontend only); real branches are the NativePrompt ids, the two `automation` ids (osascript probe), and a `_` fallback (`open_settings_pane` + re-check, covering OpenSettings + None). Folder ids carry a `_folder` suffix (`desktop_folder`/`documents_folder`/`downloads_folder` — bare `desktop` etc. do not exist). NativePrompt items already past `NotDetermined` open Settings instead of re-prompting (`requestable_status_or_open`). Off macOS the whole module is a `cfg` stub returning unsupported.
 
 ### Dashboard / Recap / Awareness — `dashboard.md`, `recap.md`, `behavior-awareness.md`
+
+- 缓存基准：评测中心显式选择 `prompt-cache`；资产 `evals/live/suites/prompt-cache/`，报告 `ha-eval/src/model_cache.rs`。`model cache-smoke` 只用 loopback 合成回执验证链路；`model cache-report` 离线按阶段读 cache tokens / 归一化输入 / 逐调用 TTFT / summary mode。未知用量或价格保持 null，标准输入价预算不代表缓存账单；详见 `cache-benchmark.md`。
+- 自动摘要对照：使用 `prompt-cache-auto` / `HA-CACHE-002`，不调用手动压缩。最终 `minTotalSummaryCalls` 校验需要成功摘要回执；实际安装仍核对生产压缩日志及后续上下文。旧版与新版固定同一配置窗口、模型与资产，记录产品二进制摘要，分别报告真实命中；缩放窗口不能冒充服务商满窗口，普通计价反事实不能冒充旧版实测。
+- 真实评测初始鉴权正常、压缩/记忆协调后 401：检查配置回读是否覆盖了一次性内存凭据。隔离评测配置必须固定启动快照，不能从无凭据磁盘配置覆盖缓存，也不能为修复 401 把 Key 写入 config 或恢复继承凭据环境。
 
 - Entry: `dashboard/`, `recap/`, `awareness/`, `agent/mod.rs`.
 - State: `recap/recap.db` (rebuildable, keyed by `last_message_ts`), `sessions.db` (`learning_events`), `logs.db`, `cron.db`. Config: `awareness.enabled`/`mode` (hard-gate), `recap.analysisAgent`/`language`.
@@ -205,6 +214,22 @@ gotcha that most often explains a failure. Open every DB read-only.
 - State: `sessions.db` (ACP shares SessionDB), `config.json`, `credentials/auth.json`. Config: `auto_update.*`, `permission.global_yolo`.
 - Grep: `category IN ('self_update','acp','slash_cmd')`; config writes emit no log but fire the `config:changed` event.
 - Gotcha: "UI save not taking effect until restart" class bugs ← a write that bypassed `mutate_config`. Binary swap must use `platform::atomic_replace_binary` + `--version` smoke test + auto-rollback. `MINISIGN_PUBKEY_BASE64` must equal `tauri.conf.json#plugins.updater.pubkey` or desktop startup panics. Headless auto-update loop only runs when `!is_desktop()`.
+- Gotcha: isolated model evaluations keep Provider credentials only in the initialized process snapshot; `HA_MODEL_EVAL_MODE=1` rejects config writes and preserves that snapshot on reload. Repeated 401 errors after a background refresh require checking this boundary, without writing the test key to disk.
+- Gotcha: Codex subscription requests reject `temperature`, including zero. A 400 before any tool execution is a request compatibility failure; the Codex adapter must omit the field even when the conversation/evaluation config sets it. Keep this protocol difference in baseline reports.
+- Codex 的可选工具参数反复被填为空值时，检查请求和 Token 计量的 function schema 是否均显式携带 `strict: false`；不得在工具处理器里将任意无效参数吞掉。
+- Workflow 因动态预览停在审批门时，检查脚本是否使用 `workflow.tool({ name, args })`；位置参数形式不属于 Host API 契约。按需 guide 必须提供完整格式，严格审批不能由测试脚本代答。
+- 编排 suite `1.15.0` 的 `eval-control-plane-ready-v6` 由 owner 开启所需 Workflow Mode，为多 Agent 提供合成 Git 仓库，并把无人应答的问答限制为 30 秒后未回答到期。旧版模型停在 `enter_plan_mode`、缺少 Workflow 工具或无法创建子 worktree 时，先归因环境，再看模型任务；不得补造审批答案。control 的业务产物、机制与终态分开统计，不能把未跑故障臂当成恢复能力证据。
+- 评测预算诊断中 `input_usage_unknown` / `output_usage_unknown` 表示调用用量未知而停止，只有实际已知累计用量达到上限才是 `input_tokens` / `output_tokens`。Codex 订阅的目录美元成本为零仍会消耗订阅额度。
+- 终态墙钟必须包含初始化、判分与清理。`invalid_trial_evidence_after_execution` 表示已执行候选未通过契约校验，检查候选摘要和受控错误类别，保留用量且禁止自动重跑。当前 suite 的 Workflow 验证只读现有业务产物，需要审批的执行继续保持未批准。
+- 清理时出现 `Query returned no rows` 先检查是否在途工作尚未停止就删除了合成 Session；隔离 cleanup 必须走正常 Stop、等待 trace 闭合后才删除，收敛失败则保留会话并报告清理失败。当前 suite 的 clean 初始 Goal 使用公开业务目标，不能把故障场景标题当成正常目标。
+- 前台结束后仍有任务 span 时，核对实际父 Agent 结果通知回合。当前 suite 在原始单项预算内保持 root 归因，等待实际任务自然完成，连续静止 250 毫秒后才验收；等待及后续调用均计量。不能把通知回合当作 cosmetic 工作，或靠清理提升为通过；固定 250 毫秒等待不足以覆盖真实父回合。
+- suite `1.15.1` 的 unlimited 诊断不使用注册时间截断回复后的父通知回合；排查提前收尾时同时检查请求超时、试次子进程与自然收尾观察三处，不能仅把预算对象清空。
+- suite `1.15.0` / v6 的 `agent.result_queued` 在通知合并、idle 和重排时保留评测归因，排队不占运行并发；`agent.result_delivery` 只表示父通知回合，实际后台工具执行才计入 `asyncJobs` 和 `async_jobs` 信号。调查遗漏调用时同时检查这两种 span，不能只检查运行中的子 Agent。
+- Gotcha: paired logical trial IDs are shared across models, while product runtime IDs include campaign and attempt. Registration conflicts or progress from an already finished model require checking this namespace; never use another campaign's telemetry as evidence for the current model.
+- Gotcha: per-turn model overrides alone do not bind manual compaction or implicit children. Registered isolated evaluation sessions pin the selected model through the kernel Session service before any work starts. Check every `model.call` Provider/model binding, including summaries and earlier failed attempts; mixed-model evidence cannot validate the selected model.
+- Gotcha: pre-compaction Memory Extract follows Agent/global extraction overrides and otherwise captures the current conversation Provider/model; it must never choose the first configured Provider/model. A mixed `agent.side_query` immediately before `context.dedicated_summarize` requires checking this flush path separately from the summarizer.
+- Gotcha: a session-not-found error with digits such as `403` in its UUID is not an HTTP auth rejection. Check numeric error classification before blaming the Provider when unrelated trials suddenly report no auth profile; only explicit HTTP/status context or a leading standard HTTP reason phrase may activate status-code cooldowns.
+- Gotcha: cleanup failures must preserve observed usage and open diagnostic traces as `infra_error/cleanup_incomplete_after_evidence`; never replay an already billed task. A crashed worker can recover only its own campaign/attempt telemetry. Zero observed calls with incomplete attribution is unknown usage, not free execution, and must block unsafe budget-based retries. Control owner-state expectations use `expectedByFaultProfile.clean`; actual faulted events use `chaos`.
 
 ## Self-Study
 
@@ -229,10 +254,82 @@ gotcha that most often explains a failure. Open every DB read-only.
 - 模型/媒体/嵌入收到 3xx 时先核对显式配置的端点，禁止通过重新发送原密钥/输入来探测目标；模型客户端禁止重定向，资源 GET 的逐跳 SSRF 是另一条路径。参见 Provider、媒体与安全文档。
 - PDF 解析失败沿文本回退处理；深层输入的受控错误与进程 abort 分别记录。quick-xml 自有/Excel 为 0.41，xcb 旧构建链与 GTK/glib 平台债不冒称已消除。
 - 客户端 MP4 导出分别定位编码、异步封装与清理错误；成功须有最终 MP4 bytes，不能以抓帧数或 encoder flush 完成认定已交付。Mediabunny 仅为隔离候选，合成读回不证明平台 H.264 编码/播放可用，生产默认未切换。
+- 裸二进制/桌面验签共同锁定 minisign-verify 0.3.0（2026-11-05）；验签失败先核 payload、签名、公钥及 legacy 模式，不放宽校验。原0.2.5也检查规范S，版本差异不能当漏洞证据；公开测试公钥夹具不替代真实安装验收。
 - 桌面 updater 的 Rust/JS 两端固定 2.14.0（2026-10-19 配对维护）；降级开关来自应用配置且固定 false，不通过 renderer 参数覆盖版本门，不关闭验签/重启确认。
+- R2 镜像或 Linux 仓库发布在安装 rclone 时失败：检查共用 `scripts/install-rclone.sh` 的固定版本、大小和官方 SHA，以及离线 version/flags 步骤；大小/摘要错误在解压执行前拒绝，版本/flag错误在原子安装前拒绝。不改成 apt 或跳过核验，不为排障带入桶凭据或重发生产工作流。
 - 桌面发布在编译前报 `Found version mismatched Tauri packages` → 对照 Cargo.lock 与 pnpm-lock.yaml 的全部官方插件，而非只看 tauri/API/updater；dialog、notification、process 同样要求 major.minor 配对。运行 `node scripts/verify-tauri-version-sync.mjs`，再按发布流程验证，不能用普通 Rust 测试通过代替 Tauri CLI 预检。
 - Linux 桌面构建在 `tauri-plugin-deep-link 2.6.2` 的 `ParseOption` 报 E0063 缺字段：核对 `rust-ini 0.21.3` 及根 Cargo patch 的完整官方提交 `463977675da7bbb257dee59669b5e122c8d681db`；不要重跑不变源码或降级到已撤回 INI 版本。普通 Rust CI 不编译 Tauri 壳，应按发布流程先验证待发提交的四平台 dry-run，再创建新 tag。
 
 ### Kimi Basic 搜索迁移
 
 排查 `web_search.kimi.basic` 时先核对既有 Key、是否设置国家/语言/时效过滤及后续已启用服务商；Basic 不支持这些过滤，明确错误不代表账号异常。固定国内 REST、SSRF 与禁止重定向失败不回退旧聊天模型。用量中模型/Token 缺失属于按次合同；`billable_call=null` 表示取消或响应未知，不能据此断言免费或自动重试。仅收集脱敏状态码与时间，不采集查询、Key、响应正文或真实账号材料。
+
+排查 `web_search.perplexity` 时区分 HTTP/重定向拒绝、限量 JSON 读取失败、协议错误和合法空结果。引用沿既有 `citations` 顺序，新增来源元数据消费尚待不可信信封前置交付；无 URL 的摘要不当作引用。旧 Sonar 端点仍沿原配置，不能把原生 Agent `output` 示例当作该端点实测回执。解析失败/取消也记一次失败调用，Token 缺失不是零；不要收集查询、Key、响应正文或用本地夹具推断真实账单。
+
+### Goal 历史 Workflow 修复后仍阻塞
+
+检查 Goal final audit 的 blockers、ruleGate.hardBlockers 与 criteriaStatus，并保留失败和后续 run 的台账。`runtime_error` 失败只由失败后新建的同 Goal/session/criterion/revision 的 completed run 加其真实 validation_passed 解除；取消、审批阻塞、跨版本证据和后续 validation_failed 不解除。主编排专项 `1.15.2` 对齐此规则，历史结果不得重判或混作同版本比较。
+
+### 评测中出现无归因的技能复盘费用
+
+检查隔离 sessions.db 的 model_usage_events：skills.auto_review 必须具备实际 session_id 与 metadata.eval，并匹配所属试验模型。合成 automation:skills_auto_review 键可能导致 session_id 被置空、漏出试验费用及使用全局默认模型；不得把只核验已进入 trace 的调用当成全量证明。主编排 1.15.3 / 上下文 1.0.2 接入真实 Session、排队前后台守卫与 automation 模型 pin；未注册接纳的请求在网络前拒绝。保存中止批次与已知额外费用，不覆盖旧结果。
+
+### 前台模型正确但通知回合混模
+
+按试验逐一核对所有 model.call，包括前台结束后的 agent.result_delivery。ParentInjection 必须提交父会话 preferred model，评测 Kernel 再核对其模型 pin 并拒绝回退。业务验收通过不等于绑定有效；混模试验保留真实调用和费用，排除能力横比，参考主编排 1.15.4 / 上下文 1.0.3。
+
+原生结果的 model_binding 阻断检查覆盖前台、自动调用与父通知所有 model.call；失败为 infra_error/model_binding_mismatch。业务 passed 不能覆盖绑定失败；费用与 trace 原样保留且不得自动重跑。
+
+### 无预算评测清理超时且有晚到复盘费用
+
+核对 cleanup HTTP 500、未关闭 model_automation.run span 和随后写入的 skills.auto_review 用量。主编排 1.15.5 / 上下文 1.0.4 在无预算模式等待所有已接纳后台模型调用自然结束后才取最终费用快照；不得通过缩短守卫生命周期、删除未结束会话或把缺失用量置零伪造闭环。旧 trial 的 infra_error 和晚到费用单独保留。
+
+### 上下文专项结束后出现无归属 side_query
+
+同时核对 Native trial completedAt 与隔离 model_usage_events 的 agent.side_query 时间；有成功用量但 session_id / metadata.eval 为空，说明侧查询存活超过根身份。主编排 1.15.6 / 上下文 1.0.5 在单次调用入口持有身份至用量落账，并在锁内拒绝已结束身份；不可把额外费用并入旧分数或声称已全量入账。保留诊断批次和已知费用，修复后先核对上下文专项，再推进完整组。
+
+### 单次请求已开始但取消后没有用量
+
+核对 model.call_scope 与 Provider 调用计量。主编排 1.15.7 / 上下文 1.0.6 对实际进入适配器的每个尝试持有独立用量守卫；调用方取消产生 callerCancelled=true、dispatchOutcome=unknown 且 token 为缺失值，不能填零或直接归因模型能力失败。正常完成不重复写入，未发送的准备工作不虚构请求；不确定传输拒绝自动重发。保留已中止诊断与费用下界，勿与新版本分数混合。
+
+### 确定性专项评测的装配与样本前置条件
+
+正式轨道包含 7 个套件、71 个用例。Dreaming 自动规划返回空集合时先检查独立 adapter 是否经 `ha_server::wire_features()` 装配；不得降低预期分组。语义检索准确率为零时检查合成嵌入模型是否已注册、selection 是否指向该模型及向量 v2 签名是否一致。领域 trace 中 `issues` / `duplicates` / `gaps` / `checks` / `attendees` 必须为数组。晋升样本须携带有效 suite、基础 fixture 与追加式版本锁，目标存在时继续拒绝覆盖。`verify-evidence --allow-local` 仅在没有 release tag 时容许 dirty 的 local 诊断，默认发布检查仍拒绝。
+
+### 单 Agent 对照全部失败或重启故障造成其他试次报错
+
+先核对提示词和 owner-state 验收是否同时禁止子 Agent 又要求 completed/killed 子执行器；编排 1.15.8 使用独立单 Agent 提示词和空子执行器精确验收。子执行器专属的崩溃、取消故障在单 Agent 臂标记不适用，调用数必须为零，不计作模型能力失败。强制重启前还有子执行器或后台请求时，核对 process.restart 的 interruptedWorkAtRestart；已完成调用仍保留，试次总费用须未知。进程重启必须持有共享服务独占锁；其他普通试次持共享锁，不能让同一 supervisor 的四个分片互相终止。修复前已付费或不确定请求单独保留，不能修改旧分数或补零费用。
+
+### 重启控制器返回 401 或故障未激活
+
+先区分 supervisor 的本地 HTTP 401 与 Provider 账户错误。1.15.9 修复 Authorization 头名大小写和 TCP 分段读取，仍拒绝错误或重复凭据。未激活故障不能证明恢复失败，应保留业务检查并归为 benchmark_defect；旧版 task_failed 原始记录不覆写，只在分析中解释其评测失效原因。
+
+### 额度或进程中断后分片没有完整结果
+
+先保留已发布 shard、逐项检查点和已脱敏用量。1.15.10 在 shard.json.trials 目录先持久化派发标记，再逐项原子发布结果；有有效结果时可在同一计划、同一运行时配置下复用，无结果但有派发标记时拒绝自动重放。旧版分片只在结束时写盘，不能由调用进度、聊天摘要或 SQL token 反推未保存的验收成绩。
+
+### 取消分支被业务文件验收误判或研究范围没有数据
+
+编排 1.16.0 / 上下文 1.0.9 区分正常业务交付与取消/purge 的负向产物验收。检查 expectedByFaultProfile、expectedAbsent、真实 cancelled/killed 终态和故障激活，不能用缺失文件单独判成功。研究输入必须具有日期和引用标识，范围边界、条目数与 exactFields.citations 一同校验。一次错误反馈后的 completed 可以是恢复成功；无真实故障仍是 benchmark_defect，不能修改历史结果或宣称权限/安全完整覆盖。同一对照对 seed 相同不代表 unlimited 计算量相同。
+
+### 脚本用户修订被 active_stream 拒绝
+
+若研究范围修订的 HTTP 500 明确来自 `active_stream ... from parent_injection`，说明上一阶段的结果通知尚未释放会话流，不是 Provider 额度或模型质量证据。编排 1.17.0 / 上下文 1.0.10 在非取消的草稿修订前等待真实工作结算，再发送下一条脚本消息。取消与重启场景不等待所有目标自然结束。保留旧原始结果和已知用量，不自动重放；脱敏 HTTP 原因与清理后 callerCancelled 分开诊断。
+
+若草稿修订后文件检查通过但 Goal 仍引用旧契约，先核对脚本是否真正经过 owner 控制面修订，而非仅发送模型无权执行的改约文字。编排 1.18.0 / 上下文 1.0.11 记录 `scripted_owner_goal_revision` 和严格修订号检查；不要放宽完成审计或忽略审批、取消及阻塞历史来消除失败。
+
+编排 1.19.0 / 上下文 1.0.12 的取消、拒绝审批脚本只等待父会话接纳权，不清空子任务。检查 `scripted_admission_*`、真实活动子任务及终态：只有类型化 `409 chat_admission_busy` 可重新接纳；500 中的 active_stream 文字本身不是自动重放依据。旧 HA-GL-003 的第三轮 Loop 故障与只读设置矛盾，预览应拒绝；新版只验证状态观测和一次实际工具环境反馈，不能据此宣称多轮 Loop 验收。
+
+编排 1.20.0 的子执行取消通过无参数 `stop_parent` 用户步骤调用既有 owner Stop，并先检查真实 running 子执行归属。仅留下后台进程但子 Agent 已返回 completed，不构成“取消正在执行的子 Agent”的前置条件。若 Goal 改约后旧 runtime_error 再度阻塞，核对失败与其原修订成功验证是否已经匹配；已解决的历史不能复活，旧成功也不能替代当前修订验收，审批/取消边界不放宽。
+
+编排 1.22.0 的取消前置条件同时要求父会话真实后台作业与活动子执行。前台子执行和父后台作业独立核验，二者成立后才派发 owner Stop；缺少前置条件记录 benchmark_defect，Loader 同时校验能力与信号声明。保留 killed 子执行和无遗留工作的独立验收。
+
+编排 1.23.0 区分显式 killed 和 owner 会话 Stop 的 interrupted/session_paused；仅其他 interrupted 或正常 completed 不能冒充取消。核对 scripted_owner_stop 捕获的具体目标、同会话归属、Stop 后逐目标终态及无遗留工作，不能只用 stopped=true 或任意历史 killed 行证明成功。
+
+Goal 改约后 LSP 错误无法被后续 clean diagnostics 或 validation 清除时，核对 diagnostic 的 metadata.runId、source id 前缀及持久化 Workflow 的 Goal/session/criterion/revision。诊断本身未携带 goalRevision 不代表无法归属；必须经真实 run 解析，不能用外部修订字段或创建时间跨修订消除阻塞。历史同修订内修复保留，但不能满足当前新契约。
+
+领域质量复核无法清除同修订旧错误时，检查 domain_quality_runs.goal_revision 及回写 summary/check 的 goalRevision。该可空列由旧库兼容迁移追加，历史 NULL 不回填猜测；旧运行在改约后完成、用户 source metadata 或完成 stats 携带新修订都不能覆盖创建时归属。
+
+### Design 视觉场景验证未完成
+
+`visual_scenarios_incomplete` 表示固定三视口 runner 未执行已保存的自定义场景，或场景清单在捕获期间变化；不是浏览器失效。检查场景清单的路由、状态、场景数量/身份和自定义视口。保留用户清单与旧基线，不自动清空场景或接受默认页基线。当前仅默认场景可自动比较；完整场景状态到达证据仍待实现。

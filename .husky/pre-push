@@ -1,6 +1,9 @@
 #!/usr/bin/env sh
 # Mirrors the CI gates (.github/workflows/rust.yml + lint.yml) so red-on-push
 # is caught locally before burning a 10-minute Actions run.
+# Remote Rust matrix: ubuntu-latest, windows-latest, macos-15. The two Mac
+# required contexts are clippy (macos-15) and test (macos-15); keep the active
+# main-branch-protection ruleset and main protection synchronized with CI.
 #
 # Skip flags:
 #   HA_SKIP_PREPUSH=1       — bypass the whole hook (use sparingly, e.g. docs-only)

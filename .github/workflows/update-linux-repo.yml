@@ -137,11 +137,17 @@ jobs:
           echo "RPM_X86_64=Hope.Agent-${version}-1.x86_64.rpm"    >> "$GITHUB_ENV"
           echo "RPM_AARCH64=Hope.Agent-${version}-1.aarch64.rpm"  >> "$GITHUB_ENV"
 
-      - name: Install build dependencies (reprepro + createrepo_c + rclone)
+      - name: Install build dependencies (reprepro + createrepo_c)
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq reprepro createrepo-c rclone
+          sudo apt-get install -y -qq reprepro createrepo-c unzip
+
+      - name: Install rclone (pinned)
+        run: |
+          set -euo pipefail
+          bash scripts/install-rclone.sh "$RUNNER_TEMP/hope-rclone-bin"
+          echo "$RUNNER_TEMP/hope-rclone-bin" >> "$GITHUB_PATH"
 
       - name: Download all deb + rpm from release (any arch present)
         env:

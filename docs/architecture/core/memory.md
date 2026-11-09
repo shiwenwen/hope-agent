@@ -392,6 +392,8 @@ Agent 在两个时机自动提取记忆：
 - **Tier 3 压缩前**（`flush_before_compact`）：在 LLM 摘要压缩对话历史之前，先抢救有价值的记忆。
 - **阈值触发**：对话过程中，冷却时间已过且内容阈值满足时，在 assistant 最终消息落库后**后台调度**提取（不阻塞聊天流结束）。
 
+提取模型按 Agent 显式覆盖 → 全局 `modelOverride` → 兼容旧字段 → 当前对话模型解析；空闲提取的最后一级来自会话固定模型。压缩前提取在启动后台线程之前捕获所选 Provider / 模型，未覆盖时复用当前 Agent 的 Provider 快照；禁止按 Provider 或模型列表顺序选取。显式配置不可用时跳过提取，不能换用列表首项；无痕、学习与贡献门控仍由提取执行层裁决。
+
 触发采用**冷却 + 阈值双层**（自上次提取以来需同时满足）：
 
 - 冷却保护：`elapsed ≥ extract_time_threshold_secs`（默认 300s）。
@@ -744,6 +746,8 @@ Dreaming 的 claim 读路径 / effective-status / hidden-set / scope 过滤 / ev
 ---
 
 ## 十三、健康诊断与保守修复
+
+**加密备份兼容性**：`backup.rs` 使用 `aes` 0.9 / `cipher` 0.5 的定长 key/block API。`hope.memory.encrypted_bundle.v1` 继续采用 PBKDF2-HMAC-SHA256（210,000 次）派生独立加密与认证密钥，以 AES-256-CTR 的 128 位大端计数器加密，并用 HMAC-SHA256 认证元数据与密文；解密前先校验认证标签。依赖适配不改变封套、计数器递增或已有备份的解锁方式，普通单测以 NIST SP 800-38A 已知答案覆盖多块与非整块输入。
 
 面向用户本人的管理面通过 `memory_health` / `GET /api/memory/health` 读取只读诊断（**不自动修复、不进 agent 工具面**），覆盖：SQLite `PRAGMA quick_check`、待重嵌入数量、各 FTS（`memories_fts` / `memories_literal_fts` / `memory_claims_fts` / `memory_claims_literal_fts` / `memory_evidence_fts`）缺口、claim without evidence、orphan evidence / link、Dreaming stale run / lock，以及 Deep Resolver backlog。字面 shadow 缺行分别用 `memory_literal_fts_missing_rows` / `claim_literal_fts_missing_rows` 报告——它们可由对应 FTS repair 重建，**不改正文真相源**。有过期/冲突候选时只加 `info` issue，不把正常治理 backlog 误报为系统故障。
 

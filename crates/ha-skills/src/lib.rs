@@ -77,8 +77,23 @@ fn register_hooks() {
         else {
             return;
         };
+        // Capture the identity before enqueueing: the parent turn may close
+        // before this future starts, while review still performs paid work.
+        let eval_model_guard = match ha_core::eval_context::retain_model_automation(session_id) {
+            Ok(guard) => guard,
+            Err(error) => {
+                app_warn!(
+                    "skills",
+                    "auto_review",
+                    "Skipping review outside evaluation admission: {}",
+                    error
+                );
+                return;
+            }
+        };
         let session_id_for_review = session_id.to_string();
         tokio::spawn(async move {
+            let _eval_model_guard = eval_model_guard;
             if let Err(e) = skills::auto_review::run_review_cycle(
                 &session_id_for_review,
                 skills::auto_review::ReviewTrigger::PostTurn,

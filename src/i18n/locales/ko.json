@@ -1999,7 +1999,7 @@
         },
         "custom": {
           "title": "Custom diagnosis",
-          "description": "A user-selected subset of registered weekly cases and arms with bounded repetitions."
+          "description": "A user-selected subset of all registered Hope Core cases and arms with bounded repetitions."
         }
       },
       "profileLimits": "≤{{trials}} trials · ≤{{models}} models",
@@ -12345,6 +12345,7 @@
       "fixStarted": "AI가 수정을 시작했습니다",
       "fixBusy": "대화가 진행 중입니다. 잠시 후 다시 시도하세요",
       "fixPrompt": "디자인 자체 점검에서 발견된 문제를 수정해 주세요: {{detail}}. 디자인 시스템 토큰(var(--ds-*))으로 색상을 정리하고 하드코딩된 스타일을 교체하세요. 꼭 필요한 최소한의 변경만 하고 나머지 디자인은 그대로 유지하세요.",
+      "visualScenarioIncomplete": "시각 검증 미완료: 기본 시나리오와 고정 뷰포트만 지원합니다. 사용자 지정 시나리오는 실행되지 않아 기준으로 승인할 수 없습니다. 시나리오 변경 후 다시 검증하세요.",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",
       "baselineFailed": "Failed to accept the visual baseline",

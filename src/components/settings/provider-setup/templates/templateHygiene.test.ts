@@ -12,15 +12,55 @@ const RETIRED_DIRECT_MODEL_IDS = [
 ]
 
 describe("provider template lifecycle hygiene", () => {
+  it("tracks Unbiased current and pinned stable releases without the retiring preview", () => {
+    const provider = PROVIDER_TEMPLATES.find((item) => item.key === "unbiased")!
+    expect(provider).toMatchObject({
+      apiType: "openai-chat",
+      baseUrl: "https://api.unbiased.ai/v1",
+      currency: "USD",
+      thinkingStyle: "none",
+    })
+    expect(provider.models).toHaveLength(3)
+    for (const id of ["pareto", "pareto-26.10"]) {
+      expect(provider.models.find((model) => model.id === id)).toMatchObject({
+        inputTypes: ["text", "image"],
+        contextWindow: 1_048_576,
+        maxTokens: 131_072,
+        reasoning: false,
+        costInput: 0.8,
+        costOutput: 3.2,
+      })
+    }
+    expect(provider.models.find((model) => model.id === "pareto-26.9")).toMatchObject({
+      contextWindow: 262_144,
+      costInput: 2.5,
+      costOutput: 7.5,
+    })
+    expect(provider.models.some((model) => model.id === "pareto-26.10-preview")).toBe(false)
+  })
+
   it("excludes retired models only from direct OpenAI new-provider presets", () => {
     for (const key of ["openai", "openai-chat"]) {
       const provider = PROVIDER_TEMPLATES.find((template) => template.key === key)!
-      for (const id of ["o1", "o1-pro", "o3-mini", "o4-mini", "o3-deep-research", "o4-mini-deep-research"]) {
-        expect(provider.models.some((model) => model.id === id), `${key}: ${id}`).toBe(false)
+      for (const id of [
+        "o1",
+        "o1-pro",
+        "o3-mini",
+        "o4-mini",
+        "o3-deep-research",
+        "o4-mini-deep-research",
+      ]) {
+        expect(
+          provider.models.some((model) => model.id === id),
+          `${key}: ${id}`,
+        ).toBe(false)
       }
       // Supported alternatives already exist; no automatic saved-model migration.
       for (const id of ["gpt-5.6-sol", "gpt-5.6-terra"]) {
-        expect(provider.models.some((model) => model.id === id), `${key}: ${id}`).toBe(true)
+        expect(
+          provider.models.some((model) => model.id === id),
+          `${key}: ${id}`,
+        ).toBe(true)
       }
     }
   })
@@ -46,6 +86,7 @@ describe("provider template lifecycle hygiene", () => {
     const router = PROVIDER_TEMPLATES.find((p) => p.key === "openrouter")!
     const ids = [
       "openai/gpt-6-astra",
+      "openai/gpt-6.1-terra",
       "openai/gpt-6.1-sol",
       "openai/gpt-6-sol",
       "openai/gpt-6-luna",
@@ -226,6 +267,7 @@ describe("provider template lifecycle hygiene", () => {
     const responses = PROVIDER_TEMPLATES.find((provider) => provider.key === "openai")!
     expect(responses.apiType).toBe("openai-responses")
     for (const [id, input, output] of [
+      ["gpt-6.1-terra", 1, 5],
       ["gpt-6.1-sol", 2, 10],
       ["gpt-6-sol", 2, 10],
       ["gpt-6-luna", 0.1, 0.5],
@@ -247,10 +289,57 @@ describe("provider template lifecycle hygiene", () => {
       costInput: 10,
       costOutput: 50,
     })
+    expect(responses.models.find((model) => model.id === "gpt-6.1-terra")).toMatchObject({
+      contextWindow: 1_050_000,
+      maxTokens: 128_000,
+      inputTypes: ["text", "image"],
+      reasoning: true,
+      costInput: 1,
+      costOutput: 5,
+    })
     const chat = PROVIDER_TEMPLATES.find((provider) => provider.key === "openai-chat")!
     expect(
       chat.models.some((model) =>
-        ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-6-astra"].includes(model.id),
+        ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "gpt-6-astra"].includes(
+          model.id,
+        ),
+      ),
+    ).toBe(false)
+    const volcengine = PROVIDER_TEMPLATES.find((provider) => provider.key === "volcengine")!
+    expect(volcengine).toMatchObject({ currency: "CNY", apiType: "openai-chat" })
+    expect(volcengine.models.find((model) => model.id === "kimi-k3-1-pro-261024")).toMatchObject({
+      inputTypes: ["text", "image"],
+      contextWindow: 1_024_000,
+      maxTokens: 1_024_000,
+      reasoning: true,
+      costInput: 13,
+      costOutput: 68,
+    })
+    expect(
+      volcengine.models.find((model) => model.id === "deepseek-v4-1-flash-261017"),
+    ).toMatchObject({
+      inputTypes: ["text", "image"],
+      contextWindow: 1_024_000,
+      maxTokens: 384_000,
+      reasoning: true,
+      costInput: 2,
+      costOutput: 8,
+    })
+    expect(
+      volcengine.models.find((model) => model.id === "deepseek-v4-pro-ga-260813"),
+    ).toMatchObject({
+      costInput: 9,
+      costOutput: 27,
+    })
+    expect(
+      volcengine.models.find((model) => model.id === "deepseek-v4-flash-ga-260731"),
+    ).toMatchObject({
+      costInput: 3,
+      costOutput: 9,
+    })
+    expect(
+      volcengine.models.some((model) =>
+        ["deepseek-v4-pro-260425", "deepseek-v4-flash-260425"].includes(model.id),
       ),
     ).toBe(false)
     const anthropic = PROVIDER_TEMPLATES.find((provider) => provider.key === "anthropic")!
@@ -273,6 +362,34 @@ describe("provider template lifecycle hygiene", () => {
       costOutput: 50,
     })
     expect(anthropic.models.some((model) => model.id === "claude-mythos-5-1")).toBe(false)
+  })
+
+  it("offers direct Kimi K3.1 Pro and omits account-restricted K2 presets", () => {
+    const moonshot = PROVIDER_TEMPLATES.find((provider) => provider.key === "moonshot")!
+    expect(moonshot).toMatchObject({
+      apiType: "openai-chat",
+      baseUrl: "https://api.moonshot.ai/v1",
+    })
+    expect(moonshot.models).toHaveLength(3)
+    expect(moonshot.models.find((model) => model.id === "kimi-k3.1-pro")).toMatchObject({
+      inputTypes: ["text", "image"],
+      contextWindow: 1_048_576,
+      maxTokens: 1_048_576,
+      reasoning: true,
+      thinkingStyle: "openai",
+      costInput: 2,
+      costOutput: 10,
+    })
+    expect(moonshot.models.find((model) => model.id === "kimi-k3.1-pro-highspeed")).toMatchObject({
+      inputTypes: ["text", "image"],
+      contextWindow: 1_048_576,
+      maxTokens: 131_072,
+      reasoning: true,
+      thinkingStyle: "openai",
+      costInput: 4,
+      costOutput: 20,
+    })
+    expect(moonshot.models.find((model) => model.id === "kimi-k3")).toBeDefined()
   })
   it("uses the Cloudflare REST endpoint and qualified third-party model IDs", () => {
     const provider = PROVIDER_TEMPLATES.find((template) => template.key === "cloudflare-ai")
