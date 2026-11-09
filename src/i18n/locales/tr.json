@@ -12935,6 +12935,7 @@
       "interrupted": "Kesildi",
       "cancelled": "İptal edildi",
       "failed": "Başarısız"
-    }
+    },
+    "historyLocked": "Asistan geçmişi yeniden yazılamaz. Bir talimatı düzeltmek için yeni bir mesaj gönderin veya çalışma panelinden bir görevlendirmeyi durdurun."
   }
 }

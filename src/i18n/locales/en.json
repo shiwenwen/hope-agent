@@ -12935,6 +12935,7 @@
       "interrupted": "Interrupted",
       "cancelled": "Cancelled",
       "failed": "Failed"
-    }
+    },
+    "historyLocked": "Assistant history cannot be rewritten. Send a new message to correct an instruction, or stop a delegation in the work panel."
   }
 }

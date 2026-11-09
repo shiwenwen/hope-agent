@@ -1832,6 +1832,7 @@ impl SessionDB {
         let _ = conn.execute("DELETE FROM team_templates WHERE builtin = 1", []);
 
         crate::personal_assistant::ensure_tables(&conn)?;
+        crate::personal_assistant_continue::migrate(&conn)?;
 
         // Read-only connection pool. WAL lets these run concurrently with the
         // writer; opened AFTER all migrations above so they observe the final
@@ -2829,6 +2830,19 @@ impl SessionDB {
             // Serialize the active-turn check with every other foreground
             // admission across database handles/processes.
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let assistant_home: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1 AND kind = ?2)",
+                params![session_id, super::SessionKind::PersonalAssistant.as_str()],
+                |row| row.get(0),
+            )?;
+            if assistant_home {
+                // Delegations outlive their source turn. Rewinding that turn
+                // would erase its authorization while leaving queued work and
+                // receipts behind. Keep corrections as new owner messages.
+                anyhow::bail!(
+                    "Personal assistant history cannot be rewritten. Send a new message to correct an instruction, or stop delegated work in the work panel."
+                );
+            }
             if let Some(admission) = stop_admission {
                 if !super::autonomy_pause::foreground_stop_admission_is_current_with_conn(
                     &tx, session_id, admission,

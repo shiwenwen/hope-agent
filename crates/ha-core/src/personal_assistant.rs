@@ -330,7 +330,7 @@ fn table_exists(conn: &Connection, name: &str) -> Result<bool> {
     )?)
 }
 
-fn validate_target(conn: &Connection, session_id: &str) -> Result<()> {
+pub(crate) fn validate_target(conn: &Connection, session_id: &str) -> Result<()> {
     let eligible: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sessions s WHERE s.id = ?1
             AND s.kind = 'regular' AND s.incognito = 0 AND s.archived_at IS NULL
@@ -382,7 +382,7 @@ fn check_stop(conn: &Connection, session_id: &str, global_stop_epoch: u64) -> Re
     Ok(())
 }
 
-fn source_turn(conn: &Connection, turn_id: &str, epoch: u64) -> Result<(String, i64)> {
+pub(crate) fn source_turn(conn: &Connection, turn_id: &str, epoch: u64) -> Result<(String, i64)> {
     let source = conn.query_row(
         "SELECT s.id, t.user_message_id FROM chat_turns t JOIN sessions s ON s.id = t.session_id
          JOIN messages m ON m.id = t.user_message_id AND m.session_id = s.id

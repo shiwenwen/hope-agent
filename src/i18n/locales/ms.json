@@ -12935,6 +12935,7 @@
       "interrupted": "Terganggu",
       "cancelled": "Dibatalkan",
       "failed": "Gagal"
-    }
+    },
+    "historyLocked": "Sejarah pembantu tidak boleh ditulis semula. Hantar mesej baharu untuk membetulkan arahan atau hentikan tugasan yang diwakilkan dalam panel kerja."
   }
 }

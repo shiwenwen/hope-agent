@@ -131,7 +131,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_SESSION_CONTINUE.into(),
-            description: "Resume the current conversation only when the user explicitly asks. Use the exact `pause_id` from `<session-paused>`; stale ids fail; do not call for status or replanning.".into(),
+            description: "When user explicitly asks: resume current conversation with system pause_id. Owner home may set session_id from this turn's status pauseId; do not call for status.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -140,6 +140,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "type": "object",
                 "properties": {
                     "pause_id": {
+                        "type": "string"
+                    },
+                    "session_id": {
                         "type": "string"
                     }
                 },

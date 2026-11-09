@@ -465,6 +465,31 @@ pub(crate) async fn tool_session_status(
             let provider = s.provider_name.as_deref().unwrap_or("unknown");
             let model = s.model_id.as_deref().unwrap_or("unknown");
             let parent = s.parent_session_id.as_deref().unwrap_or("none");
+            let receipt = match (&ctx.session_id, &ctx.turn_id) {
+                (Some(source), Some(turn))
+                    if ctx.turn_provenance
+                        == crate::tool_defs::ToolTurnProvenance::ForegroundUser =>
+                {
+                    let (source, turn, target) =
+                        (source.clone(), turn.clone(), session_id.to_owned());
+                    if let Ok(admission) = super::session_continue::owner_continue_admission(ctx) {
+                        db.run(move |db| {
+                            db.assistant_pause_receipt(&source, &turn, &target, admission)
+                        })
+                        .await?
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            let pause_line = receipt
+                .map(|receipt| {
+                    serde_json::to_string(&receipt)
+                        .map(|json| format!("\nOwner-turn Continue receipt: {json}"))
+                })
+                .transpose()?
+                .unwrap_or_default();
 
             Ok(format!(
                 "Session: {}\n\
@@ -475,7 +500,7 @@ pub(crate) async fn tool_session_status(
                  Created: {}\n\
                  Updated: {}\n\
                  Is Cron: {}\n\
-                 Parent Session: {}",
+                 Parent Session: {}{}",
                 s.id,
                 title,
                 s.agent_id,
@@ -487,6 +512,7 @@ pub(crate) async fn tool_session_status(
                 s.updated_at,
                 s.is_cron,
                 parent,
+                pause_line,
             ))
         }
         None => Ok(format!("Session '{}' not found.", session_id)),

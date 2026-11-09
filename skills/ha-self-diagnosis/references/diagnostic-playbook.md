@@ -39,8 +39,8 @@ sqlite3 -readonly -cmd ".headers on" -cmd ".mode column" ~/.hope-agent/sessions.
 
 ### Personal assistant — `personal-assistant.md`
 
-- Entry: `ha-core/src/personal_assistant.rs`, `tools/sessions.rs`, `src/components/personal-assistant/`.
-- State: `sessions.db` contains the unique `personal_assistant` home, request ledger, private target markers and Goal watches. Read request-to-turn references before diagnosing completion.
+- Entry: `ha-core/src/personal_assistant.rs`, `personal_assistant_continue.rs`, `tools/sessions.rs`, `src/components/personal-assistant/`.
+- State: `sessions.db` contains the unique `personal_assistant` home, request ledger, private target markers, Goal watches and `personal_assistant_continue_receipts`. Read request-to-turn references before diagnosing completion. Cross-session Continue uses the immutable pause snapshot from the live owner home turn; a new Stop requires a new owner instruction. Home history cannot be rewound to withdraw work; use the cancellation panel and new messages.
 - Grep: `category='chat'`, `source='personal_assistant'`.
 - Gotcha: a queued task waits behind the target's ordinary FIFO and Stop fences. Only the exact admitted turn determines completion. Private targets cannot be attached to work IM. Once private data exists, HTTP requires a configured owner token; scoped legacy event/resource tickets are insufficient.
 

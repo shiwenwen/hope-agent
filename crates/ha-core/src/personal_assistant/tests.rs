@@ -501,3 +501,59 @@ fn evaluation_source_cannot_lose_its_provenance_in_the_durable_queue() {
             .is_err());
     });
 }
+
+#[test]
+fn home_edit_resend_rejects_without_changing_source_or_queued_dispatch() {
+    isolated_test(|db, _| {
+        let home = seed_source(&db);
+        seed_target(&db, "target");
+        let request = db
+            .enqueue_personal_assistant_request(input("target"))
+            .unwrap();
+        db.finish_chat_turn_once("owner-turn", ChatTurnStatus::Completed, None, None, None)
+            .unwrap();
+        let original = db.load_session_messages(&home.id).unwrap();
+        let original_receipts = db.render_personal_assistant_receipts().unwrap();
+
+        for (source, queue_source) in [
+            ("desktop", crate::session::QueuedTurnMessageSource::Desktop),
+            ("http", crate::session::QueuedTurnMessageSource::Http),
+        ] {
+            let replacement_turn = format!("rewrite-{source}");
+            let admission = db.reserve_direct_turn_admission(&home.id, &replacement_turn, queue_source, None)
+                .unwrap()
+                .expect("reserve direct admission");
+            let error = db
+                .replace_last_user_message_for_edit(
+                    &home.id,
+                    request.source_message_id,
+                    &NewMessage::user("Do not do that work"),
+                    &replacement_turn,
+                    source,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap_err();
+            assert!(error.to_string().contains("history cannot be rewritten"));
+            assert!(db.release_direct_turn_admission(admission).unwrap());
+            assert!(db.get_chat_turn(&replacement_turn).unwrap().is_none());
+            // Rejected admission never deletes the source or invents a new
+            // instruction. The explicit original delegation remains visible.
+            let remaining = db.load_session_messages(&home.id).unwrap();
+            assert_eq!(remaining.len(), original.len());
+            assert_eq!(remaining[0].id, request.source_message_id);
+            assert_eq!(remaining[0].content, original[0].content);
+            assert_eq!(
+                db.get_chat_turn("owner-turn").unwrap().unwrap().status,
+                ChatTurnStatus::Completed
+            );
+            let queued = db.queued_personal_assistant_requests(10).unwrap();
+            assert_eq!(queued.len(), 1);
+            assert_eq!(queued[0].id, request.id);
+            assert_eq!(queued[0].instruction, request.instruction);
+            assert_eq!(db.render_personal_assistant_receipts().unwrap(), original_receipts);
+        }
+    });
+}

@@ -12935,6 +12935,7 @@
       "interrupted": "Interrompido",
       "cancelled": "Cancelado",
       "failed": "Falhou"
-    }
+    },
+    "historyLocked": "O histórico do assistente não pode ser reescrito. Envie uma nova mensagem para corrigir uma instrução ou pare uma delegação no painel de trabalho."
   }
 }

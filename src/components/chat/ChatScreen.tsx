@@ -5425,6 +5425,7 @@ export default function ChatScreen({
                   onForkFromMessage={isCodexImported ? undefined : handleForkFromMessage}
                   onEditAndResend={
                     !isCodexImported &&
+                    !isPersonalAssistant &&
                     !isCronSession &&
                     !isSubagentSession &&
                     stream.pendingSends.length === 0

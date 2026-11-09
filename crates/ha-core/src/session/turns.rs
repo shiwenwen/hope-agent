@@ -821,6 +821,11 @@ impl SessionDB {
                 SessionDB::create_stream_run_in_transaction(&tx, stream_run, stop_admission)
             })
             .transpose()?;
+        if matches!(source, "desktop" | "http") {
+            if let Some(registration) = &stream_registration {
+                crate::personal_assistant_continue::capture_with_conn(&tx, id, registration)?;
+            }
+        }
         tx.commit()?;
         drop(conn);
 

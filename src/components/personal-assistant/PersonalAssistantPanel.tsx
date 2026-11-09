@@ -52,6 +52,9 @@ export function PersonalAssistantPanel({
             {t(state.loading ? "common.loading" : "common.refresh")}
           </Button>
         </div>
+        <p className="py-1 text-xs text-muted-foreground">
+          {t("personalAssistant.historyLocked")}
+        </p>
         {state.error && (
           <p role="alert" className="py-2 text-sm text-destructive">
             {state.error}
