@@ -334,6 +334,8 @@ git push -u origin release/v0.2
 
 CI 触发条件（[lint.yml](../.github/workflows/lint.yml) / [rust.yml](../.github/workflows/rust.yml) 的 `branches: [main, "release/**"]`）与 ruleset `main-branch-protection` 的 `refs/heads/release/**` 通配符自动覆盖新分支，不需要手配。
 
+Rust PR/合并队列门禁使用 `ubuntu-latest`、`windows-latest`、`macos-15`。macOS 14 运行器将在 2026-11-02 退役，停机窗口会在开始执行前取消作业（[官方说明](https://github.com/actions/runner-images/issues/13518)）。迁移时将 `main-branch-protection` ruleset 和 main 分支保护中的两项 Mac 必需检查同步为 `clippy (macos-15)`、`test (macos-15)`；其余六项、检查来源、严格策略及审批规则保持原值。发布分支仍按自身发布线维护，不跨发布线合并。
+
 后续 `v0.2.x` 系列 patch 在 `release/v0.2` 上按 §1 发。
 
 ---

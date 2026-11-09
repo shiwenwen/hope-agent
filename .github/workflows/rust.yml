@@ -86,7 +86,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     env:
       RUN_RUST_CI: ${{ needs.changes.result != 'success' || needs.changes.outputs.rust != 'false' }}
@@ -178,7 +178,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     env:
       RUN_RUST_CI: ${{ needs.changes.result != 'success' || needs.changes.outputs.rust != 'false' }}

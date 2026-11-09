@@ -58,7 +58,7 @@ Gemini 4 Argon 标准付费价目前为每百万输入/输出令牌 $2/$10，至
 
 新增服务商后,系统会自动把它的第一个模型设为当前默认模型,你可以立刻开始对话。
 
-**Unbiased / Pareto**：选择 **Unbiased** 模板并填入平台签发的 API Key，即可使用文本与图片对话。模板使用 OpenAI Chat 和 `https://api.unbiased.ai/v1`，提供稳定版 `pareto`、固定版本 `pareto-26.9` 及预览版 `pareto-26.10-preview`。2026-10-10 的直连目录中，稳定版上下文为 `262,144`，输入 / 输出单价为每百万 Token `$2.50 / $7.50`；预览版为 `1,048,576` 和 `$0.80 / $3.20`。最大输出 `8,192` 是可调整的保守配置值。请使用预设 ID，官方目前不会拒绝未知型号，拼写错误也可能产生费用。API 仍处于测试阶段，型号与价格以实际端点为准；[官方文档](https://unbiased.ai/developers/)和[价格页](https://unbiased.ai/pricing/)可能尚未同步全部型号。
+**Unbiased / Pareto**：选择 **Unbiased** 模板并填入平台签发的 API Key，即可使用文本、图片与工具调用。当前别名 `pareto` 已指向稳定版 26.10；固定版本 `pareto-26.10` 可保持版本稳定，`pareto-26.9` 仍可用，`pareto-26.10-preview` 已进入退役流程。26.10 支持 1M 上下文，公开 API 单价为输入/输出每百万 Token `$0.80 / $3.20`，缓存输入 `$0.03`；模板输出 `131,072` 采用官方集成示例预设，并非已确认的服务端硬上限。26.9 单价为 `$2.50 / $7.50`。API 不实现 `GET /v1/models`，请使用预设的已知 ID；新账号需人工审核后开通，团队按预付额度计费，生产用途需另行书面确认。缓存费用未由模板标量成本分别计入。[官方 API 文档](https://unbiased.ai/developers/)、[26.10 稳定版公告](https://unbiased.ai/pareto-26-10/)、[价格](https://unbiased.ai/pricing/)
 
 > **DeepSeek 视觉模型**:新建 DeepSeek 直连服务商时可直接选择 **DeepSeek V4.1 Flash**。它支持图片输入、百万级上下文和推理。已有 DeepSeek 配置不会被自动改写;需要时可手动添加模型 ID `deepseek-flash`,或重新创建连接。
 
@@ -130,7 +130,15 @@ API 类型告诉 Hope Agent 用哪套协议和服务商通信。**用内置模�
 
 ---
 
-聚合渠道也提供当前稳定模型：OpenRouter 新增 GPT-6 四项、Claude Opus / Sonnet / Haiku 5.5、Grok 4.7、GLM 5.3 / Flash、DeepSeek V4.1 Flash、MiniMax M3 和 Kimi K3。价格按公开目录的基础路由报价估算，实际账单可能受路由、缓存与长输入分档影响；模型允许的文件或视频输入不代表 Hope 已支持。
+聚合渠道也提供当前稳定模型：OpenRouter 新增 GPT-6 五项（含 `gpt-6.1-terra`）、Claude Opus / Sonnet / Haiku 5.5、Grok 4.7、GLM 5.3 / Flash、DeepSeek V4.1 Flash、MiniMax M3 和 Kimi K3。价格按公开目录的基础路由报价估算，实际账单可能受路由、缓存与长输入分档影响；模型允许的文件或视频输入不代表 Hope 已支持。
+
+OpenAI 直连 Responses 模板新增 GPT-6.1 Terra（`gpt-6.1-terra`）：支持文本和图片、1.05M 上下文、128K 最大输出，推理档位含 `none` 到 `max`，标准价为输入/输出每百万 Token $1/$5。Terra 工具调用使用 Responses API；模型也出现在 OpenRouter 目录中。ChatGPT/Codex 登录新增可选 Terra，采用 Codex 官方 500K 默认上下文和 16K 输出预算预留，实际可用性由账号套餐、工作区权限和上线范围决定。直接 OpenAI Chat Completions 模板暂不提供 GPT-6 系列；不同型号的 Chat 工具支持有额外限制。缓存、超长输入价和快速服务档位未计入基础价。
+
+Moonshot 直连模板新增 Kimi K3.1 Pro（`kimi-k3.1-pro`）和高速版（`kimi-k3.1-pro-highspeed`）：官方说明高速版与 Pro 同等智能、速度约为 2–3 倍，两者均提供 1,048,576 上下文。Hope 为高速版采用 131,072 的保守输出预设；官方模型说明给出的 K3.1 Pro API 默认输出为 131,072、可设置上限为 1,048,576，但未单独说明高速版的硬上限。高速版基础输入/输出价为每百万 $4/$20。两种型号走 OpenAI Chat 接口，支持文本、图片和函数调用，推理始终开启且只支持 `low/high/max` 档；厂商固定 `temperature=1`、`top_p=0.95` 等采样值，Hope 省略这些字段，关闭推理时仍按模型默认思考。访问需要账号完成至少 $1 充值，限流按账号等级变化。Kimi API 的 K2 系列自 2026-10-31 起不再向新注册用户开放，因此新建模板只保留 K3 系列；现有配置不会迁移或删除。详见[官方模型列表](https://platform.kimi.ai/docs/models)、[K3.1 Pro API 指南](https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart)和[官方价目](https://platform.kimi.ai/docs/pricing/chat)。
+
+火山方舟模板也新增其托管的 Kimi K3.1 Pro（`kimi-k3-1-pro-261024`）：支持文本、图片和函数调用，上下文与厂商最大回答长度均为 1,024K；人民币基础价为输入/输出每百万 Token ¥13/¥68。该端点同样要求思考始终开启、`temperature=1`、`top_p=0.95`；Hope 会省略采样字段并映射显式推理强度。它是与 Moonshot 直连不同的模型 ID 和计费端点。缓存价格和调用后实际费用仍以方舟账单为准。
+
+火山方舟另将 DeepSeek V4.1 Flash（`deepseek-v4-1-flash-261017`）加入新建模板，支持文本、图片、工具调用和结构化输出，1,024K 上下文与 384K 厂商最大回答。价格随时段变化：空闲期为输入/输出每百万 ¥1/¥4，高峰为 ¥2/¥8；模板估算使用高峰价。仅方舟官方 HTTPS 主机上的该精确型号映射推理档位（`minimal/low → low`、`medium/high/xhigh → high`、`max → max`），关闭时发送 `none`。同时将旧 DeepSeek V4 模板快照替换为 GA 版；已保存的 Provider 配置不会自动迁移。
 
 Mistral 内置模板新增 GA 的 Z.ai GLM 5.3 Flash（模型 ID `zai-glm-5-3-flash`），走现有 Chat Completions 接口，支持文本、图片和函数调用；预设上下文 1M、最大输出 128K。公开标准价为输入 $0.15、输出 $0.50 / 百万 token；缓存输入为 $0.03 / 百万 token。当前成本字段不单独计算缓存折扣，估算仍按标准输入价计。
 
@@ -156,8 +164,8 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 **重新登录**:Codex 服务商卡片的「⋮」菜单里有「重新登录」(而不是「删除」,避免误删);token 过期时界面也会引导你重新登录。
 
 - 登录后使用的具体模型可在设置里切换,默认选择所有账号档位都可用的那一档。
-- 内建 Codex 目录已包含 `gpt-6-astra`、`gpt-6.1-sol`、`gpt-6-sol`、`gpt-6-luna`；升级时补齐缺失条目，保留已选模型、自定义参数与禁用状态。可用性仍由 ChatGPT 套餐、工作区开关及官方上线范围决定。
-- Codex OAuth 的 `gpt-6.1-sol` 上下文预设为 ChatGPT Work/Codex 官方说明的 **500K**；其它 GPT-6 OAuth 预设沿用官方 Codex 内建目录的 **272K**，OpenAI API 目录仍为 **1.05M**。上游 Codex 清单另列 872K 最大窗口，但 Hope 不把它当默认预算。沿用 **16K 输出预留**，不是服务端输出硬上限。GPT-6 推理档位为 `low` 至 `max`；`minimal` 和“关闭”按接口映射为 `low`，“关闭”仍隐藏思考展示；未设置强度时保留模型默认。`Ultra` 是 Codex 的任务委派能力，Hope 不把它当成推理请求参数发送。套餐、工作区设置和上线资格仍由服务端裁决。
+- 内建 Codex 目录已包含 `gpt-6-astra`、`gpt-6.1-sol`、`gpt-6.1-terra`、`gpt-6-sol`、`gpt-6-luna`；升级时补齐缺失条目，保留已选模型、自定义参数与禁用状态。可用性仍由 ChatGPT 套餐、工作区开关及官方上线范围决定。
+- Codex OAuth 的 `gpt-6.1-sol` 和 `gpt-6.1-terra` 上下文预设为官方 Codex 目录的 **500K**；其它 GPT-6 OAuth 预设沿用目录的 **272K**，OpenAI API 目录仍为 **1.05M**。上游 Codex 清单另列 872K 最大窗口，但 Hope 不把它当默认预算。沿用 **16K 输出预留**，不是服务端输出硬上限。GPT-6 推理档位为 `low` 至 `max`；`minimal` 和“关闭”按接口映射为 `low`，“关闭”仍隐藏思考展示；未设置强度时保留模型默认。`Ultra` 是 Codex 的任务委派能力，Hope 不把它当成推理请求参数发送。套餐、工作区设置和上线资格仍由服务端裁决。
 - 新目录不再提供已退役的 GPT-5.4、GPT-5.3-Codex-Spark，以及 2026-10-14 在 Codex 退役的 GPT-5.5；既有配置保留，GPT-5.5 的 API 候选不受这次 Codex 退役影响。
 - Codex 凭据只存在本机(`~/.hope-agent/credentials/auth.json`),绝不写入日志。
 - Codex 登录与 [11 · MCP 接入外部工具](11-连接与扩展.md#111-mcp接入外部工具) 的账号登录是两套完全独立的机制,互不影响。
@@ -190,7 +198,7 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 - **思考强度(Think)**：最多支持 `none / minimal / low / medium / high / xhigh / max` 七档，全局默认 `medium`。请求发送时按模型、协议与端点映射到受支持档位，对话里可用 `/thinking high` 快速调整。
 - **温度**:控制回答的随机性,滑块 0.00–2.00,默认 1.00。带「重置」按钮回到继承状态。
 
-直连 **GPT-6** 时，有工具的对话请选择 OpenAI Responses。四项模型均保留 `max`；Astra / GPT-6.1 Sol 的“关闭”映射为 `low`，GPT-6 Sol / Luna 则发送 `none`，`minimal` 均映射为 `low`。未设置强度时保留模型默认；推理启用时不发送温度。Codex 登录的参数差异见 [2.4](#24-用-chatgpt--codex-账号登录)。新预设只影响新建连接；已有服务商需自行添加模型或调整协议。
+直连 **GPT-6** 时，有工具的对话请选择 OpenAI Responses。五项模型均保留 `max`；Astra / GPT-6.1 Sol 的“关闭”映射为 `low`，GPT-6.1 Terra / GPT-6 Sol / Luna 则发送 `none`，`minimal` 均映射为 `low`。未设置强度时保留模型默认；推理启用时不发送温度。Codex 登录的参数差异见 [2.4](#24-用-chatgpt--codex-账号登录)。新预设只影响新建连接；已有服务商需自行添加模型或调整协议。
 
 **Claude Fable 5.1** 的原始思考签名会随会话保存。若动态前缀、压缩或切换模型导致部分历史思考无法继续使用，回复中会出现提示；本地原始块仍保留，但不保证跨模型保留全部推理状态。
 

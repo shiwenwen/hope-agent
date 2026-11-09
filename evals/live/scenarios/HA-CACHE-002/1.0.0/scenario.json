@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "live-agent-scenario.v1",
+  "id": "HA-CACHE-002",
+  "version": "1.0.0",
+  "title": "自动摘要前缀复用的真实缓存对照",
+  "capabilities": [
+    "prompt_cache",
+    "context_compaction",
+    "tool"
+  ],
+  "businessDomains": [
+    "context_management",
+    "performance_diagnostics"
+  ],
+  "subject": {
+    "entrypoint": "server",
+    "driver": "chat_task",
+    "configProfile": "eval-safe-cache-auto-scaled-window-v1"
+  },
+  "environment": {
+    "runnerClass": "dedicated_linux",
+    "assets": [
+      "fixtures/tool-a.txt",
+      "fixtures/tool-b.txt",
+      "fixtures/tool-final.txt"
+    ],
+    "services": [],
+    "controlledClock": false
+  },
+  "task": {
+    "promptPath": "fixtures/task.zh-CN.md",
+    "hiddenTruthPath": "verifiers/truth.json",
+    "successSummary": "用相同的合成输入比较旧版与新版自动摘要，精确恢复事实；运行配置窗口必须单独记录，摘要模式与实际命中以回执为准"
+  },
+  "userSimulator": {
+    "kind": "scripted_fsm",
+    "scriptPath": "fixtures/turns.json",
+    "maxTurns": 12
+  },
+  "milestones": [
+    {
+      "id": "facts_preserved",
+      "requires": [],
+      "anyOf": [],
+      "verifier": "facts_preserved",
+      "weight": 0.9,
+      "blocking": true
+    },
+    {
+      "id": "trace_terminal",
+      "requires": [
+        "facts_preserved"
+      ],
+      "anyOf": [],
+      "verifier": "trace_closed",
+      "weight": 0.1,
+      "blocking": true
+    }
+  ],
+  "faults": [],
+  "verifiers": [
+    {
+      "id": "facts_preserved",
+      "kind": "http_assertion",
+      "handler": "response_json_exact",
+      "configPath": "verifiers/expected-response.json",
+      "blocking": true,
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "trace_closed",
+      "kind": "trace_assertion",
+      "handler": "trace_closed",
+      "blocking": true,
+      "timeoutSeconds": 30
+    }
+  ],
+  "invariants": [
+    {
+      "id": "no_orphan_children",
+      "kind": "parent_child_closed",
+      "blocking": true
+    },
+    {
+      "id": "root_closed_once",
+      "kind": "exactly_once",
+      "event": "session.root.closed",
+      "key": "sessionId",
+      "blocking": true
+    }
+  ],
+  "artifacts": [],
+  "budgets": {
+    "maxWallSeconds": 900,
+    "maxModelCalls": 24,
+    "maxInputTokens": 600000,
+    "maxOutputTokens": 16000,
+    "maxCostUsd": 5,
+    "maxToolCalls": 8,
+    "maxAgents": 1,
+    "maxConcurrency": 1
+  },
+  "network": {
+    "policy": "provider_only",
+    "allow": []
+  },
+  "privacy": {
+    "classification": "synthetic",
+    "redact": [
+      "authorization",
+      "api_key",
+      "cookie"
+    ],
+    "rawTraceRetentionDays": 14
+  },
+  "cadence": [
+    "nightly"
+  ]
+}

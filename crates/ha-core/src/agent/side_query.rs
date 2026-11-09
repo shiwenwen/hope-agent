@@ -121,8 +121,8 @@ impl AssistantAgent {
         instruction: &str,
         max_tokens: u32,
     ) -> Result<SideQueryResult> {
+        let _eval_call_guard = crate::eval_context::retain_model_call(self.session_id.as_deref())?;
         let operation = operation.to_string();
-        let started = std::time::Instant::now();
         let client = crate::provider::apply_model_proxy(
             reqwest::Client::builder().user_agent(&self.user_agent),
         )
@@ -176,27 +176,16 @@ impl AssistantAgent {
                 );
             }
             let result = self
-                .side_query_direct(&client, cached.as_deref(), instruction, max_tokens)
-                .await;
-            match &result {
-                Ok(res) => self.record_side_query_usage(
-                    &operation,
-                    "direct",
+                .side_query_direct(
+                    &client,
+                    cached.as_deref(),
+                    instruction,
                     max_tokens,
-                    started.elapsed().as_millis() as u64,
-                    Some(&res.usage),
-                    None,
-                ),
-                Err(e) => {
-                    self.record_side_query_usage(
-                        &operation,
-                        "direct",
-                        max_tokens,
-                        started.elapsed().as_millis() as u64,
-                        None,
-                        Some(e.to_string()),
-                    );
-                    app_warn!(
+                    &operation,
+                )
+                .await;
+            if let Err(e) = &result {
+                app_warn!(
                         "agent",
                         "side_query",
                         "Side query failed: provider={} model={} path=direct cache_mode={} has_provider_config={} has_session_id={} err={}",
@@ -207,7 +196,6 @@ impl AssistantAgent {
                         self.session_id.is_some(),
                         e
                     );
-                }
             }
             return result;
         };
@@ -254,10 +242,12 @@ impl AssistantAgent {
                 let cached_for_call = cached.clone();
                 let client_ref = &client;
                 let provider_config_ref = provider_config.as_ref();
+                let operation = operation.clone();
                 // profile is `Option<&AuthProfile>`; clone to own it across
                 // the `.await` inside build_llm_provider (Codex branch).
                 let profile_owned = profile.cloned();
                 async move {
+                    crate::eval_context::ensure_model_budget(Some(session_id))?;
                     let provider = AssistantAgent::build_llm_provider(
                         provider_config_ref,
                         model_id,
@@ -268,6 +258,10 @@ impl AssistantAgent {
                         Some(p) => OneShotMode::Cached(p),
                         None => OneShotMode::Bare,
                     };
+                    let mut attempt = crate::model_usage::ModelUsageAttemptGuard::new(
+                        self.side_query_usage_event(&operation, "failover", max_tokens),
+                    );
+                    attempt.arm();
                     let result = provider
                         .as_adapter()
                         .one_shot(
@@ -279,7 +273,13 @@ impl AssistantAgent {
                                 user_content: None,
                             },
                         )
-                        .await?;
+                        .await
+                        .map_err(crate::model_usage::one_shot_transport_error);
+                    attempt.finish(
+                        result.as_ref().ok().map(|result| &result.usage),
+                        result.as_ref().err(),
+                    );
+                    let result = result?;
                     Ok(SideQueryResult {
                         text: result.text,
                         usage: result.usage,
@@ -290,26 +290,8 @@ impl AssistantAgent {
         .await;
 
         match exec_result {
-            Ok(result) => {
-                self.record_side_query_usage(
-                    &operation,
-                    "failover",
-                    max_tokens,
-                    started.elapsed().as_millis() as u64,
-                    Some(&result.usage),
-                    None,
-                );
-                Ok(result)
-            }
+            Ok(result) => Ok(result),
             Err(e) => {
-                self.record_side_query_usage(
-                    &operation,
-                    "failover",
-                    max_tokens,
-                    started.elapsed().as_millis() as u64,
-                    None,
-                    Some(e.to_string()),
-                );
                 app_warn!(
                     "agent",
                     "side_query",
@@ -336,6 +318,7 @@ impl AssistantAgent {
         cached: Option<&CacheSafeParams>,
         instruction: &str,
         max_tokens: u32,
+        operation: &str,
     ) -> Result<SideQueryResult> {
         let mode = match cached {
             Some(params) => OneShotMode::Cached(params),
@@ -365,6 +348,10 @@ impl AssistantAgent {
             &self.provider
         };
 
+        let mut attempt = crate::model_usage::ModelUsageAttemptGuard::new(
+            self.side_query_usage_event(operation, "direct", max_tokens),
+        );
+        attempt.arm();
         let result = provider
             .as_adapter()
             .one_shot(
@@ -376,7 +363,13 @@ impl AssistantAgent {
                     user_content: None,
                 },
             )
-            .await?;
+            .await
+            .map_err(crate::model_usage::one_shot_transport_error);
+        attempt.finish(
+            result.as_ref().ok().map(|result| &result.usage),
+            result.as_ref().err(),
+        );
+        let result = result?;
 
         Ok(SideQueryResult {
             text: result.text,
@@ -384,15 +377,12 @@ impl AssistantAgent {
         })
     }
 
-    fn record_side_query_usage(
+    fn side_query_usage_event(
         &self,
         operation: &str,
         path: &str,
         max_tokens: u32,
-        duration_ms: u64,
-        usage: Option<&crate::agent::types::ChatUsage>,
-        error: Option<String>,
-    ) {
+    ) -> crate::model_usage::ModelUsageEvent {
         let mut event =
             crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_SIDE_QUERY);
         event.operation = Some(operation.to_string());
@@ -402,24 +392,11 @@ impl AssistantAgent {
         event.model_id = Some(self.provider.model().to_string());
         event.session_id = self.session_id.clone();
         event.agent_id = Some(self.agent_id.clone());
-        event.duration_ms = Some(duration_ms);
-        event.success = error.is_none();
-        event.error = error;
         event.metadata = Some(json!({
             "path": path,
             "max_tokens": max_tokens,
         }));
-        if let Some(usage) = usage {
-            if usage.input_coverage.is_present() {
-                event.input_tokens = Some(usage.input_tokens);
-                event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
-                event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
-            }
-            if usage.output_coverage.is_present() {
-                event.output_tokens = Some(usage.output_tokens);
-            }
-        }
-        crate::model_usage::record_model_usage_best_effort(event);
+        event
     }
 
     /// Raw one-shot-with-attachments call — no usage recording. Both
@@ -433,6 +410,7 @@ impl AssistantAgent {
         instruction: &str,
         attachments: &[Attachment],
         max_tokens: u32,
+        attempt: &mut crate::model_usage::ModelUsageAttemptGuard,
     ) -> Result<SideQueryResult> {
         let client = crate::provider::apply_model_proxy(
             reqwest::Client::builder().user_agent(&self.user_agent),
@@ -471,6 +449,7 @@ impl AssistantAgent {
             self.get_context_window(),
             &[],
         );
+        attempt.arm();
         let result = provider
             .as_adapter()
             .one_shot(
@@ -482,7 +461,8 @@ impl AssistantAgent {
                     user_content: Some(user_content),
                 },
             )
-            .await?;
+            .await
+            .map_err(crate::model_usage::one_shot_transport_error)?;
         Ok(SideQueryResult {
             text: result.text,
             usage: result.usage,
@@ -507,35 +487,24 @@ impl AssistantAgent {
         attachments: &[Attachment],
         max_tokens: u32,
     ) -> Result<SideQueryResult> {
-        let operation = purpose.to_string();
-        let started = std::time::Instant::now();
-        match self
-            .run_one_shot_with_attachments(system, instruction, attachments, max_tokens)
-            .await
-        {
-            Ok(out) => {
-                self.record_side_query_usage(
-                    &operation,
-                    "independent_attachments",
-                    max_tokens,
-                    started.elapsed().as_millis() as u64,
-                    Some(&out.usage),
-                    None,
-                );
-                Ok(out)
-            }
-            Err(e) => {
-                self.record_side_query_usage(
-                    &operation,
-                    "independent_attachments",
-                    max_tokens,
-                    started.elapsed().as_millis() as u64,
-                    None,
-                    Some(e.to_string()),
-                );
-                Err(e)
-            }
-        }
+        let _eval_call_guard = crate::eval_context::retain_model_call(self.session_id.as_deref())?;
+        let mut attempt = crate::model_usage::ModelUsageAttemptGuard::new(
+            self.side_query_usage_event(purpose, "independent_attachments", max_tokens),
+        );
+        let result = self
+            .run_one_shot_with_attachments(
+                system,
+                instruction,
+                attachments,
+                max_tokens,
+                &mut attempt,
+            )
+            .await;
+        attempt.finish(
+            result.as_ref().ok().map(|result| &result.usage),
+            result.as_ref().err(),
+        );
+        result
     }
 
     /// Vision bridge (issue #434): transcribe images to text for a text-only
@@ -553,67 +522,47 @@ impl AssistantAgent {
         max_tokens: u32,
         timeout: std::time::Duration,
     ) -> Result<SideQueryResult> {
-        let started = std::time::Instant::now();
-        // Apply the timeout HERE (not at the caller) so a timed-out call still
-        // records a failure ledger row — a caller-side `tokio::time::timeout`
-        // would drop this future before the record below runs, silently
-        // undercounting slow/hung vision providers.
-        let call = self.run_one_shot_with_attachments(system, instruction, attachments, max_tokens);
-        let outcome = match tokio::time::timeout(timeout, call).await {
-            Ok(res) => res,
-            Err(_) => Err(anyhow::anyhow!(
-                "vision transcription timed out after {}s",
-                timeout.as_secs()
-            )),
-        };
-        self.record_vision_bridge_usage(
+        let eval_call_guard = crate::eval_context::retain_model_call(self.session_id.as_deref())?;
+        let mut event = self.side_query_usage_event(
+            "agent.vision_bridge_transcribe",
+            "vision_bridge_transcribe",
             max_tokens,
-            started.elapsed().as_millis() as u64,
-            outcome.as_ref().ok().map(|o| &o.usage),
-            outcome.as_ref().err().map(|e| e.to_string()),
-        )
-        .await;
-        outcome
-    }
-
-    /// Ledger writer for [`Self::transcribe_images_for_vision_bridge`] —
-    /// mirrors [`Self::record_side_query_usage`] but stamps `KIND_VISION`.
-    async fn record_vision_bridge_usage(
-        &self,
-        max_tokens: u32,
-        duration_ms: u64,
-        usage: Option<&crate::agent::types::ChatUsage>,
-        error: Option<String>,
-    ) {
-        let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_VISION);
-        event.operation = Some("agent.vision_bridge_transcribe".to_string());
+        );
+        event.kind = crate::model_usage::KIND_VISION.to_string();
         event.source = Some("vision_bridge".to_string());
-        event.provider_id = self.provider_config.as_ref().map(|p| p.id.clone());
-        event.provider_name = self.provider_config.as_ref().map(|p| p.name.clone());
-        event.model_id = Some(self.provider.model().to_string());
-        event.session_id = self.session_id.clone();
-        event.agent_id = Some(self.agent_id.clone());
-        event.duration_ms = Some(duration_ms);
-        event.success = error.is_none();
-        event.error = error;
-        // `path` mirrors record_side_query_usage so analytics can slice
-        // KIND_VISION rows the same way (side_query rows carry metadata.path).
-        event.metadata =
-            Some(json!({ "path": "vision_bridge_transcribe", "max_tokens": max_tokens }));
-        if let Some(usage) = usage {
-            if usage.input_coverage.is_present() {
-                event.input_tokens = Some(usage.input_tokens);
-                event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
-                event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+        let mut attempt = crate::model_usage::ModelUsageAttemptGuard::new(event);
+        let call = self.run_one_shot_with_attachments(
+            system,
+            instruction,
+            attachments,
+            max_tokens,
+            &mut attempt,
+        );
+        let outcome = match tokio::time::timeout(timeout, call).await {
+            Ok(result) => result,
+            Err(_) => {
+                attempt.mark_caller_cancelled();
+                Err(crate::agent::ProviderDispatchUnknown(format!(
+                    "vision transcription timed out after {}s",
+                    timeout.as_secs()
+                ))
+                .into())
             }
-            if usage.output_coverage.is_present() {
-                event.output_tokens = Some(usage.output_tokens);
-            }
-        }
+        };
+        let event = attempt.settle(
+            outcome.as_ref().ok().map(|result| &result.usage),
+            outcome.as_ref().err(),
+        );
+        // The writer owns the identity if the caller is cancelled while its
+        // blocking commit is queued or running.
         crate::blocking::run_blocking(move || {
-            crate::model_usage::record_model_usage_best_effort(event)
+            let _eval_call_guard = eval_call_guard;
+            if let Some(event) = event {
+                crate::model_usage::record_model_usage_best_effort(event);
+            }
         })
         .await;
+        outcome
     }
 
     /// Bare one-shot LLM call against an arbitrary `ProviderConfig` + model.
@@ -628,14 +577,23 @@ impl AssistantAgent {
         max_tokens: u32,
         session_id: Option<&str>,
     ) -> Result<String> {
-        let started = std::time::Instant::now();
+        let _eval_call_guard = crate::eval_context::retain_model_call(session_id)?;
         let client = crate::provider::apply_model_proxy(
             reqwest::Client::builder().user_agent(super::config::USER_AGENT),
         )
         .build()
-        .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
-
+        .map_err(|error| anyhow::anyhow!("HTTP client error: {}", error))?;
         let provider = AssistantAgent::build_llm_provider(provider_config, model_id, None).await?;
+        let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_JUDGE);
+        event.operation = Some("permission_judge".to_string());
+        event.source = Some("permission".to_string());
+        event.provider_id = Some(provider_config.id.clone());
+        event.provider_name = Some(provider_config.name.clone());
+        event.model_id = Some(model_id.to_string());
+        event.session_id = session_id.map(str::to_string);
+        event.metadata = Some(json!({ "max_tokens": max_tokens }));
+        let mut attempt = crate::model_usage::ModelUsageAttemptGuard::new(event);
+        attempt.arm();
         let result = provider
             .as_adapter()
             .one_shot(
@@ -647,43 +605,13 @@ impl AssistantAgent {
                     user_content: None,
                 },
             )
-            .await;
-        let result = match result {
-            Ok(result) => result,
-            Err(e) => {
-                let mut event =
-                    crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_JUDGE);
-                event.operation = Some("permission_judge".to_string());
-                event.source = Some("permission".to_string());
-                event.provider_id = Some(provider_config.id.clone());
-                event.provider_name = Some(provider_config.name.clone());
-                event.model_id = Some(model_id.to_string());
-                event.session_id = session_id.map(str::to_string);
-                event.duration_ms = Some(started.elapsed().as_millis() as u64);
-                event.success = false;
-                event.error = Some(e.to_string());
-                event.metadata = Some(json!({ "max_tokens": max_tokens }));
-                crate::model_usage::record_model_usage_best_effort(event);
-                return Err(e);
-            }
-        };
-        let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_JUDGE)
-            .with_usage(
-                result.usage.input_tokens,
-                result.usage.output_tokens,
-                result.usage.cache_creation_input_tokens,
-                result.usage.cache_read_input_tokens,
-            );
-        event.operation = Some("permission_judge".to_string());
-        event.source = Some("permission".to_string());
-        event.provider_id = Some(provider_config.id.clone());
-        event.provider_name = Some(provider_config.name.clone());
-        event.model_id = Some(model_id.to_string());
-        event.session_id = session_id.map(str::to_string);
-        event.duration_ms = Some(started.elapsed().as_millis() as u64);
-        event.metadata = Some(json!({ "max_tokens": max_tokens }));
-        crate::model_usage::record_model_usage_best_effort(event);
-        Ok(result.text)
+            .await
+            .map_err(crate::model_usage::one_shot_transport_error);
+        attempt.finish(
+            result.as_ref().ok().map(|result| &result.usage),
+            result.as_ref().err(),
+        );
+        result.map(|result| result.text)
     }
 }
 

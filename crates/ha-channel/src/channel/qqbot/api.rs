@@ -12,7 +12,7 @@ use super::auth::{format_auth_value, QqBotAuth};
 /// 把平台原始 ID 编码为 `<scope>:<id>` 字串（见 [`gateway`](super::gateway)），
 /// 出站 dispatch 时再解回选择正确的 send endpoint。
 ///
-/// - `C2c` 私聊：`POST /v2/users/{openid}/messages`，仅此端点支持 keyboard
+/// - `C2c` 私聊：`POST /v2/users/{openid}/messages`，支持 keyboard
 /// - `Group` 群：`POST /v2/groups/{group_openid}/messages`，支持 keyboard 与 media
 /// - `Channel` 频道：`POST /channels/{channel_id}/messages`
 /// - `Dms` 频道私信：`POST /dms/{guild_id}/messages`
@@ -460,7 +460,7 @@ impl QqBotApi {
             .await
     }
 
-    /// Send a message with inline keyboard buttons (msg_type 2 = markdown with keyboard).
+    /// Send literal prompt text with inline keyboard buttons as Markdown.
     /// Only supported for [`QqChatScope::C2c`] / [`QqChatScope::Group`].
     pub async fn send_message_with_keyboard(
         &self,
@@ -477,8 +477,8 @@ impl QqBotApi {
             }
         };
         let mut body = serde_json::json!({
-            "content": content,
             "msg_type": 2,
+            "markdown": { "content": super::format::text_to_qqbot_markdown(content) },
             "keyboard": keyboard,
         });
         self.inject_passive_reply_meta(&mut body, msg_id).await;

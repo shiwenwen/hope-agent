@@ -127,6 +127,10 @@ pub fn get_codex_models() -> Vec<CodexModel> {
             name: "GPT-6.1 Sol".into(),
         },
         CodexModel {
+            id: "gpt-6.1-terra".into(),
+            name: "GPT-6.1 Terra".into(),
+        },
+        CodexModel {
             id: "gpt-6-astra".into(),
             name: "GPT-6 Astra".into(),
         },
@@ -245,7 +249,7 @@ pub fn is_direct_openai_astra(base_url: &str, model: &str) -> bool {
 pub fn is_gpt6_model(model: &str) -> bool {
     matches!(
         model,
-        "gpt-6-astra" | "gpt-6.1-sol" | "gpt-6-sol" | "gpt-6-luna"
+        "gpt-6-astra" | "gpt-6.1-sol" | "gpt-6.1-terra" | "gpt-6-sol" | "gpt-6-luna"
     )
 }
 
@@ -275,6 +279,41 @@ pub fn is_direct_deepseek(base_url: &str, model: &str) -> bool {
     })
 }
 
+/// Kimi K3.1 Pro on Ark has a fixed sampling contract and always-on reasoning.
+/// Scope those rules to its exact official mainland China endpoint and model ID.
+pub fn is_direct_volcengine_kimi_k3_1_pro(base_url: &str, model: &str) -> bool {
+    model == "kimi-k3-1-pro-261024" && has_exact_https_host(base_url, "ark.cn-beijing.volces.com")
+}
+
+/// DeepSeek V4.1 Flash on Ark accepts the OpenAI reasoning_effort field,
+/// including `none`; keep this mapping scoped to its exact official endpoint.
+pub fn is_direct_volcengine_deepseek_v4_1_flash(base_url: &str, model: &str) -> bool {
+    model == "deepseek-v4-1-flash-261017"
+        && has_exact_https_host(base_url, "ark.cn-beijing.volces.com")
+}
+
+/// Direct Moonshot Kimi K3.1 Pro variants use public model IDs and a fixed
+/// sampling/always-on reasoning contract on the official host.
+pub fn is_direct_moonshot_kimi_k3_1_pro(base_url: &str, model: &str) -> bool {
+    matches!(model, "kimi-k3.1-pro" | "kimi-k3.1-pro-highspeed")
+        && has_exact_https_host(base_url, "api.moonshot.ai")
+}
+
+pub fn is_direct_kimi_k3_1_pro(base_url: &str, model: &str) -> bool {
+    is_direct_moonshot_kimi_k3_1_pro(base_url, model)
+        || is_direct_volcengine_kimi_k3_1_pro(base_url, model)
+}
+
+fn has_exact_https_host(base_url: &str, expected_host: &str) -> bool {
+    url::Url::parse(base_url).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.host_str() == Some(expected_host)
+            && url.port_or_known_default() == Some(443)
+            && url.username().is_empty()
+            && url.password().is_none()
+    })
+}
+
 pub fn astra_reasoning_effort(effort: Option<&str>) -> &str {
     match effort {
         Some(effort @ ("low" | "medium" | "high" | "xhigh" | "max")) => effort,
@@ -284,10 +323,10 @@ pub fn astra_reasoning_effort(effort: Option<&str>) -> &str {
 }
 
 /// Preserve an unset effort so the API chooses its documented model default.
-/// Sol/Luna permit an explicit none; Astra/6.1 Sol require at least low.
+/// Terra, Sol, and Luna permit an explicit none; Astra/6.1 Sol require at least low.
 pub fn gpt6_api_reasoning_effort(model: &str, effort: Option<&str>) -> Option<&'static str> {
     Some(match effort? {
-        "none" if matches!(model, "gpt-6-sol" | "gpt-6-luna") => "none",
+        "none" if matches!(model, "gpt-6.1-terra" | "gpt-6-sol" | "gpt-6-luna") => "none",
         "low" | "minimal" | "none" => "low",
         "medium" => "medium",
         "high" => "high",
@@ -304,6 +343,23 @@ pub fn provider_reasoning_effort(
     effort: Option<&str>,
 ) -> Option<String> {
     match provider {
+        super::types::LlmProvider::OpenAIChat {
+            base_url, model, ..
+        } if is_direct_volcengine_kimi_k3_1_pro(base_url, model) => {
+            effort.and_then(|effort| clamp_reasoning_effort(model, effort))
+        }
+        super::types::LlmProvider::OpenAIChat {
+            base_url, model, ..
+        } if is_direct_volcengine_deepseek_v4_1_flash(base_url, model) => effort.map(|effort| {
+            match effort {
+                "none" => "none",
+                "minimal" | "low" => "low",
+                "medium" | "xhigh" => "high",
+                "max" => "max",
+                _ => "high",
+            }
+            .to_string()
+        }),
         super::types::LlmProvider::OpenAIChat {
             base_url, model, ..
         } if is_direct_deepseek(base_url, model) => Some(
@@ -1379,7 +1435,13 @@ mod provider_effort_tests {
 
     #[test]
     fn gpt6_provider_efforts_are_exact_and_preserve_native_max() {
-        for model in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"] {
+        for model in [
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
+            "gpt-6-astra",
+            "gpt-6-sol",
+            "gpt-6-luna",
+        ] {
             let codex = LlmProvider::Codex {
                 access_token: "synthetic".into(),
                 account_id: "fixture".into(),
@@ -1416,11 +1478,13 @@ mod provider_effort_tests {
             assert_eq!(provider_reasoning_effort(&direct, None), None);
             assert_eq!(
                 provider_reasoning_effort(&direct, Some("none")).as_deref(),
-                Some(if matches!(model, "gpt-6-sol" | "gpt-6-luna") {
-                    "none"
-                } else {
-                    "low"
-                })
+                Some(
+                    if matches!(model, "gpt-6.1-terra" | "gpt-6-sol" | "gpt-6-luna") {
+                        "none"
+                    } else {
+                        "low"
+                    }
+                )
             );
             for base in [
                 "https://api.openai.com",
@@ -1446,6 +1510,112 @@ mod provider_effort_tests {
             "https://api.openai.com",
             "gpt-6-sol-custom"
         ));
+    }
+
+    #[test]
+    fn ark_kimi_k31_provider_rules_require_exact_endpoint_and_model() {
+        let endpoint = "https://ark.cn-beijing.volces.com/api/v3";
+        assert!(is_direct_volcengine_kimi_k3_1_pro(
+            endpoint,
+            "kimi-k3-1-pro-261024"
+        ));
+        assert!(is_direct_moonshot_kimi_k3_1_pro(
+            "https://api.moonshot.ai/v1",
+            "kimi-k3.1-pro"
+        ));
+        assert!(is_direct_moonshot_kimi_k3_1_pro(
+            "https://api.moonshot.ai/v1",
+            "kimi-k3.1-pro-highspeed"
+        ));
+        for (base_url, model) in [
+            (
+                "http://ark.cn-beijing.volces.com/api/v3",
+                "kimi-k3-1-pro-261024",
+            ),
+            (
+                "https://ark.cn-beijing.volces.com.evil.test/api/v3",
+                "kimi-k3-1-pro-261024",
+            ),
+            ("https://relay.example/api/v3", "kimi-k3-1-pro-261024"),
+            (endpoint, "kimi-k3-1-pro-custom"),
+            ("https://api.moonshot.ai.evil.test/v1", "kimi-k3.1-pro"),
+            (
+                "https://api.moonshot.ai.evil.test/v1",
+                "kimi-k3.1-pro-highspeed",
+            ),
+        ] {
+            assert!(!is_direct_kimi_k3_1_pro(base_url, model));
+        }
+
+        for (base_url, model) in [
+            (endpoint, "kimi-k3-1-pro-261024"),
+            ("https://api.moonshot.ai/v1", "kimi-k3.1-pro"),
+            ("https://api.moonshot.ai/v1", "kimi-k3.1-pro-highspeed"),
+        ] {
+            let provider = LlmProvider::OpenAIChat {
+                api_key: "synthetic".into(),
+                base_url: base_url.into(),
+                model: model.into(),
+            };
+            for (effort, expected) in [
+                ("minimal", Some("low")),
+                ("low", Some("low")),
+                ("medium", Some("low")),
+                ("high", Some("high")),
+                ("xhigh", Some("max")),
+                ("max", Some("max")),
+                ("none", None),
+            ] {
+                assert_eq!(
+                    provider_reasoning_effort(&provider, Some(effort)).as_deref(),
+                    expected
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ark_deepseek_v41_effort_requires_exact_endpoint_and_model() {
+        let endpoint = "https://ark.cn-beijing.volces.com/api/v3";
+        assert!(is_direct_volcengine_deepseek_v4_1_flash(
+            endpoint,
+            "deepseek-v4-1-flash-261017"
+        ));
+        for (base_url, model) in [
+            (
+                "http://ark.cn-beijing.volces.com/api/v3",
+                "deepseek-v4-1-flash-261017",
+            ),
+            (
+                "https://ark.cn-beijing.volces.com.evil.test/api/v3",
+                "deepseek-v4-1-flash-261017",
+            ),
+            ("https://relay.example/api/v3", "deepseek-v4-1-flash-261017"),
+            (endpoint, "deepseek-v4-1-flash-260910"),
+        ] {
+            assert!(!is_direct_volcengine_deepseek_v4_1_flash(base_url, model));
+        }
+
+        let provider = LlmProvider::OpenAIChat {
+            api_key: "synthetic".into(),
+            base_url: endpoint.into(),
+            model: "deepseek-v4-1-flash-261017".into(),
+        };
+        for (effort, expected) in [
+            ("none", "none"),
+            ("minimal", "low"),
+            ("low", "low"),
+            ("medium", "high"),
+            ("high", "high"),
+            ("xhigh", "high"),
+            ("max", "max"),
+        ] {
+            assert_eq!(
+                provider_reasoning_effort(&provider, Some(effort)).as_deref(),
+                Some(expected)
+            );
+        }
+        assert_eq!(provider_reasoning_effort(&provider, None), None);
     }
 
     #[test]
