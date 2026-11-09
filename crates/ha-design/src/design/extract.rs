@@ -784,14 +784,11 @@ fn parse_figma_key(input: &str) -> Result<String> {
             }
         }
     }
-    anyhow::bail!("could not parse a Figma file key from '{input}'")
+    anyhow::bail!("could not parse a Figma file key")
 }
 
 /// 对 api.figma.com 发起鉴权 GET（SSRF 校验 + `X-Figma-Token` header），返回解析后 JSON。
 async fn figma_get(url: &str, token: &str) -> Result<serde_json::Value> {
-    use futures_util::StreamExt;
-    const MAX_BYTES: usize = 12 * 1024 * 1024; // Figma 文件 JSON 可能较大
-
     let ssrf_cfg = ha_core::config::cached_config().ssrf.clone();
     let policy = ssrf_cfg.web_fetch();
     let trusted = ssrf_cfg.trusted_hosts.clone();
@@ -800,34 +797,72 @@ async fn figma_get(url: &str, token: &str) -> Result<serde_json::Value> {
     // 禁跟随重定向：本请求携带 Figma 凭据（X-Figma-Token 是自定义 header，reqwest 跨主机
     // 重定向只剥 Authorization/Cookie 等、不剥自定义 header），若跟随 3xx 会把令牌重发到未经
     // SSRF 复检的主机。Figma REST 端点不合法重定向，3xx 直接落到下面 !is_success 分支报错。
-    let client = ha_core::provider::apply_proxy(
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none()),
-    )
-    .build()
-    .map_err(|e| anyhow::anyhow!("http client error: {e}"))?;
+    let client = figma_client()?;
 
     let resp = client
         .get(parsed)
         .header("X-Figma-Token", token)
         .send()
         .await
-        .map_err(|e| anyhow::anyhow!("Figma request failed: {e}"))?;
+        .map_err(|_| anyhow::anyhow!("Figma request failed"))?;
+    figma_response(resp).await
+}
+
+fn figma_client() -> Result<reqwest::Client> {
+    ha_core::provider::apply_proxy(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none()),
+    )
+    .build()
+    .map_err(|_| anyhow::anyhow!("Figma HTTP client creation failed"))
+}
+
+// Only bounded decimal seconds are diagnostic data. Unknown values stay unknown;
+// this hint never schedules a retry or shortens a server cooldown.
+fn figma_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u32> {
+    if headers.get_all(reqwest::header::RETRY_AFTER).iter().count() != 1 {
+        return None;
+    }
+    let raw = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?;
+    if raw.is_empty() || raw.len() > 7 || !raw.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let seconds: u32 = raw.parse().ok()?;
+    (1..=2_678_400).contains(&seconds).then_some(seconds)
+}
+
+async fn figma_response(resp: reqwest::Response) -> Result<serde_json::Value> {
+    use futures_util::StreamExt;
+    const MAX_BYTES: usize = 12 * 1024 * 1024;
+
     let status = resp.status();
     if !status.is_success() {
         let hint = match status.as_u16() {
-            401 | 403 => " (check the token has file_read scope and access to this file)",
-            404 => " (file not found — check the URL / key)",
-            429 => " (rate limited — retry later)",
-            _ => "",
+            401 | 403 => " (check token validity, library_content:read for published styles, file_content:read for nodes, and file/organization access)".to_string(),
+            404 => " (file not found — check the URL / key)".to_string(),
+            429 => {
+                let mut hint = " (rate limited".to_string();
+                if let Some(seconds) = figma_retry_after(resp.headers()) {
+                    hint.push_str(&format!("; retry_after_seconds={seconds}"));
+                }
+                // Never echo arbitrary headers, plan/account details or upgrade links.
+                if let Some(kind @ ("low" | "high")) = resp.headers()
+                    .get("x-figma-rate-limit-type").and_then(|v| v.to_str().ok()) {
+                    hint.push_str(&format!("; rate_limit_type={kind}"));
+                }
+                hint.push(')');
+                hint
+            },
+            _ => String::new(),
         };
+        // Drop error responses without consuming their private body.
         anyhow::bail!("Figma API returned {}{hint}", status.as_u16());
     }
     let mut bytes = Vec::new();
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| anyhow::anyhow!("stream error: {e}"))?;
+        let chunk = chunk.map_err(|_| anyhow::anyhow!("Figma response stream failed"))?;
         bytes.extend_from_slice(&chunk);
         if bytes.len() > MAX_BYTES {
             anyhow::bail!(
@@ -1396,6 +1431,124 @@ mod tests {
             "<html><head><title>Acme 首页</title></head>\
 <body><div class=\"loader\">Just a moment…</div><p>Attention required for admins</p></body></html>"
         ));
+    }
+
+    // Purely synthetic responses: no Figma account, user data or model calls.
+    async fn figma_fixture(status: u16, headers: &str, body: &str) -> reqwest::Response {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let response = format!(
+            "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n{body}",
+            body.len()
+        );
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut request = [0; 4096];
+            let _ = stream.read(&mut request);
+            // The cap test intentionally closes the response before its end.
+            let _ = stream.write_all(response.as_bytes());
+        });
+        figma_client()
+            .unwrap()
+            .get(format!("http://{address}/private-file"))
+            .send()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn figma_error_diagnostics_do_not_echo_private_data() {
+        for status in [401, 403, 404, 429, 500] {
+            let response = figma_fixture(status,
+                "Retry-After: 60\r\nX-Figma-Rate-Limit-Type: low\r\nX-Figma-Plan-Tier: PRIVATE_PLAN\r\nX-Figma-Upgrade-Link: https://private.invalid/PRIVATE_LINK\r\n",
+                "PRIVATE_BODY").await;
+            let error = figma_response(response).await.unwrap_err().to_string();
+            assert!(error.starts_with(&format!("Figma API returned {status}")));
+            assert!(!error.contains("PRIVATE"));
+            assert!(!error.contains("private-file"));
+            if matches!(status, 401 | 403) {
+                assert!(error.contains("library_content:read"));
+                assert!(error.contains("file_content:read"));
+                assert!(error.contains("file/organization access"));
+            }
+            if status == 429 {
+                assert!(error.contains("retry_after_seconds=60"));
+                assert!(error.contains("rate_limit_type=low"));
+            } else {
+                assert!(!error.contains("retry_after_seconds"));
+            }
+        }
+        let response = figma_fixture(
+            429,
+            "Retry-After: -30\r\nX-Figma-Rate-Limit-Type: PRIVATE_TYPE\r\n",
+            "PRIVATE_BODY",
+        )
+        .await;
+        assert_eq!(
+            figma_response(response).await.unwrap_err().to_string(),
+            "Figma API returned 429 (rate limited)"
+        );
+    }
+
+    #[test]
+    fn figma_retry_after_is_bounded_and_unambiguous() {
+        use reqwest::header::{HeaderMap, HeaderValue, RETRY_AFTER};
+        let mut headers = HeaderMap::new();
+        assert_eq!(figma_retry_after(&headers), None);
+        for (raw, expected) in [
+            ("1", Some(1)),
+            ("2678400", Some(2_678_400)),
+            ("0", None),
+            ("-1", None),
+            ("+1", None),
+            ("1.5", None),
+            ("2678401", None),
+            ("9999999999999999999999", None),
+            ("Wed, 21 Oct 2026 07:28:00 GMT", None),
+            ("60private", None),
+            ("", None),
+        ] {
+            headers.insert(RETRY_AFTER, HeaderValue::from_str(raw).unwrap());
+            assert_eq!(figma_retry_after(&headers), expected, "{raw}");
+        }
+        headers.insert(RETRY_AFTER, HeaderValue::from_static("60"));
+        headers.append(RETRY_AFTER, HeaderValue::from_static("120"));
+        assert_eq!(figma_retry_after(&headers), None);
+    }
+
+    #[tokio::test]
+    async fn figma_response_keeps_redirect_and_size_guards() {
+        let target = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        target.set_nonblocking(true).unwrap();
+        for status in [301, 302, 307, 308] {
+            let response = figma_fixture(
+                status,
+                &format!("Location: http://{}/leak\r\n", target.local_addr().unwrap()),
+                "",
+            )
+            .await;
+            assert!(figma_response(response).await.is_err());
+            assert_eq!(
+                target.accept().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+        }
+        let response = figma_fixture(200, "", &"x".repeat(12 * 1024 * 1024 + 1)).await;
+        assert!(figma_response(response)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("12 MB cap"));
+        let response = figma_fixture(200, "", r#"{"document": {}}"#).await;
+        assert!(figma_response(response)
+            .await
+            .unwrap()
+            .get("document")
+            .is_some());
     }
 
     #[test]

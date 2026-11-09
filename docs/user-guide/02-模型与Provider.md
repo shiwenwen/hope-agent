@@ -28,6 +28,20 @@ Hope Agent 通过「**服务商 + API Key**」接入各家大模型。内置**�
 
 Fireworks 新建模板已移除退役的 GLM 5.2 Fast 和 Kimi K2.6 Turbo/Fast。既有连接与专属部署仍保留原设置；如使用已退役的无服务器型号，请按服务商当前可用型号自行选择替代。
 
+MiniMax 新建模板仅推荐 M3，移除 M2.5、M2.7 和 M2.7 Highspeed。厂商公告：2026-10-19 起这些型号不再对新用户开放；既有按量付费用户可用至 2026-11-18 退役，M Plan / Token Plan 请求则从 10-19 起由厂商转向 M3.1 Flash Preview。Hope 保留已保存的型号、端点、价格与回退选择；请按自己的套餐核对迁移，套餐限定的 Preview 未加入通用模板。
+
+模板与模型补全现在提供 **Claude Haiku 5.5**、**Grok 4.7**、**MiniMax M3**，以及 Fireworks 的 **DeepSeek V4.1 Flash、GLM 5.3、GLM 5.3 Flash**。Haiku 5.5 支持百万上下文与 128K 输出，使用自适应思考，支持关闭思考；温度不随请求发送。Grok 4.7 使用 OpenAI Chat 兼容接口，支持图片、500K 上下文、64K 输出预设及最高 `xhigh` 推理档，厂商不支持关闭思考。Fireworks 三个新预设沿用 Chat 接口，输出上限保守设为官方示例的 131,072 tokens；专属部署的实际限制须另核对。
+
+Haiku 5.5 的模板基础价为每百万输入/输出 $0.10/$0.50，输入超过 100,000 tokens 时为 $0.50/$2.50；Grok 4.7 基础价为 $2/$6，输入超过 200K 时为 $4/$12。模板和大盘只存一组基础单价，未自动计算这些阶梯、缓存或区域附加价，不能当作实际账单。xAI 新建模板已清理五个明确退役的旧 ID，既有配置仍可编辑；旧 ID 可能按替代模型计费，迁移前请核对厂商报价。
+
+MiniMax M3 使用原有 Anthropic 兼容连接，支持图片、百万上下文与思考开关；输出预设为官方推荐的 131,072 tokens。基础输入/输出价为每百万 $0.30/$1.20，超过 512K 输入时为 $0.60/$2.40。它只有思考开关，档位不改变思考深度；视频上传和 M3.1 Flash Preview 未作为预设能力加入。新模板移除该兼容接口未声明支持的 VL-01，旧配置仍可编辑。
+
+Google 直连新建模板已移除弃用并转向新型号的 Gemini 3.7 / 3.5 Flash，以及仅限过去使用过的用户访问的 Gemini 2.5 系列。可选择稳定版 Gemini 3.8 Flash 或 3.6 Flash；既有连接和其他网关候选保留。
+
+Google 模板现提供 GA 稳定型号 `gemini-4-argon`。Hope 通过 Gemini 的 OpenAI Chat 兼容端点使用它，声明文本和图片输入、1,048,576 个统一输入/输出上下文令牌、同步输出上限 65,536，并支持函数调用与流式响应。推理档位按官方兼容规则映射为 `low / medium / high`；`minimal` 映射到 `low`，`xhigh` 和 `max` 映射到 `high`。未设置或显式关闭推理参数时会省略该字段，由 Google 默认使用 `medium`，这不会关闭模型思考。Hope 不调用 Interactions API 的后台长输出，因此不会使用超过 65,536 的 long decode，也不声明音频、视频或 PDF 输入能力。
+
+Gemini 4 Argon 标准付费价目前为每百万输入/输出令牌 $2/$10，至 2026-11-30；2026-12-01 起为 $4/$20。该模型不向 Free tier 或 Google AI Pro 计划开放。模板和大盘只记录当前基础价，缓存折扣、其他推理档位费用及实际账单需以 Google 账户为准。[型号与限制](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon)、[OpenAI 兼容参数](https://ai.google.dev/gemini-api/docs/openai)、[价格](https://ai.google.dev/gemini-api/docs/pricing)。
+
 **入口**:设置 → **模型配置** → **服务商** 标签页 → 点右上角「**添加服务商**」。
 
 添加向导首页提供五条路径:
@@ -44,7 +58,11 @@ Fireworks 新建模板已移除退役的 GLM 5.2 Fast 和 Kimi K2.6 Turbo/Fast�
 
 新增服务商后,系统会自动把它的第一个模型设为当前默认模型,你可以立刻开始对话。
 
+**Unbiased / Pareto**：选择 **Unbiased** 模板并填入平台签发的 API Key，即可使用文本、图片与工具调用。当前别名 `pareto` 已指向稳定版 26.10；固定版本 `pareto-26.10` 可保持版本稳定，`pareto-26.9` 仍可用，`pareto-26.10-preview` 已进入退役流程。26.10 支持 1M 上下文，公开 API 单价为输入/输出每百万 Token `$0.80 / $3.20`，缓存输入 `$0.03`；模板输出 `131,072` 采用官方集成示例预设，并非已确认的服务端硬上限。26.9 单价为 `$2.50 / $7.50`。API 不实现 `GET /v1/models`，请使用预设的已知 ID；新账号需人工审核后开通，团队按预付额度计费，生产用途需另行书面确认。缓存费用未由模板标量成本分别计入。[官方 API 文档](https://unbiased.ai/developers/)、[26.10 稳定版公告](https://unbiased.ai/pareto-26-10/)、[价格](https://unbiased.ai/pricing/)
+
 > **DeepSeek 视觉模型**:新建 DeepSeek 直连服务商时可直接选择 **DeepSeek V4.1 Flash**。它支持图片输入、百万级上下文和推理。已有 DeepSeek 配置不会被自动改写;需要时可手动添加模型 ID `deepseek-flash`,或重新创建连接。
+
+连接测试和实际模型请求不会自动跟随端点重定向。如果测试提示“端点返回重定向”，请向服务商确认最终 API 地址后更新 Base URL；系统不会把密钥或请求内容自动转发到重定向目标，也不会把这种响应显示为连接成功。
 
 ### 自定义服务商
 
@@ -54,9 +72,15 @@ Fireworks 新建模板已移除退役的 GLM 5.2 Fast 和 Kimi K2.6 Turbo/Fast�
 2. 填服务商名、**Base URL**、API Key(可选)、思考风格和计价货币(USD / CNY),可测试连接。
 3. 添加模型:在模型 ID 中输入模型名、ID 或服务商名,即可检索所有内置模板的模型。选择候选后自动填入 ID、显示名、输入类型、上下文窗口、最大输出和推理能力,仍可手动修改;上下方向键选择,回车确认,Esc 关闭候选。
 
-新增和编辑模型都支持上述补全,不会替换你当前中转站的地址、API 类型、密钥或推理参数格式。如果目录有同币种报价且与当前价格不同,会显示来源和单价,由你选择保留当前价格或使用目录价格;不同币种不会直接覆盖。模型 ID 不会被系统自动纠错或改成首字母大写。
+新增和编辑模型都支持上述补全,不会替换你当前中转站的地址、API 类型、密钥或推理参数格式。如果目录有同币种报价且与当前价格不同,会显示来源和单价,由你选择保留当前价格或使用目录价格;不同币种不会直接覆盖。模型 ID 不会被系统自动纠错或改成首字母大写；输入完整 ID 时，大小写完全匹配的候选优先显示。
 
 > 候选来自内置模板,不是对中转站实际可用模型的在线探测。同名模型在不同服务商的上下文限制可能不同,请核对候选来源,并以你的服务商支持的 ID、能力和实际报价为准。
+
+在向导的模型步骤或服务商编辑页，点「**发现模型**」可查询当前端点的在线模型列表。先勾选要新增的模型，填写上下文与最大输出令牌上限，并确认它们支持文本对话和工具调用；列表不会自动全选。已有模型不重复加入，也不覆盖原配置。点击弹窗外部不会关闭或丢失草稿；可用「添加」「取消」、关闭按钮或 Esc 明确退出。确认后仍需保存服务商才会生效；新条目默认纯文本且关闭推理，能力与价格可在保存前编辑。
+
+如果 Base URL 指向本机或局域网，在新增向导的连接步骤显式开启「允许私网访问」后再发现；该选项默认关闭，会随服务商保存，发现不会自行放宽网络策略。
+
+发现只读取模型列表，不发送测试对话，也不证明模型可用于聊天。接口不支持、权限不足或网络策略阻止时可继续手动添加；列表不完整时会提示。本版只提取 ID 和显示名，不根据名称推断用途、令牌上限或价格。ChatGPT OAuth 服务商沿用原有目录，不使用此入口。
 
 ### 服务商的常用设置
 
@@ -106,9 +130,25 @@ API 类型告诉 Hope Agent 用哪套协议和服务商通信。**用内置模�
 
 ---
 
+聚合渠道也提供当前稳定模型：OpenRouter 新增 GPT-6 五项（含 `gpt-6.1-terra`）、Claude Opus / Sonnet / Haiku 5.5、Grok 4.7、GLM 5.3 / Flash、DeepSeek V4.1 Flash、MiniMax M3 和 Kimi K3。价格按公开目录的基础路由报价估算，实际账单可能受路由、缓存与长输入分档影响；模型允许的文件或视频输入不代表 Hope 已支持。
+
+OpenAI 直连 Responses 模板新增 GPT-6.1 Terra（`gpt-6.1-terra`）：支持文本和图片、1.05M 上下文、128K 最大输出，推理档位含 `none` 到 `max`，标准价为输入/输出每百万 Token $1/$5。Terra 工具调用使用 Responses API；模型也出现在 OpenRouter 目录中。ChatGPT/Codex 登录新增可选 Terra，采用 Codex 官方 500K 默认上下文和 16K 输出预算预留，实际可用性由账号套餐、工作区权限和上线范围决定。直接 OpenAI Chat Completions 模板暂不提供 GPT-6 系列；不同型号的 Chat 工具支持有额外限制。缓存、超长输入价和快速服务档位未计入基础价。
+
+Moonshot 直连模板新增 Kimi K3.1 Pro（`kimi-k3.1-pro`）和高速版（`kimi-k3.1-pro-highspeed`）：官方说明高速版与 Pro 同等智能、速度约为 2–3 倍，两者均提供 1,048,576 上下文。Hope 为高速版采用 131,072 的保守输出预设；官方模型说明给出的 K3.1 Pro API 默认输出为 131,072、可设置上限为 1,048,576，但未单独说明高速版的硬上限。高速版基础输入/输出价为每百万 $4/$20。两种型号走 OpenAI Chat 接口，支持文本、图片和函数调用，推理始终开启且只支持 `low/high/max` 档；厂商固定 `temperature=1`、`top_p=0.95` 等采样值，Hope 省略这些字段，关闭推理时仍按模型默认思考。访问需要账号完成至少 $1 充值，限流按账号等级变化。Kimi API 的 K2 系列自 2026-10-31 起不再向新注册用户开放，因此新建模板只保留 K3 系列；现有配置不会迁移或删除。详见[官方模型列表](https://platform.kimi.ai/docs/models)、[K3.1 Pro API 指南](https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart)和[官方价目](https://platform.kimi.ai/docs/pricing/chat)。
+
+火山方舟模板也新增其托管的 Kimi K3.1 Pro（`kimi-k3-1-pro-261024`）：支持文本、图片和函数调用，上下文与厂商最大回答长度均为 1,024K；人民币基础价为输入/输出每百万 Token ¥13/¥68。该端点同样要求思考始终开启、`temperature=1`、`top_p=0.95`；Hope 会省略采样字段并映射显式推理强度。它是与 Moonshot 直连不同的模型 ID 和计费端点。缓存价格和调用后实际费用仍以方舟账单为准。
+
+火山方舟另将 DeepSeek V4.1 Flash（`deepseek-v4-1-flash-261017`）加入新建模板，支持文本、图片、工具调用和结构化输出，1,024K 上下文与 384K 厂商最大回答。价格随时段变化：空闲期为输入/输出每百万 ¥1/¥4，高峰为 ¥2/¥8；模板估算使用高峰价。仅方舟官方 HTTPS 主机上的该精确型号映射推理档位（`minimal/low → low`、`medium/high/xhigh → high`、`max → max`），关闭时发送 `none`。同时将旧 DeepSeek V4 模板快照替换为 GA 版；已保存的 Provider 配置不会自动迁移。
+
+Mistral 内置模板新增 GA 的 Z.ai GLM 5.3 Flash（模型 ID `zai-glm-5-3-flash`），走现有 Chat Completions 接口，支持文本、图片和函数调用；预设上下文 1M、最大输出 128K。公开标准价为输入 $0.15、输出 $0.50 / 百万 token；缓存输入为 $0.03 / 百万 token。当前成本字段不单独计算缓存折扣，估算仍按标准输入价计。
+
+Together 新增 GLM 5.3 / Flash、Kimi K3、MiniMax M3 和 DeepSeek V4.1 Flash，采用渠道公布的上下文与单价、保守 **16K 输出预设**（不是厂商硬上限）。当前只声明文本输入；沿用渠道默认推理，不发送仅适用于 GPT-OSS 的 `reasoning_effort`，未接入 Together 的推理开关。
+
+MiniMax M3 未设置思考强度时保留官方默认关闭，选择强度才启用自适应思考，明确关闭则发送关闭参数。
+
 ## 2.4 用 ChatGPT / Codex 账号登录
 
-不想手填 API Key?可以用 ChatGPT 账号直接登录,把 GPT-5.x 系列当主对话模型,消耗你的订阅额度。
+不想手填 API Key?可以用 ChatGPT 账号直接登录,把 GPT 系列当主对话模型,消耗你的订阅额度。
 
 **登录**:设置 → 添加服务商 → 首页顶部「**使用 ChatGPT (Codex) 登录**」主按钮,会弹出系统浏览器完成授权(5 分钟内完成)。登录成功后自动保存配置,显示绿色「已配置」角标。
 
@@ -124,6 +164,9 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 **重新登录**:Codex 服务商卡片的「⋮」菜单里有「重新登录」(而不是「删除」,避免误删);token 过期时界面也会引导你重新登录。
 
 - 登录后使用的具体模型可在设置里切换,默认选择所有账号档位都可用的那一档。
+- 内建 Codex 目录已包含 `gpt-6-astra`、`gpt-6.1-sol`、`gpt-6.1-terra`、`gpt-6-sol`、`gpt-6-luna`；升级时补齐缺失条目，保留已选模型、自定义参数与禁用状态。可用性仍由 ChatGPT 套餐、工作区开关及官方上线范围决定。
+- Codex OAuth 的 `gpt-6.1-sol` 和 `gpt-6.1-terra` 上下文预设为官方 Codex 目录的 **500K**；其它 GPT-6 OAuth 预设沿用目录的 **272K**，OpenAI API 目录仍为 **1.05M**。上游 Codex 清单另列 872K 最大窗口，但 Hope 不把它当默认预算。沿用 **16K 输出预留**，不是服务端输出硬上限。GPT-6 推理档位为 `low` 至 `max`；`minimal` 和“关闭”按接口映射为 `low`，“关闭”仍隐藏思考展示；未设置强度时保留模型默认。`Ultra` 是 Codex 的任务委派能力，Hope 不把它当成推理请求参数发送。套餐、工作区设置和上线资格仍由服务端裁决。
+- 新目录不再提供已退役的 GPT-5.4、GPT-5.3-Codex-Spark，以及 2026-10-14 在 Codex 退役的 GPT-5.5；既有配置保留，GPT-5.5 的 API 候选不受这次 Codex 退役影响。
 - Codex 凭据只存在本机(`~/.hope-agent/credentials/auth.json`),绝不写入日志。
 - Codex 登录与 [11 · MCP 接入外部工具](11-连接与扩展.md#111-mcp接入外部工具) 的账号登录是两套完全独立的机制,互不影响。
 
@@ -135,6 +178,8 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 
 - **默认模型**:两级下拉(先选服务商、再选模型),是所有新会话默认使用的模型。
 - **备用模型链(Fallback)**:可添加多个、拖拽排序;当主模型调用失败时,按这个顺序自动尝试下一个,详见 [2.7](#27-自动容错failover)。
+
+服务商或模型较多时，两级菜单都可在浮层内滚动；可用鼠标滚轮或键盘导航选择末尾项目。Agent 的计划模式模型选择也支持同样的操作。
 
 **几个要点**:
 
@@ -153,7 +198,7 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 - **思考强度(Think)**：最多支持 `none / minimal / low / medium / high / xhigh / max` 七档，全局默认 `medium`。请求发送时按模型、协议与端点映射到受支持档位，对话里可用 `/thinking high` 快速调整。
 - **温度**:控制回答的随机性,滑块 0.00–2.00,默认 1.00。带「重置」按钮回到继承状态。
 
-直连 **GPT-6 Astra** 时，有工具的对话请选择 OpenAI Responses。Astra 保留 `max`，`none` / `minimal` 映射为 `low`，不发送温度。新预设只影响新建连接；已有服务商需自行添加模型或调整协议。
+直连 **GPT-6** 时，有工具的对话请选择 OpenAI Responses。五项模型均保留 `max`；Astra / GPT-6.1 Sol 的“关闭”映射为 `low`，GPT-6.1 Terra / GPT-6 Sol / Luna 则发送 `none`，`minimal` 均映射为 `low`。未设置强度时保留模型默认；推理启用时不发送温度。Codex 登录的参数差异见 [2.4](#24-用-chatgpt--codex-账号登录)。新预设只影响新建连接；已有服务商需自行添加模型或调整协议。
 
 **Claude Fable 5.1** 的原始思考签名会随会话保存。若动态前缀、压缩或切换模型导致部分历史思考无法继续使用，回复中会出现提示；本地原始块仍保留，但不保证跨模型保留全部推理状态。
 
@@ -162,7 +207,7 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 | 风格 | 适用 |
 | --- | --- |
 | OpenAI(`reasoning_effort`) | OpenAI / DeepSeek / Mistral / xAI 等 |
-| Anthropic(`thinking budget_tokens`) | Claude、MiniMax、Kimi 等 |
+| Anthropic（按模型使用自适应思考、开关或 `budget_tokens`） | Claude、MiniMax、Kimi 等 |
 | Zai | 智谱 Z.AI |
 | Qwen(`enable_thinking`) | 通义千问 / 阿里云百炼 |
 | None | 不发送思考参数(部分自定义端点) |
@@ -251,6 +296,8 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 - **IM 兜底模型**:IM 自动转写专用(只能选非流式模型);不设则用主模型。
 - **服务商**:「添加服务商」支持 OpenAI、Groq、ElevenLabs、xAI、DashScope(百炼)、Deepgram、AssemblyAI、Azure、讯飞、火山等 10 种协议;本地后端(whisper.cpp / faster-whisper / FunASR / sherpa-onnx)可一键探测接入。
 
+新建 xAI 服务商预填 `grok-voice-transcribe-2.0`，用于录完后转写；新建 AssemblyAI 服务商首选 `universal-3-6-pro`，用于流式转写。已有服务商的型号不会自动更换，AssemblyAI 仍不能作为 IM 兜底模型。新型号的真实识别率与费用尚未验收。
+
 **桌面录音怎么用**:聊天输入框的麦克风按钮点击录音;也支持在应用窗口内按住 `Ctrl+Shift+H` 说话、松开转写,文字插入到光标处。录音时显示波形和实时耗时。
 
 **IM 自动转写**:默认关闭,开关在**每个 IM 渠道账号**的编辑对话框里(不在语音识别面板)。开启后,IM 里收到的语音会自动转成文字(前面加 `[语音转录]` 前缀)注入对话。
@@ -268,8 +315,13 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 **入口**:设置 → **模型配置** → **媒体生成模型** 标签页。点「添加服务商」从 27 个内置模板一键接入,模板按模态分组并支持搜索——品牌名和模型 ID 都能搜(例如输入 `seedream` 或 `flux` 直接定位到对应服务商):
 
 - **图像**:OpenAI(gpt-image)、Google(Gemini,支持改图和多参考图)、Fal(Flux)、SiliconFlow(Qwen-Image)、智谱(CogView)、通义万相、火山引擎(Seedream)、腾讯混元、阶跃星辰、百度千帆、商汤日日新、Black Forest Labs(FLUX)、Stability AI、Replicate、Together、xAI(Grok Image)、Recraft、快手可灵、科大讯飞
+
 - **音频**:ElevenLabs(TTS + 音乐 + 音效)、MiniMax(语音 + 音乐)、OpenAI(TTS)、Cartesia、Deepgram、Fish Audio、Hume、火山豆包语音、Stability(音效)、快手可灵
 - **自建端点**:「自定义(OpenAI 兼容)」
+
+Google 的新建图像模板首选 Nano Banana 2.1（`gemini-nano-banana-2.1`），可选 `1:4`、`4:1`、`1:8`、`8:1` 宽高比，图像工具与 Agent 的图像产物生成可使用最多 14 张参考图；设计空间首页仍最多 5 张。已有模型与默认链不会自动更换；当前接入不支持蒙版重绘或视频/PDF 输入，真实画质与费用尚未验收。
+
+xAI 的新建图像模板保留 Grok Imagine Image 为首选，并将旧质量别名替换为 Grok Imagine Image 2.0 的低质量档。已保存的模型和默认链不会自动改写；仍在使用 `grok-imagine-image-quality` 的用户应在其 2026 年 11 月 2 日退役前手动核对替代型号与费用。当前 xAI 接入只支持生成，不支持参考图编辑；新型号的真实画质与费用尚未验收。
 
 部分服务商的凭据格式需注意:快手可灵与火山豆包语音同时支持新旧两套鉴权,填 `ak:sk`(可灵)或 `app_id:access_key`(豆包语音)即按旧版签发;科大讯飞需填 `appid:apikey:apisecret` 三件套。
 
@@ -278,6 +330,8 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 服务商卡片可拖拽排序——顺序即**自动挑选和失败切换的优先级**。ElevenLabs / OpenAI / Cartesia / MiniMax 可「拉取音色」列出账号可用音色,并设一个服务商级默认音色;其余语音服务商保留手填音色 ID。API Key 在面板里是密码框;AI 通过对话读取时会打码,而且**不能写入服务商条目**。
 
 ### 第二步:配置默认调用链与工具参数
+
+媒体服务商的连接测试、生成请求和音色列表不会自动跟随端点重定向。如果提示重定向，请向服务商确认最终 API 地址并更新 Base URL 后重试；不要把该提示当作连接成功。
 
 **入口**:设置 → **工具设置** → **媒体生成** 标签页。为**图像、语音、音乐、音效**四类各配一条默认调用链(主模型 + 若干备用,主模型失败自动降级到备用)。留空则「跟随服务商顺序(自动)」,下方小字会提示实际会用到哪个模型。
 
@@ -299,7 +353,7 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 
 > 通过对话调设置时,AI 只能改默认调用链和上表里的参数;服务商条目(含 API Key)**只能在 GUI 里改**。
 
-图像新建模板已移除退役的 DALL·E 3 和 Google Imagen 4 / 旧 Gemini 图像预设，Google 使用 `gemini-3.1-flash-image` / `gemini-3-pro-image`。现有配置需由你按服务商当前可用性选择替换；GPT Image 1 将于 2026-10-23 下线，届时前请核对替代模型与所需参数。目录更新不代表真实图像质量已验收。
+图像新建模板已移除退役的 DALL·E 3 和 Google Imagen 4 / 旧 Gemini 图像预设，Google 使用 `gemini-nano-banana-2.1` / `gemini-3-pro-image`。现有配置需由你按服务商当前可用性选择替换；GPT Image 1 将于 2026-10-23 下线，新建 OpenAI 图像模板已仅保留 GPT Image 2；已存配置不会自动迁移，请在截止前核对替代模型与所需参数。OpenAI 直连聊天模板也不再推荐同日退役的 `o1` / `o1-pro` / `o3-mini` / `o4-mini`，并移除已退役的 `o3-deep-research` / `o4-mini-deep-research`；已有模型和默认链由你自行调整。目录更新不代表真实图像质量已验收。
 
 ---
 
@@ -318,6 +372,10 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 新安装默认启用**免费多引擎搜索**:先用 Brave 网页搜索,失败或没有可用结果时回退 360 网页搜索,再按服务商顺序尝试 DuckDuckGo 等兜底。无需 API Key、Python 或额外部署。旧配置保留服务商顺序,DuckDuckGo 已启用时新增项追加为兜底;其余旧配置的新增项保持关闭,可手动启用并拖到第一位。全部服务商关闭后,实际调用也会拒绝搜索。
 
 此实现借鉴 DDGS 的多引擎回退方式,不运行原版 Python DDGS。免 Key 不能保证始终可用,上游限流、网络限制或页面变化仍可能导致失败。国家 / 语言过滤依上游能力尽力生效;设置了时效过滤时不会回退到不支持该过滤的 360 网页搜索。
+
+Kimi 搜索使用国内 Basic 独立 REST 接口,沿用已配置的 Key。每次直接返回最多 10 条结构化链接和摘要,不调用聊天模型生成搜索 JSON、不获取完整正文。该接口不支持国家、语言或时效过滤;指定这些条件时会明确报错并尝试后续已启用的服务商,不会静默忽略过滤。官方按成功且非空结果的请求计费;真实账户费用与检索质量仍需自行核验。
+
+Perplexity 搜索保留既有引用顺序和域名标题，并过滤重复、无效或携凭据的链接；没有来源时会明确显示无链接的摘要。失败、限流、响应异常或取消不会被记作成功搜索。沿用现有 Key、Sonar 端点和型号；官方正逐步转译旧请求，这次更新未迁移到 Agent API，也不代表真实检索质量或账户费用已验证。
 
 命令行运行 `hope-agent server setup` 时,搜索服务步骤也可选择免费多引擎搜索,无需填写凭据。新配置默认选中该项;已有配置默认选中当前首个启用的服务商,只有确认选择后才调整顺序。
 

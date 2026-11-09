@@ -1,6 +1,6 @@
 [package]
 name = "ha-improve"
-version = "0.64.0"
+version = "0.72.0"
 description = "Hope Agent learning-loop feature — coding improvement proposals, domain eval fixtures and domain quality gates"
 license.workspace = true
 authors.workspace = true
@@ -20,6 +20,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 ha-core = { path = "../ha-core", features = ["test-support"] }
+ha-agent-runtime = { path = "../ha-agent-runtime" }
 ha-workflow = { path = "../ha-workflow" }
 # 只在 `#[cfg(test)]` 里用（gated 测试的 fixture 直接建表 / 塞行）。
 rusqlite = { workspace = true }

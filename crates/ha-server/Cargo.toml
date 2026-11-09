@@ -1,6 +1,6 @@
 [package]
 name = "ha-server"
-version = "0.64.0"
+version = "0.72.0"
 description = "Hope Agent HTTP/WebSocket server"
 license.workspace = true
 authors.workspace = true
@@ -66,7 +66,7 @@ base64 = { workspace = true }
 # HTTP/WS framework
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+tower-http = { version = "0.7", features = ["cors", "trace", "fs"] }
 
 # Static web GUI assets (SPA fallback). The bundle itself is built by build.rs
 # (brotli, stored compressed); `brotli` here is only for the decompress path

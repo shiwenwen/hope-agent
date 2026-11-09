@@ -2,7 +2,7 @@ import { FolderCheck, FolderPlus, Loader2, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { isTauriMode } from "@/lib/transport"
+import { isLinuxDesktop } from "@/lib/platform"
 import { basename } from "@/lib/path"
 import ServerDirectoryBrowser from "./ServerDirectoryBrowser"
 import { useDirectoryPicker } from "./useDirectoryPicker"
@@ -39,15 +39,18 @@ export default function WorkingDirectoryButton({
   const { t } = useTranslation()
   const hasSelection = typeof workingDir === "string" && workingDir.length > 0
   const showClear = hasSelection && !inherited
+  const preferDirectoryBrowser = isLinuxDesktop()
 
-  const { pick, browserOpen, setBrowserOpen, handleBrowserSelect } = useDirectoryPicker({
-    onPicked: (path) => {
-      onChange(path)
-      onPicked?.()
-    },
-    errorTitle: t("chat.workingDir.invalid"),
-    loggerSource: "WorkingDirectoryButton::pickLocalDirectory",
-  })
+  const { pick, browserOpen, setBrowserOpen, handleBrowserSelect, useDirectoryBrowser } =
+    useDirectoryPicker({
+      preferDirectoryBrowser,
+      onPicked: (path) => {
+        onChange(path)
+        onPicked?.()
+      },
+      errorTitle: t("chat.workingDir.invalid"),
+      loggerSource: "WorkingDirectoryButton::pickLocalDirectory",
+    })
 
   const handlePick = () => {
     if (disabled || saving) return
@@ -85,8 +88,9 @@ export default function WorkingDirectoryButton({
           )}
           <span className="truncate">{hasSelection ? label : t("chat.addWorkingDirectory")}</span>
         </button>
-        {!isTauriMode() && (
+        {useDirectoryBrowser && (
           <ServerDirectoryBrowser
+            directoriesOnly={preferDirectoryBrowser}
             open={browserOpen}
             initialPath={workingDir ?? null}
             onOpenChange={setBrowserOpen}
@@ -138,8 +142,9 @@ export default function WorkingDirectoryButton({
           </button>
         </IconTip>
       )}
-      {!isTauriMode() && (
+      {useDirectoryBrowser && (
         <ServerDirectoryBrowser
+          directoriesOnly={preferDirectoryBrowser}
           open={browserOpen}
           initialPath={workingDir ?? null}
           onOpenChange={setBrowserOpen}

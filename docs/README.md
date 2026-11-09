@@ -77,6 +77,7 @@
 | [Coding Eval 控制面评测](architecture/agent/coding-eval.md) | 编程控制面的确定性评测：在临时 git 仓库里用真实的会话 / 目标 / 任务 / 工作流上下文，回归复核、验证、上下文检索、改进闭环的协同质量，并可从任务提示执行 agent 后评估候选 diff 与策略改动的效果 | ha-eval-runtime 的 `coding_eval.rs`, ha-improve 的 `coding_improvement.rs` + kernel 台账, `evals/suites/coding-control-plane/` |
 | [专项能力评测基础设施](architecture/agent/capability-eval.md) | 本地独立确定性 Runner、suite/policy/schema、稳定分片与诊断 evidence；完整评测不进入 PR、pre-push、GitHub Actions 或发布门禁 | `ha-eval-spec`, `ha-eval`, `evals/` |
 | [真实模型与复杂任务评测](architecture/agent/live-model-evaluation.md) | 本地真实 Provider Campaign：桌面 Evaluation Center、不可变计划、任务完成/工具/耗时/Token/费用指标、Goal/Workflow/Async/Subagent 归因、对比趋势与本地历史；远端 Runner 和发布门禁当前暂停 | `ha-eval-runtime::evaluation`, `ha-eval-spec::model`, `hope-agent-eval model`, `evals/live/` |
+| [提示词缓存基准](architecture/agent/cache-benchmark.md) | 显式分阶段观测历史预热、尾部更新、工具循环、摘要前后缓存读写、TTFT、内容保留与价格假设；提供零费用采集冒烟和离线报告 | `ha-eval/src/model_cache.rs`, `evals/live/suites/prompt-cache/` |
 | [Coding Improvement Loop](architecture/agent/coding-improvement-loop.md) | 质量趋势与学习闭环：从目标 / 工作流 / 复核 / 验证 / 评测 / 转录等数据生成趋势报告、工作流复盘与改进提案，可预览 / 应用 / 晋升为评测、工作流、指导、技能等草稿，并在 Dashboard 学习页提供基准运行中心与全局、项目级学习视图 | ha-improve 的 `coding_improvement.rs`·`domain_quality.rs` + kernel 同名台账, ha-dash 的 `dashboard/coding_improvement.rs`, ha-eval-runtime 的 `coding_eval.rs`, `components/chat/workspace/`, `components/dashboard/learning/` |
 | [权限/审批系统](architecture/agent/permission-system.md) | 统一规则引擎 + Default/Smart/Yolo 三模式、Plan 正交、保护路径/危险命令/编辑命令三 list、Smart judge_model + self_confidence、审批弹窗倒计时 | `permission/`, `tools/approval.rs` |
 | [Hooks 系统](architecture/agent/hooks.md)          | 事件 → 可拔插处理器，字段级对齐 Claude Code 协议；28 事件（24 触发 + 4 保留）+ 5 种 handler（command/http/mcp_tool/prompt/agent）+ user/managed/project/local 四 scope UNION + 配置热重载 + JSONL transcript 镜像 | `hooks/`, `agent/preflight.rs` |
@@ -98,7 +99,7 @@
 
 | 文档                                     | 说明                                            | 关联源码                   |
 | -------------------------------------- | --------------------------------------------- | ---------------------- |
-| [IM 渠道系统](architecture/integration/im-channel.md)  | 12 个渠道插件（Telegram/WeChat/Discord 等）、消息路由、媒体管道 | `channel/`             |
+| [IM 渠道系统](architecture/integration/im-channel.md)  | 13 个渠道插件（Telegram/WeChat/WeCom 等，WeCom 首版仅文本）、消息路由、媒体管道 | `channel/`             |
 | [ACP 协议](architecture/integration/acp.md)          | IDE 直连（NDJSON over stdio）、会话生命周期、事件映射         | `crates/ha-acp/` |
 | [斜杠命令](architecture/integration/slash-commands.md) | 6 类命令、双派发路径（UI/IM）、CommandAction 副作用          | `slash_defs/`, `slash_hooks.rs`, `slash_commands/` |
 | [MCP 客户端](architecture/integration/mcp.md)         | 四种 transport（stdio/HTTP/SSE/WebSocket）、OAuth 2.1+PKCE、Resources/Prompts、凭据 0600、SSRF 硬约束、Learning 埋点 | `crates/ha-mcp/`（kernel 面 `ha-core/src/mcp/`） |
@@ -115,6 +116,7 @@
 | [设计空间（Design Space）](architecture/infra/design-space.md) | agent 原生设计工作空间：11 类自包含产物（web/mobile/deck/dashboard/poster/document/email/image/motion/audio/component）、品牌设计系统 + token 编译、稳定单产物预览（无画布）、oid 确定性可视化微调、一键导出 HTML/PNG/PDF/PPTX/MP4/ZIP、5 维质量门 + 反 slop 自查、**工程轴**（多平台 Token 导出 / Figma 导入 / 代码交付包 / 绑定代码工程同步）、与知识空间/项目联动 | `crates/ha-design/`, `components/design/` |
 | [Artifacts 产物平台](architecture/infra/artifacts.md) | Canvas façade、不可变版本、Gallery、Data Analytics、离线本地导出与未来 Publisher Guard | `crates/ha-design/`（artifacts / tool_artifact）, `components/artifacts/` |
 | [Cron 调度](architecture/infra/cron.md)           | 定时任务调度、Agent 执行、Failover、指数退避      | ha-cron 的 `cron/` + kernel 的 `cron/db.rs`·`schedule.rs` |
+| [项目自主运维自动化](architecture/infra/automation-operations.md) | Codex 项目任务的状态、去重、执行互斥、归档与恢复验证；与产品 Cron 分开 | `scripts/automation/` |
 | [Sandbox 架构](architecture/infra/sandbox.md) | 会话级 Docker 执行沙箱、权限放松矩阵、Docker 平台引导、SearXNG 容器管理 | `ha-vcs (sandbox.rs · docker/)`, `ha-core (sandbox.rs 配置面)`, `permission/` |
 | [Dashboard](architecture/infra/dashboard.md)    | 跨 DB 聚合分析、成本估算、系统指标、Learning Tab、coding release/generalization gate 与 general domain quality gate | ha-dash 的 `dashboard/`, `components/dashboard/learning/` |
 | [Recap 深度复盘](architecture/infra/recap.md)      | 逐会话 LLM facet 提取、量化+语义融合报告、HTML 导出 | `recap/`                |

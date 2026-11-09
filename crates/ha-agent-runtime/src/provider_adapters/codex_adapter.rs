@@ -68,6 +68,22 @@ fn build_codex_request(
     reasoning: Option<super::super::api_types::ReasoningConfig>,
     req: &RoundRequest<'_>,
 ) -> (ResponsesRequest, Vec<Value>) {
+    let gpt6 = crate::agent::config::is_gpt6_model(model);
+    let reasoning = if gpt6 {
+        let requested = if req.reasoning_disabled {
+            Some("none")
+        } else {
+            req.reasoning_effort
+        };
+        requested.map(|effort| super::super::api_types::ReasoningConfig {
+            effort: crate::agent::config::astra_reasoning_effort(Some(effort)).to_string(),
+            summary: reasoning
+                .and_then(|r| r.summary)
+                .filter(|_| !req.reasoning_disabled),
+        })
+    } else {
+        reasoning
+    };
     let mut api_input: Vec<Value> = Vec::new();
     for content in super::super::streaming_adapter::dynamic_instruction_suffixes(req) {
         api_input.push(json!({ "role": "system", "content": content }));
@@ -84,14 +100,29 @@ fn build_codex_request(
         input: api_input.clone(),
         reasoning,
         include: None,
-        tools: (!req.is_final_round).then(|| req.tool_schemas.to_vec()),
-        temperature: req.temperature,
+        tools: (!req.is_final_round).then(|| codex_tool_schemas(req.tool_schemas)),
+        temperature: req.temperature.filter(|_| !gpt6),
         // A Responses-shaped wire format is not evidence that Codex supports
         // hosted tool search or OpenAI prompt-cache routing fields.
         prompt_cache_key: None,
         prompt_cache_options: None,
     };
     (request, api_input)
+}
+
+pub(crate) fn codex_tool_schemas(tools: &[Value]) -> Vec<Value> {
+    tools
+        .iter()
+        .cloned()
+        .map(|mut tool| {
+            if tool.get("type").and_then(Value::as_str) == Some("function") {
+                // Hope models optional arguments by omission, not required empty
+                // placeholders. Match the existing Responses adapter contract.
+                tool["strict"] = json!(false);
+            }
+            tool
+        })
+        .collect()
 }
 
 pub(crate) struct CodexStreamingAdapter<'a> {
@@ -109,6 +140,14 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
 
     fn tool_provider(&self) -> ToolProvider {
         ToolProvider::OpenAI
+    }
+
+    fn token_count_tool_schemas(&self, req: &RoundRequest<'_>) -> Vec<Value> {
+        if req.is_final_round {
+            Vec::new()
+        } else {
+            codex_tool_schemas(req.tool_schemas)
+        }
     }
 
     fn normalize_history(&self, history: &mut Vec<Value>) {
@@ -443,6 +482,58 @@ mod tests {
     use crate::agent::streaming_adapter::{RoundRequest, StreamingChatAdapter};
 
     #[test]
+    fn codex_gpt6_requests_use_supported_efforts_and_preserve_tools() {
+        let history = vec![serde_json::json!({"role":"user","content":"hello"})];
+        let tools = vec![serde_json::json!({"type":"function","name":"read"})];
+        let mut req = super::super::test_support::round_request(&history);
+        req.tool_schemas = &tools;
+        req.temperature = Some(0.2);
+        for model in [
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
+            "gpt-6-astra",
+            "gpt-6-sol",
+            "gpt-6-luna",
+        ] {
+            for (effort, expected) in [
+                (None, None),
+                (Some("none"), Some("low")),
+                (Some("minimal"), Some("low")),
+                (Some("max"), Some("max")),
+                (Some("xhigh"), Some("xhigh")),
+            ] {
+                req.reasoning_effort = effort;
+                let (request, _) = build_codex_request(model, None, &req);
+                let body = serde_json::to_value(request).unwrap();
+                assert_eq!(body["model"], model);
+                assert_eq!(
+                    body.get("reasoning")
+                        .and_then(|r| r.get("effort"))
+                        .and_then(serde_json::Value::as_str),
+                    expected
+                );
+                assert_eq!(
+                    body["tools"],
+                    serde_json::json!([{ "type":"function", "name":"read", "strict":false }])
+                );
+                assert_eq!(body["store"], false);
+                assert_eq!(body["stream"], true);
+                assert!(body.get("temperature").is_none());
+                assert!(body.get("max_output_tokens").is_none());
+                assert!(body.get("prompt_cache_options").is_none());
+            }
+        }
+        req.reasoning_effort = None;
+        req.reasoning_disabled = true;
+        let (request, _) = build_codex_request("gpt-6-luna", None, &req);
+        assert_eq!(request.reasoning.unwrap().effort, "low");
+        req.reasoning_disabled = false;
+        req.is_final_round = true;
+        let (request, _) = build_codex_request("gpt-6.1-sol", None, &req);
+        assert!(request.tools.is_none());
+    }
+
+    #[test]
     fn codex_request_golden_uses_client_deferred_and_no_cache_assumptions() {
         let tools = vec![serde_json::json!({ "type": "function", "name": "read" })];
         let deferred = vec![serde_json::json!({ "type": "function", "name": "browser" })];
@@ -474,7 +565,7 @@ mod tests {
             vision_bridge_available: false,
             reasoning_effort: None,
             reasoning_disabled: false,
-            temperature: None,
+            temperature: Some(0.0),
             max_tokens: 100,
             is_final_round: false,
             round: 0,
@@ -482,10 +573,13 @@ mod tests {
         let (request, input) = build_codex_request("gpt-5.4-codex", None, &req);
         let body = serde_json::to_value(&request).unwrap();
         assert_eq!(body["instructions"], "stable");
+        // Legacy models retain their existing sampling contract; GPT-6 is covered above.
+        assert_eq!(body["temperature"], serde_json::json!(0.0));
         assert!(body.get("prompt_cache_key").is_none());
         assert!(body.get("prompt_cache_options").is_none());
         assert_eq!(body["tools"].as_array().unwrap().len(), 1);
         assert_eq!(body["tools"][0]["name"], "read");
+        assert_eq!(body["tools"][0]["strict"], false);
         assert!(body.to_string().find("browser").is_none());
         let contents = input
             .iter()
@@ -513,7 +607,10 @@ mod tests {
             vec![input[0].clone(), input[1].clone(), input[3].clone()]
         );
         assert_eq!(accounting.history, history);
-        assert_eq!(adapter.token_count_tool_schemas(&req), tools);
+        assert_eq!(
+            adapter.token_count_tool_schemas(&req),
+            body["tools"].as_array().unwrap().clone()
+        );
         let prepared = adapter.prepare_round_request(&req).unwrap();
         let prepared_body = prepared.body();
         assert_eq!(
@@ -532,5 +629,23 @@ mod tests {
         for transport_field in ["authorization", "api_key", "access_token", "account_id"] {
             assert!(prepared_json.get(transport_field).is_none());
         }
+    }
+
+    #[test]
+    fn codex_tool_schema_preserves_omittable_question_timeout_contract() {
+        let tools = vec![ha_core::tool_defs::get_ask_user_question_tool().to_openai_schema()];
+        let history = vec![serde_json::json!({"role":"user","content":"synthetic team task"})];
+        let mut req = super::super::test_support::round_request(&history);
+        req.tool_schemas = &tools;
+        let (request, _) = build_codex_request("gpt-6.1-sol", None, &req);
+        let body = serde_json::to_value(request).unwrap();
+        let tool = &body["tools"][0];
+        assert_eq!(tool["strict"], false);
+        assert_eq!(tool["parameters"], tools[0]["parameters"]);
+        assert!(!tool["parameters"]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "timeout_secs"));
     }
 }

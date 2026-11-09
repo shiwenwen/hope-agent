@@ -22,6 +22,14 @@ import { TauriTransport } from "./transport-tauri"
 
 let warnSpy: ReturnType<typeof vi.spyOn>
 
+test("Tauri directory browsing passes the optional folder-only filter", async () => {
+  const transport = new TauriTransport()
+  await transport.listServerDirectory("/tmp", true)
+  expect(mocks.invoke).toHaveBeenLastCalledWith("fs_list_dir", { path: "/tmp", directoriesOnly: true })
+  await transport.listServerDirectory()
+  expect(mocks.invoke).toHaveBeenLastCalledWith("fs_list_dir", { path: null, directoriesOnly: false })
+})
+
 beforeEach(() => {
   mocks.listen.mockReset()
   mocks.invoke.mockReset()

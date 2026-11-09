@@ -361,6 +361,8 @@ stateDiagram-v2
 - **生成输出格式**：`<<<BODY>>> / <<<CSS>>> / <<<JS>>>` 分节定界符（抗大段 HTML 的引号/换行转义，比 JSON 稳）；截断检测据分节标记是否齐全判断，缺失即视作被截断走降级，不静默交付半截无样式产物。
 - **参考图 → 匹配产物（真多模态）**：首页可传 ≤5 张参考图，逐张经 `extract::prepare_reference_image`（大小闸 + 魔数嗅探 + 降采样重编码）规整成视觉附件，与文字要求一起经 `run_vision_streaming` 上行——选中的视觉模型同时看全部原图流式生成。图内文字套 `<untrusted_external_data>` 信封当复刻素材、绝不作指令。传图瞬间当前模型不认图 → 自动切到可用视觉模型 + toast（删图不切回，模型选择粘性）；无任何视觉模型则拦截并提示去设置。这与 [§6.4](#64-反向提取) 的反向提取正交：这里图 → 可交付产物，那里图 → 设计系统 token。
 
+Agent 的 `design.create_artifact` 在 image 形态加载 `reference_image_paths` 时，共用媒体公共上限 `MAX_INPUT_IMAGES`（14）；已有内联参考图占用该总量，路径图按顺序补入剩余空间，随后仍受所选模型能力筛选。首页 composer 的 `reference_images` 与单张 b64 合计仍钳至 5；该视觉对话入口独立于 Agent 路径。合成夹具覆盖无内联、1 张及 5 张内联叠加路径，复现并修复旧 `5usize` 静默丢弃第六张之后参考图的问题；未连接真实模型、读取用户文件或落设计库。
+
 ### 5.6 真流式生成
 
 owner/GUI 生成走**真 token 流式**——边生成边成形预览，而非等整份产出。核心目标是**无 FOUC**（不先闪一屏无样式内容）+ 稳定不重挂。
@@ -443,6 +445,8 @@ sequenceDiagram
 **写入默认落 managed 目录**（用户可见可编辑），**后台自主维护绝不写外部工程**（对齐知识空间外部只读红线）。提取对话框对 `codebase` / `image` 提供文件选择器（桌面原生 picker 回真实路径，HTTP 留空手填服务器路径），`image` tab 另有视觉模型选择器。**提取成功自动应用**新系统：有打开产物则就地 restyle，否则设为项目默认。
 
 **Figma 导入**（owner 侧专属）：`extract::from_figma(url, token)` 经 `check_url` 拉 Figma REST API——优先读已发布 color/text/effect styles，无则回退遍历文档采样 SOLID 填充色，汇成 material 后交同一 LLM 蒸馏成 9 段系统 + tokens。**凭据红线**：Figma 个人访问令牌只走 owner 侧、按次传入、绝不落盘、绝不进模型面（`design` 工具无 Figma action），与「凭据强制留 GUI」一致。
+
+REST 导入的已发布样式端点需 `library_content:read`，节点和文件端点需 `file_content:read`；scope 不能代替文件共享或组织访问权（[官方端点](https://developers.figma.com/docs/rest-api/component-endpoints/)、[权限](https://developers.figma.com/docs/rest-api/scopes/)）。401/403 返回受控权限提示；429 仅保留单一、纯十进制且在 1–2678400 秒内的 `Retry-After` 和 `low`/`high` 限流类型，异常、重复或更长等待值保持未知，不能截短为可提前重试的时间。GUI 只展示本地翻译与校验后的秒数，不显示或记录任意传输错误；请求失败不含文件 URL，响应错误正文、套餐信息和升级链接均不回显。每次 GET 仍仅发送一次，不自动重试；原重定向拒绝、SSRF 与 12 MiB 响应上限保留。本地合成验证不代表真实账号配额或导入质量验收。
 
 ### 6.5 DESIGN.md 互通（导入 / 导出）
 
@@ -623,7 +627,7 @@ PDF / PNG / 视频走「强路优先、客户端回退」两级（`design/render
   - **PDF** = `printToPDF`（矢量、文字可选可搜）
   - **PNG** = `captureScreenshot`（全保真，`backdrop-filter` / WebGL / 真实字体全捕获）
   - **视频 MP4** = 注入确定性时钟 harness → 逐帧 `__dsSeek` + 原生截图 → **ffmpeg** 编码 `libx264`
-- **客户端回退**：无浏览器后端 / 无 ffmpeg / 失败时前端自动降级——PNG/PDF 走 `html2canvas + jsPDF`，视频走 WebCodecs（`designVideo.ts`），始终可导出。
+- **客户端回退**：依赖探针明确未就绪时，前端弹出导出选择，让用户安装依赖或主动选择客户端方案；原生导出执行失败时再尝试客户端回退。PNG/PDF 走 `html2canvas + jsPDF`，视频走 WebCodecs（`designVideo.ts`）与现有 mp4-muxer；能力不可用时明确报错。SDK-11 的 Mediabunny 1.61.3 迁移保留在 `designVideoMediabunnyCandidate.ts`，仅由合成测试引用，不接生产导出图。候选逐帧等待编码/异步写入、完成封装后才返回 MP4，失败释放 encoder、输出任务和 iframe；两帧真实封装读回与失败清理已核，跨平台实际 H.264/播放验收通过后再决定切换。
 
 | 格式 | 强路 | 客户端回退 |
 | --- | --- | --- |
@@ -750,6 +754,7 @@ graph LR
 
 ### 12.7 确定性视觉回归与预览场景
 
+- 固定视口 runner 只支持一个 `default` 场景、根路由、空状态且无自定义视口。它不执行 `ds_scenario`，因此自定义路由、状态、场景身份、多场景或视口计划在打开浏览器和接受基线之前均返回 `visual_scenarios_incomplete`；GUI 明确显示视觉验证未完成，不能用默认页截图代替目标状态。预览场景编辑与手动切换仍可使用。捕获准备记录完整场景清单哈希，结果计算和基线写入前再次校验，期间任何清单变更都拒绝陈旧结果。完整场景×视口执行及可信状态到达证明仍待实现。
 - 固定视口为 `1440×900`、`768×1024`、`390×844`；真实浏览器逐视口截图，完成或失败都恢复原视口并关闭隔离页。`CdpBackend` 依赖全局活动目标，因此从读取原目标到关闭隔离页并恢复目标/视口的完整捕获流程必须持有浏览器进程级 CDP 操作锁，禁止与浏览器工具、实时帧或其他原生导出交错。
 - 只有 CDP 网络与页面操作留在异步 worker；产物/清单读取、PNG 解码、像素比较和基线持久化统一经 `run_blocking`，大图或慢磁盘不得占住聊天、WebSocket 与 HTTP 共用的运行时线程。
 - 截图按 BLAKE3 内容寻址存到 `quality/screenshots/{hash}.png`，`quality/manifest.json` 保存基线引用和接受时的产物哈希。接受基线是显式 owner 操作，并在写前校验 `expectedArtifactHash`；从持产物生命周期锁后的最终数据库身份与哈希复核开始，跨浏览器捕获一直持锁到截图和清单全部落盘，产物或项目删除不能让基线写入重建孤儿目录。

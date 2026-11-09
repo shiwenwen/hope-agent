@@ -105,6 +105,30 @@ pub(super) fn record_llm_web_search_usage(
     error: Option<String>,
     response_body: Option<&Value>,
 ) {
+    crate::model_usage::record_model_usage_best_effort(llm_web_search_usage_event(
+        ctx,
+        operation,
+        provider_id,
+        provider_name,
+        model_id,
+        duration_ms,
+        success,
+        error,
+        response_body,
+    ));
+}
+
+fn llm_web_search_usage_event(
+    ctx: &WebSearchUsageContext,
+    operation: &'static str,
+    provider_id: &'static str,
+    provider_name: &'static str,
+    model_id: &'static str,
+    duration_ms: u64,
+    success: bool,
+    error: Option<String>,
+    response_body: Option<&Value>,
+) -> crate::model_usage::ModelUsageEvent {
     let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_WEB_SEARCH);
     event.operation = Some(operation.to_string());
     event.source = Some("web_search".to_string());
@@ -138,7 +162,7 @@ pub(super) fn record_llm_web_search_usage(
             .and_then(|v| v.as_u64());
     }
 
-    crate::model_usage::record_model_usage_best_effort(event);
+    event
 }
 
 pub(crate) async fn tool_web_search(args: &Value, ctx: &ToolExecContext) -> Result<String> {
@@ -241,7 +265,7 @@ pub(crate) async fn tool_web_search(args: &Value, ctx: &ToolExecContext) -> Resu
             }
             WebSearchProvider::Kimi => {
                 let key = entry.api_key.as_deref().unwrap_or("");
-                kimi::search_kimi(key, query, count, timeout, &usage_ctx).await
+                kimi::search_kimi(key, query, count, &params, timeout, &usage_ctx).await
             }
             WebSearchProvider::Tavily => {
                 let key = entry.api_key.as_deref().unwrap_or("");
@@ -391,6 +415,12 @@ static WEB_SEARCH_CACHE: Lazy<TtlCache<String, String>> =
     Lazy::new(|| TtlCache::new(WEB_SEARCH_CACHE_MAX_ENTRIES));
 
 fn search_cache_key(provider: &str, query: &str, count: usize, params: &SearchParams) -> String {
+    // Never reuse model-generated Kimi summaries as Basic REST results.
+    let provider = if provider == "Kimi" {
+        "Kimi.Basic.v1"
+    } else {
+        provider
+    };
     format!(
         "{}:{}:{}:{}:{}:{}",
         provider,
@@ -419,6 +449,18 @@ fn write_search_cache(key: String, response: String, ttl_minutes: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kimi_basic_cache_cannot_reuse_legacy_model_summaries() {
+        assert_eq!(
+            search_cache_key("Kimi", " query ", 5, &SearchParams::default()),
+            "Kimi.Basic.v1:query:5:::"
+        );
+        assert_eq!(
+            search_cache_key("Brave", "query", 5, &SearchParams::default()),
+            "Brave:query:5:::"
+        );
+    }
 
     #[test]
     fn keyless_defaults_and_backfill_preserve_search_disabled_state() {

@@ -10,7 +10,7 @@ use super::types::*;
 
 fn should_probe_in_health_list(channel_id: &ChannelId, is_running: bool) -> bool {
     matches!(channel_id, ChannelId::Signal | ChannelId::WhatsApp)
-        || (is_running && matches!(channel_id, ChannelId::IMessage))
+        || (is_running && matches!(channel_id, ChannelId::IMessage | ChannelId::WeCom))
 }
 
 fn should_probe_account(
@@ -23,7 +23,7 @@ fn should_probe_account(
     }
     matches!(
         channel_id,
-        ChannelId::Signal | ChannelId::WhatsApp | ChannelId::IMessage
+        ChannelId::Signal | ChannelId::WhatsApp | ChannelId::IMessage | ChannelId::WeCom
     ) || !is_running
 }
 
@@ -250,9 +250,10 @@ impl ChannelRegistry {
         let Some(plugin) = self.get_plugin(&account.channel_id) else {
             return health;
         };
-        let cached_imessage = health.is_running && account.channel_id == ChannelId::IMessage;
+        let cached_runtime = health.is_running
+            && matches!(account.channel_id, ChannelId::IMessage | ChannelId::WeCom);
         let probe_result = tokio::time::timeout(std::time::Duration::from_secs(4), async {
-            if cached_imessage {
+            if cached_runtime {
                 plugin.probe_running_cached(&account).await
             } else {
                 plugin.probe(&account).await.map(Some)
@@ -260,7 +261,7 @@ impl ChannelRegistry {
         })
         .await;
         if let Ok(Ok(Some(probe))) = probe_result {
-            if cached_imessage {
+            if cached_runtime {
                 let current = self.health(account_id).await;
                 if !current.is_running {
                     return current;
@@ -271,7 +272,7 @@ impl ChannelRegistry {
             health.error = probe.error;
             health.last_probe = probe.last_probe;
             health.capability_snapshot = probe.capability_snapshot;
-        } else if cached_imessage {
+        } else if cached_runtime {
             // Stop may have removed the cached client after our worker read.
             return self.health(account_id).await;
         }

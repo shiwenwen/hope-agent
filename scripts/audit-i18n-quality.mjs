@@ -171,6 +171,7 @@ const ALLOW_SAME_KEYS = new Set([
   "settings.serverRemoteUrlPlaceholder",
   // Provider concept labels are translated; these values are exact vendor or
   // product names and therefore intentionally remain unchanged.
+  "provider_templates.unbiased.name",
   "provider_templates.anthropic-vertex.name",
   "provider_templates.fireworks.name",
   "provider_templates.arcee.name",

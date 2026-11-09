@@ -51,6 +51,8 @@ https://github.com/user-attachments/assets/e3370d21-2255-412f-aafb-1fc75f60330a
 
 ## 目录
 
+- [适合谁](#适合谁)
+- [一个任务，跨端继续](#一个任务跨端继续)
 - [核心能力](#核心能力)
 - [能力全景](#能力全景)
 - [快速开始](#快速开始)
@@ -66,6 +68,22 @@ https://github.com/user-attachments/assets/e3370d21-2255-412f-aafb-1fc75f60330a
 - [致谢](#致谢)
 - [Star History](#star-history)
 - [License](#license)
+
+## 适合谁
+
+- **独立开发者**：希望在一个桌面工作空间里讨论需求、查看仓库、编辑文件和运行检查，并通过工具权限与审批控制执行。
+- **重度资料与文档工作者**：希望在知识空间整理来源、跨会话召回有用上下文，并把简报要求变成可审阅的文稿或设计。
+- **NAS 与自托管用户**：希望维护一个常驻实例，通过浏览器或已配置的 IM 渠道访问，让定时任务与会话历史保存在该主机上。
+
+## 一个任务，跨端继续
+
+例如，在电脑上启动一份调研简报，出门后用手机补充要求，回到桌面再审阅草稿：
+
+1. **桌面开任务。** 新建会话，请 Hope Agent 根据你提供的来源整理简报。在同一实例上配置 IM 渠道，将该会话交接到你的 IM 聊天。
+2. **手机 IM 接续。** 在该聊天里补充要求或询问进度，绑定的会话保留原有历史；工具操作仍遵守该实例的权限与审批。
+3. **回桌面审阅。** 打开同一会话，查看回复和已生成的文件，再提出修改要求。
+
+主机需要保持运行并联网。这个案例使用同一个实例及其会话存储，独立安装的实例不会自动同步。配置远程访问后，也可通过浏览器连接同一实例，但必须启用鉴权，公网访问还需 HTTPS。详见[会话交接](docs/user-guide/10-IM渠道.md#104-会话接管与交接)与[远程部署](docs/deployment/docker.md)。
 
 ## 核心能力
 
@@ -350,7 +368,7 @@ pnpm tauri build       # 打生产包
 </tr>
 <tr>
   <td><b>💬 IM 渠道</b></td>
-  <td><b>10+ 个</b> · Telegram · Discord · Slack · 飞书 · Google Chat · LINE · QQ Bot · Signal · iMessage · IRC · WeChat · WhatsApp</td>
+  <td><b>10+ 个</b> · Telegram · Discord · Slack · 飞书 · Google Chat · LINE · QQ Bot · Signal · iMessage · IRC · WeChat · 企业微信（文本） · WhatsApp</td>
 </tr>
 <tr>
   <td><b>🌐 界面语言</b></td>

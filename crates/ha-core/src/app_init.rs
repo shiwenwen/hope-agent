@@ -591,7 +591,7 @@ pub fn init_runtime(role: &'static str) {
         // non-Message variants log-only so per-event work is < 1ms.
         let (mut registry, inbound_rx) = channel::ChannelRegistry::new(1024);
 
-        // 12 个内置插件的实现随 ha-channel 上浮，由它在 `wire()` 注册的
+        // 13 个内置插件的实现随 ha-channel 上浮，由它在 `wire()` 注册的
         // 装配槽装入——registry 本体与 `ChannelId` 键仍是 kernel 契约，
         // 故 `CHANNEL_REGISTRY` 全局与 `AppState` 字段一处未改。
         crate::channel_hooks::install_plugins(&mut registry);

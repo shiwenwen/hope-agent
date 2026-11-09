@@ -392,6 +392,8 @@ Agent 在两个时机自动提取记忆：
 - **Tier 3 压缩前**（`flush_before_compact`）：在 LLM 摘要压缩对话历史之前，先抢救有价值的记忆。
 - **阈值触发**：对话过程中，冷却时间已过且内容阈值满足时，在 assistant 最终消息落库后**后台调度**提取（不阻塞聊天流结束）。
 
+提取模型按 Agent 显式覆盖 → 全局 `modelOverride` → 兼容旧字段 → 当前对话模型解析；空闲提取的最后一级来自会话固定模型。压缩前提取在启动后台线程之前捕获所选 Provider / 模型，未覆盖时复用当前 Agent 的 Provider 快照；禁止按 Provider 或模型列表顺序选取。显式配置不可用时跳过提取，不能换用列表首项；无痕、学习与贡献门控仍由提取执行层裁决。
+
 触发采用**冷却 + 阈值双层**（自上次提取以来需同时满足）：
 
 - 冷却保护：`elapsed ≥ extract_time_threshold_secs`（默认 300s）。
@@ -745,6 +747,8 @@ Dreaming 的 claim 读路径 / effective-status / hidden-set / scope 过滤 / ev
 
 ## 十三、健康诊断与保守修复
 
+**加密备份兼容性**：`backup.rs` 使用 `aes` 0.9 / `cipher` 0.5 的定长 key/block API。`hope.memory.encrypted_bundle.v1` 继续采用 PBKDF2-HMAC-SHA256（210,000 次）派生独立加密与认证密钥，以 AES-256-CTR 的 128 位大端计数器加密，并用 HMAC-SHA256 认证元数据与密文；解密前先校验认证标签。依赖适配不改变封套、计数器递增或已有备份的解锁方式，普通单测以 NIST SP 800-38A 已知答案覆盖多块与非整块输入。
+
 面向用户本人的管理面通过 `memory_health` / `GET /api/memory/health` 读取只读诊断（**不自动修复、不进 agent 工具面**），覆盖：SQLite `PRAGMA quick_check`、待重嵌入数量、各 FTS（`memories_fts` / `memories_literal_fts` / `memory_claims_fts` / `memory_claims_literal_fts` / `memory_evidence_fts`）缺口、claim without evidence、orphan evidence / link、Dreaming stale run / lock，以及 Deep Resolver backlog。字面 shadow 缺行分别用 `memory_literal_fts_missing_rows` / `claim_literal_fts_missing_rows` 报告——它们可由对应 FTS repair 重建，**不改正文真相源**。有过期/冲突候选时只加 `info` issue，不把正常治理 backlog 误报为系统故障。
 
 `memory_repair` / `POST /api/memory/repair` 触发保守动作：
@@ -803,6 +807,12 @@ Dreaming 的 claim 读路径 / effective-status / hidden-set / scope 过滤 / ev
 Owner 面严格区分"如果执行会怎样"（`get_external_memory_providers_preflight` / preflight report，只读、不发外部 IO）与"实际发生了什么"（`run_external_memory_provider_sync` / sync report，逐 provider status + 是否真实 IO + 计数）；有未保存草稿时禁运行。
 
 ---
+
+### OpenViking 列表完整性
+
+拉取前先验证列表的原始节点数与顶层 `has_more`：`result` 必须为数组；`has_more=true`、非布尔标志、超过5000节点，或旧版缺少标志且恰好达到5000节点上限时，明确返回列表不完整错误。在该错误之后，本轮不读取内容、不推进远端版本，也不启动新的导出；此前已提交导出的终态对账仍按既有顺序执行。明确 `has_more=false` 且不超上限的列表，以及不足上限的旧版数组保持兼容。目录和隐藏条目也计入完整性边界，不能过滤后再判断。
+
+当前不按 offset 盲目续扫：变动列表的稳定排序与快照一致性尚未验证，不能把已同步前缀当作全量完成。单轮200个变更文件的内容读取预算保持不变，未读变更保留原版本供后续同步；大列表续扫仍需独立契约与夹具。测试只证明本地合成响应下的截断保护，不代表真实服务、版本矩阵或抽取质量验收。
 
 ### OpenViking 导出终态与不确定写入
 

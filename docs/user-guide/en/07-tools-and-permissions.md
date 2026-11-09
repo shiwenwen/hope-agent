@@ -49,6 +49,8 @@ The AI calls these tools **automatically** when needed; you usually don't trigge
 | Deferred tool loading | Recommended (on by default) | Defers a batch of low-frequency / large-schema tools by default, discovered on demand via tool_search (saves context) |
 | Max images / PDFs / vision pages | 10 / 5 / 10 | Per-call limits |
 
+PDF text extraction follows the actual pages and preserves blank pages. If the document cannot be parsed or a later page is damaged, extraction reports a failure instead of treating earlier pages as the complete document. Auto mode may still try visual reading, subject to the existing page limit and platform capabilities.
+
 ---
 
 ## 7.2 Three permission modes

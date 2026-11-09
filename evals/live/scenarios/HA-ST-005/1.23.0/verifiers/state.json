@@ -1,0 +1,30 @@
+{
+  "path": "/api/subagent/runs?sessionId={sessionId}",
+  "expectedByFaultProfile": {
+    "clean": {
+      "anyItemSubset": {
+        "status": "completed"
+      }
+    },
+    "chaos": {
+      "anyOf": [
+        {
+          "anyItemSubset": {
+            "status": "killed"
+          }
+        },
+        {
+          "anyItemSubset": {
+            "status": "interrupted",
+            "terminalReason": "session_paused"
+          }
+        }
+      ]
+    }
+  },
+  "expectedByOrchestrationProfile": {
+    "single_agent_compute_matched": {
+      "expectedExact": []
+    }
+  }
+}

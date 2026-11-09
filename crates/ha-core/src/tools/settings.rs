@@ -79,7 +79,7 @@ const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
     ("pet", "low"),
     ("local_llm_auto_maintenance", "low"),
     ("stt_language", "low"),
-    ("compact", "medium"),
+    ("compact", "medium"), // Includes the summary-only reasoning/output-cost policy.
     ("session_title", "medium"),
     ("memory_runtime", "medium"),
     ("memory_extract", "medium"),
@@ -240,6 +240,9 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         "knowledge_compile" => Some(
             "Changes the model chain used for future Knowledge source-to-note compile summaries. Existing review proposals are unchanged."
         ),
+        "compact" => Some(
+            "summaryReasoningEffort is null (keep the existing summary protocol policy) or none/minimal/low/medium/high/xhigh/max. It changes only future context-summary requests, never the main conversation or other one-shots. Unsupported provider/model efforts fail explicitly without increasing the output ceiling or replacing history."
+        ),
         "reasoning_effort" => Some(
             "Changes the global reasoning-effort default and refreshes the active runtime value immediately; per-session and per-agent overrides still take precedence."
         ),
@@ -267,7 +270,7 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              deployments. Has no effect on the Tauri desktop shell."
         ),
         "channels" => Some(
-            "Read-only via this tool. IM Channel accounts carry bot tokens (Telegram / WeChat / Feishu / QQ / Discord) and must be edited in Settings → Channels so the registry can drop and re-establish listeners under user supervision. The response from get_settings redacts credentials."
+            "Read-only via this tool. IM Channel accounts carry bot tokens (Telegram / WeChat / WeCom / Feishu / QQ / Discord) and must be edited in Settings → Channels so the registry can drop and re-establish listeners under user supervision. The response from get_settings redacts credentials."
         ),
         "smart_mode" => Some(
             "Affects every Smart-mode session: changing strategy / judgeModel / fallback alters which tool calls are auto-approved. JudgeModel-based strategies issue an extra side_query per approvable call (5s hard timeout, 60s TTL cache)."

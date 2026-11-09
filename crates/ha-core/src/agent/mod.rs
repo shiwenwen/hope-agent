@@ -34,6 +34,8 @@ mod side_query;
 mod side_query_stream;
 #[doc(hidden)]
 pub mod streaming_adapter;
+#[doc(hidden)]
+pub mod summary_fork;
 pub use streaming_adapter::ProviderDispatchUnknown;
 #[doc(hidden)]
 pub mod token_manifest;
@@ -465,6 +467,7 @@ impl AssistantAgent {
             plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
+            summary_fork_template: std::sync::Mutex::new(None),
             last_extraction_at: std::sync::Mutex::new(initial_last_extraction_at()),
             tokens_since_extraction: std::sync::atomic::AtomicU32::new(0),
             messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
@@ -549,6 +552,7 @@ impl AssistantAgent {
             plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
+            summary_fork_template: std::sync::Mutex::new(None),
             last_extraction_at: std::sync::Mutex::new(initial_last_extraction_at()),
             tokens_since_extraction: std::sync::atomic::AtomicU32::new(0),
             messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
@@ -770,6 +774,7 @@ impl AssistantAgent {
             plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
+            summary_fork_template: std::sync::Mutex::new(None),
             last_extraction_at: std::sync::Mutex::new(initial_last_extraction_at()),
             tokens_since_extraction: std::sync::atomic::AtomicU32::new(0),
             messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
@@ -1161,6 +1166,7 @@ impl AssistantAgent {
     /// Set the current session ID (for sub-agent context propagation).
     pub fn set_session_id(&mut self, id: &str) {
         if self.session_id.as_deref() != Some(id) {
+            self.clear_summary_fork_template();
             self.activated_tool_names
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())

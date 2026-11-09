@@ -2,12 +2,18 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
+import { TRANSPORT_EVENT_RESYNC_REQUIRED, type DirEntry } from "@/lib/transport"
 import ServerDirectoryBrowser from "./ServerDirectoryBrowser"
 
 const transportMock = vi.hoisted(() => ({
-  listServerDirectory:
-    vi.fn<(path?: string) => Promise<{ path: string; entries: never[]; truncated: boolean }>>(),
+  listServerDirectory: vi.fn<
+    (path?: string, directoriesOnly?: boolean) => Promise<{
+      path: string
+      parent?: string | null
+      entries: DirEntry[]
+      truncated: boolean
+    }>
+  >(),
   createDirectory:
     vi.fn<(path: string) => Promise<{ path: string; entries: never[]; truncated: boolean }>>(),
   call: vi.fn(),
@@ -52,6 +58,63 @@ afterEach(async () => {
 })
 
 describe("ServerDirectoryBrowser", () => {
+  it.each([false, true])(
+    "filters files only when directoriesOnly=%s, retaining folder navigation",
+    async (directoriesOnly) => {
+      transportMock.listServerDirectory.mockImplementation(async (path) => ({
+        path: path ?? "/home/hope",
+        parent: "/home/hope",
+        entries: [
+          ...(path === "/home/hope/project"
+            ? []
+            : [
+                {
+                  name: "project",
+                  path: "/home/hope/project",
+                  isDir: true,
+                  isSymlink: false,
+                  size: null,
+                  modifiedMs: null,
+                },
+              ]),
+          {
+            name: "notes.txt",
+            path: `${path ?? "/home/hope"}/notes.txt`,
+            isDir: false,
+            isSymlink: false,
+            size: 10,
+            modifiedMs: null,
+          },
+        ],
+        truncated: false,
+      }))
+      const onSelect = vi.fn()
+      render(
+        <ServerDirectoryBrowser
+          open
+          directoriesOnly={directoriesOnly}
+          onOpenChange={() => {}}
+          onSelect={onSelect}
+        />,
+      )
+
+      fireEvent.click(await screen.findByRole("button", { name: "project" }))
+      await screen.findByDisplayValue("/home/hope/project")
+      expect(Boolean(screen.queryByText("notes.txt"))).toBe(!directoriesOnly)
+      if (directoriesOnly) {
+        expect(screen.getByText("chat.workingDir.noSubdirectories")).toBeTruthy()
+        expect(screen.queryByText("chat.workingDir.empty")).toBeNull()
+      }
+      fireEvent.click(screen.getByRole("button", { name: "chat.workingDir.selectCurrent" }))
+      expect(onSelect).toHaveBeenCalledWith("/home/hope/project")
+      fireEvent.click(screen.getByRole("button", { name: "chat.workingDir.parent" }))
+      await screen.findByRole("button", { name: "project" })
+      expect(transportMock.listServerDirectory).toHaveBeenLastCalledWith(
+        ...(directoriesOnly ? ["/home/hope", true] : ["/home/hope"]),
+      )
+    },
+  )
+
   it("loads a manually typed path before selecting the current directory", async () => {
     transportMock.listServerDirectory.mockImplementation((path?: string) =>
       Promise.resolve({ path: path ?? "/", entries: [], truncated: false }),
