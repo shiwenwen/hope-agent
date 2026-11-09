@@ -19,6 +19,10 @@ struct SearchTemplate {
 fn templates() -> Vec<SearchTemplate> {
     vec![
         SearchTemplate {
+            provider: WebSearchProvider::Keyless,
+            label: "Free multi-engine search (free, no API key; limited reliability)",
+        },
+        SearchTemplate {
             provider: WebSearchProvider::DuckDuckGo,
             label: "DuckDuckGo (free, no API key)",
         },
@@ -60,7 +64,9 @@ fn templates() -> Vec<SearchTemplate> {
 pub fn run(step: u32, total: u32) -> Result<bool> {
     println_step(step, total, "Web search provider");
     println!("  Configure the provider used by the web_search tool.");
-    println!("  DuckDuckGo works without a key; API providers can be added now or later.");
+    println!(
+        "  Free multi-engine search and DuckDuckGo need no key; API providers can be added later."
+    );
     println!();
 
     let mut config = load_config()?.web_search;
@@ -118,7 +124,7 @@ fn take_provider(
 
 fn configure_entry(entry: &mut WebSearchProviderEntry) -> Result<bool> {
     match entry.id.clone() {
-        WebSearchProvider::DuckDuckGo => Ok(true),
+        WebSearchProvider::Keyless | WebSearchProvider::DuckDuckGo => Ok(true),
         WebSearchProvider::Searxng => {
             let default_url = entry
                 .base_url
@@ -167,4 +173,35 @@ fn prompt_api_key(entry: &mut WebSearchProviderEntry, label: &str) -> Result<boo
     }
     entry.api_key = Some(value);
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_search_provider_is_selectable_without_credentials() {
+        let mut config = WebSearchConfig::default();
+        let templates = templates();
+        let index = first_enabled_template_idx(&config, &templates)
+            .expect("the default search provider must be available in the wizard");
+        assert_eq!(templates[index].provider, WebSearchProvider::Keyless);
+        let mut entry = take_provider(&mut config, &templates[index].provider).unwrap();
+        assert!(configure_entry(&mut entry).unwrap());
+        assert!(entry.api_key.is_none());
+        assert!(entry.api_key2.is_none());
+        assert!(entry.base_url.is_none());
+    }
+
+    #[test]
+    fn existing_search_provider_remains_the_default_selection() {
+        let mut config = WebSearchConfig::default();
+        config
+            .providers
+            .retain(|entry| entry.id != WebSearchProvider::Keyless);
+        ha_core::tools::web_search::backfill_providers(&mut config);
+        let templates = templates();
+        let index = first_enabled_template_idx(&config, &templates).unwrap();
+        assert_eq!(templates[index].provider, WebSearchProvider::DuckDuckGo);
+    }
 }

@@ -414,6 +414,7 @@ flowchart LR
 正常完成只有一个 `commit_assistant_turn` 事务，依次完成 journal 物化、最终 assistant、legacy trailing placeholder 清理、完整 context、可选 `chat_turns` 终态、usage ledger、run/attempt 终态和 session 时间。任何 SQL 失败整体回滚，turn 不得伪装 completed。成功 `chat:stream_end` 只能在该事务提交后发送。
 
 停止/失败由 `commit_interrupted_turn` 原子收敛：只物化 checksum 正确且 seq 连续的最大前缀，写明确恢复/中断事件，并把 turn/run 标为 interrupted/failed/recovered。
+中断后的消息台账可用空文本 assistant 行承接已经产生的思考块；OpenAI Chat 请求历史投影会跳过没有文本和工具调用的 assistant 行，保留原始消息与思考块而不向 Provider 发送非法消息。
 
 ### 紧急 spool 与 Incognito
 
@@ -642,7 +643,7 @@ server-owned UI turn 运行期间注册 session-scoped `ReattachableUiSessionGua
 
 - **Anthropic**：`{role:assistant, content:[thinking, text, tool_use…]}`，thinking 不需要 signature；tool_use 必须有匹配 tool_result（自动补一条 `{role:user, content:[tool_result blocks]}`）。
 - **OpenAI Chat**：`{role:assistant, content, reasoning_content, tool_calls}`，缺失字段直接省略；tool_result 用独立 `{role:tool, tool_call_id, content}` 消息。
-- **OpenAI Responses / Codex**：`{type:message, role:assistant, content:[output_text]}` + 顶层 `{type:function_call …}` items。reasoning items 因缺 `encrypted_content`（runtime partial 拿不到），thinking 折叠进 `output_text` 文本；tool_result 用 `{type:function_call_output, call_id, output}` 顶层 item。
+- **OpenAI Responses / Codex**：`{type:message, role:assistant, content:[output_text]}` + 顶层 `{type:function_call …}` items。重建调用保留执行 `call_id`，缺少原始服务端条目标识时省略可选 `id`，不能用 `call_id` 代填；tool_result 用相同 `call_id` 配对的 `{type:function_call_output, call_id, output}` 顶层 item。reasoning items 因缺 `encrypted_content`（runtime partial 拿不到），thinking 折叠进 `output_text` 文本。
 
 partial blocks 在 `[系统事件]` marker 之前 push，所以模型读 history 时先看到结构化 partial，再看到"上面那段被中断了"的解释。
 
@@ -866,3 +867,9 @@ flowchart TB
 | `crates/ha-agent-runtime/src/vision_bridge.rs` | opt-in 视觉桥；只改 API messages 副本 |
 | `crates/ha-agent-runtime/src/one_shot.rs` | 一次性 Provider 网络执行，受 core port 注册约束 |
 | `crates/ha-channel/src/im_mirror.rs` | GUI/HTTP turn → IM live 流式镜像 |
+
+### 评测会话的正式回合绑定
+
+已注册 EvalRunContext 的生产来源回合（HTTP、ParentInjection 等）在 TurnKernel 接纳期经类型化异步 SessionDB 读取模型 pin。显式偏好与 pin 冲突、pin 缺失或模型不可用时接纳失败；已接纳链只保留该模型，不吸收 Agent/全局 fallback。普通会话和隔离 Eval 来源原有模型接纳边界保持有效。
+
+交互接纳的流冲突携带内核生成的未派发证明；HTTP 映射为 `409 chat_admission_busy`。证明只在 `stream_seq::begin` 拒绝竞争流、尚未写入用户消息及可见轮次时产生。普通 Provider/运行时错误即使包含相同文字也不产生此证明。专项脚本只重试这类未被接纳的用户动作，不重放失败或发送不确定的模型调用。

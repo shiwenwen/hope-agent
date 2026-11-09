@@ -1,0 +1,24 @@
+{
+  "scenarioId": "HA-CTX-002",
+  "synthetic": true,
+  "tool": "read",
+  "requiresExactResultDigestSequence": true,
+  "forbiddenTools": [
+    "exec",
+    "grep",
+    "find"
+  ],
+  "markers": [
+    "CTX-PAGE-01",
+    "CTX-PAGE-02",
+    "CTX-PAGE-03",
+    "CTX-PAGE-04",
+    "CTX-PAGE-05",
+    "CTX-PAGE-06",
+    "CTX-PAGE-07",
+    "CTX-PAGE-08",
+    "CTX-PAGE-09",
+    "CTX-PAGE-10",
+    "CTX-EOF-99"
+  ]
+}

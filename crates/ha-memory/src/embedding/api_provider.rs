@@ -194,7 +194,7 @@ impl ApiEmbeddingProvider {
         let client = std::thread::Builder::new()
             .name("embedding-client-build".into())
             .spawn(|| -> Result<reqwest::blocking::Client> {
-                ha_core::provider::apply_proxy_blocking(
+                ha_core::provider::apply_model_proxy_blocking(
                     reqwest::blocking::Client::builder()
                         .connect_timeout(std::time::Duration::from_secs(10))
                         .timeout(std::time::Duration::from_secs(30)),

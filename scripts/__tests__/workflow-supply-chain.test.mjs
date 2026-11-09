@@ -1,11 +1,12 @@
 import assert from "node:assert/strict"
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import test from "node:test"
-import { inspectWorkflow } from "../check-workflow-supply-chain.mjs"
+import { inspectWorkflow, inspectRcloneWorkflow, inspectRcloneInstaller } from "../check-workflow-supply-chain.mjs"
 
 const workflowWithSteps = (steps) => `jobs:\n  test:\n    steps:\n${steps}\n`
 
@@ -65,11 +66,83 @@ test("flow env and alternate secret syntax retain the credential boundary", () =
   ]) assert.equal(inspectWorkflow("update-linux-repo.yml", broken).length, 1)
 })
 
-test("rclone must have a pinned digest and verify it before extraction", () => {
-  const source = readFileSync(new URL("../../.github/workflows/mirror-release-r2.yml", import.meta.url), "utf8")
-  assert.deepEqual(inspectWorkflow("mirror-release-r2.yml", source), [])
-  for (const broken of [source.replace(/R2_RCLONE_SHA256: [a-f0-9]+/, "R2_RCLONE_SHA256: latest"), source.replace("sha256sum --check --status", "true")]) {
-    assert.ok(inspectWorkflow("mirror-release-r2.yml", broken).some((error) => error.includes("rclone SHA-256")))
+test("both release paths require the shared pinned installer", () => {
+  for (const name of ["mirror-release-r2.yml", "update-linux-repo.yml"]) {
+    const source = readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8")
+    assert.deepEqual(inspectRcloneWorkflow(name, source), [])
+    for (const broken of [source.replace("bash scripts/install-rclone.sh", "true"),
+      source.replace('>> "$GITHUB_PATH"', "> /dev/null"),
+      source.replace("sudo apt-get install -y -qq", "sudo apt-get install -y -qq rclone")]) {
+      assert.ok(inspectRcloneWorkflow(name, broken).length > 0)
+    }
+  }
+})
+
+test("rclone pins and verification order cannot silently disappear", () => {
+  const source = readFileSync(new URL("../install-rclone.sh", import.meta.url), "utf8")
+  assert.deepEqual(inspectRcloneInstaller(source), [])
+  for (const broken of [source.replace(/R2_RCLONE_SHA256=[a-f0-9]+/, "R2_RCLONE_SHA256=latest"),
+    source.replace(/R2_RCLONE_BYTES=\d+/, "R2_RCLONE_BYTES=0"),
+    source.replace("sha256sum -c - >/dev/null", "true"),
+    source.replace('flags_help="$("$binary" help flags)"', "flags_help=ignored")]) {
+    assert.ok(inspectRcloneInstaller(broken).length > 0)
+  }
+})
+
+test("rclone installer rejects corruption and failed smoke before replacing a binary", () => {
+  const source = readFileSync(new URL("../install-rclone.sh", import.meta.url), "utf8")
+  for (const scenario of ["valid", "truncated", "bad-digest", "wrong-version", "missing-flags", "failed-help"]) {
+    const root = mkdtempSync(path.join(os.tmpdir(), "hope-rclone-fixture-"))
+    try {
+      const executable = `#!/bin/sh
+echo called >> "$HA_FIXTURE_EXECUTED"
+case "$1" in
+  version) echo 'rclone ${scenario === "wrong-version" ? "v0.0.0" : "v1.75.2"}' ;;
+  help) ${scenario === "failed-help" ? "exit 1" : `echo '${scenario === "missing-flags" ? "--metadata-set --checksum --s3-no-check-bucket" : "--metadata --metadata-set --checksum --s3-no-check-bucket"}'`} ;;
+esac
+`
+      const archive = path.join(root, "fixture.zip")
+      const zip = spawnSync("python3", ["-c", "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],'w'); z.writestr('rclone-v1.75.2-linux-amd64/rclone',sys.argv[2]); z.close()", archive, executable], { encoding: "utf8" })
+      assert.equal(zip.status, 0, zip.stderr)
+      const bytes = readFileSync(archive)
+      const digest = createHash("sha256").update(bytes).digest("hex")
+      if (scenario === "truncated") writeFileSync(archive, bytes.subarray(0, -1))
+      if (scenario === "bad-digest") {
+        bytes[40] ^= 1
+        writeFileSync(archive, bytes)
+      }
+      const script = path.join(root, "install.sh")
+      writeFileSync(script, source.replace(/^R2_RCLONE_SHA256=.+$/m, `R2_RCLONE_SHA256=${digest}`)
+        .replace(/^R2_RCLONE_BYTES=.+$/m, `R2_RCLONE_BYTES=${bytes.length}`))
+      const curl = path.join(root, "curl")
+      writeFileSync(curl, `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.copyFileSync(process.env.HA_FIXTURE_ARCHIVE, args[args.indexOf('-o') + 1]);
+`, { mode: 0o755 })
+      // No production network, keys, data or installation directory.
+      const destination = path.join(root, "bin")
+      const setup = spawnSync("mkdir", [destination])
+      assert.equal(setup.status, 0)
+      writeFileSync(path.join(destination, "rclone"), "previous executable")
+      const marker = path.join(root, "executed")
+      const result = spawnSync("bash", [script, destination], {
+        env: { PATH: `${root}:${process.env.PATH}`, HA_FIXTURE_ARCHIVE: archive, HA_FIXTURE_EXECUTED: marker },
+        encoding: "utf8",
+      })
+      if (scenario === "valid") {
+        assert.equal(result.status, 0, result.stderr)
+        assert.equal(readFileSync(path.join(destination, "rclone"), "utf8"), executable)
+      } else {
+        assert.notEqual(result.status, 0, scenario)
+        assert.equal(readFileSync(path.join(destination, "rclone"), "utf8"), "previous executable", scenario)
+      }
+      if (["truncated", "bad-digest"].includes(scenario)) {
+        assert.ok(!readdirSync(root).includes("executed"), "unverified binary executed")
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   }
 })
 
