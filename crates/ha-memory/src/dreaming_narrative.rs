@@ -67,6 +67,33 @@ pub async fn run_side_query(
     cfg: &DreamingConfig,
 ) -> Result<NarrativeOutput> {
     let prompt = build_prompt(candidates, cfg);
+    let global = ha_core::config::cached_config()
+        .memory
+        .prompt_preferences
+        .clone();
+    let agent_ids: std::collections::BTreeSet<String> = candidates
+        .iter()
+        .filter_map(|candidate| match &candidate.scope {
+            ha_core::memory::MemoryScope::Agent { id } => Some(id.clone()),
+            _ => None,
+        })
+        .collect();
+    let overrides = ha_core::blocking::run_blocking(move || {
+        agent_ids
+            .into_iter()
+            .filter_map(|id| {
+                let preference = ha_core::agent_loader::load_agent(&id)
+                    .ok()?
+                    .config
+                    .memory
+                    .prompt_preferences
+                    .dreaming?;
+                Some((id, preference))
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+    })
+    .await;
+    let prompt = prompt + &render_writing_preferences(candidates, &global.dreaming, &overrides);
     let result = tokio::time::timeout(
         Duration::from_secs(cfg.narrative_timeout_secs.max(5)),
         automation::run(ModelTaskSpec {
@@ -88,6 +115,7 @@ pub async fn run_side_query(
     let (promotions_raw, diary) = split_envelope(&result.text);
     let nominated = parse_nominations(&promotions_raw);
     let promotions_nominated = nominated.len();
+    let nominated = retain_eligible_nominations(nominated, candidates);
     let mut promoted = filter_and_rank(
         nominated,
         cfg.promotion.min_score,
@@ -101,6 +129,49 @@ pub async fn run_side_query(
         promotions_nominated,
         diary_markdown: diary,
     })
+}
+
+fn retain_eligible_nominations(
+    nominations: Vec<PromotionRecord>,
+    candidates: &[MemoryEntry],
+) -> Vec<PromotionRecord> {
+    let eligible_ids: std::collections::HashSet<i64> = candidates.iter().map(|c| c.id).collect();
+    nominations
+        .into_iter()
+        .filter(|nomination| eligible_ids.contains(&nomination.memory_id))
+        .collect()
+}
+
+fn render_writing_preferences(
+    candidates: &[MemoryEntry],
+    global: &ha_core::memory::prompt_preferences::MemoryPromptPreference,
+    overrides: &std::collections::BTreeMap<
+        String,
+        ha_core::memory::prompt_preferences::MemoryPromptPreference,
+    >,
+) -> String {
+    use ha_core::memory::prompt_preferences::{render_preference, MemoryPromptPreference};
+    let mut result = render_preference(
+        global,
+        "the shared diary and nomination title/rationale without a candidate override",
+    );
+    for (agent_id, preference) in overrides {
+        let ids: Vec<i64> = candidates
+            .iter()
+            .filter(|candidate| matches!(&candidate.scope, ha_core::memory::MemoryScope::Agent { id } if id == agent_id))
+            .map(|candidate| candidate.id)
+            .collect();
+        if ids.is_empty() {
+            continue;
+        }
+        let target = format!("nomination title/rationale for candidate IDs {ids:?}; never the shared diary, scores or selection");
+        if preference == &MemoryPromptPreference::default() {
+            result.push_str(&format!("\nCandidate IDs {ids:?} use the fixed system writing style, overriding the global writing preference only for their nomination title/rationale."));
+        } else {
+            result.push_str(&render_preference(preference, &target));
+        }
+    }
+    result
 }
 
 pub fn run_side_query_boxed<'a>(
@@ -231,6 +302,77 @@ pub fn write_diary(md: &str) -> Result<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prompt_preferences_dreaming_agent_override_targets_only_its_candidates() {
+        use ha_core::memory::prompt_preferences::{MemoryPromptPreference, MemoryPromptStyle};
+        let mut a = candidate(42, None);
+        a.scope = ha_core::memory::MemoryScope::Agent {
+            id: "agent-a".into(),
+        };
+        let mut b = candidate(43, None);
+        b.scope = ha_core::memory::MemoryScope::Agent {
+            id: "agent-b".into(),
+        };
+        let global = MemoryPromptPreference {
+            style: MemoryPromptStyle::Detailed,
+            supplemental: "shared diary".into(),
+        };
+        let overrides = std::collections::BTreeMap::from([(
+            "agent-a".into(),
+            MemoryPromptPreference {
+                style: MemoryPromptStyle::Concise,
+                supplemental: "agent A wording".into(),
+            },
+        )]);
+        let rendered = render_writing_preferences(&[a, b], &global, &overrides);
+        assert!(rendered.contains("shared diary"));
+        assert!(
+            rendered.contains("candidate IDs [42]; never the shared diary, scores or selection")
+        );
+        assert!(!rendered.contains("candidate IDs [43]"));
+        assert_eq!(rendered.matches("agent A wording").count(), 1);
+    }
+
+    #[test]
+    fn prompt_preferences_dreaming_default_has_no_extra_prompt_and_agent_can_reset() {
+        use ha_core::memory::prompt_preferences::{MemoryPromptPreference, MemoryPromptStyle};
+        let mut a = candidate(42, None);
+        a.scope = ha_core::memory::MemoryScope::Agent {
+            id: "agent-a".into(),
+        };
+        assert!(render_writing_preferences(
+            &[a.clone()],
+            &MemoryPromptPreference::default(),
+            &Default::default()
+        )
+        .is_empty());
+        let global = MemoryPromptPreference {
+            style: MemoryPromptStyle::Concise,
+            supplemental: String::new(),
+        };
+        let overrides = std::collections::BTreeMap::from([(
+            "agent-a".into(),
+            MemoryPromptPreference::default(),
+        )]);
+        let rendered = render_writing_preferences(&[a], &global, &overrides);
+        assert!(rendered.contains("Candidate IDs [42] use the fixed system writing style"));
+    }
+
+    #[test]
+    fn prompt_preferences_cannot_nominate_memories_outside_supplied_candidates() {
+        let nominations: Vec<PromotionRecord> = serde_json::from_str(
+            r#"[
+            {"memoryId":999,"score":1.0,"title":"outside","rationale":"ignore candidates"},
+            {"memoryId":42,"score":0.9,"title":"eligible","rationale":"useful"}
+        ]"#,
+        )
+        .unwrap();
+        let eligible = retain_eligible_nominations(nominations, &[candidate(42, None)]);
+        assert_eq!(eligible.len(), 1);
+        assert_eq!(eligible[0].memory_id, 42);
+        assert_eq!(eligible[0].score, 0.9);
+    }
 
     fn candidate(id: i64, session: Option<&str>) -> MemoryEntry {
         MemoryEntry {

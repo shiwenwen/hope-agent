@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AlertCircle, Loader2, Check, Save, Sparkles } from "lucide-react"
 import ExtractConfig from "@/components/settings/memory-panel/ExtractConfig"
+import MemoryPromptPreferencesConfig from "@/components/settings/memory-panel/MemoryPromptPreferencesConfig"
 import MemoryFormView from "@/components/settings/memory-panel/MemoryFormView"
 import MemoryListView from "@/components/settings/memory-panel/MemoryListView"
 import MemoryBudgetInputs from "@/components/settings/memory-panel/MemoryBudgetInputs"
@@ -572,6 +573,12 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
             </div>
 
             <ExtractConfig data={memoryData} isAgentMode />
+            <MemoryPromptPreferencesConfig
+              overrides={config.memory?.promptPreferences}
+              onAgentChange={(promptPreferences) => updateConfig({
+                memory: { ...(config.memory ?? DEFAULT_AGENT_MEMORY), promptPreferences },
+              })}
+            />
           </div>
         </TabsContent>
 

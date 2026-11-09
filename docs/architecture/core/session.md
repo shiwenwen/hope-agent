@@ -397,6 +397,8 @@ CREATE TABLE acp_runs (
 
 **`delete_session` 清理协议**：
 
+隔离模型评测在调用删除协议前，先使用正常内核 Stop 停止该 trial 的会话和后台工作，并等待评测 trace 闭合。停止或收敛失败时保留会话，不让在途模型流写入已删除的 Session；这项评测前置处理不改变普通用户删除的生命周期事件契约。
+
 ```mermaid
 flowchart LR
     D["delete_session(id)"] --> C0["若 id 是主会话<br/>同事务删除其全部侧聊"]

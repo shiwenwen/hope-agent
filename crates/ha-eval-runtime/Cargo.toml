@@ -1,6 +1,6 @@
 [package]
 name = "ha-eval-runtime"
-version = "0.57.0"
+version = "0.72.0"
 description = "Hope Agent evaluation runtime — coding eval fixture runner, evaluation orchestration store, context retrieval ranking"
 license.workspace = true
 authors.workspace = true
@@ -34,6 +34,8 @@ zip = "7"
 
 [dev-dependencies]
 ha-core = { path = "../ha-core", features = ["test-support"] }
+ha-agent-runtime = { path = "../ha-agent-runtime" }
+ha-workflow = { path = "../ha-workflow" }
 # 只在 `#[cfg(test)]` 里用（coding_eval 的 provider 解析冒烟测试起本地 mock server）。
 wiremock = "0.6"
 

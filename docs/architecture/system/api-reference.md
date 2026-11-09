@@ -568,6 +568,10 @@ KB 文件预览端点**仅面向用户本人，无 session 参数、无 owner fa
 
 `set_session_model` 接受 `{ providerId, modelId }`，把模型固定到当前会话（写 `sessions.provider_id` / `provider_name` / `model_id`），不写 `AppConfig.active_model`——v0.2.1 起这是「会话内切模型」的唯一合法入口。`get_active_model` / `POST /api/models/active` 仍然存在，但**只该被 Settings 「模型」面板 / onboarding wizard / 本地 LLM 安装路径**调用，用来修改应用全局默认；任何 chat 内或 IM 内的"切模型"语义都必须落到 session 级。TurnKernel admission 解析优先级 `plan_model > 本轮 model_override > sessions.provider_id > agent.model.primary > AppConfig.active_model`（详见 [`provider-system.md` § 7.2](../core/provider-system.md#72-模型链解析)），并在同一份配置快照内冻结 provider lease。写入后 emit `session:model_updated`，桌面 GUI 仅在 `sessionId == currentSessionId` 时同步 ModelPicker。
 
+隔离真实模型评测中，`POST /api/chat` 同时携带已注册 `evalContext` 和 `modelOverride` 时，通过内核会话模型服务固定合成会话的模型，供后续手动压缩和隐式子 Agent 继承；此分支只在 `HA_MODEL_EVAL_MODE=1` 接受。普通请求中的 `modelOverride` 保持本轮覆盖语义。
+
+隔离评测专用的 owner 鉴权接口 `GET /api/eval/model/trials/{trialId}` 返回脱敏遥测，`pendingWork` 表示尚未交付的通知排队工作，计入 trace 未收尾数量但不计入运行并发；`POST .../finish` 关闭 root 供判分；`POST .../cleanup` 先调用内核 Stop 并等待 trace 闭合，再删除合成会话。停止失败或 20 秒内未收敛时返回错误并保留会话，由 Harness 保留实际用量和清理诊断。普通 Server 模式固定拒绝这些接口，它们不扩展远程评测启动或审批权限。
+
 `get_execution_mode` / `set_execution_mode` 是会话级执行模式入口，对应 `/mode off|guarded|deep|autonomous` 与 Workspace/Workflow 面板中的 Execution Mode 控件，写 `sessions.execution_mode`。该值会在下一轮以 trusted run instruction 提供给模型，控制长任务的观察、计划、验证、修复和停止策略，但不改变稳定 system 前缀；它不是 `/loop`，也不负责定时、重复触发或条件轮询。
 
 ### Managed Worktrees
@@ -657,7 +661,7 @@ Smart Verification owner API 管理 durable 验证 run：`plan_smart_verificatio
 | `run_domain_quality` | `POST /api/domain-quality-runs/run` | ✅ |
 | `get_domain_quality_run` | `GET /api/domain-quality-runs/{runId}` | ✅ |
 
-Domain Quality owner API 管理 durable 非编码复查 / 验证 run：`run_domain_quality` 基于 Domain Workflow template、domain evidence 和 approval gates 同步生成 `domain_quality_runs/checks/events` 并回写 Goal evidence，可显式带 `templateId/templateVersion` 或 `domain`；高风险动作命中 approval gate 或 `highRiskAction=true` 时要求 `explicitUserApproval`，缺失则进入 `needs_user` 阻塞 Goal；无痕会话拒绝持久化。完整契约见 [Domain Quality 控制平面](../agent/domain-quality.md)。
+Domain Quality owner API 管理 durable 非编码复查 / 验证 run：`run_domain_quality` 基于 Domain Workflow template、domain evidence 和 approval gates 同步生成 `domain_quality_runs/checks/events` 并回写 Goal evidence，可显式带 `templateId/templateVersion` 或 `domain`；高风险动作命中 approval gate 或 `highRiskAction=true` 时要求 `explicitUserApproval`，缺失则进入 `needs_user` 阻塞 Goal；无痕会话拒绝持久化。返回的 run 可包含只读 `goalRevision`，由服务端在创建时捕获，调用输入不能指定或覆盖。完整契约见 [Domain Quality 控制平面](../agent/domain-quality.md)。
 
 ### Domain Eval / Quality Gate
 
@@ -836,6 +840,8 @@ Loop owner API 管理 session-scoped 重复触发器：`create_loop_schedule` �
 | `update_task_status` | `PATCH /api/tasks/{id}/status` | ✅ TaskProgressPanel 用户控件 |
 | `delete_task` | `DELETE /api/tasks/{id}` | ✅ TaskProgressPanel 用户控件 |
 
+交互轮次接纳时若已有会话流，HTTP 返回 `409` 和 `code: "chat_admission_busy"`。此代码仅由持久化用户消息和轮次、模型派发之前的类型化流冲突生成，不从错误文字推断。调用方可先观察 `stream-state` 再重新请求接纳；其他失败不具备该未派发证明。
+
 `get_session_stream_state` 和 `chat:stream_end` 的 `interruptReason` 共用 `ChatTurnInterruptReason`。其中 `provider_blocked`、`request_contract`、`retry_deferred` 分别表示服务商明确阻断、请求契约拒绝和服务端最短等待超出恢复预算；这三类原因独立于 `error` 文本持久化，客户端不得从错误消息重新推断。
 
 `chat` 的可选 `clientRequestId` 是前端生成的不透明请求 id。Bundled HTTP UI 把它和 payload
@@ -847,6 +853,8 @@ Loop owner API 管理 session-scoped 重复触发器：`create_loop_schedule` �
 `{ sessionId, turnId?, clientRequestId? }`：`turnId` 尚未发布时由 `clientRequestId`
 封住 active-turn 注册前的竞态，已有 `turnId` 后以精确 turn 为准；session 与 request
 绑定不一致时不得跨会话取消。`sessionId` 与 `clientRequestId` 都缺失才表示全局停止。
+
+隔离评测中的 owner 会话 Stop 仍调用此生产入口；只有实际 stopped、无 turnMismatch、已注册根会话及匹配的取消故障才记录无载荷用户事件。普通运行、子会话、全局 Stop 与评测清理不会由此制造取消证据。
 
 三种入口在定位 session 后共用 core Stop 编排：先同步发出 cancel/`cancelling`/watchdog，再以
 有界等待并行收敛 DB、审批、`ask_user` 与 session-owned runtime；响应超时不取消已经启动的
@@ -929,6 +937,7 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | `delete_provider` | `DELETE /api/providers/{providerId}` | ✅ |
 | `reorder_providers` | `POST /api/providers/reorder` | ✅ |
 | `test_provider` | `POST /api/providers/test` | ✅ |
+| `discover_provider_models` | `POST /api/providers/discover-models` | ✅；已鉴权，接收 ProviderConfig 草稿，返回 `{ models: [{ id, name }], truncated }`；只读列表、不调用推理或保存配置 |
 | `test_model` | `POST /api/providers/test-model` | ✅ |
 | `test_proxy` | `POST /api/config/proxy/test` | ✅ |
 | `has_providers` | `GET /api/providers/has-any` | ✅ |
@@ -1241,7 +1250,7 @@ Agent 执行准入采用两层 guard：Desktop / HTTP 的 transport admission �
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
 | `get_compact_config` | `GET /api/config/compact` | ✅ |
-| `save_compact_config` | `PUT /api/config/compact` | ✅ |
+| `save_compact_config` | `PUT /api/config/compact` | ✅（`config.summaryReasoningEffort`: `null` 或 `none/minimal/low/medium/high/xhigh/max`；同一字段经 `get_settings/update_settings` 的 `compact` 中风险类别读写） |
 | `get_hooks_config` | `GET /api/config/hooks` | ✅ |
 | `save_hooks_config` | `PUT /api/config/hooks` | ✅ |
 | `get_session_title_config` | `GET /api/config/session-title` | ✅ |
@@ -1655,6 +1664,8 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 
 ### Channels (IM)
 
+`channelId: "wecom"` 复用既有受鉴权双适配账号/校验接口；owner 凭据为 `{ botId, secret }`，模型 `ha-settings` 的 `channels` 仍只读且脱敏。插件列表声明仅 DM/Group 最终文本。健康接口读取连接缓存；校验同凭据健康账号不重复连接。无原消息锚点的 test-message/主动推送不支持；账号安全地址为 `single:<userid>` / `group:<chatid>`，详情见 [企业微信首版](../integration/im-channel.md#企业微信智能机器人文本首版)。
+
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
 | `channel_list_plugins` | `GET /api/channel/plugins` | ✅ |
@@ -1700,6 +1711,8 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 Team 生命周期 HTTP 响应保持原有 `status` 字段并追加可观测结果：pause 为 `status="paused"`，dissolve 为 `status="dissolved"`；两者的 `cancellation` 会区分 `requestedCount`、`terminalCount`、`pendingCount` 与逐 run 状态，取消请求获接受不等于 run 已终止。成员启动走 durable prepare → roster attach → roster-aware launch CAS；pause/dissolve 先提交时不会 fire `SubagentStart` 或启动模型，排队项也保留同一 Team fence。resume 仅在所有被引用的旧成员 run 已终态（或成员 `run_id=NULL`）时启动 fresh attempt；任一旧 run 仍 `queued|spawning|running` 时整队保持 Paused、零 spawn，返回 `status="paused", disposition="refused", retryable=true` 及 `failures[].reason="old_attempt_still_active"`。非空 run_id 对应记录缺失时同样 fail-closed，reason 为 `old_attempt_unknown`、oldAttemptStatus 为 `missing_run_record`。若旧 run 在 pause 提交后的取消竞态中变成 Completed，resume 会把成员惰性对齐为 Completed 并排除重跑；对齐后仅当 roster 非空且全员 Completed 时返回 `status="already_complete", teamStatus="paused", disposition="no_op"`，带完整且重试稳定的 `completedDuringPauseCount/completedMembers`，可发幂等 `member_status=completed`，但不发 `resumed`、不 spawn。兼容字段名 `completedDuringPauseCount` 在该 no-op 中等于 `completedMembers.length`，表示本次 resume 已完成并被跳过的完整 roster 数（含 pause 前已完成成员），不是本次新对齐增量；刷新或重复调用保持同一 no-op。空 roster 或含任意非 Completed 成员的混合 roster 不得归入该结果。通过 gate 后，全成功为 `status="resumed", teamStatus="active", disposition="resumed"`；启动部分成功为 `status="partially_resumed", teamStatus="active", disposition="partial"` 并带 `resumedMembers/failures`；未启动任何成员时为 `status="paused"|"refused", disposition="refused"`。Tauri `resume_team` 与 HTTP 返回同一份结构化 `ResumeTeamResult`；`resumed/partial/refused/no_op` 都是成功传输的领域结果，UI 必须读取 `disposition` 与 durable `teamStatus`，只有传输或系统错误才返回 `CmdError`。`team_event` 仍负责刷新已经发生的 durable 状态变化。
 
 ### Weather / URL preview / Embedded browser
+
+`geocode_search` 的位置结果保持 `country: string`；Open-Meteo 省略国家名时返回空字符串，仍保留位置、国家码及其他已提供字段。
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
@@ -1848,7 +1861,7 @@ Team 生命周期 HTTP 响应保持原有 `status` 字段并追加可观测结�
 | `fs_list_dir` | `GET /api/filesystem/list-dir?path=<abs>` | ✅ |
 | `fs_search_files` | `GET /api/filesystem/search-files?root=<abs>&q=<query>&limit=50` | ✅；path-aware fuzzy（精确 / 前缀 / 多 token / 路径分段 / 驼峰词感知，subsequence 兜底） |
 
-`list-dir` 列出服务器本地目录单层条目，供 HTTP 模式目录浏览器驱动 `set_session_working_dir`，以及聊天输入框 `@` mention popper 的"路径模式"。参数要求绝对路径，后端会 canonicalize 并校验 `is_dir`；无 `path` 参数时返回平台默认根（Unix: `/`，Windows: `USERPROFILE`）。响应 `{ path, parent, entries: [{ name, isDir, isSymlink, size, modifiedMs }], truncated }`，按目录优先 + 名字升序排序，单次最多 5000 条（超出 `truncated=true`）。
+`list-dir` 列出服务器本地目录单层条目，供 HTTP 模式目录浏览器驱动 `set_session_working_dir`，以及聊天输入框 `@` mention popper 的"路径模式"。参数要求绝对路径，后端会 canonicalize 并校验 `is_dir`；无 `path` 参数时返回平台默认根（Unix: `/`，Windows: `USERPROFILE`）。可选 `directoriesOnly=true`（Tauri 同名参数）先过滤普通文件，再对目录应用 5000 条上限；省略或 false 保持完整条目语义。响应 `{ path, parent, entries: [{ name, isDir, isSymlink, size, modifiedMs }], truncated }`，按目录优先 + 名字升序排序，单次最多 5000 条（超出 `truncated=true`）。
 
 `search-files` 在 `root` 下做 fuzzy 搜索，供聊天输入框 `@` mention popper 的"搜索模式"使用——用户输入 `@chat` 这种不含 `/` 的非空 token 时调用。后端用 `ignore::WalkBuilder` 遍历，遵守 `.gitignore` / `.git/info/exclude` / `.ignore` / 隐藏文件规则；`q` 按子序列匹配 + 评分（name 命中 +1000、path 命中 +200，靠近开头 + 跨度紧凑得分高）。响应 `{ root, matches: [{ name, path, relPath, isDir, score }], truncated }`，按 score desc + path asc 排序；`limit` 默认 50，最大 200；单次最多遍历 50000 条文件，超出 `truncated=true`。
 

@@ -64,13 +64,16 @@ vi.mock("./TemplateConfig", () => ({
 vi.mock("./CustomWizard", () => ({
   CustomWizard: ({
     setModels,
+    setAllowPrivateNetwork,
     onSave,
   }: {
     setModels: (models: ModelConfig[]) => void
+    setAllowPrivateNetwork: (allowed: boolean) => void
     onSave: () => void
   }) => (
     <>
       <button onClick={() => setModels([model])}>add model</button>
+      <button onClick={() => setAllowPrivateNetwork(true)}>allow private network</button>
       <button onClick={onSave}>save</button>
     </>
   ),
@@ -101,7 +104,9 @@ test.each(["template", "custom"])(
     await waitFor(() => expect(onComplete).toHaveBeenCalledOnce())
     expect(transportMock.call).toHaveBeenCalledWith(
       "add_provider",
-      expect.objectContaining({ config: expect.objectContaining({ models: [model] }) }),
+      expect.objectContaining({
+        config: expect.objectContaining({ models: [model], allowPrivateNetwork: false }),
+      }),
     )
     expect(
       transportMock.call.mock.calls.filter(([command]) => command === "set_active_model"),
@@ -113,3 +118,16 @@ test.each(["template", "custom"])(
     ).toHaveLength(1)
   },
 )
+
+test("custom setup persists explicit private-network consent with the provider", async () => {
+  const onComplete = vi.fn()
+  render(<ProviderSetup onComplete={onComplete} onCodexAuth={vi.fn()} />)
+  fireEvent.click(screen.getByRole("button", { name: "custom" }))
+  fireEvent.click(screen.getByRole("button", { name: "add model" }))
+  fireEvent.click(screen.getByRole("button", { name: "allow private network" }))
+  fireEvent.click(screen.getByRole("button", { name: "save" }))
+  await waitFor(() => expect(onComplete).toHaveBeenCalledOnce())
+  expect(transportMock.call).toHaveBeenCalledWith("add_provider", {
+    config: expect.objectContaining({ allowPrivateNetwork: true, models: [model] }),
+  })
+})

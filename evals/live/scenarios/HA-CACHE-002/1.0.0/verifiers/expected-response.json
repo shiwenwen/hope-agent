@@ -1,0 +1,10 @@
+{
+  "project": "ORCHID-7421",
+  "entry": "/workspace/synthetic/海风/入口.rs",
+  "rule": "send_unknown 不得自动重试",
+  "revision": "R2",
+  "markerA": "ALPHA-37",
+  "markerB": "BETA-83",
+  "markerC": "GAMMA-19",
+  "archiveKey": "ARCHIVE-91"
+}

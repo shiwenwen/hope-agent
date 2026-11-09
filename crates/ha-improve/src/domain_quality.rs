@@ -63,6 +63,15 @@ pub fn resolve_quality_context(
         None => db.active_goal_id_for_session(&session_id)?,
     };
 
+    let goal_revision = goal_id
+        .as_deref()
+        .map(|id| {
+            db.get_goal(id)?
+                .map(|goal| goal.revision)
+                .ok_or_else(|| anyhow!("goal not found: {id}"))
+        })
+        .transpose()?;
+
     let template = resolve_domain_quality_template(db, &input, &session_id, goal_id.as_deref())?;
     let domain = template.domain.clone();
     let evidence = db.list_domain_evidence(ListDomainEvidenceInput {
@@ -78,6 +87,7 @@ pub fn resolve_quality_context(
     Ok(QualityContext {
         session_id,
         goal_id,
+        goal_revision,
         domain,
         template,
         evidence,
@@ -1042,6 +1052,202 @@ mod tests {
         assert!(goal.evidence.iter().any(|item| {
             item.relation == "domain_quality_blocked" || item.relation == "domain_quality_check"
         }));
+    }
+
+    #[test]
+    fn domain_quality_after_owner_revision_can_resolve_prior_checks() {
+        let (_dir, db) = test_db();
+        let session = db.create_session("ha-main").unwrap();
+        let goal = db
+            .create_goal(CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "research quality".into(),
+                completion_criteria: "quality review passes".into(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .unwrap();
+        db.update_goal(ha_core::goal::UpdateGoalInput {
+            goal_id: goal.goal.id.clone(),
+            objective: Some("revised research quality".into()),
+            completion_criteria: None,
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
+        })
+        .unwrap();
+        let input = RunDomainQualityInput {
+            session_id: session.id.clone(),
+            goal_id: Some(goal.goal.id.clone()),
+            domain: Some("research".into()),
+            ..Default::default()
+        };
+        let failed = run_domain_quality_for_session(&db, input.clone()).unwrap();
+        assert_eq!(failed.run.state, DomainQualityRunState::Blocked);
+        let blocked = db.evaluate_goal(&goal.goal.id).unwrap();
+        assert!(!blocked.goal.final_evidence["blockers"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        let context = resolve_quality_context(&db, input).unwrap();
+        let passed = db.create_domain_quality_run(&context).unwrap();
+        db.complete_domain_quality_run(
+            &passed.id,
+            DomainQualityRunState::Completed,
+            "quality checks passed",
+            json!({}),
+            Vec::new(),
+        )
+        .unwrap();
+        let clean = db.evaluate_goal(&goal.goal.id).unwrap();
+        assert!(
+            clean.goal.final_evidence["blockers"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "later same-revision quality pass must resolve earlier quality blockers"
+        );
+        db.update_goal(ha_core::goal::UpdateGoalInput {
+            goal_id: goal.goal.id.clone(),
+            objective: Some("third owner contract".into()),
+            completion_criteria: None,
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
+        })
+        .unwrap();
+        let next = db.evaluate_goal(&goal.goal.id).unwrap();
+        assert!(
+            next.goal.final_evidence["blockers"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "a resolved revision2 quality failure must not revive at revision3"
+        );
+        assert_ne!(
+            next.goal.state,
+            GoalState::Completed,
+            "revision2 pass cannot satisfy revision3"
+        );
+    }
+
+    #[test]
+    fn quality_revision_is_captured_before_owner_edit_and_not_inferred_for_legacy_runs() {
+        for legacy in [false, true] {
+            let (_dir, db) = test_db();
+            let session = db.create_session("ha-main").unwrap();
+            let goal = db
+                .create_goal(CreateGoalInput {
+                    session_id: session.id.clone(),
+                    objective: "research quality".into(),
+                    completion_criteria: "quality review passes".into(),
+                    domain: None,
+                    workflow_template_id: None,
+                    workflow_template_version: None,
+                    workflow_task_type: None,
+                    budget_token_limit: None,
+                    budget_time_limit_secs: None,
+                    budget_turn_limit: None,
+                })
+                .unwrap();
+            let input = RunDomainQualityInput {
+                session_id: session.id.clone(),
+                goal_id: Some(goal.goal.id.clone()),
+                domain: Some("research".into()),
+                source_metadata: json!({"goalRevision":999}),
+                ..Default::default()
+            };
+            let context = resolve_quality_context(&db, input.clone()).unwrap();
+            let old = db.create_domain_quality_run(&context).unwrap();
+            assert_eq!(old.goal_revision, Some(1));
+            if legacy {
+                db.with_conn_for_test(|conn| {
+                    conn.execute(
+                        "UPDATE domain_quality_runs SET goal_revision = NULL WHERE id = ?1",
+                        [&old.id],
+                    )?;
+                    Ok(())
+                })
+                .unwrap();
+            }
+            db.update_goal(ha_core::goal::UpdateGoalInput {
+                goal_id: goal.goal.id.clone(),
+                objective: Some("new owner quality contract".into()),
+                completion_criteria: None,
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+            })
+            .unwrap();
+            assert!(
+                db.create_domain_quality_run(&context).is_err(),
+                "owner edit must reject a prepared stale context before creating another run"
+            );
+            assert_eq!(
+                db.list_domain_quality_runs_for_session(&session.id, 100)
+                    .unwrap()
+                    .len(),
+                1,
+                "stale creation must not persist a run"
+            );
+            let mut foreign = resolve_quality_context(&db, input.clone()).unwrap();
+            foreign.session_id = db.create_session("ha-main").unwrap().id;
+            assert!(
+                db.create_domain_quality_run(&foreign).is_err(),
+                "kernel rejects a foreign-session prepared context"
+            );
+            let finished = db
+                .complete_domain_quality_run(
+                    &old.id,
+                    DomainQualityRunState::Completed,
+                    "old quality passed",
+                    json!({"goalRevision":2}),
+                    Vec::new(),
+                )
+                .unwrap();
+            assert_eq!(
+                finished.run.goal_revision,
+                if legacy { None } else { Some(1) }
+            );
+            let stale = db.evaluate_goal(&goal.goal.id).unwrap();
+            assert_ne!(
+                stale.goal.state,
+                GoalState::Completed,
+                "old or unversioned run cannot satisfy owner revision2"
+            );
+            let evidence = stale
+                .evidence
+                .iter()
+                .find(|item| item.source_id == old.id && item.relation == "domain_quality_passed")
+                .unwrap();
+            assert_eq!(
+                evidence.metadata["goalRevision"],
+                if legacy { Value::Null } else { json!(1) }
+            );
+            let fresh_context = resolve_quality_context(&db, input).unwrap();
+            let current = db.create_domain_quality_run(&fresh_context).unwrap();
+            assert_eq!(current.goal_revision, Some(2));
+            db.complete_domain_quality_run(
+                &current.id,
+                DomainQualityRunState::Completed,
+                "current quality passed",
+                json!({}),
+                Vec::new(),
+            )
+            .unwrap();
+            assert_eq!(
+                db.evaluate_goal(&goal.goal.id).unwrap().goal.state,
+                GoalState::Completed
+            );
+        }
     }
 
     #[test]

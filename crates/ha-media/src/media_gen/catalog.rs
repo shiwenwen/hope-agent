@@ -123,6 +123,16 @@ fn google_image_caps() -> ImageModelCaps {
     }
 }
 
+fn google_nano_banana_caps() -> ImageModelCaps {
+    // Nano Banana 2.1 has a wider geometry/reference contract than the Pro
+    // preset. Keep this model-specific so saved configs and Pro stay stable.
+    let mut caps = google_image_caps();
+    caps.aspect_ratios
+        .extend(strs(&["1:4", "4:1", "1:8", "8:1"]));
+    caps.edit.as_mut().unwrap().max_input_images = 14;
+    caps
+}
+
 fn fal_image_caps() -> ImageModelCaps {
     ImageModelCaps {
         max_n: 4,
@@ -318,7 +328,8 @@ fn together_image_caps(edit: bool) -> ImageModelCaps {
 fn xai_image_caps() -> ImageModelCaps {
     ImageModelCaps {
         max_n: 10,
-        // xAI defines no size/quality/style knobs at all.
+        // xAI uses aspect ratio + resolution rather than pixel size.
+        // Imagine 2.0 quality is passed through model-level `extra`.
         supports_size: false,
         supports_aspect_ratio: true,
         supports_resolution: true,
@@ -578,19 +589,7 @@ pub fn media_provider_templates() -> Vec<MediaProviderTemplate> {
             requires_api_key: true,
             supports_voice_listing: true,
             models: vec![
-                img("gpt-image-1", "GPT Image 1", openai_image_caps(), &[]),
                 img("gpt-image-2", "GPT Image 2", openai_image_caps(), &[]),
-                img(
-                    "dall-e-3",
-                    "DALL·E 3",
-                    ImageModelCaps {
-                        // dall-e-3 has no edits endpoint.
-                        supports_mask: false,
-                        max_n: 1,
-                        ..openai_image_caps()
-                    },
-                    &[],
-                ),
                 aud("gpt-4o-mini-tts", "GPT-4o mini TTS", speech_caps()),
                 aud("tts-1", "TTS-1", speech_caps()),
                 aud("tts-1-hd", "TTS-1 HD", speech_caps()),
@@ -605,40 +604,16 @@ pub fn media_provider_templates() -> Vec<MediaProviderTemplate> {
             supports_voice_listing: false,
             models: vec![
                 img(
-                    "gemini-3.1-flash-image-preview",
-                    "Gemini 3.1 Flash Image Preview",
-                    google_image_caps(),
+                    "gemini-nano-banana-2.1",
+                    "Gemini Nano Banana 2.1",
+                    google_nano_banana_caps(),
                     &[("thinking_level", "MINIMAL")],
                 ),
                 img(
-                    "gemini-3-pro-image-preview",
-                    "Gemini 3 Pro Image Preview",
+                    "gemini-3-pro-image",
+                    "Gemini 3 Pro Image",
                     google_image_caps(),
                     &[("thinking_level", "MINIMAL")],
-                ),
-                img(
-                    "gemini-2.5-flash-image",
-                    "Gemini 2.5 Flash Image",
-                    google_image_caps(),
-                    &[],
-                ),
-                img(
-                    "imagen-4.0-generate-001",
-                    "Imagen 4",
-                    google_image_caps(),
-                    &[],
-                ),
-                img(
-                    "imagen-4.0-ultra-generate-001",
-                    "Imagen 4 Ultra",
-                    google_image_caps(),
-                    &[],
-                ),
-                img(
-                    "imagen-4.0-fast-generate-001",
-                    "Imagen 4 Fast",
-                    google_image_caps(),
-                    &[],
                 ),
             ],
         },
@@ -931,10 +906,10 @@ pub fn media_provider_templates() -> Vec<MediaProviderTemplate> {
                     &[],
                 ),
                 img(
-                    "grok-imagine-image-quality",
-                    "Grok Imagine Image Quality",
+                    "grok-imagine-image-2.0",
+                    "Grok Imagine Image 2.0 (low)",
                     xai_image_caps(),
-                    &[],
+                    &[("quality", "low")],
                 ),
             ],
         },
@@ -1383,17 +1358,89 @@ mod tests {
     }
 
     #[test]
-    fn openai_mask_support_is_model_specific() {
+    fn direct_image_templates_exclude_retired_models() {
         let templates = media_provider_templates();
         let openai = templates.iter().find(|t| t.key == "openai").unwrap();
-        let gpt1 = openai
+        let gpt2 = openai
             .models
             .iter()
-            .find(|m| m.id == "gpt-image-1")
+            .find(|m| m.id == "gpt-image-2")
             .unwrap();
-        assert!(gpt1.image.as_ref().unwrap().supports_mask);
-        let dalle3 = openai.models.iter().find(|m| m.id == "dall-e-3").unwrap();
-        assert!(!dalle3.image.as_ref().unwrap().supports_mask);
+        assert!(gpt2.image.as_ref().unwrap().supports_mask);
+        assert!(!openai.models.iter().any(|m| m.id == "gpt-image-1"));
+        assert!(!openai.models.iter().any(|m| m.id == "dall-e-3"));
+        let google = templates.iter().find(|t| t.key == "google").unwrap();
+        for retired in [
+            "gemini-3.1-flash-image-preview",
+            "gemini-3-pro-image-preview",
+            "gemini-2.5-flash-image",
+            "imagen-4.0-generate-001",
+            "imagen-4.0-ultra-generate-001",
+            "imagen-4.0-fast-generate-001",
+        ] {
+            assert!(!google.models.iter().any(|m| m.id == retired), "{retired}");
+        }
+        assert!(!google
+            .models
+            .iter()
+            .any(|m| m.id == "gemini-3.1-flash-image"));
+        for current in ["gemini-nano-banana-2.1", "gemini-3-pro-image"] {
+            assert!(google.models.iter().any(|m| m.id == current));
+        }
+    }
+
+    #[test]
+    fn nano_banana_geometry_and_reference_limits_match_request_validation() {
+        use ha_core::media_gen::{validate_image_request, ImageRequestSpec};
+
+        let template = media_provider_templates()
+            .into_iter()
+            .find(|t| t.key == "google")
+            .unwrap();
+        let nano = &template.models[0];
+        let caps = nano.image.as_ref().unwrap();
+        assert_eq!(nano.extra["thinking_level"], "MINIMAL");
+        for ratio in ["1:4", "4:1", "1:8", "8:1"] {
+            for resolution in ["1K", "2K", "4K"] {
+                for input_images in [0, 14] {
+                    let spec = ImageRequestSpec {
+                        aspect_ratio: Some(ratio),
+                        resolution: Some(resolution),
+                        n: 1,
+                        input_images,
+                        ..Default::default()
+                    };
+                    assert!(validate_image_request(Some(caps), &spec).is_ok());
+                }
+            }
+        }
+        for spec in [
+            ImageRequestSpec {
+                n: 1,
+                input_images: 15,
+                ..Default::default()
+            },
+            ImageRequestSpec {
+                n: 1,
+                input_images: 1,
+                has_mask: true,
+                ..Default::default()
+            },
+        ] {
+            assert!(validate_image_request(Some(caps), &spec).is_err());
+        }
+        let pro = template.models[1].image.as_ref().unwrap();
+        assert_eq!(pro.edit.as_ref().unwrap().max_input_images, 5);
+        assert!(!pro.aspect_ratios.iter().any(|r| r == "8:1"));
+        assert!(validate_image_request(
+            Some(pro),
+            &ImageRequestSpec {
+                n: 1,
+                input_images: 14,
+                ..Default::default()
+            }
+        )
+        .is_err());
     }
 
     /// Vendors whose speech models legitimately declare `needs_voice=false`:

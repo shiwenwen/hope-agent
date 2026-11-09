@@ -4,6 +4,7 @@ import {
   FolderKanban,
   BookOpen,
 } from "lucide-react"
+import type { MemoryPromptPreferences } from "./memoryPromptPreferences"
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -60,6 +61,7 @@ export type MemoryLearningMode = "smart" | "review_first" | "manual"
 export type MemoryRecallMode = "fast" | "deep"
 
 export interface MemoryRuntimeConfig {
+  promptPreferences?: MemoryPromptPreferences
   configVersion: number
   enabled: boolean
   core: {

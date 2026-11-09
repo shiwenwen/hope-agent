@@ -6,7 +6,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use rand::RngCore;
+use rand::Rng;
 
 use super::atlas::{
     idle_thumbnail_png, infer_version, parse_manifest, portable_pet_id, validate_package,

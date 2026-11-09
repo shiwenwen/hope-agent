@@ -4118,6 +4118,14 @@ mod tests {
         let root = tempfile::tempdir().expect("create data root");
         crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
             let body = b"# Uploaded report\n\nVerified content.";
+            // A browser-selected file can live outside the server path roots.
+            // Path import remains denied; only its explicitly uploaded bytes
+            // become an owned, purpose-bound source lease.
+            let outside = tempfile::tempdir().expect("create external workspace");
+            let source = outside.path().join("report.md");
+            std::fs::write(&source, body).expect("write selected file");
+            assert!(validate_source_path(&source, Some(&[root.path().to_path_buf()])).is_err());
+            let selected_bytes = std::fs::read(&source).expect("read explicitly selected file");
             let lease =
                 ha_core::file_upload::start_upload(ha_core::file_upload::FileUploadStartInput {
                     purpose: FileUploadPurpose::ArtifactSource,
@@ -4126,7 +4134,7 @@ mod tests {
                     size_bytes: body.len() as u64,
                 })
                 .expect("start Artifact upload");
-            ha_core::file_upload::upload_chunk(&lease.upload_id, 0, body)
+            ha_core::file_upload::upload_chunk(&lease.upload_id, 0, &selected_bytes)
                 .expect("upload Artifact source");
             ha_core::file_upload::complete_upload(&lease.upload_id)
                 .expect("complete Artifact upload");
