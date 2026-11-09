@@ -79,7 +79,7 @@ const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
     ("pet", "low"),
     ("local_llm_auto_maintenance", "low"),
     ("stt_language", "low"),
-    ("compact", "medium"),
+    ("compact", "medium"), // Includes the summary-only reasoning/output-cost policy.
     ("session_title", "medium"),
     ("memory_runtime", "medium"),
     ("memory_extract", "medium"),
@@ -232,13 +232,16 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              Full content is still retrievable via recall_memory / memory_get tools."
         ),
         "memory_runtime" => Some(
-            "Controls the Memory UX v2 master switch, automatic recall consent, Deep Recall, learning, rollout and compatibility behavior. Changes apply to subsequent turns; disabling memory makes automatic memory paths fail closed."
+            "Controls the Memory UX v2 master switch, automatic recall consent, Deep Recall, learning, rollout and compatibility behavior. promptPreferences.{extraction,profile,dreaming} each accept {style: default|concise|detailed, supplemental: string}; these only guide writing within fixed contracts. Profile preferences apply only to manual LLM rewrites; shared Dreaming diary uses global preferences. Changes apply to future operations without adding model calls; disabling memory makes automatic memory paths fail closed."
         ),
         "external_memory_providers" => Some(
             "HIGH/privacy: enabling a provider or a push/bidirectional sync policy can send local memory to an external service. This category changes only non-secret provider metadata; credentials remain owner-UI/API only."
         ),
         "knowledge_compile" => Some(
             "Changes the model chain used for future Knowledge source-to-note compile summaries. Existing review proposals are unchanged."
+        ),
+        "compact" => Some(
+            "summaryReasoningEffort is null (keep the existing summary protocol policy) or none/minimal/low/medium/high/xhigh/max. It changes only future context-summary requests, never the main conversation or other one-shots. Unsupported provider/model efforts fail explicitly without increasing the output ceiling or replacing history."
         ),
         "reasoning_effort" => Some(
             "Changes the global reasoning-effort default and refreshes the active runtime value immediately; per-session and per-agent overrides still take precedence."
@@ -267,7 +270,7 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              deployments. Has no effect on the Tauri desktop shell."
         ),
         "channels" => Some(
-            "Read-only via this tool. IM Channel accounts carry bot tokens (Telegram / WeChat / Feishu / QQ / Discord) and must be edited in Settings → Channels so the registry can drop and re-establish listeners under user supervision. The response from get_settings redacts credentials."
+            "Read-only via this tool. IM Channel accounts carry bot tokens (Telegram / WeChat / WeCom / Feishu / QQ / Discord) and must be edited in Settings → Channels so the registry can drop and re-establish listeners under user supervision. The response from get_settings redacts credentials."
         ),
         "smart_mode" => Some(
             "Affects every Smart-mode session: changing strategy / judgeModel / fallback alters which tool calls are auto-approved. JudgeModel-based strategies issue an extra side_query per approvable call (5s hard timeout, 60s TTL cache)."
@@ -596,9 +599,11 @@ fn read_category(category: &str) -> Result<Value> {
             "sidebarUiMode": config::normalize_sidebar_ui_mode(&cfg.sidebar_ui_mode)
         })),
         "proxy" => Ok(serde_json::to_value(&cfg.proxy)?),
-        "web_search" => Ok(redact_web_search_value(serde_json::to_value(
-            &cfg.web_search,
-        )?)),
+        "web_search" => {
+            let mut search = cfg.web_search.clone();
+            crate::tools::web_search::backfill_providers(&mut search);
+            Ok(redact_web_search_value(serde_json::to_value(search)?))
+        }
         "web_fetch" => Ok(serde_json::to_value(&cfg.web_fetch)?),
         "browser" => Ok(serde_json::to_value(&cfg.browser)?),
         "security" => Ok(json!({
@@ -1790,6 +1795,46 @@ pub(crate) async fn tool_restore_settings_backup(args: &Value) -> Result<String>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn prompt_preferences_settings_partial_write_preserves_memory_consent_and_gates() {
+        let mut store = config::AppConfig::default();
+        store.memory.enabled = false;
+        store.memory.recall.enabled = false;
+        store.memory_extract.enable_reflection = false;
+        store.memory_extract.extract_claims = false;
+        apply_app_config_update(
+            &mut store,
+            "memory_runtime",
+            &json!({
+                "promptPreferences": {
+                    "extraction": { "style": "detailed", "supplemental": "keep relevant details" }
+                }
+            }),
+        )
+        .unwrap();
+        assert!(!store.memory.enabled);
+        assert!(!store.memory.recall.enabled);
+        assert!(!store.memory.recall.user_configured);
+        assert!(!store.memory_extract.enable_reflection);
+        assert!(!store.memory_extract.extract_claims);
+        assert_eq!(
+            store.memory.prompt_preferences.extraction.style,
+            crate::memory::prompt_preferences::MemoryPromptStyle::Detailed
+        );
+        assert_eq!(
+            store.memory.prompt_preferences.profile,
+            crate::memory::prompt_preferences::MemoryPromptPreference::default()
+        );
+        assert_eq!(risk_level("memory_runtime"), "medium");
+        assert!(apply_app_config_update(
+            &mut store,
+            "memory_runtime",
+            &json!({
+                "promptPreferences": { "profile": { "style": "replace_system_prompt" } }
+            })
+        )
+        .is_err());
+    }
     use super::*;
 
     #[test]

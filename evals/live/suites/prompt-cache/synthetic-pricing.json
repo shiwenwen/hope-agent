@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "cache-benchmark-pricing.v1",
+  "models": [
+    {
+      "providerId": "eval-anchor",
+      "modelId": "configured-anchor-v1",
+      "basis": "Synthetic smoke arithmetic only; write TTL assumption: 5 minutes. Not a real Provider price.",
+      "inputUsdPerMillion": 1.0,
+      "outputUsdPerMillion": 1.0,
+      "cacheReadUsdPerMillion": 0.1,
+      "cacheWriteUsdPerMillion": 1.25
+    }
+  ]
+}

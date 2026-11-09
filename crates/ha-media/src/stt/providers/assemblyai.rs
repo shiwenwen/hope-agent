@@ -9,9 +9,10 @@
 //! prefix; per AsyncAPI `channels./v3/ws.bindings.ws.headers`).
 //!
 //! Query params per the spec (any not listed are server-defaulted):
-//! - `speech_model`: `universal-streaming-english` (default) /
-//!   `universal-streaming-multilingual` / `whisper-rt`. This is the
-//!   real "model id" surface — we wire the GUI's `model.id` here.
+//! - `speech_model`: current presets use `universal-3-6-pro`,
+//!   `universal-3-5-pro`, `universal-streaming-english` or
+//!   `universal-streaming-multilingual`. Saved/custom IDs pass through.
+//!   An empty saved ID retains the historical English fallback.
 //! - `encoding`: `pcm_s16le` (default) / `pcm_mulaw`.
 //! - `format_turns`: string `"true"` / `"false"` (default `"false"`).
 //!   When true, formatted final transcripts come on `end_of_turn=true`.
@@ -49,12 +50,12 @@ use ha_core::stt::types::{SttModelConfig, SttProviderConfig, TranscriptDelta, Tr
 /// Universal Streaming expects 16 kHz PCM16 mono unless otherwise told.
 const DEFAULT_SAMPLE_RATE_HZ: u32 = 16_000;
 
-pub async fn open_stream(
+fn stream_url(
     provider: &SttProviderConfig,
     model: &SttModelConfig,
     profile: &AuthProfile,
     options: &TranscriptOptions,
-) -> SttResult<super::SttStream> {
+) -> String {
     let base = provider.resolve_base_url(profile).trim_end_matches('/');
     let sample_rate = options
         .sample_rate_hz
@@ -98,6 +99,16 @@ pub async fn open_stream(
         }
     }
 
+    url
+}
+
+pub async fn open_stream(
+    provider: &SttProviderConfig,
+    model: &SttModelConfig,
+    profile: &AuthProfile,
+    options: &TranscriptOptions,
+) -> SttResult<super::SttStream> {
+    let url = stream_url(provider, model, profile, options);
     let https_twin = super::ws_to_https_twin(&url, "AssemblyAI")?;
     ha_core::stt::types::check_ssrf(provider, &https_twin).await?;
 
@@ -214,6 +225,50 @@ fn parse_message(session_id: &str, raw: &str) -> Option<TranscriptDelta> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_model_selector_preserves_current_legacy_and_custom_ids() {
+        let provider = SttProviderConfig::new(
+            "AssemblyAI",
+            ha_core::stt::types::SttProviderKind::AssemblyaiWs,
+            "wss://streaming.assemblyai.com/",
+        );
+        let profile = AuthProfile::new("Synthetic".into(), "synthetic-key".into(), None);
+        let options = TranscriptOptions {
+            language: Some("zh".into()),
+            ..Default::default()
+        };
+        for id in [
+            "universal-3-6-pro",
+            "universal-3-5-pro",
+            "u3-rt-pro",
+            "custom/id?x=1&y=2",
+        ] {
+            let model = SttModelConfig::new(id, id);
+            let raw = stream_url(&provider, &model, &profile, &options);
+            let url = url::Url::parse(&raw).unwrap();
+            assert_eq!(url.path(), "/v3/ws");
+            let query: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+            assert_eq!(query["speech_model"], id);
+            assert_eq!(query["sample_rate"], "16000");
+            assert_eq!(query["format_turns"], "true");
+            assert_eq!(query.len(), 3);
+            assert!(!raw.contains("synthetic-key"));
+        }
+        for (id, param, value) in [
+            ("whisper-rt", "language", "zh"),
+            (
+                "universal-streaming-multilingual",
+                "language_detection",
+                "true",
+            ),
+        ] {
+            let raw = stream_url(&provider, &SttModelConfig::new(id, id), &profile, &options);
+            let url = url::Url::parse(&raw).unwrap();
+            let query: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+            assert_eq!(query[param], value);
+        }
+    }
 
     #[test]
     fn parse_extracts_partial_turn() {

@@ -22,6 +22,9 @@ pub async fn run_case(
     }
     let temp = tempfile::tempdir().context("creating isolated adapter directory")?;
     std::env::set_var("HA_DATA_DIR", temp.path().join("runtime"));
+    // Resolver planning is feature-owned too. Wire every adapter before it
+    // reaches a kernel facade, including adapters that do not need SessionDB.
+    ha_server::wire_features();
     let mut outcome = match suite.adapter {
         EvalAdapter::CodingFixturePatch => run_coding_fixture(root, suite, case).await?,
         EvalAdapter::CodingGoldFixturePatch => run_coding_gold(temp.path(), suite, case).await?,

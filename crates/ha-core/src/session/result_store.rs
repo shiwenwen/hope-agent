@@ -11,7 +11,7 @@
 
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine as _;
-use rand::RngCore;
+use rand::Rng;
 use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
 use rusqlite::{params, types::Type, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};

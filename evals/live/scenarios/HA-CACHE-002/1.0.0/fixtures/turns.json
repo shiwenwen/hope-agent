@@ -1,0 +1,157 @@
+{
+  "schemaVersion": "scripted-user-flow.v3",
+  "steps": [
+    {
+      "action": "cache_checkpoint",
+      "phase": "cold_history",
+      "expectedResponse": {
+        "project": "ORCHID-7421",
+        "entry": "/workspace/synthetic/海风/入口.rs",
+        "rule": "send_unknown 不得自动重试",
+        "revision": "R1",
+        "markerA": null,
+        "markerB": null,
+        "markerC": null,
+        "archiveKey": null
+      }
+    },
+    {
+      "action": "message",
+      "message": "CACHE_PHASE_WARM_1\n新增早期事实：archiveKey=ARCHIVE-91。保留全部事实，只输出合法 JSON，不加解释或额外键。键为 project、entry、rule、revision、archiveKey、markerA、markerB、markerC；准确恢复会话事实，尚未读取的文件标记为 null。不得读取隐藏验证文件。\n本轮新增的无关合成记录如下（不修改验收事实）：\nWARM1 synthetic record 000: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 001: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 002: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 003: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 004: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 005: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 006: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 007: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 008: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 009: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 010: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 011: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 012: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 013: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 014: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 015: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 016: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 017: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 018: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 019: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 020: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 021: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 022: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 023: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 024: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 025: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 026: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 027: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 028: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 029: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 030: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 031: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 032: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 033: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 034: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 035: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 036: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 037: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 038: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 039: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 040: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 041: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 042: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 043: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 044: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 045: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 046: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 047: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 048: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 049: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 050: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 051: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 052: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 053: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 054: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 055: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 056: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 057: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 058: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 059: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 060: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 061: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 062: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 063: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM1 synthetic record 064: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved."
+    },
+    {
+      "action": "cache_checkpoint",
+      "phase": "warm_1",
+      "expectedResponse": {
+        "project": "ORCHID-7421",
+        "entry": "/workspace/synthetic/海风/入口.rs",
+        "rule": "send_unknown 不得自动重试",
+        "revision": "R1",
+        "markerA": null,
+        "markerB": null,
+        "markerC": null,
+        "archiveKey": "ARCHIVE-91"
+      }
+    },
+    {
+      "action": "message",
+      "message": "CACHE_PHASE_WARM_2\n保留全部事实，只输出合法 JSON，不加解释或额外键。键为 project、entry、rule、revision、archiveKey、markerA、markerB、markerC；准确恢复会话事实，尚未读取的文件标记为 null。不得读取隐藏验证文件。\n本轮新增的无关合成记录如下（不修改验收事实）：\nWARM2 synthetic record 000: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 001: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 002: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 003: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 004: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 005: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 006: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 007: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 008: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 009: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 010: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 011: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 012: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 013: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 014: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 015: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 016: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 017: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 018: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 019: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 020: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 021: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 022: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 023: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 024: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 025: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 026: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 027: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 028: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 029: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 030: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 031: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 032: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 033: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 034: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 035: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 036: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 037: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 038: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 039: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 040: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 041: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 042: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 043: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 044: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 045: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 046: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 047: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 048: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 049: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 050: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 051: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 052: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 053: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 054: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 055: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 056: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 057: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 058: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 059: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 060: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 061: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 062: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 063: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved.\nWARM2 synthetic record 064: review colored sample cards, seating labels, cardboard shapes, mock catalog entries and offline rehearsal notes. No people, credentials or external systems are involved."
+    },
+    {
+      "action": "cache_checkpoint",
+      "phase": "warm_2",
+      "expectedResponse": {
+        "project": "ORCHID-7421",
+        "entry": "/workspace/synthetic/海风/入口.rs",
+        "rule": "send_unknown 不得自动重试",
+        "revision": "R1",
+        "markerA": null,
+        "markerB": null,
+        "markerC": null,
+        "archiveKey": "ARCHIVE-91"
+      }
+    },
+    {
+      "action": "message",
+      "message": "CACHE_PHASE_TAIL\n动态状态更新：revision 从 R1 改为 R2，其余早期事实不变。只输出合法 JSON，不加解释或额外键。键为 project、entry、rule、revision、archiveKey、markerA、markerB、markerC；准确恢复会话事实，尚未读取的文件标记为 null。不得读取隐藏验证文件。"
+    },
+    {
+      "action": "cache_checkpoint",
+      "phase": "tail_update",
+      "expectedResponse": {
+        "project": "ORCHID-7421",
+        "entry": "/workspace/synthetic/海风/入口.rs",
+        "rule": "send_unknown 不得自动重试",
+        "revision": "R2",
+        "markerA": null,
+        "markerB": null,
+        "markerC": null,
+        "archiveKey": "ARCHIVE-91"
+      }
+    },
+    {
+      "action": "message",
+      "message": "CACHE_PHASE_TOOL\n先并行用 read 读取 fixtures/tool-a.txt 与 fixtures/tool-b.txt 的完整内容，再根据这两个文件给出的路径读取最后一个文件。必须使用真实工具，不可猜测标记。三个文件中的 archiveKey、markerA、markerB、markerC 加入事实表。禁止其它工具。只输出合法 JSON，不加解释或额外键。键为 project、entry、rule、revision、archiveKey、markerA、markerB、markerC；准确恢复会话事实，尚未读取的文件标记为 null。不得读取隐藏验证文件。"
+    },
+    {
+      "action": "cache_checkpoint",
+      "phase": "tool_rounds",
+      "expectedResponse": {
+        "project": "ORCHID-7421",
+        "entry": "/workspace/synthetic/海风/入口.rs",
+        "rule": "send_unknown 不得自动重试",
+        "revision": "R2",
+        "markerA": "ALPHA-37",
+        "markerB": "BETA-83",
+        "markerC": "GAMMA-19",
+        "archiveKey": "ARCHIVE-91"
+      },
+      "minToolCalls": 3,
+      "minModelCalls": 3
+    },
+    {
+      "action": "message",
+      "message": "CACHE_PHASE_PRE_0\n复核并保留全部会话事实与三个工具标记，不再调用工具。只输出合法 JSON，不加解释或额外键。键为 project、entry、rule、revision、archiveKey、markerA、markerB、markerC；准确恢复会话事实，尚未读取的文件标记为 null。不得读取隐藏验证文件。"
+    },
+    {
+      "action": "message",
+      "message": "CACHE_PHASE_PRE_1\n复核并保留全部会话事实与三个工具标记，不再调用工具。只输出合法 JSON，不加解释或额外键。键为 project、entry、rule、revision、archiveKey、markerA、markerB、markerC；准确恢复会话事实，尚未读取的文件标记为 null。不得读取隐藏验证文件。"
+    },
+    {
+      "action": "message",
+      "message": "CACHE_PHASE_PRE_2\n复核并保留全部会话事实与三个工具标记，不再调用工具。只输出合法 JSON，不加解释或额外键。键为 project、entry、rule、revision、archiveKey、markerA、markerB、markerC；准确恢复会话事实，尚未读取的文件标记为 null。不得读取隐藏验证文件。"
+    },
+    {
+      "action": "cache_checkpoint",
+      "phase": "pre_auto",
+      "expectedResponse": {
+        "project": "ORCHID-7421",
+        "entry": "/workspace/synthetic/海风/入口.rs",
+        "rule": "send_unknown 不得自动重试",
+        "revision": "R2",
+        "markerA": "ALPHA-37",
+        "markerB": "BETA-83",
+        "markerC": "GAMMA-19",
+        "archiveKey": "ARCHIVE-91"
+      },
+      "minModelCalls": 3
+    },
+    {
+      "action": "message",
+      "message": "CACHE_PHASE_POST\n依据当前会话或系统自动生成的摘要，依据保留的会话信息恢复全部早期事实、更新后的 revision 和三个工具标记。不得重新读取文件。只输出合法 JSON，不加解释或额外键。键为 project、entry、rule、revision、archiveKey、markerA、markerB、markerC；准确恢复会话事实，尚未读取的文件标记为 null。不得读取隐藏验证文件。"
+    },
+    {
+      "action": "cache_checkpoint",
+      "phase": "auto_continuation",
+      "expectedResponse": {
+        "project": "ORCHID-7421",
+        "entry": "/workspace/synthetic/海风/入口.rs",
+        "rule": "send_unknown 不得自动重试",
+        "revision": "R2",
+        "markerA": "ALPHA-37",
+        "markerB": "BETA-83",
+        "markerC": "GAMMA-19",
+        "archiveKey": "ARCHIVE-91"
+      }
+    },
+    {
+      "action": "message",
+      "message": "CACHE_PHASE_POST_WARM\n再次复述相同事实，不调用工具。只输出合法 JSON，不加解释或额外键。键为 project、entry、rule、revision、archiveKey、markerA、markerB、markerC；准确恢复会话事实，尚未读取的文件标记为 null。不得读取隐藏验证文件。"
+    },
+    {
+      "action": "cache_checkpoint",
+      "phase": "auto_warm",
+      "expectedResponse": {
+        "project": "ORCHID-7421",
+        "entry": "/workspace/synthetic/海风/入口.rs",
+        "rule": "send_unknown 不得自动重试",
+        "revision": "R2",
+        "markerA": "ALPHA-37",
+        "markerB": "BETA-83",
+        "markerC": "GAMMA-19",
+        "archiveKey": "ARCHIVE-91"
+      },
+      "minTotalSummaryCalls": 1
+    }
+  ]
+}

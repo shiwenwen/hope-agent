@@ -406,4 +406,32 @@ mod tests {
         assert!(cfg.auth_profiles.is_empty());
         assert_eq!(cfg.effective_profiles().len(), 1);
     }
+
+    #[test]
+    fn saved_retired_fireworks_and_dedicated_ids_remain_readable() {
+        for model_id in [
+            "accounts/fireworks/routers/glm-5p2-fast",
+            "accounts/fireworks/routers/kimi-k2p6-turbo",
+            "accounts/owner/deployments/custom-dedicated",
+        ] {
+            let value = serde_json::json!({
+                "id":"saved-fireworks", "name":"Saved", "apiType":"openai-chat",
+                "baseUrl":"https://api.fireworks.ai/inference/v1", "apiKey":"",
+                "models":[{"id":model_id,"name":"Saved model"}], "enabled":true,
+                "userAgent":"test", "thinkingStyle":"openai"
+            });
+            let cfg: ProviderConfig = serde_json::from_value(value).unwrap();
+            assert_eq!(cfg.models[0].id, model_id);
+            let reread: ProviderConfig =
+                serde_json::from_slice(&serde_json::to_vec(&cfg).unwrap()).unwrap();
+            assert_eq!(reread.models[0].id, model_id);
+            assert!(crate::provider::model_ref_is_available(
+                std::slice::from_ref(&reread),
+                &super::ActiveModel {
+                    provider_id: reread.id.clone(),
+                    model_id: model_id.to_owned(),
+                }
+            ));
+        }
+    }
 }

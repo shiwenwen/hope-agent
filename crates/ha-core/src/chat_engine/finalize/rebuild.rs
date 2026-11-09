@@ -328,11 +328,10 @@ fn rebuild_openai_responses(
     }
 
     for tc in tool_calls {
-        // Responses requires both `id` and `call_id` populated with
-        // the same value — server returns 400 otherwise.
+        // The journal retains the invocation ID, not the provider item ID.
+        // Omit the optional `id` instead of incorrectly copying `call_id`.
         items.push(json!({
             "type": "function_call",
-            "id": tc.call_id,
             "call_id": tc.call_id,
             "name": tc.name,
             "arguments": tc.arguments,
@@ -646,8 +645,38 @@ mod tests {
         assert!(text.contains("answer"));
         assert!(text.find("reason").unwrap() < text.find("answer").unwrap());
         assert_eq!(items[1]["type"], "function_call");
-        assert_eq!(items[1]["id"], "c1");
+        assert!(items[1].get("id").is_none());
         assert_eq!(items[1]["call_id"], "c1");
+    }
+
+    #[test]
+    fn rebuild_responses_and_codex_keep_invocation_result_pairing() {
+        for kind in [ProviderApiKind::OpenAIResponses, ProviderApiKind::Codex] {
+            let partial = meta_with(
+                kind,
+                None,
+                None,
+                vec![
+                    pending("call_done", "skill", "{}"),
+                    pending("call_pending", "tool_search", "{}"),
+                ],
+                vec![ExecutedTool {
+                    call_id: "call_done".into(),
+                    name: "skill".into(),
+                    arguments: "{}".into(),
+                    result: "loaded".into(),
+                    is_error: false,
+                }],
+            );
+            let mut history = rebuild_partial_assistant_blocks(&partial);
+            assert_eq!(history.len(), 2);
+            assert!(history.iter().all(|item| item.get("id").is_none()));
+            history.extend(synthesize_tool_results(&partial, INTERRUPTED_TOOL_RESULT));
+            assert_eq!(history[0]["call_id"], history[2]["call_id"]);
+            assert_eq!(history[1]["call_id"], history[3]["call_id"]);
+            assert_eq!(history[2]["output"], "loaded");
+            assert_eq!(history[3]["output"], INTERRUPTED_TOOL_RESULT);
+        }
     }
 
     #[test]

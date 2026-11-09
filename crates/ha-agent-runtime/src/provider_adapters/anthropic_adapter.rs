@@ -35,6 +35,7 @@ use crate::tool_defs::ToolProvider;
 enum AnthropicThinkingPolicy {
     LegacyManual,
     AdaptiveEffort,
+    AdaptiveToggle,
 }
 
 fn is_first_party_anthropic(base_url: &str) -> bool {
@@ -47,10 +48,15 @@ pub(crate) fn apply_thinking_binding_policy(base_url: &str, model: &str, body: &
     if !is_first_party_anthropic(base_url) {
         return;
     }
-    if model == "claude-fable-5-1" && body.get("thinking").is_none() {
+    if (model == "claude-fable-5-1" || model == "claude-haiku-5-5")
+        && body.get("thinking").is_none()
+    {
         body["thinking"] = json!({"type": "adaptive"});
     }
     if let Some(thinking) = body.get_mut("thinking").and_then(Value::as_object_mut) {
+        if thinking.get("type").and_then(Value::as_str) == Some("disabled") {
+            return;
+        }
         thinking.insert(
             "block_binding".to_string(),
             json!({"prefix_mismatch_behavior": "drop_block"}),
@@ -61,9 +67,23 @@ pub(crate) fn apply_thinking_binding_policy(base_url: &str, model: &str, body: &
 fn anthropic_thinking_policy(base_url: &str, model: &str) -> AnthropicThinkingPolicy {
     if is_first_party_anthropic(base_url) && is_claude_5_model(model) {
         AnthropicThinkingPolicy::AdaptiveEffort
+    } else if is_direct_minimax_m3(base_url, model) {
+        AnthropicThinkingPolicy::AdaptiveToggle
     } else {
         AnthropicThinkingPolicy::LegacyManual
     }
+}
+
+fn is_direct_minimax_m3(base_url: &str, model: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(base_url) else {
+        return false;
+    };
+    model == "MiniMax-M3"
+        && url.scheme() == "https"
+        && url.host_str() == Some("api.minimax.io")
+        && url.port_or_known_default() == Some(443)
+        && url.username().is_empty()
+        && url.password().is_none()
 }
 
 fn suppress_anthropic_temperature(base_url: &str, model: &str) -> bool {
@@ -193,6 +213,7 @@ fn build_anthropic_body(
         .reasoning_effort
         .and_then(|effort| clamp_reasoning_effort(model, effort));
     let mut messages = expand_anthropic_image_markers_for_api(req.history_for_api);
+    super::super::streaming_adapter::mark_anthropic_history_cache_boundary(&mut messages);
     if let Some(content) = super::super::streaming_adapter::render_dynamic_data_envelope(req) {
         append_anthropic_user_context(&mut messages, content);
     }
@@ -218,6 +239,36 @@ fn build_anthropic_body(
                 body["thinking"] = json!({ "type": "adaptive" });
                 body["output_config"] = json!({ "effort": effort });
             }
+            AnthropicThinkingPolicy::AdaptiveToggle => {}
+        }
+    }
+    if matches!(
+        anthropic_thinking_policy(base_url, model),
+        AnthropicThinkingPolicy::AdaptiveToggle
+    ) {
+        // M3 supports a toggle, not manual budgets or effort levels. The
+        // M3.1 preview policy must not be inferred from this stable model.
+        let disabled = req.reasoning_disabled || req.reasoning_effort == Some("none");
+        if disabled {
+            body["thinking"] = json!({"type": "disabled"});
+        } else if effective_effort.is_some() {
+            body["thinking"] = json!({"type": "adaptive"});
+        }
+        // Omission preserves M3's default off for callers without an override.
+    }
+    if is_first_party_anthropic(base_url)
+        && model.to_ascii_lowercase().starts_with("claude-haiku-5-5")
+    {
+        if req.reasoning_disabled || req.reasoning_effort == Some("none") {
+            body["thinking"] = json!({"type": "disabled"});
+            // Disabled thinking only accepts high effort or below. Let the
+            // model use its default medium effort even if a stale value remains.
+            body.as_object_mut()
+                .expect("anthropic body")
+                .remove("output_config");
+        } else {
+            // Haiku 5.5 defaults to opaque signatures without thinking text.
+            body["thinking"] = json!({"type": "adaptive", "display": "summarized"});
         }
     }
     if let Some(temp) = req
@@ -226,9 +277,8 @@ fn build_anthropic_body(
     {
         body["temperature"] = json!(temp);
     }
-    if base_url.contains("api.anthropic.com") {
-        body["cache_control"] = json!({ "type": "ephemeral" });
-    }
+    // Explicit history caching ends before the volatile user-data envelope.
+    // Automatic caching at the request tail would write that changing data.
     apply_thinking_binding_policy(base_url, model, &mut body);
     (body, tools_with_cache, native_deferred)
 }
@@ -311,7 +361,9 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
     }
 
     fn token_count_history_for(&self, history: &[Value]) -> Vec<Value> {
-        project_anthropic_image_markers_for_token_count(history)
+        let mut history = project_anthropic_image_markers_for_token_count(history);
+        super::super::streaming_adapter::mark_anthropic_history_cache_boundary(&mut history);
+        history
     }
 
     fn prepare_history_for_api(&self, history: &[Value]) -> Vec<Value> {
@@ -1146,9 +1198,11 @@ pub(crate) async fn parse_anthropic_sse(
                             }
                             if let Some(ct) = u.cache_creation_input_tokens {
                                 usage.cache_creation_input_tokens = ct;
+                                usage.cache_receipt.write = Some(ct);
                             }
                             if let Some(cr) = u.cache_read_input_tokens {
                                 usage.cache_read_input_tokens = cr;
+                                usage.cache_receipt.read = Some(cr);
                             }
                         }
                     }
@@ -1269,6 +1323,7 @@ mod tests {
         validate_anthropic_stream_completion, AnthropicStreamingAdapter,
     };
     use crate::agent::streaming_adapter::{RoundOutcome, RoundRequest, StreamingChatAdapter};
+    use serde_json::{json, Value};
 
     #[tokio::test]
     async fn invalid_workspace_fails_before_request_preparation_or_token_count_network() {
@@ -1661,7 +1716,7 @@ mod tests {
         let tools = Vec::new();
         let deferred = Vec::new();
         let history = vec![serde_json::json!({ "role": "user", "content": "question" })];
-        let req = RoundRequest {
+        let mut req = RoundRequest {
             session_id: Some("session"),
             system_prompt: "stable",
             run_instruction_suffix: None,
@@ -1695,6 +1750,8 @@ mod tests {
         };
 
         for model in [
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
             "claude-fable-5",
             "claude-mythos-5",
             "claude-sonnet-5",
@@ -1727,6 +1784,133 @@ mod tests {
         assert_eq!(compatible["thinking"]["type"], "enabled");
         assert_eq!(compatible["temperature"], 0.2);
         assert!(compatible.get("output_config").is_none());
+
+        for (effort, expected) in [
+            (None, None),
+            (Some("minimal"), Some("low")),
+            (Some("low"), Some("low")),
+            (Some("medium"), Some("medium")),
+            (Some("high"), Some("high")),
+            (Some("xhigh"), Some("xhigh")),
+            (Some("max"), Some("max")),
+        ] {
+            req.reasoning_effort = effort;
+            let (body, _, _) =
+                build_anthropic_body("https://api.anthropic.com", "claude-haiku-5-5", &req);
+            assert_eq!(
+                body["thinking"],
+                json!({
+                    "type": "adaptive", "display": "summarized",
+                    "block_binding": {"prefix_mismatch_behavior": "drop_block"}
+                })
+            );
+            assert_eq!(
+                body.pointer("/output_config/effort")
+                    .and_then(Value::as_str),
+                expected
+            );
+            for unsupported in ["temperature", "top_p", "top_k"] {
+                assert!(body.get(unsupported).is_none());
+            }
+            let count =
+                build_anthropic_count_body("https://api.anthropic.com", "claude-haiku-5-5", &req);
+            assert_eq!(count["thinking"], body["thinking"]);
+        }
+        for effort in [Some("none"), Some("max")] {
+            req.reasoning_effort = effort;
+            req.reasoning_disabled = true;
+            let (body, _, _) =
+                build_anthropic_body("https://api.anthropic.com", "claude-haiku-5-5", &req);
+            assert_eq!(body["thinking"], json!({"type": "disabled"}));
+            assert!(body.get("output_config").is_none());
+            assert!(body.get("temperature").is_none());
+        }
+        req.reasoning_disabled = false;
+        req.reasoning_effort = Some("none");
+        let (body, _, _) =
+            build_anthropic_body("https://api.anthropic.com", "claude-haiku-5-5", &req);
+        assert_eq!(body["thinking"], json!({"type": "disabled"}));
+        req.reasoning_effort = Some("medium");
+        for endpoint in [
+            "https://compatible.example",
+            "https://api.anthropic.com.example",
+        ] {
+            let (body, _, _) = build_anthropic_body(endpoint, "claude-haiku-5-5", &req);
+            assert_eq!(body["thinking"]["type"], "enabled");
+            assert_eq!(body["temperature"], 0.2);
+            assert!(body["thinking"].get("display").is_none());
+            assert!(body["thinking"].get("block_binding").is_none());
+        }
+
+        for effort in [
+            None,
+            Some("minimal"),
+            Some("medium"),
+            Some("max"),
+            Some("none"),
+        ] {
+            req.reasoning_effort = effort;
+            let (body, _, _) =
+                build_anthropic_body("https://api.minimax.io/anthropic", "MiniMax-M3", &req);
+            if effort.is_none() {
+                assert!(body.get("thinking").is_none());
+            } else {
+                let expected = if effort == Some("none") {
+                    "disabled"
+                } else {
+                    "adaptive"
+                };
+                assert_eq!(body["thinking"], json!({"type": expected}));
+            }
+            assert!(body.get("output_config").is_none());
+            assert_eq!(body["temperature"], 0.2);
+        }
+        req.reasoning_effort = Some("max");
+        req.reasoning_disabled = true;
+        let (body, _, _) =
+            build_anthropic_body("https://api.minimax.io/anthropic", "MiniMax-M3", &req);
+        assert_eq!(body["thinking"], json!({"type": "disabled"}));
+        req.reasoning_effort = None;
+        let (body, _, _) =
+            build_anthropic_body("https://api.minimax.io/anthropic", "MiniMax-M3", &req);
+        assert_eq!(body["thinking"], json!({"type": "disabled"}));
+        req.reasoning_disabled = false;
+        req.reasoning_effort = Some("max");
+        for (endpoint, model) in [
+            ("https://api.minimax.io.example/anthropic", "MiniMax-M3"),
+            ("http://api.minimax.io/anthropic", "MiniMax-M3"),
+            ("https://api.minimax.io:444/anthropic", "MiniMax-M3"),
+            ("https://api.minimax.io/anthropic", "MiniMax-M2.7"),
+            (
+                "https://api.minimax.io/anthropic",
+                "MiniMax-M3.1-Flash-Preview",
+            ),
+        ] {
+            let (body, _, _) = build_anthropic_body(endpoint, model, &req);
+            assert_eq!(body["thinking"]["type"], "enabled");
+            assert!(body["thinking"].get("budget_tokens").is_some());
+        }
+    }
+
+    #[test]
+    fn haiku_one_shot_binding_respects_the_default_and_explicit_disable() {
+        let mut body = json!({"model": "claude-haiku-5-5", "messages": []});
+        super::apply_thinking_binding_policy(
+            "https://api.anthropic.com",
+            "claude-haiku-5-5",
+            &mut body,
+        );
+        assert_eq!(
+            body["thinking"],
+            json!({"type":"adaptive", "block_binding":{"prefix_mismatch_behavior":"drop_block"}})
+        );
+        let mut disabled = json!({"thinking":{"type":"disabled"}});
+        super::apply_thinking_binding_policy(
+            "https://api.anthropic.com",
+            "claude-haiku-5-5",
+            &mut disabled,
+        );
+        assert_eq!(disabled["thinking"], json!({"type":"disabled"}));
     }
 
     #[test]
@@ -1824,7 +2008,21 @@ mod tests {
             counted_dynamic[1]["content"][0],
             body["messages"][0]["content"][1]
         );
-        assert_eq!(accounting.history, history);
+        assert_eq!(
+            accounting.history,
+            vec![serde_json::json!({
+                "role":"user", "content":[body["messages"][0]["content"][0].clone()]
+            })]
+        );
+        assert_eq!(
+            body["messages"][0]["content"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
+        assert!(body["messages"][0]["content"][1]
+            .get("cache_control")
+            .is_none());
+        assert!(body.get("cache_control").is_none());
+        assert_eq!(history[0]["content"], "question");
         assert_eq!(body["max_tokens"], req.max_tokens);
         assert_eq!(adapter.token_count_tool_schemas(&req), tools);
         let prepared = adapter.prepare_round_request(&req).unwrap();
