@@ -1461,6 +1461,19 @@ pub fn record_model_usage(event: &ModelUsageEvent) {
         insert_event_text(&mut attributes, "operation", event.operation.as_deref());
         insert_event_u64(&mut attributes, "inputTokens", event.input_tokens);
         insert_event_u64(&mut attributes, "outputTokens", event.output_tokens);
+        // Input billing semantics differ by Provider. Keep the normalized
+        // context size alongside the raw receipt so cache ratios never add
+        // Anthropic cache tokens twice or divide by fresh-only input.
+        insert_event_u64(
+            &mut attributes,
+            "contextInputTokens",
+            event.context_input_tokens,
+        );
+        insert_event_u64(
+            &mut attributes,
+            "freshInputTokens",
+            event.fresh_input_tokens,
+        );
         insert_event_u64(
             &mut attributes,
             "cacheReadTokens",
@@ -1472,6 +1485,14 @@ pub fn record_model_usage(event: &ModelUsageEvent) {
             event.cache_creation_input_tokens,
         );
         insert_event_u64(&mut attributes, "ttftMs", event.ttft_ms);
+        if let Some(mode @ ("native_prefix_fork" | "independent")) = event
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("summary_request_mode"))
+            .and_then(Value::as_str)
+        {
+            insert_event_text(&mut attributes, "summaryRequestMode", Some(mode));
+        }
         attributes.insert("success".to_string(), Value::Bool(event.success));
         if let Some(error) = event.error.as_deref() {
             attributes.insert(
@@ -2288,6 +2309,52 @@ mod tests {
         drop(guard);
         finish_trial_root("mtrial_model_scope_admission").unwrap();
         assert!(ensure_model_scope(Some("review-model-scope"), true).is_err());
+    }
+
+    #[test]
+    fn cache_receipts_preserve_normalized_usage_and_each_call_ttft_without_metadata_payloads() {
+        let mut eval = context();
+        eval.trial_id = "mtrial_cache_receipts".into();
+        eval.required_signals = vec!["model".into()];
+        let guard = register_root_session("session-cache-receipts", eval).unwrap();
+        for (index, ttft) in [120, 240].into_iter().enumerate() {
+            record_model_usage(&ModelUsageEvent {
+                request_key: Some(format!("cache-receipt-{index}")),
+                session_id: Some("session-cache-receipts".into()),
+                operation: Some("context.dedicated_summarize".into()),
+                input_tokens: Some(100),
+                output_tokens: Some(20),
+                context_input_tokens: Some(1000),
+                fresh_input_tokens: Some(200),
+                cache_creation_input_tokens: Some(100),
+                cache_read_input_tokens: Some(800),
+                ttft_ms: Some(ttft),
+                duration_ms: Some(300),
+                metadata: Some(
+                    json!({"summary_request_mode": "native_prefix_fork", "private": "cache-receipt-secret-canary"}),
+                ),
+                ..ModelUsageEvent::new("summarize")
+            });
+        }
+        drop(guard);
+        let snapshot = telemetry_snapshot("mtrial_cache_receipts").unwrap();
+        let calls = snapshot["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|event| event["event"] == "model.call")
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0]["attributes"]["contextInputTokens"], 1000);
+        assert_eq!(calls[0]["attributes"]["freshInputTokens"], 200);
+        assert_eq!(calls[0]["attributes"]["cacheWriteTokens"], 100);
+        assert_eq!(
+            calls[0]["attributes"]["summaryRequestMode"],
+            "native_prefix_fork"
+        );
+        assert_eq!(calls[0]["attributes"]["ttftMs"], 120);
+        assert_eq!(calls[1]["attributes"]["ttftMs"], 240);
+        assert!(!snapshot.to_string().contains("cache-receipt-secret-canary"));
     }
 
     #[test]

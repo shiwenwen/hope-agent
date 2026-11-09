@@ -1226,6 +1226,24 @@ pub(crate) async fn parse_chat_completions_sse(
                 }
                 // Parse usage from stream (when stream_options.include_usage is set).
                 if let Some(u) = chunk.get("usage") {
+                    usage.cache_receipt.read = u
+                        .get("cache_read_input_tokens")
+                        .and_then(Value::as_u64)
+                        .or_else(|| {
+                            u.pointer("/prompt_tokens_details/cached_tokens")
+                                .and_then(Value::as_u64)
+                        })
+                        .or_else(|| u.get("cached_tokens").and_then(Value::as_u64))
+                        .or_else(|| u.get("prompt_cache_hit_tokens").and_then(Value::as_u64))
+                        .or(usage.cache_receipt.read);
+                    usage.cache_receipt.write = u
+                        .get("cache_creation_input_tokens")
+                        .and_then(Value::as_u64)
+                        .or_else(|| {
+                            u.pointer("/prompt_tokens_details/cache_write_tokens")
+                                .and_then(Value::as_u64)
+                        })
+                        .or(usage.cache_receipt.write);
                     if let Some(pt) = u.get("prompt_tokens").and_then(|v| v.as_u64()) {
                         usage.input_tokens = pt;
                         usage.input_coverage = crate::token_accounting::UsageCoverage::Complete;
@@ -1259,6 +1277,9 @@ pub(crate) async fn parse_chat_completions_sse(
                             .and_then(|d| d.get("cache_write_tokens"))
                             .and_then(|v| v.as_u64())
                             .unwrap_or(0);
+                    }
+                    if let Some(read) = usage.cache_receipt.read {
+                        usage.cache_read_input_tokens = read;
                     }
                 }
                 if let Some(choices) = chunk.get("choices").and_then(|c| c.as_array()) {
@@ -1881,6 +1902,69 @@ mod tests {
         assert_eq!(buffer, b"rest");
         assert!(decode_chat_completion_sse_data(r#"{"choices":[]}"#).is_ok());
         assert!(decode_chat_completion_sse_data("{").is_err());
+    }
+
+    #[tokio::test]
+    async fn deepseek_cache_receipts_keep_unreported_writes_unknown() {
+        for read in [0, 80] {
+            let payload = serde_json::json!({
+                "choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 5,
+                    "prompt_cache_hit_tokens": read, "prompt_cache_miss_tokens": 100 - read}
+            });
+            let response = super::super::test_support::raw_sse_response(format!(
+                "data: {payload}\n\ndata: [DONE]\n\n"
+            ))
+            .await;
+            let (_, _, mut usage, _, _) = super::parse_chat_completions_sse(
+                response,
+                std::time::Instant::now(),
+                false,
+                &Arc::new(AtomicBool::new(false)),
+                &|_| {},
+            )
+            .await
+            .unwrap();
+            usage.normalize_openai_round();
+            assert_eq!(usage.cache_read_input_tokens, read);
+            assert_eq!(usage.cache_receipt.read, Some(read));
+            assert_eq!(usage.cache_receipt.write, None);
+            assert_eq!(usage.cache_receipt.context, Some(100));
+            assert_eq!(usage.cache_receipt.fresh, Some(100 - read));
+        }
+    }
+
+    #[tokio::test]
+    async fn cache_receipt_survives_output_only_usage_chunks_and_preserves_zero() {
+        for read in [None, Some(0), Some(80)] {
+            let mut details = serde_json::json!({"cache_write_tokens": 0});
+            if let Some(read) = read {
+                details["cached_tokens"] = serde_json::json!(read);
+            }
+            let first = serde_json::json!({
+                "choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 100, "prompt_tokens_details": details}
+            });
+            let last = serde_json::json!({"choices": [], "usage": {"completion_tokens": 5}});
+            let response = super::super::test_support::raw_sse_response(format!(
+                "data: {first}\n\ndata: {last}\n\ndata: [DONE]\n\n"
+            ))
+            .await;
+            let (_, _, mut usage, _, _) = super::parse_chat_completions_sse(
+                response,
+                std::time::Instant::now(),
+                false,
+                &Arc::new(AtomicBool::new(false)),
+                &|_| {},
+            )
+            .await
+            .unwrap();
+            usage.normalize_openai_round();
+            assert_eq!(usage.cache_receipt.read, read);
+            assert_eq!(usage.cache_receipt.write, Some(0));
+            assert_eq!(usage.cache_receipt.context, Some(100));
+            assert_eq!(usage.cache_receipt.fresh, read.map(|read| 100 - read));
+        }
     }
 
     #[tokio::test]

@@ -927,7 +927,13 @@ async fn run_experiment(
                 total: total_trials,
             });
             let case_timer = Instant::now();
-            let mut result = match crate::adapters::run_context_compaction(suite, case) {
+            #[cfg(feature = "full-runner")]
+            let execution = crate::adapters::run_context_compaction(suite, case);
+            #[cfg(not(feature = "full-runner"))]
+            let execution: Result<CaseResult> = Err(anyhow!(
+                "deterministic App safety suites require a full-runner build"
+            ));
+            let mut result = match execution {
                 Ok(result) => result,
                 Err(error) => CaseResult {
                     suite_id: suite.id.clone(),

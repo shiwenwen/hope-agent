@@ -149,8 +149,10 @@ impl ModelUsageAttemptGuard {
         if let Some(usage) = usage {
             if usage.input_coverage.is_present() {
                 event.input_tokens = Some(usage.input_tokens);
-                event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
-                event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+                event.cache_creation_input_tokens = usage.cache_receipt.write;
+                event.cache_read_input_tokens = usage.cache_receipt.read;
+                event.context_input_tokens = usage.cache_receipt.context;
+                event.fresh_input_tokens = usage.cache_receipt.fresh;
             }
             if usage.output_coverage.is_present() {
                 event.output_tokens = Some(usage.output_tokens);
@@ -484,6 +486,36 @@ pub fn record_model_usage_best_effort(mut event: ModelUsageEvent) {
 mod tests {
     use super::*;
     use crate::session::SessionDB;
+
+    #[test]
+    fn attempt_settlement_preserves_missing_and_reported_zero_cache_receipts() {
+        let mut usage = crate::agent::types::ChatUsage {
+            input_tokens: 100,
+            output_tokens: 10,
+            input_coverage: crate::token_accounting::UsageCoverage::Complete,
+            output_coverage: crate::token_accounting::UsageCoverage::Complete,
+            ..Default::default()
+        };
+        usage.normalize_openai_round();
+        let settle = |usage: &crate::agent::types::ChatUsage| {
+            let mut attempt = ModelUsageAttemptGuard::new(ModelUsageEvent::new(KIND_SIDE_QUERY));
+            attempt.arm();
+            attempt.settle(Some(usage), None).unwrap()
+        };
+        let missing = settle(&usage);
+        assert_eq!(missing.input_tokens, Some(100));
+        assert_eq!(missing.context_input_tokens, Some(100));
+        assert_eq!(missing.cache_read_input_tokens, None);
+        assert_eq!(missing.cache_creation_input_tokens, None);
+        assert_eq!(missing.fresh_input_tokens, None);
+        usage.cache_receipt.read = Some(0);
+        usage.cache_receipt.write = Some(0);
+        usage.normalize_openai_round();
+        let reported_zero = settle(&usage);
+        assert_eq!(reported_zero.cache_read_input_tokens, Some(0));
+        assert_eq!(reported_zero.cache_creation_input_tokens, Some(0));
+        assert_eq!(reported_zero.fresh_input_tokens, Some(100));
+    }
 
     fn open_test_db() -> (SessionDB, std::path::PathBuf) {
         let path =

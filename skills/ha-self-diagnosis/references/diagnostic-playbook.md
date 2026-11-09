@@ -85,6 +85,8 @@ gotcha that most often explains a failure. Open every DB read-only.
 - State: `sessions.db` (`context_json` snapshot, `messages.stream_status`, `messages.is_side_snapshot`, `chat_turns`, `session_autonomy_pauses`, session-free `runtime_control_epochs`), `memory.db`. Config: `compact.*` (`cacheTtlSecs=300`, override at usage ≥0.95), `memoryExtract.*`, `memory_embedding`.
 - Grep: `category IN ('chat_engine','memory')`; compaction logs under `category='context'` (source `compact`) plus `category='agent'` (`reactive_microcompact`).
 - 摘要正文为空或推理档位失败 → 检查 `compact.summaryReasoningEffort`（null 保持默认）；仅摘要请求应用显式覆盖，不改变主对话推理或输出上限。不支持的档位/关闭参数以 request-contract 终态停止且保留原历史；先核对摘要专用模型、协议和错误类型，不自动切换模型或扩预算，第三方网关需单独验收。
+- 长上下文摘要费用偏高 → 核对摘要用量元数据 `summary_request_mode` 与实际缓存读写。`native_prefix_fork` 只表示保留了本轮原生前缀，不证明缓存仍有效；`independent` 可由专用模型、显式推理覆盖、容量、媒体或服务端工具触发。工具调用型摘要候选会被拒绝，不执行工具。前缀身份变更导致拒绝时保留历史，不绕过账号/工作区校验，也不打印模板正文。
+- 主请求历史反复重建缓存 → 核对 Anthropic 的历史断点是否位于动态用户数据前，以及官方 OpenAI Responses 显式模式是否保留当前、上一历史组两个断点。并行工具结果按整组计，不按单个结果挤掉上一轮位置；兼容端点与 Codex 不强发官方缓存字段。缓存注解不改变工具权限或权威历史，真实命中只认服务商回执。
 - Codex 本地记录导入：入口 `session/codex_import.rs`，台账 `sessions.db.session_import_sources`；`category='session' AND source='codex_import'` 只记录汇总计数。`SELECT source_id,session_id FROM session_import_sources WHERE provider='codex'` 可检查去重关系；这些会话故意只读，`TurnKernel` 和消息插入触发器均拒绝续写。检查失败时不要读取或贴出 JSONL 正文、凭据与工作目录。
 - 主对话关闭镜像后侧聊无法自动打开 → 检查浏览器与 Mac 是否都经 `useMirrorPanelSessionScope` 绑定当前对话面，显示与关闭状态不能再由父会话工作台缓存覆盖。
 - 侧聊宠物提示点击无效 → 检查所属主会话是否仍符合 `regular_session_scope_sql`、侧聊自身是否未归档；归档或恢复应触发 `pet:activity_changed`，不能为不可打开的主会话继续投影侧聊活动。
@@ -167,6 +169,10 @@ gotcha that most often explains a failure. Open every DB read-only.
 - Gotcha: desktop-only — `mac_control` returns `supported=false` off macOS-Tauri and needs live TCC perms (Accessibility + Screen Recording); start with `action='status'`/`'permissions'`. Browser launch failures → `launch_circuit.rs` trip + 3-tier fallback. Missing `browser:frame`/`mac_control:frame` EventBus frames = capture failed. Stale `el_N`/`ref_id` only valid within their originating snapshot. Panel timeline (`tool_actions`) is memory-only — empty after restart is normal, not data loss; entries are purged on session delete/burn, typed text is redacted to `text(N chars)` by design. **macOS TCC (`permissions.rs`)**: `request_item` dispatches by **`def.id`** (NOT `request_mode` — that field is catalog metadata for the frontend only); real branches are the NativePrompt ids, the two `automation` ids (osascript probe), and a `_` fallback (`open_settings_pane` + re-check, covering OpenSettings + None). Folder ids carry a `_folder` suffix (`desktop_folder`/`documents_folder`/`downloads_folder` — bare `desktop` etc. do not exist). NativePrompt items already past `NotDetermined` open Settings instead of re-prompting (`requestable_status_or_open`). Off macOS the whole module is a `cfg` stub returning unsupported.
 
 ### Dashboard / Recap / Awareness — `dashboard.md`, `recap.md`, `behavior-awareness.md`
+
+- 缓存基准：评测中心显式选择 `prompt-cache`；资产 `evals/live/suites/prompt-cache/`，报告 `ha-eval/src/model_cache.rs`。`model cache-smoke` 只用 loopback 合成回执验证链路；`model cache-report` 离线按阶段读 cache tokens / 归一化输入 / 逐调用 TTFT / summary mode。未知用量或价格保持 null，标准输入价预算不代表缓存账单；详见 `cache-benchmark.md`。
+- 自动摘要对照：使用 `prompt-cache-auto` / `HA-CACHE-002`，不调用手动压缩。最终 `minTotalSummaryCalls` 校验需要成功摘要回执；实际安装仍核对生产压缩日志及后续上下文。旧版与新版固定同一配置窗口、模型与资产，记录产品二进制摘要，分别报告真实命中；缩放窗口不能冒充服务商满窗口，普通计价反事实不能冒充旧版实测。
+- 真实评测初始鉴权正常、压缩/记忆协调后 401：检查配置回读是否覆盖了一次性内存凭据。隔离评测配置必须固定启动快照，不能从无凭据磁盘配置覆盖缓存，也不能为修复 401 把 Key 写入 config 或恢复继承凭据环境。
 
 - Entry: `dashboard/`, `recap/`, `awareness/`, `agent/mod.rs`.
 - State: `recap/recap.db` (rebuildable, keyed by `last_message_ts`), `sessions.db` (`learning_events`), `logs.db`, `cron.db`. Config: `awareness.enabled`/`mode` (hard-gate), `recap.analysisAgent`/`language`.

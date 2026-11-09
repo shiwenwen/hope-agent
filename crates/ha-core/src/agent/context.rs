@@ -454,6 +454,7 @@ impl AssistantAgent {
 
     /// Replace the conversation history (used to restore context from DB).
     pub fn set_conversation_history(&self, history: Vec<serde_json::Value>) {
+        self.clear_summary_fork_template();
         *self
             .conversation_history
             .lock()
@@ -1348,109 +1349,126 @@ impl AssistantAgent {
                         );
                     }
 
-                    // The summarization request has its own capacity boundary. It
-                    // must fit both the optional dedicated model and the
-                    // conversation-model fallback; otherwise a history overflow
-                    // simply turns into a second overflow while trying to compact.
-                    // Use the model-neutral upper bound here so CJK/code are not
-                    // reduced to the old bytes/4 approximation.
-                    let dedicated_summary_window = self
-                        .compaction_provider
-                        .as_ref()
-                        .and_then(|provider| provider.context_window())
-                        .filter(|window| *window > 0);
-                    let summary_context_window = match (
-                        (self.context_window > 0).then_some(self.context_window),
-                        dedicated_summary_window,
-                    ) {
-                        (Some(conversation), Some(dedicated)) => conversation.min(dedicated),
-                        (Some(conversation), None) => conversation,
-                        (None, Some(dedicated)) => dedicated,
-                        (None, None) => 0,
-                    };
-                    let summary_safety_headroom = u64::from(summary_context_window / 50).max(1_024);
-                    let summary_target_input_upper = u64::from(summary_context_window)
-                        .saturating_sub(u64::from(compact_config.summary_max_tokens))
-                        .saturating_sub(summary_safety_headroom);
-                    let build_summary_request = |messages: &[serde_json::Value]| {
-                        let (prompt_messages, previous_summary) =
-                            context_compact::peel_previous_summary(messages);
-                        let prompt = context_compact::build_summarization_prompt(
-                            &prompt_messages,
-                            previous_summary.as_deref(),
-                            compact_config,
-                        );
-                        let capacity_text = format!(
-                            "{}\n\n{}",
-                            context_compact::SUMMARIZATION_SYSTEM_PROMPT,
-                            prompt
-                        );
-                        let upper = crate::token_accounting::service()
-                            .count_text(
-                                crate::token_accounting::ProviderFamily::Unknown,
-                                "tier3-summary-input",
-                                &capacity_text,
-                            )
-                            .upper_bound;
-                        (prompt, upper)
-                    };
-
-                    // Prepare only the one-shot summary input. These
-                    // deterministic Tier 0/2 edits are never published to the
-                    // canonical history or the main request projection, so
-                    // they cannot churn the conversation's prompt-cache
-                    // prefix. If they are insufficient, the summary attempt
-                    // still fails closed before network I/O.
-                    let mut summary_input_messages = split.summarizable.clone();
-                    let (_, summary_input_before) = build_summary_request(&summary_input_messages);
-                    let mut summary_input_projection_used = false;
-                    if summary_context_window > 0
-                        && summary_input_before > summary_target_input_upper
-                    {
-                        let protected_start = summary_input_messages.len();
-                        for tier in [
-                            context_compact::CapacityPressureTier::Tier0,
-                            context_compact::CapacityPressureTier::Tier2,
-                        ] {
-                            let pressure = context_compact::apply_capacity_pressure_tier(
-                                &mut summary_input_messages,
-                                protected_start,
-                                compact_config,
-                                tier,
-                                summary_target_input_upper,
-                                |candidate| Ok(build_summary_request(candidate).1),
-                            );
-                            match pressure {
-                                Ok(result) => {
-                                    summary_input_projection_used |= !result.edits.is_empty();
-                                    if result.reached_target {
-                                        break;
-                                    }
-                                }
-                                Err(error) => {
-                                    if let Some(manifest) = compact_result.manifest.as_mut() {
-                                        manifest.warnings.push(format!(
-                                            "summary_input_projection_failed:{error}"
-                                        ));
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if summary_input_projection_used {
+                    let summary_fork = self.prepare_summary_fork(&split.summarizable);
+                    let (prompt, prompt_capacity_error) = if let Some(fork) = &summary_fork {
                         if let Some(manifest) = compact_result.manifest.as_mut() {
                             manifest
                                 .warnings
-                                .push("summary_input_projection_only".to_string());
+                                .push("summary_native_prefix_fork".to_string());
                         }
-                    }
-                    let (prompt, summary_input_upper) =
-                        build_summary_request(&summary_input_messages);
-                    let summary_total_upper = summary_input_upper
-                        .saturating_add(u64::from(compact_config.summary_max_tokens))
-                        .saturating_add(summary_safety_headroom);
-                    let prompt_capacity_error = (summary_context_window == 0
+                        app_debug!(
+                            "context",
+                            "compact",
+                            "native summary fork input_upper={}",
+                            fork.input_upper
+                        );
+                        (String::new(), None)
+                    } else {
+                        // The summarization request has its own capacity boundary. It
+                        // must fit both the optional dedicated model and the
+                        // conversation-model fallback; otherwise a history overflow
+                        // simply turns into a second overflow while trying to compact.
+                        // Use the model-neutral upper bound here so CJK/code are not
+                        // reduced to the old bytes/4 approximation.
+                        let dedicated_summary_window = self
+                            .compaction_provider
+                            .as_ref()
+                            .and_then(|provider| provider.context_window())
+                            .filter(|window| *window > 0);
+                        let summary_context_window = match (
+                            (self.context_window > 0).then_some(self.context_window),
+                            dedicated_summary_window,
+                        ) {
+                            (Some(conversation), Some(dedicated)) => conversation.min(dedicated),
+                            (Some(conversation), None) => conversation,
+                            (None, Some(dedicated)) => dedicated,
+                            (None, None) => 0,
+                        };
+                        let summary_safety_headroom =
+                            u64::from(summary_context_window / 50).max(1_024);
+                        let summary_target_input_upper = u64::from(summary_context_window)
+                            .saturating_sub(u64::from(compact_config.summary_max_tokens))
+                            .saturating_sub(summary_safety_headroom);
+                        let build_summary_request = |messages: &[serde_json::Value]| {
+                            let (prompt_messages, previous_summary) =
+                                context_compact::peel_previous_summary(messages);
+                            let prompt = context_compact::build_summarization_prompt(
+                                &prompt_messages,
+                                previous_summary.as_deref(),
+                                compact_config,
+                            );
+                            let capacity_text = format!(
+                                "{}\n\n{}",
+                                context_compact::SUMMARIZATION_SYSTEM_PROMPT,
+                                prompt
+                            );
+                            let upper = crate::token_accounting::service()
+                                .count_text(
+                                    crate::token_accounting::ProviderFamily::Unknown,
+                                    "tier3-summary-input",
+                                    &capacity_text,
+                                )
+                                .upper_bound;
+                            (prompt, upper)
+                        };
+
+                        // Prepare only the one-shot summary input. These
+                        // deterministic Tier 0/2 edits are never published to the
+                        // canonical history or the main request projection, so
+                        // they cannot churn the conversation's prompt-cache
+                        // prefix. If they are insufficient, the summary attempt
+                        // still fails closed before network I/O.
+                        let mut summary_input_messages = split.summarizable.clone();
+                        let (_, summary_input_before) =
+                            build_summary_request(&summary_input_messages);
+                        let mut summary_input_projection_used = false;
+                        if summary_context_window > 0
+                            && summary_input_before > summary_target_input_upper
+                        {
+                            let protected_start = summary_input_messages.len();
+                            for tier in [
+                                context_compact::CapacityPressureTier::Tier0,
+                                context_compact::CapacityPressureTier::Tier2,
+                            ] {
+                                let pressure = context_compact::apply_capacity_pressure_tier(
+                                    &mut summary_input_messages,
+                                    protected_start,
+                                    compact_config,
+                                    tier,
+                                    summary_target_input_upper,
+                                    |candidate| Ok(build_summary_request(candidate).1),
+                                );
+                                match pressure {
+                                    Ok(result) => {
+                                        summary_input_projection_used |= !result.edits.is_empty();
+                                        if result.reached_target {
+                                            break;
+                                        }
+                                    }
+                                    Err(error) => {
+                                        if let Some(manifest) = compact_result.manifest.as_mut() {
+                                            manifest.warnings.push(format!(
+                                                "summary_input_projection_failed:{error}"
+                                            ));
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if summary_input_projection_used {
+                            if let Some(manifest) = compact_result.manifest.as_mut() {
+                                manifest
+                                    .warnings
+                                    .push("summary_input_projection_only".to_string());
+                            }
+                        }
+                        let (prompt, summary_input_upper) =
+                            build_summary_request(&summary_input_messages);
+                        let summary_total_upper = summary_input_upper
+                            .saturating_add(u64::from(compact_config.summary_max_tokens))
+                            .saturating_add(summary_safety_headroom);
+                        let prompt_capacity_error = (summary_context_window == 0
                     || summary_total_upper > u64::from(summary_context_window))
                 .then(|| {
                     format!(
@@ -1461,6 +1479,8 @@ impl AssistantAgent {
                         summary_context_window
                     )
                 });
+                        (prompt, prompt_capacity_error)
+                    };
 
                     let summary_future = tokio::time::timeout(
                         std::time::Duration::from_secs(compact_config.summarization_timeout_secs),
@@ -1468,7 +1488,7 @@ impl AssistantAgent {
                             if let Some(error) = prompt_capacity_error {
                                 anyhow::bail!(error);
                             }
-                            self.summarize_with_model(&prompt).await
+                            self.summarize_with_model(&prompt, summary_fork).await
                         },
                     );
                     let summary_result = if let Some(cancel) = options.cancel.clone() {
@@ -1567,6 +1587,7 @@ impl AssistantAgent {
                                     details.summary_tokens = Some(summary_tokens);
                                 }
                                 run_outcome.summary_applied = true;
+                                self.clear_summary_fork_template();
                                 run_outcome.summary_reason = Some(options.summary_reason);
                                 self.tier3_summary_applied_this_turn
                                     .store(true, std::sync::atomic::Ordering::Release);
@@ -2207,9 +2228,13 @@ impl AssistantAgent {
 
     /// Non-streaming LLM call for context summarization.
     /// If a CompactionProvider is configured, tries it first; on failure falls
-    /// back to the conversation model using the same independent summarizer
-    /// request shape and bounded retry policy.
-    async fn summarize_with_model(&self, prompt: &str) -> Result<String> {
+    /// back to the conversation model with bounded retries. Native forks are
+    /// available only when no dedicated model or reasoning override is set.
+    async fn summarize_with_model(
+        &self,
+        prompt: &str,
+        summary_fork: Option<Arc<super::summary_fork::SummaryForkRequest>>,
+    ) -> Result<String> {
         if self.compact_config.summary_reasoning_effort.is_some()
             && self
                 .compact_config
@@ -2271,13 +2296,13 @@ impl AssistantAgent {
             }
         }
 
-        // Do not reuse the main chat snapshot here. A cached side query would
-        // send the old history once as the cached prefix and a second time in
-        // `prompt`, while also demoting the summarizer system contract to a
-        // user message. Build an independent one-shot request instead. When
-        // the conversation provider has normal failover context, reuse the
-        // dedicated summarizer wrapper so transient API failures get its
-        // bounded retry policy without changing request semantics.
+        // The native fork has its own counted source guard and carries only
+        // the checkpoint directive after the original history. Never pass the
+        // serialized independent `prompt` through a generic cached side query:
+        // that would duplicate history and change its trust framing.
+        // When no verified native fork fits, keep the independent request's
+        // summarizer system contract. Both paths use the dedicated wrapper's
+        // bounded retry policy without rotating credentials or models.
         if let (Some(provider_config), Some(session_id)) =
             (self.provider_config.clone(), self.session_id.clone())
         {
@@ -2289,7 +2314,8 @@ impl AssistantAgent {
                 format!("conversation model {}", self.provider.model()),
                 self.context_window,
             )
-            .with_summary_reasoning_effort(self.compact_config.summary_reasoning_effort);
+            .with_summary_reasoning_effort(self.compact_config.summary_reasoning_effort)
+            .with_summary_fork(summary_fork);
             return crate::context_compact::CompactionProvider::summarize(
                 &provider,
                 prompt,
@@ -2316,6 +2342,7 @@ impl AssistantAgent {
             &self.provider,
             &self.user_agent,
             prompt,
+            summary_fork.as_deref(),
             self.compact_config.summary_max_tokens,
             self.compact_config.summary_reasoning_effort,
             &self.thinking_style,
@@ -2787,6 +2814,7 @@ pub(crate) async fn summarize_direct(
     provider: &LlmProvider,
     user_agent: &str,
     prompt: &str,
+    summary_fork: Option<&super::summary_fork::SummaryForkRequest>,
     max_tokens: u32,
     reasoning_effort: Option<crate::context_compact::SummaryReasoningEffort>,
     thinking_style: &crate::provider::ThinkingStyle,
@@ -2797,12 +2825,18 @@ pub(crate) async fn summarize_direct(
         .as_ref()
         .and_then(|event| event.session_id.clone());
     let _eval_call_guard = crate::eval_context::retain_model_call(session_id.as_deref())?;
+
+    if summary_fork.is_some_and(|fork| !fork.matches_provider(provider)) {
+        return Err(crate::failover::ProviderRequestContractError(
+            "Summary prefix no longer matches the selected provider account or model; existing history is preserved.".into(),
+        ).into());
+    }
     let client =
         crate::provider::apply_model_proxy(reqwest::Client::builder().user_agent(user_agent))
             .build()
             .map_err(|error| anyhow::anyhow!("HTTP client error: {}", error))?;
     let mut attempt = usage_event.map(|mut event| {
-        event.metadata = Some(serde_json::json!({ "max_tokens": max_tokens }));
+        event.metadata = Some(serde_json::json!({ "max_tokens": max_tokens, "summary_request_mode": if summary_fork.is_some() { "native_prefix_fork" } else { "independent" } }));
         crate::model_usage::ModelUsageAttemptGuard::new(event)
     });
     if let Some(attempt) = attempt.as_mut() {
@@ -2815,13 +2849,14 @@ pub(crate) async fn summarize_direct(
             OneShotRequest {
                 instruction: prompt,
                 max_tokens,
-                mode: match reasoning_effort {
-                    Some(effort) => OneShotMode::Summary {
+                mode: match (summary_fork, reasoning_effort) {
+                    (Some(fork), None) => OneShotMode::SummaryFork(fork),
+                    (_, Some(effort)) => OneShotMode::Summary {
                         system: SUMMARIZATION_SYSTEM_PROMPT,
                         effort,
                         thinking_style,
                     },
-                    None => OneShotMode::Independent {
+                    (None, None) => OneShotMode::Independent {
                         system: SUMMARIZATION_SYSTEM_PROMPT,
                     },
                 },
@@ -2861,6 +2896,7 @@ pub struct DedicatedModelProvider {
     display_name: String,
     context_window: u32,
     summary_reasoning_effort: Option<crate::context_compact::SummaryReasoningEffort>,
+    summary_fork: Option<Arc<super::summary_fork::SummaryForkRequest>>,
 }
 
 impl DedicatedModelProvider {
@@ -2880,6 +2916,7 @@ impl DedicatedModelProvider {
             display_name,
             context_window,
             summary_reasoning_effort: None,
+            summary_fork: None,
         }
     }
 
@@ -2888,6 +2925,14 @@ impl DedicatedModelProvider {
         effort: Option<crate::context_compact::SummaryReasoningEffort>,
     ) -> Self {
         self.summary_reasoning_effort = effort;
+        self
+    }
+
+    fn with_summary_fork(
+        mut self,
+        fork: Option<Arc<super::summary_fork::SummaryForkRequest>>,
+    ) -> Self {
+        self.summary_fork = fork;
         self
     }
 }
@@ -2902,6 +2947,7 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
         let user_agent = self.user_agent.as_str();
         let session_id_for_usage = self.session_id.clone();
         let reasoning_effort = self.summary_reasoning_effort;
+        let summary_fork = self.summary_fork.clone();
         let thinking_style = provider_config.effective_thinking_style_for_model(model_id);
 
         execute_with_failover(
@@ -2915,6 +2961,7 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
                 let profile_owned = profile.cloned();
                 let session_id_for_usage = session_id_for_usage.clone();
                 let thinking_style = thinking_style.clone();
+                let summary_fork = summary_fork.clone();
                 async move {
                     let provider = AssistantAgent::build_llm_provider(
                         provider_config,
@@ -2935,6 +2982,7 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
                         &provider,
                         user_agent,
                         prompt,
+                        summary_fork.as_deref(),
                         max_tokens,
                         reasoning_effort,
                         &thinking_style,
@@ -3359,7 +3407,7 @@ mod mid_loop_compaction_tests {
         let original = vec![json!({"role":"user","content":"preserve the original history"})];
         agent.set_conversation_history(original.clone());
         let error = agent
-            .summarize_with_model("synthetic summary prompt")
+            .summarize_with_model("synthetic summary prompt", None)
             .await
             .unwrap_err();
         assert!(error

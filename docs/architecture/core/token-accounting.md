@@ -42,6 +42,8 @@ Provider 未返回 usage 和真实返回 `0` 是不同状态。`ChatUsage` 分�
 
 工具循环的累计值与最近一轮值仍分开。Goal、Loop、ACP 和现有成本口径不得因 tokenizer 迁移而改成另一种累计定义。
 
+缓存诊断另保留 `ChatUsage.cache_receipt` 的可选实际值，避免兼容数值计数器把缺失的缓存字段当作实际零。Anthropic 只有完整输入与缓存桶才给出精确 context；OpenAI 的完整 input 可直接给出 context，但缺少缓存读取回执时 fresh 保持未知。主调用的评测事件，以及摘要/侧查询的用量台账记录，使用这些实际值生成脱敏 `model.call`；逐调用 TTFT 和摘要请求模式供[缓存基准](../agent/cache-benchmark.md)使用，不以标准输入价预算估值冒充缓存账单。
+
 ## 校正与持久化
 
 校正 key 包含 Provider family、model、request shape、tokenizer id、registry version 和 modality。中心值使用 EMA（alpha 0.2），每 key 最多保留 64 个近期 ratio，并以 p05/p95 形成上下界；ratio 钳在 `[0.5, 4.0]`。

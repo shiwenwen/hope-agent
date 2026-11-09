@@ -15,6 +15,8 @@ use super::types::{CacheSafeParams, ChatUsage, LlmProvider};
 
 pub enum OneShotMode<'a> {
     Cached(&'a CacheSafeParams),
+    /// Text-only checkpoint fork with an already counted native prefix.
+    SummaryFork(&'a super::summary_fork::SummaryForkRequest),
     Independent {
         system: &'a str,
     },

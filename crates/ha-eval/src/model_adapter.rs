@@ -86,6 +86,43 @@ enum ScriptedUserStep {
         #[serde(rename = "expectedTier")]
         expected_tier: u8,
     },
+    CacheCheckpoint {
+        phase: String,
+        #[serde(default, rename = "expectedResponse")]
+        expected_response: Option<Value>,
+        #[serde(default, rename = "minToolCalls")]
+        min_tool_calls: u64,
+        #[serde(default = "one_model_call", rename = "minModelCalls")]
+        min_model_calls: u64,
+        #[serde(default, rename = "minTotalSummaryCalls")]
+        min_total_summary_calls: u64,
+    },
+}
+
+fn one_model_call() -> u64 {
+    1
+}
+
+fn successful_summary_calls(events: &[ModelCampaignEvent]) -> u64 {
+    events
+        .iter()
+        .filter(|event| {
+            event.event == "model.call"
+                && event.status == "succeeded"
+                && matches!(
+                    event.attributes.get("operation").and_then(Value::as_str),
+                    Some("context.summarize_direct" | "context.dedicated_summarize")
+                )
+                && matches!(
+                    event
+                        .attributes
+                        .get("summaryRequestMode")
+                        .and_then(Value::as_str),
+                    Some("independent" | "native_prefix_fork")
+                )
+                && event.attributes.get("success").and_then(Value::as_bool) == Some(true)
+        })
+        .count() as u64
 }
 
 #[derive(Debug, Deserialize)]
@@ -648,6 +685,20 @@ async fn run_hope_core_scenario(
             FaultProfile::Chaos => "\n\n本轮是 chaos/faulted 分支：只响应实际注入的故障或明确收到的用户事件，不能自行伪造故障、审批答案或恢复证据。",
         });
     }
+    let cache_benchmark = scenario
+        .capabilities
+        .iter()
+        .any(|capability| capability == "prompt_cache");
+    // A new namespace is deliberately first in *history*, retained throughout
+    // this attempt. It cannot evict Provider system/tool caches and is not
+    // evidence that the first request was actually cold.
+    let cache_namespace_digest = if cache_benchmark {
+        let namespace = format!("hope-cache-{:032x}", rand::random::<u128>());
+        prompt = format!("合成缓存测试命名空间：{namespace}\n\n{prompt}");
+        sha256_bytes(namespace.as_bytes())
+    } else {
+        String::new()
+    };
     match trial.orchestration_profile.as_deref() {
         Some(profile) if profile.starts_with("single_agent") => {
             prompt.push_str(
@@ -856,6 +907,10 @@ async fn run_hope_core_scenario(
     let mut restart_wait_ms = 0;
     let mut scripted_wait_ms = 0u64;
     let mut scripted_action_checks = Vec::new();
+    let mut cache_phases = Vec::new();
+    let mut cache_after_seq = 0;
+    let mut cache_after_tools = 0;
+    let mut cache_phase_started = agent_started;
     if !request_blocked {
         let user_event_is_fault = scenario
             .faults
@@ -1178,6 +1233,53 @@ async fn run_hope_core_scenario(
                         break;
                     }
                 }
+                ScriptedUserStep::CacheCheckpoint {
+                    phase,
+                    expected_response,
+                    min_tool_calls,
+                    min_model_calls,
+                    min_total_summary_calls,
+                } => {
+                    if !cache_benchmark {
+                        bail!("cache_checkpoint requires prompt_cache capability");
+                    }
+                    let snapshot =
+                        fetch_telemetry(&client, server_url, token.as_deref(), &product_trial_id)
+                            .await
+                            .ok_or_else(|| anyhow!("cache checkpoint telemetry unavailable"))?;
+                    let through_seq = snapshot.events.last().map_or(0, |event| event.seq);
+                    let calls = snapshot
+                        .events
+                        .iter()
+                        .filter(|event| event.event == "model.call" && event.seq > cache_after_seq)
+                        .count() as u64;
+                    let quality_passed = expected_response.as_ref().map(|expected| {
+                        parse_semantically_exact_json_response(&chat.response)
+                            .is_ok_and(|actual| actual == *expected)
+                    });
+                    let tools = snapshot.tools.attempted.saturating_sub(cache_after_tools);
+                    let summaries = successful_summary_calls(&snapshot.events);
+                    let passed = quality_passed != Some(false)
+                        && calls >= min_model_calls
+                        && tools >= min_tool_calls
+                        && summaries >= min_total_summary_calls
+                        && snapshot.background_model_work == 0;
+                    scripted_action_checks.push(ModelCampaignCheck {
+                        id: format!("cache_phase_{phase}"), passed, blocking: true,
+                        detail: format!("phase receipt: {calls} model calls, {tools} tool attempts, {summaries} total successful summary calls; response sha256:{}; background model work {}", sha256_bytes(chat.response.as_bytes()), snapshot.background_model_work),
+                        metric: Some(if passed { 1.0 } else { 0.0 }), artifact_hashes: Vec::new(),
+                    });
+                    cache_phases.push(crate::model_cache::PhaseBoundary {
+                        name: phase,
+                        after_seq: cache_after_seq,
+                        through_seq,
+                        wall_ms: elapsed_ms(cache_phase_started),
+                        quality_passed,
+                    });
+                    cache_after_seq = through_seq;
+                    cache_after_tools = snapshot.tools.attempted;
+                    cache_phase_started = Instant::now();
+                }
             }
         }
     }
@@ -1316,6 +1418,15 @@ async fn run_hope_core_scenario(
         causal_critical_path.min(agent_wall_ms)
     };
     telemetry.invariants = evaluate_invariants(scenario, &telemetry);
+    if !cache_phases.is_empty() {
+        crate::model_cache::append_phase_events(
+            &mut telemetry.trace,
+            &mut telemetry.events,
+            &cache_phases,
+            &cache_namespace_digest,
+            std::env::var("HA_MODEL_EVAL_FAKE_CACHE").as_deref() == Ok("1"),
+        );
+    }
     if active_work_at_response {
         checks.push(ModelCampaignCheck {
             id: "harness_completion_quiescent".to_string(),
@@ -2502,11 +2613,20 @@ fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<Scripted
                 })
                 .collect::<Vec<_>>()
         }
-        "scripted-user-flow.v2" => {
+        "scripted-user-flow.v2" | "scripted-user-flow.v3" => {
+            let expected_version = schema_version.to_string();
             let flow: ScriptedUserFlowV2 =
-                serde_json::from_value(value).context("parsing scripted-user-flow.v2")?;
-            if flow.schema_version != "scripted-user-flow.v2" {
+                serde_json::from_value(value).context("parsing scripted user flow")?;
+            if flow.schema_version != expected_version {
                 bail!("scripted user flow schema is invalid");
+            }
+            if expected_version == "scripted-user-flow.v2"
+                && flow
+                    .steps
+                    .iter()
+                    .any(|step| matches!(step, ScriptedUserStep::CacheCheckpoint { .. }))
+            {
+                bail!("cache_checkpoint requires scripted-user-flow.v3");
             }
             flow.steps
         }
@@ -2529,12 +2649,15 @@ fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<Scripted
     }
     let mut compact_actions = 0usize;
     let mut owner_goal_actions = 0usize;
+    let mut cache_phases = std::collections::BTreeSet::new();
+    let mut phase_has_work = true; // initial task is the first phase
     for step in &steps {
         match step {
             ScriptedUserStep::Message { message, delay_ms } => {
                 if message.trim().is_empty() || message.len() > 32_000 || *delay_ms > 30_000 {
                     bail!("scripted user flow contains an invalid message step");
                 }
+                phase_has_work = true;
             }
             ScriptedUserStep::StopParent { .. } => {}
             ScriptedUserStep::UpdateGoal {
@@ -2555,6 +2678,34 @@ fn parse_scripted_user_flow(value: Value, max_turns: u16) -> Result<Vec<Scripted
                 if *expected_tier != 3 {
                     bail!("compact_context currently requires expectedTier=3");
                 }
+                phase_has_work = true;
+            }
+            ScriptedUserStep::CacheCheckpoint {
+                phase,
+                expected_response,
+                min_model_calls,
+                min_tool_calls,
+                min_total_summary_calls,
+            } => {
+                if phase.is_empty()
+                    || phase.len() > 48
+                    || !phase.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                    })
+                    || !cache_phases.insert(phase)
+                    || cache_phases.len() > 24
+                    || !phase_has_work
+                    || *min_model_calls == 0
+                    || *min_model_calls > 64
+                    || *min_tool_calls > 64
+                    || *min_total_summary_calls > 8
+                    || expected_response
+                        .as_ref()
+                        .is_some_and(|value| !value.is_object() || value.to_string().len() > 4096)
+                {
+                    bail!("invalid, duplicate or empty cache checkpoint");
+                }
+                phase_has_work = false;
             }
         }
     }
@@ -2598,6 +2749,17 @@ pub(crate) fn validate_harness_preconditions(
         return Ok(());
     }
     let steps = load_scripted_user_steps(scenario_dir, scenario)?;
+    if steps
+        .iter()
+        .any(|step| matches!(step, ScriptedUserStep::CacheCheckpoint { .. }))
+        && !scenario
+            .capabilities
+            .iter()
+            .any(|capability| capability == "prompt_cache")
+    {
+        bail!("cache_checkpoint requires prompt_cache capability");
+    }
+
     if steps
         .iter()
         .any(|step| matches!(step, ScriptedUserStep::StopParent { .. }))
@@ -4683,6 +4845,66 @@ mod tests {
             )
             .0
         );
+    }
+
+    #[test]
+    fn cache_checkpoint_requires_a_real_successful_summary_receipt() {
+        let receipt = |operation: &str, mode: Option<&str>, success: bool| ModelCampaignEvent {
+            seq: 1,
+            event: "model.call".into(),
+            timestamp_ms: 0,
+            span_id: "summary".into(),
+            parent_span_id: "root".into(),
+            key: None,
+            status: if success { "succeeded" } else { "failed" }.into(),
+            duration_ms: 1,
+            attributes: serde_json::from_value(json!({
+                "operation": operation, "summaryRequestMode": mode, "success": success
+            }))
+            .unwrap(),
+        };
+        assert_eq!(
+            successful_summary_calls(&[
+                receipt("context.dedicated_summarize", Some("independent"), true),
+                receipt("context.summarize_direct", Some("native_prefix_fork"), true),
+                receipt(
+                    "context.dedicated_summarize",
+                    Some("native_prefix_fork"),
+                    false
+                ),
+                receipt("context.dedicated_summarize", None, true),
+                receipt("chat_round", Some("native_prefix_fork"), true),
+            ]),
+            2
+        );
+        let mut flow = json!({"schemaVersion": "scripted-user-flow.v3", "steps": [
+            {"action":"cache_checkpoint", "phase":"auto", "minTotalSummaryCalls":1}
+        ]});
+        assert!(parse_scripted_user_flow(flow.clone(), 1).is_ok());
+        flow["steps"][0]["minTotalSummaryCalls"] = json!(9);
+        assert!(parse_scripted_user_flow(flow, 1).is_err());
+    }
+
+    #[test]
+    fn cache_script_requires_v3_unique_nonempty_phases_and_bounded_truth() {
+        let flow = json!({"schemaVersion": "scripted-user-flow.v3", "steps": [
+            {"action": "cache_checkpoint", "phase": "cold_history", "expectedResponse": {"fact": 1}},
+            {"action": "message", "message": "继续"},
+            {"action": "cache_checkpoint", "phase": "warm_1", "expectedResponse": {"fact": 1}}
+        ]});
+        assert_eq!(parse_scripted_user_flow(flow.clone(), 2).unwrap().len(), 3);
+        let mut wrong_version = flow.clone();
+        wrong_version["schemaVersion"] = json!("scripted-user-flow.v2");
+        assert!(parse_scripted_user_flow(wrong_version, 2).is_err());
+        let mut duplicate = flow.clone();
+        duplicate["steps"][2]["phase"] = json!("cold_history");
+        assert!(parse_scripted_user_flow(duplicate, 2).is_err());
+        let mut empty = flow.clone();
+        empty["steps"].as_array_mut().unwrap().remove(1);
+        assert!(parse_scripted_user_flow(empty, 2).is_err());
+        let mut invalid_truth = flow;
+        invalid_truth["steps"][0]["expectedResponse"] = json!(["not an object"]);
+        assert!(parse_scripted_user_flow(invalid_truth, 2).is_err());
     }
 
     #[test]

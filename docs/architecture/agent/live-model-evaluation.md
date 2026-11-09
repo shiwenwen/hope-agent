@@ -3,6 +3,8 @@
 > **当前边界**：本地闭环已完整可用——App / CLI 显式运行、隔离 Sidecar、真实 Provider、不可变计划、预算、因果归因、历史、详情、对比、趋势与本地导出。GitHub 自动 Campaign、受保护 Runner、签名发布证据链与 release gate 处于暂停状态，只保留协议兼容代码。
 >
 > **姊妹文档**：确定性专项评测（不调模型）见 [capability-eval](capability-eval.md)。
+>
+> **缓存诊断**：本地显式选择 `prompt-cache` 专项，按九个阶段观测缓存回执、延迟与事实保留；零费用采集冒烟、离线 `model cache-report` 和费用口径见[提示词缓存基准](cache-benchmark.md)。
 
 **关联源码**
 
@@ -463,6 +465,8 @@ HA_MODEL_EVAL_SERVER_TOKEN=<专用 server token>
 ```
 
 隔离 `HA_DATA_DIR/config.json` 只保存无凭据的 Provider / 模型配置，`apiKey` 必须为空且不得含 `authProfiles`。模型 Key 由本地 owner / Supervisor 经 `HA_MODEL_EVAL_PROVIDER_SECRETS_B64` 临时注入（`providerId → apiKey` 的 base64 JSON），首次加载配置后立即从 Server 环境移除、只留进程内存；评测模式同时禁止配置写回，避免内存中的 Key 落盘。Runner 为每个 trial 创建临时任务目录，并从 Harness 子进程环境删除常见凭据变量。Trial evidence 额外记录这个无凭据 `config.json` 的 SHA-256，聚合 evidence 记录 Runner OS / 架构——同一次本地比较里所有有效 trial 必须使用同一运行配置摘要与不可变模型 / 价格快照，防止配置漂移被误认为同一基线。
+
+评测启动后的配置快照固定不变。`reload_config_snapshot_from_disk()` 在 `HA_MODEL_EVAL_MODE=1` 时返回当前内存快照，避免记忆协调等回读把临时凭据覆盖成磁盘里的空值；它不重新读取 owner 凭据、不把 Key 写回磁盘，也不接受运行中对隔离配置的外部修改。普通运行模式仍执行真实磁盘重载。
 
 ---
 

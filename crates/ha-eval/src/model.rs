@@ -126,6 +126,31 @@ pub enum ModelCommands {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Zero-cost cache benchmark collection smoke through a real Hope server.
+    CacheSmoke {
+        #[arg(long)]
+        server_bin: Option<PathBuf>,
+        /// Registered cache suite; this command still uses only a loopback fake Provider.
+        #[arg(long, default_value = "prompt-cache")]
+        suite: String,
+        /// Smaller configured window for exercising automatic compaction locally.
+        #[arg(long)]
+        context_window: Option<u32>,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Build phase-level cache diagnostics from existing evidence, offline.
+    CacheReport {
+        #[arg(long, required = true)]
+        inputs: Vec<PathBuf>,
+        /// Explicit USD prices including cache reads/writes and the write TTL.
+        #[arg(long)]
+        pricing: Option<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        summary: PathBuf,
+    },
     /// Zero-cost full App-control smoke through Sidecar and real Hope Server.
     AppSmoke {
         /// Sidecar executable. Defaults to the currently running binary.
@@ -281,6 +306,20 @@ pub async fn execute(root: &Path, command: ModelCommands) -> Result<()> {
         ModelCommands::Smoke { server_bin, output } => {
             command_smoke(root, server_bin.as_deref(), &output).await
         }
+        ModelCommands::CacheSmoke {
+            server_bin,
+            suite,
+            context_window,
+            output,
+        } => {
+            command_cache_smoke(root, server_bin.as_deref(), &suite, context_window, &output).await
+        }
+        ModelCommands::CacheReport {
+            inputs,
+            pricing,
+            output,
+            summary,
+        } => crate::model_cache::command_report(&inputs, pricing.as_deref(), &output, &summary),
         ModelCommands::AppSmoke {
             sidecar,
             server_bin,
@@ -583,6 +622,9 @@ fn validate_repo(root: &Path) -> Result<()> {
             .with_context(|| format!("validating {} against app profile schema", path.display()))?;
         let profile: EvalAppProfile = read_json(&path)?;
         validate_app_profile(&profile)?;
+        // Opt-in App suites need the same schema/digest/script validation as
+        // policy suites without silently adding them to nightly campaigns.
+        policy_suite_ids.extend(profile.suites.iter().map(|suite| suite.suite_id.clone()));
         let digest = app_profile_digest(&profile)?;
         app_profile_digests.insert(format!("{}@{}", profile.id, profile.version), digest);
     }
@@ -755,7 +797,7 @@ fn validate_version_lock(
                 .ok_or_else(|| anyhow!("model version lock has no entry for {section}.{versioned_id}; expected sha256:{digest}"))?;
             if locked != digest {
                 bail!(
-                    "{versioned_id} content changed without a version bump; restore it or append a new version-lock entry"
+                    "{versioned_id} content changed without a version bump; restore it or append a new version-lock entry (current digest {digest})"
                 );
             }
         }
@@ -2563,6 +2605,122 @@ fn app_smoke_repetitions(
         }
     }
     bail!("App-control smoke cannot select repetitions on distinct registered shards");
+}
+
+async fn command_cache_smoke(
+    root: &Path,
+    server_bin: Option<&Path>,
+    suite_id: &str,
+    context_window: Option<u32>,
+    output: &Path,
+) -> Result<()> {
+    validate_repo(root)?;
+    if !matches!(suite_id, "prompt-cache" | "prompt-cache-auto") {
+        bail!("cache smoke requires a registered cache suite");
+    }
+    if context_window.is_some_and(|window| !(32_768..=1_048_576).contains(&window)) {
+        bail!("cache smoke context window must be between 32768 and 1048576");
+    }
+    let mut policy = load_policy(root, ModelCampaignTier::Nightly)?;
+    policy.suites = vec![ModelPolicySuite {
+        id: suite_id.into(),
+        required: false,
+        case_tags: Vec::new(),
+        repetitions: Some(1),
+    }];
+    let plan = build_plan_with_policy(
+        root,
+        &exact_head_sha(root)?,
+        env!("CARGO_PKG_VERSION").into(),
+        policy,
+    )?;
+    let trial = plan
+        .trials
+        .first()
+        .ok_or_else(|| anyhow!("cache smoke plan is empty"))?;
+    let suite = &plan.suites[0];
+    let planned_case = &suite.cases[0];
+    let model = &plan.models[0];
+    if model.provider_id != crate::model_fake::PROVIDER_ID
+        || model.model_id != crate::model_fake::MODEL_ID
+    {
+        bail!("cache smoke requires the registered fake model identity");
+    }
+    let (scenario_path, scenario) = load_scenario(root, &planned_case.scenario_path)?;
+    let provider = crate::model_fake::FakeProvider::start_cache().await?;
+    let isolated = tempfile::tempdir()?;
+    let data_dir = isolated.path().join("hope-data");
+    let trial_home = isolated.path().join("trial-home");
+    fs::create_dir_all(&trial_home)?;
+    let mut config = crate::model_fake::smoke_config(&provider.base_url);
+    if let Some(window) = context_window {
+        config.providers[0].models[0].context_window = window;
+    }
+    fs::create_dir_all(&data_dir)?;
+    write_json(&data_dir.join("config.json"), &config)?;
+    let config_digest = digest_file(&data_dir.join("config.json"))?;
+    let binary = server_bin
+        .map(PathBuf::from)
+        .unwrap_or_else(|| crate::model_fake::default_server_bin(root));
+    let mut server = crate::model_fake::spawn_hope_server(&binary, &data_dir)?;
+    crate::model_fake::wait_healthy(&mut server).await?;
+    let env = ScopedEnv::set(&[
+        ("HA_MODEL_EVAL_SERVER_URL", &server.base_url),
+        (
+            "HA_MODEL_EVAL_SERVER_TOKEN",
+            crate::model_fake::FAKE_SERVER_TOKEN,
+        ),
+        ("HA_MODEL_EVAL_SOURCE", "local_cli"),
+        ("HA_MODEL_EVAL_FAKE_CACHE", "1"),
+        (RUNTIME_CONFIG_DIGEST_ENV, &config_digest),
+        (
+            "HA_MODEL_EVAL_TRIAL_HOME",
+            trial_home
+                .to_str()
+                .ok_or_else(|| anyhow!("non-UTF8 smoke path"))?,
+        ),
+    ]);
+    let result = crate::model_adapter::run_registered_trial(
+        root,
+        suite.adapter,
+        &scenario_path,
+        &scenario,
+        planned_case,
+        trial,
+        model,
+        1,
+        false,
+    )
+    .await;
+    drop(env);
+    drop(server);
+    provider.shutdown().await;
+    validate_trial_result(trial, &result)?;
+    validate_output_schema(root, "trial", &result)?;
+    write_json(output, &result)?;
+    if result.outcome != ModelCampaignOutcome::Passed {
+        bail!(
+            "cache collection smoke failed; inspect {}",
+            output.display()
+        );
+    }
+    let phases = result
+        .trace_events
+        .iter()
+        .filter(|event| event.event == crate::model_cache::PHASE_EVENT)
+        .count();
+    let expected_phases = if suite_id == "prompt-cache-auto" {
+        8
+    } else {
+        9
+    };
+    if phases != expected_phases {
+        bail!("cache collection smoke requires all {expected_phases} phase receipts; got {phases}");
+    }
+    println!(
+        "cache collection smoke passed: {phases} phases; synthetic receipts, zero Provider charges"
+    );
+    Ok(())
 }
 
 async fn command_app_control_smoke(

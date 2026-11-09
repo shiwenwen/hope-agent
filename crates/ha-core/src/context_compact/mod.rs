@@ -129,6 +129,7 @@ pub use round_grouping::{
     prepare_messages_for_api, push_and_stamp, recovered_round_id, stamp_round,
     RECOVERED_ROUND_PREFIX, SUBAGENT_DISPATCH_IDS_KEY,
 };
+pub(crate) use summarization::build_summary_fork_instruction;
 pub(crate) use summarization::validate_summarization_output;
 pub(crate) use summarization::SUMMARIZATION_SYSTEM_PROMPT;
 pub use summarization::{
