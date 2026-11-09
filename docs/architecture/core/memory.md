@@ -180,6 +180,14 @@ pending / needs_review 的内容 ⇒ 绝不进入任何 prompt / recall 路径
 
 `rollout.enabled=false` 是完整 V1 回滚；`compatibility.legacyStaticMemory=true` 只恢复旧的静态段（SQLite / Profile / Pinned），不改变 Core 文件和底层资产。
 
+### 记忆写作偏好
+
+`memory.promptPreferences.{extraction,profile,dreaming}` 分别保存 `{style,supplemental}`；`style` 为 `default | concise | detailed`，默认不追加偏好提示，旧配置保持原行为。Agent 的 `memory.promptPreferences` 对各环节独立覆盖；缺失或 `null` 继承全局，显式 `default` + 空补充要求恢复系统风格。GUI 补充要求最多 512 字，运行时对原始配置另以 2048 UTF-8 字节限长并转义不可信信封。
+
+提取与压缩前提取使用当前 Agent 的提取偏好；既有 JSON 字段、画像/claim 开关、来源、无痕和路由约束仍由固定契约及执行层裁决。手动画像按画像作用域取偏好：Agent 用对应覆盖，Global/Project 用全局；idle/cron 画像继续零 LLM。Dreaming 仍一次调用、共享日记使用全局偏好，Agent 覆盖只作用于其候选的标题/说明；不改变 Deep Resolver、分数阈值、权限或候选资格。
+
+偏好不替换系统提示，不增加调用次数或扩大输出预算；非默认偏好会增加输入 Token。GUI 与 `ha-settings` 的 `memory_runtime`（MEDIUM）共用配置类型与保存归一化路径。配置修改从下一次相关操作生效。
+
 ### Core 预算解析
 
 用户在普通 UI 只看到一个 `totalTokens`（精简 `1000` / 平衡 `1600` / 丰富 `2400` 三档 + 自定义），可在 `[128, 16384]` 内调整。Global / Agent / Project / protocol / topic-read 的细分预算收在高级区。`2400` 是**推荐区间上界**而非硬限，超过只警告 prompt cache / TTFT 成本；`16384` 是防止 raw config 数量级错误的 emergency guard。
@@ -383,6 +391,8 @@ Agent 在两个时机自动提取记忆：
 
 - **Tier 3 压缩前**（`flush_before_compact`）：在 LLM 摘要压缩对话历史之前，先抢救有价值的记忆。
 - **阈值触发**：对话过程中，冷却时间已过且内容阈值满足时，在 assistant 最终消息落库后**后台调度**提取（不阻塞聊天流结束）。
+
+提取模型按 Agent 显式覆盖 → 全局 `modelOverride` → 兼容旧字段 → 当前对话模型解析；空闲提取的最后一级来自会话固定模型。压缩前提取在启动后台线程之前捕获所选 Provider / 模型，未覆盖时复用当前 Agent 的 Provider 快照；禁止按 Provider 或模型列表顺序选取。显式配置不可用时跳过提取，不能换用列表首项；无痕、学习与贡献门控仍由提取执行层裁决。
 
 触发采用**冷却 + 阈值双层**（自上次提取以来需同时满足）：
 
@@ -737,6 +747,8 @@ Dreaming 的 claim 读路径 / effective-status / hidden-set / scope 过滤 / ev
 
 ## 十三、健康诊断与保守修复
 
+**加密备份兼容性**：`backup.rs` 使用 `aes` 0.9 / `cipher` 0.5 的定长 key/block API。`hope.memory.encrypted_bundle.v1` 继续采用 PBKDF2-HMAC-SHA256（210,000 次）派生独立加密与认证密钥，以 AES-256-CTR 的 128 位大端计数器加密，并用 HMAC-SHA256 认证元数据与密文；解密前先校验认证标签。依赖适配不改变封套、计数器递增或已有备份的解锁方式，普通单测以 NIST SP 800-38A 已知答案覆盖多块与非整块输入。
+
 面向用户本人的管理面通过 `memory_health` / `GET /api/memory/health` 读取只读诊断（**不自动修复、不进 agent 工具面**），覆盖：SQLite `PRAGMA quick_check`、待重嵌入数量、各 FTS（`memories_fts` / `memories_literal_fts` / `memory_claims_fts` / `memory_claims_literal_fts` / `memory_evidence_fts`）缺口、claim without evidence、orphan evidence / link、Dreaming stale run / lock，以及 Deep Resolver backlog。字面 shadow 缺行分别用 `memory_literal_fts_missing_rows` / `claim_literal_fts_missing_rows` 报告——它们可由对应 FTS repair 重建，**不改正文真相源**。有过期/冲突候选时只加 `info` issue，不把正常治理 backlog 误报为系统故障。
 
 `memory_repair` / `POST /api/memory/repair` 触发保守动作：
@@ -790,11 +802,25 @@ Dreaming 的 claim 读路径 / effective-status / hidden-set / scope 过滤 / ev
 - **凭据隔离**：非密钥配置落 `AppConfig.memoryProviders`（id、kind、display name、enabled、sync policy、readiness、last sync/error）；endpoint、scope id、protocol、API key 单独落 `~/.hope-agent/credentials/external-memory/{provider}.json`（`write_secure_file` 原子写 + 受限权限），也可用 `HOPE_AGENT_EXTERNAL_MEMORY_<ID>_*` 环境变量覆盖。owner read API **永不回传 API key、完整 endpoint path/query 或凭据文件路径**。
 - **出站过 SSRF**：endpoint 禁 URL credentials/query/fragment，每次请求前走统一 `check_url`；HTTP client 30s timeout、禁 redirect、2MB response cap、固定 UA。
 - **pull 不直写 active memory**：拉回内容统一写 `reference` claim（status=`needs_review`，带 provider evidence），经 Lucid Review 才可能成为 active claim；账本按 remote id + content/version hash 去重，各类上限有硬 cap。
-- **调度与账本**：手动同步、3s 本地写 debounce 和 5min 周期 pull/reconcile 先经进程级 async mutex，再共用 `credentials/external-memory/sync.lock` 的稳定操作系统排他锁；跨进程锁从权威 `config.json`、凭据与账本水合前一直持有到最后一份检查点与健康状态落盘，拿锁后必须重新读取磁盘配置并按 owner / automatic 来源重新裁决实时开关与同步策略，禁止沿用排队前的进程缓存。5min 周期入口不得在拿锁前按进程缓存提前返回，否则另一进程启用自动策略后 Primary 会永久失活。owner 的连接探测、凭据保存 / 清除、Provider 配置变更及孤儿文件清理也必须进入同一锁事务，并在验证或读改写前刷新配置缓存；最终健康 / readiness 更新经 `mutate_config` 的 `config.write.lock` 权威磁盘事务提交，配置读取与写入之间不允许其它进程插入设置写。桌面、Server 和 ACP 共享数据目录时不得让旧缓存重建已删除 Provider、用旧策略或凭据继续导出、重建已删除账本、覆盖无关设置或相互覆盖游标。锁顺序固定为操作系统状态锁 → Provider 进程内写锁 → 配置写锁。单 provider 120s 协作式请求预算（预算耗尽不发新请求，但当前 HTTP 请求与已开始的 claim/ledger checkpoint 必须完成后才释放锁）。账本落 `{provider}.sync.json`，仅 Primary 启动自动任务，`manual` policy 永不被后台调度。切换 endpoint/subject/protocol 清账本，单纯轮换 API key 保留断点。
+- **调度与账本**：手动同步、3s 本地写 debounce 和 5min 周期 pull/reconcile 先经进程级 async mutex，再共用 `credentials/external-memory/sync.lock` 的稳定操作系统排他锁；跨进程锁从权威 `config.json`、凭据与账本水合前一直持有到最后一份检查点与健康状态落盘，拿锁后必须重新读取磁盘配置并按 owner / automatic 来源重新裁决实时开关与同步策略，禁止沿用排队前的进程缓存。5min 周期入口不得在拿锁前按进程缓存提前返回，否则另一进程启用自动策略后 Primary 会永久失活。owner 的连接探测、凭据保存 / 清除、Provider 配置变更及孤儿文件清理也必须进入同一锁事务，并在验证或读改写前刷新配置缓存；最终健康 / readiness 更新经 `mutate_config` 的 `config.write.lock` 权威磁盘事务提交，配置读取与写入之间不允许其它进程插入设置写。桌面、Server 和 ACP 共享数据目录时不得让旧缓存重建已删除 Provider、用旧策略或凭据继续导出、重建已删除账本、覆盖无关设置或相互覆盖游标。锁顺序固定为操作系统状态锁 → Provider 进程内写锁 → 配置写锁。单 provider 120s 协作式请求预算（预算耗尽不发新请求，但当前 HTTP 请求与已开始的 claim/ledger checkpoint 必须完成后才释放锁）。账本落 `{provider}.sync.json`，仅 Primary 启动自动任务，`manual` policy 永不被后台调度。切换 endpoint/subject/protocol 通常清账本，单纯轮换 API key 保留断点；存在 OpenViking 未决导出时，凭据保存或清除均保留原账本围栏，账本损坏、不可读或版本不支持时保留原件而不阻止凭据清除或轮换，清除仍删除密钥；只有恢复原身份并对账终态后才能按普通规则清理。
 
 Owner 面严格区分"如果执行会怎样"（`get_external_memory_providers_preflight` / preflight report，只读、不发外部 IO）与"实际发生了什么"（`run_external_memory_provider_sync` / sync report，逐 provider status + 是否真实 IO + 计数）；有未保存草稿时禁运行。
 
 ---
+
+### OpenViking 列表完整性
+
+拉取前先验证列表的原始节点数与顶层 `has_more`：`result` 必须为数组；`has_more=true`、非布尔标志、超过5000节点，或旧版缺少标志且恰好达到5000节点上限时，明确返回列表不完整错误。在该错误之后，本轮不读取内容、不推进远端版本，也不启动新的导出；此前已提交导出的终态对账仍按既有顺序执行。明确 `has_more=false` 且不超上限的列表，以及不足上限的旧版数组保持兼容。目录和隐藏条目也计入完整性边界，不能过滤后再判断。
+
+当前不按 offset 盲目续扫：变动列表的稳定排序与快照一致性尚未验证，不能把已同步前缀当作全量完成。单轮200个变更文件的内容读取预算保持不变，未读变更保留原版本供后续同步；大列表续扫仍需独立契约与夹具。测试只证明本地合成响应下的截断保护，不代表真实服务、版本矩阵或抽取质量验收。
+
+### OpenViking 导出终态与不确定写入
+
+OpenViking 的 `commit` 顶层 `status=ok` 只确认归档请求，`result.status=accepted` 和 `task_id` 不代表后台抽取完成。导出在发送首个消息批次前，将会话 ID、记忆 ID/摘要和凭据身份指纹写入既有同步账本的 `openVikingPendingExports`；不保存记忆正文或密钥。后续处于有效策略的同步先对账该批次，包括切换为 `pull_only`；策略仍控制是否允许新导出。只有同一身份的 `GET /api/v1/tasks/{task_id}` 返回匹配的 `session_commit` / 会话身份、`completed` 与合法结果，才发布完成摘要和导出计数。空 `memories_extracted` 对象是合法零变更；还须有明确的 `memory_extraction.skipped=0` 和空 `skipped_operations`。缺失结果、非法计数、非空错误或跳过的抽取操作不能报完成。旧版仅返回抽取计数与 `memory_diff_uri` 时，跳过状态仍未知，保持待对账，不发布摘要；本轮不读取独立 diff，最低版本门通过不代表终态导出已验收。
+
+`pending/running/cancelling` 每轮只探测一次，继续保留待对账批次；失败、取消、404、空响应、解析失败、丢失响应及无 task ID 的不确定写入保持冻结，不重新添加消息或重新 commit。凭据指纹包含 endpoint、subject、protocol 和 API key，密钥变更时也不得拿新身份读取旧 task；这比普通 key 轮换保留断点更严格。删除 Provider 的整表保存与显式 patch 路径均清除孤儿凭据，但保留未决、损坏或未知版本账本作为保护记录；重建相同 ID 仍须对账，辅助清理错误不提前中止其它凭据删除。无未决且可验证的普通账本仍随孤儿清理移除。需所有者在原服务中核对任务、归档与实际结果后再决定连接清理或重建；不得仅删除本地账本来自动重试。该围栏不保证服务端 exactly-once，也不反向认证历史版本已经记录的完成摘要。HTTP、账本与最终健康状态仍沿现有跨进程锁、SSRF、预算和安全写入口，不投影为 `JobManager` 任务。
+
+匿名本地 wire fixture 覆盖任务轮询、未决与失败终态、身份变更和账本序列化恢复；0.4.16/0.4.17/0.4.20/0.4.22 的路由已静态核对，wire 按回执结构覆盖明确零跳过、已跳过与缺少跳过证明，不把版本号套在合成响应上当作真实部署兼容性或记忆抽取质量验收。
 
 ## 十五、无痕会话（Incognito）联动
 

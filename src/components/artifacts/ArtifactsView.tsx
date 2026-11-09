@@ -22,13 +22,14 @@ import {
   ShieldCheck,
   Trash2,
   X,
+  Plus,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import type { ArtifactExportFormat, ArtifactRecord, ArtifactVersionSummary } from "@/lib/transport"
 import type { PendingFileQuote } from "@/types/chat"
 import { downloadBlob } from "@/lib/fileDownload"
-import { getTransport } from "@/lib/transport-provider"
+import { getTransport, useTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { useDragWidth } from "@/hooks/useDragWidth"
 import { useFullscreenTransition } from "@/hooks/useFullscreenTransition"
@@ -44,6 +45,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import ArtifactViewer, { type ArtifactTextSelection } from "./ArtifactViewer"
+import { ArtifactRegistrationDialog } from "./ArtifactRegistrationDialog"
+import { ArtifactLifecycle } from "./ArtifactLifecycle"
 import { useFileResource } from "@/components/chat/files/useFileResource"
 import type { FileTarget } from "@/components/chat/files/types"
 import { FileContextMenu } from "@/components/chat/files/FileActionMenu"
@@ -241,7 +244,7 @@ function ArtifactListRow({
             </>
           )}
           <span>·</span>
-          <span>{new Date(artifact.updatedAt).toLocaleDateString()}</span>
+          <ArtifactLifecycle artifact={artifact} />
         </div>
       </button>
     </FileContextMenu>
@@ -269,6 +272,17 @@ export default function ArtifactsView({ isViewVisible, onAddQuoteToChat }: Artif
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const transport = useTransport()
+  const [selectionTransport, setSelectionTransport] = useState<typeof transport | null>(null)
+  const [registration, setRegistration] = useState<{
+    artifact?: ArtifactRecord
+    transport: typeof transport
+  } | null>(null)
+  // PersistentViewSurface hides this component without unmounting it. End
+  // explicit registration on navigation so the dialog aborts/cleans its source
+  // and cannot reopen with a stale pending operation when the view returns.
+  if (!isViewVisible && registration) setRegistration(null)
+  const listGeneration = useRef(0)
   const [exportFormat, setExportFormat] = useState<ArtifactExportFormat>("html")
   const selectedTarget = useMemo<Extract<FileTarget, { kind: "artifact" }> | null>(
     () =>
@@ -338,9 +352,20 @@ export default function ArtifactsView({ isViewVisible, onAddQuoteToChat }: Artif
     selectedIdRef.current = null
     setSelectedId(null)
     setSelected(null)
+    setSelectionTransport(null)
     setVersions([])
     resetViewerMaximized()
   }, [resetViewerMaximized])
+
+  useEffect(() => {
+    // This view stays mounted while hidden. A new host/owner transport
+    // invalidates both selections and dialogs before another host may load.
+    listGeneration.current++
+    setArtifacts([])
+    setBusy(null)
+    setRegistration(null)
+    clearSelectedArtifact()
+  }, [transport, clearSelectedArtifact])
 
   useEffect(() => {
     try {
@@ -404,29 +429,33 @@ export default function ArtifactsView({ isViewVisible, onAddQuoteToChat }: Artif
   })
 
   const loadList = useCallback(async () => {
+    const generation = ++listGeneration.current
+    const sourceTransport = transport
     setLoading(true)
     try {
-      const rows = await getTransport().listArtifacts({
+      const rows = await sourceTransport.listArtifacts({
         limit: PAGE_SIZE,
         offset,
         kind: kind === "all" ? undefined : kind,
         lifecycleState: state === "all" ? undefined : state,
       })
+      if (generation !== listGeneration.current || getTransport() !== sourceTransport) return
       setArtifacts(rows)
       const activeSelectedId = selectedIdRef.current
       if (activeSelectedId && !rows.some((artifact) => artifact.id === activeSelectedId)) {
         clearSelectedArtifact()
       }
     } catch (error) {
+      if (generation !== listGeneration.current || getTransport() !== sourceTransport) return
       toast.error(
         error instanceof Error
           ? error.message
           : t("artifacts.loadFailed", "Failed to load Artifacts"),
       )
     } finally {
-      setLoading(false)
+      if (generation === listGeneration.current) setLoading(false)
     }
-  }, [clearSelectedArtifact, kind, offset, state, t])
+  }, [clearSelectedArtifact, kind, offset, state, t, transport])
 
   useEffect(() => {
     if (!isViewVisible) return
@@ -436,12 +465,14 @@ export default function ArtifactsView({ isViewVisible, onAddQuoteToChat }: Artif
   useEffect(() => {
     if (!isViewVisible || !selectedId) return
     let cancelled = false
+    const sourceTransport = transport
     Promise.all([
-      getTransport().getArtifact(selectedId),
-      getTransport().listArtifactVersions(selectedId),
+      sourceTransport.getArtifact(selectedId),
+      sourceTransport.listArtifactVersions(selectedId),
     ])
       .then(([artifact, history]) => {
-        if (cancelled) return
+        if (cancelled || getTransport() !== sourceTransport) return
+        setSelectionTransport(sourceTransport)
         setSelected(artifact)
         setVersions(history)
       })
@@ -451,7 +482,7 @@ export default function ArtifactsView({ isViewVisible, onAddQuoteToChat }: Artif
     return () => {
       cancelled = true
     }
-  }, [isViewVisible, selectedId, refreshKey])
+  }, [isViewVisible, selectedId, refreshKey, transport])
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
@@ -463,11 +494,14 @@ export default function ArtifactsView({ isViewVisible, onAddQuoteToChat }: Artif
     )
   }, [artifacts, query])
 
+  const isCurrentScope = () => getTransport() === transport
+
   const runVerify = async () => {
-    if (!selected) return
+    if (!selected || !isCurrentScope()) return
     setBusy("verify")
     try {
-      const verification = await getTransport().verifyArtifact(selected.id)
+      const verification = await transport.verifyArtifact(selected.id)
+      if (!isCurrentScope() || selectedIdRef.current !== selected.id) return
       setSelected({ ...selected, verification })
       setArtifacts((rows) =>
         rows.map((row) => (row.id === selected.id ? { ...row, verification } : row)),
@@ -491,7 +525,7 @@ export default function ArtifactsView({ isViewVisible, onAddQuoteToChat }: Artif
     try {
       const transport = getTransport()
       const current = await transport.getArtifact(artifactId)
-      if (selectedIdRef.current !== artifactId) return
+      if (!isCurrentScope() || selectedIdRef.current !== artifactId) return
       setSelected((artifact) => (artifact?.id === current.id ? current : artifact))
       setArtifacts((rows) =>
         rows.map((artifact) => (artifact.id === current.id ? current : artifact)),
@@ -540,7 +574,8 @@ export default function ArtifactsView({ isViewVisible, onAddQuoteToChat }: Artif
     if (!selected || version === selected.currentVersion) return
     setBusy(`restore-${version}`)
     try {
-      const artifact = await getTransport().restoreArtifact(selected.id, version)
+      const artifact = await transport.restoreArtifact(selected.id, version)
+      if (!isCurrentScope() || selectedIdRef.current !== selected.id) return
       setSelected(artifact)
       setRefreshKey((value) => value + 1)
       await loadList()
@@ -639,7 +674,34 @@ export default function ArtifactsView({ isViewVisible, onAddQuoteToChat }: Artif
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
+        <Button variant="secondary" size="sm" onClick={() => setRegistration({ transport })}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          {t("artifacts.registration.create")}
+        </Button>
       </header>
+
+      {isViewVisible && registration && registration.transport === transport && (
+        <ArtifactRegistrationDialog
+          artifact={registration.artifact}
+          onClose={() => setRegistration(null)}
+          onImported={(artifact) => {
+            if (getTransport() !== registration.transport) return
+            listGeneration.current++
+            setLoading(false)
+            setKind("all")
+            setState("all")
+            setQuery("")
+            setOffset(0)
+            setArtifacts((current) =>
+              [artifact, ...current.filter((row) => row.id !== artifact.id)].slice(0, PAGE_SIZE),
+            )
+            selectArtifact(artifact.id)
+            setSelectionTransport(registration.transport)
+            setSelected(artifact)
+            setRefreshKey((value) => value + 1)
+          }}
+        />
+      )}
 
       <div className="flex min-h-0 flex-1">
         <div
@@ -818,7 +880,26 @@ export default function ArtifactsView({ isViewVisible, onAddQuoteToChat }: Artif
                   {enumLabel(selected.kind)} · v{selected.currentVersion} · {selected.sourceCount}{" "}
                   {t("artifacts.sources", "sources")}
                 </p>
+                <ArtifactLifecycle artifact={selected} />
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={
+                  busy !== null || selected.id !== selectedId || selectionTransport !== transport
+                }
+                onClick={() => {
+                  if (
+                    selected.id === selectedId &&
+                    selectionTransport === getTransport() &&
+                    transport === getTransport()
+                  ) {
+                    setRegistration({ artifact: selected, transport })
+                  }
+                }}
+              >
+                {t("artifacts.registration.update")}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

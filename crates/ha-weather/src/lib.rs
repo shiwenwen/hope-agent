@@ -129,6 +129,8 @@ pub struct GeoResult {
     pub name: String,
     pub latitude: f64,
     pub longitude: f64,
+    /// Empty when the upstream location has no country name.
+    #[serde(default)]
     pub country: String,
     #[serde(default)]
     pub admin1: Option<String>,
@@ -190,6 +192,7 @@ struct GeocodingResult {
     name: String,
     latitude: f64,
     longitude: f64,
+    #[serde(default)]
     country: String,
     #[serde(default)]
     admin1: Option<String>,
@@ -770,4 +773,41 @@ pub async fn detect_location() -> Result<DetectedLocation> {
         ),
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn geocoding_keeps_valid_locations_when_a_country_name_is_missing() {
+        // Open-Meteo can omit country for a US territory with the same city name.
+        let response: GeocodingResponse = serde_json::from_value(serde_json::json!({
+            "results": [
+                { "name": "Shanghai", "latitude": 31.22222, "longitude": 121.45806,
+                  "country": "China", "country_code": "CN" },
+                { "name": "Shanghai", "latitude": 18.20774, "longitude": -65.74461,
+                  "country_code": "PR", "admin1": "Naguabo" }
+            ]
+        }))
+        .expect("an optional country must not reject the whole response");
+
+        assert_eq!(response.results.len(), 2);
+        assert_eq!(response.results[0].country, "China");
+        assert_eq!(response.results[0].latitude, 31.22222);
+        assert_eq!(response.results[1].country, "");
+        assert_eq!(response.results[1].country_code.as_deref(), Some("PR"));
+    }
+
+    #[test]
+    fn public_geocoding_result_keeps_the_string_country_contract() {
+        let result: GeoResult = serde_json::from_value(serde_json::json!({
+            "name": "Shanghai", "latitude": 18.20774, "longitude": -65.74461,
+            "countryCode": "PR"
+        }))
+        .unwrap();
+        let value = serde_json::to_value(result).unwrap();
+        assert_eq!(value["country"], "");
+        assert_eq!(value["countryCode"], "PR");
+    }
 }
