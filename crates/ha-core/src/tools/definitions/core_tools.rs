@@ -107,7 +107,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_RUNTIME_CANCEL.into(),
-            description: "Cancel a session async job, subagent, or process. `requested` is not termination; check `finalStatus` or status. Unknown targets return `refused`. This is cancellation, not pause; use `manage_cron` for schedules. Personal assistant: kind=assistant_request cancels only that request ID.".into(),
+            description: "Cancel an owned async job, subagent, process, or assistant_request. `requested` is not termination; check `finalStatus`. Unknown IDs return `refused`. Cancellation, not pause; schedules use `manage_cron`.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,

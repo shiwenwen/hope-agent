@@ -579,7 +579,18 @@ mod tests {
                     "global" => {
                         db.begin_global_stop_enumeration().unwrap();
                     }
-                    "privacy" => db.update_session_incognito(&target.id, true).unwrap(),
+                    "privacy" => {
+                        // Core-only fixture changes the authoritative privacy
+                        // bit; the product setter additionally requires ha-design.
+                        db.with_conn_internal(|conn| {
+                            conn.execute(
+                                "UPDATE sessions SET incognito=1 WHERE id=?1",
+                                [&target.id],
+                            )?;
+                            Ok(())
+                        })
+                        .unwrap();
+                    }
                     "terminal" => {
                         db.finish_chat_turn_once(
                             "owner-stale",
