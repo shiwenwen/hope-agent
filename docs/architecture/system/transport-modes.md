@@ -75,6 +75,12 @@ Transport 的另一层职责是把 Owner Token 关在浏览器可见 URL 之外�
 - 打包桌面 WebView 的 `tauri://localhost` 与 `http://tauri.localhost` 默认在 CORS allowlist 内。把 Web GUI 部署到其他 origin 时，服务端须设置逗号分隔的 `HA_CORS_ORIGINS`；同源内嵌不需要设置，服务端也不提供 `*` 通配放行。
 - 跨源 Fetch 用 Bearer；WebSocket / iframe / 下载改用短时 scope 票据。根 Token 永不进入 URL。
 
+### HTTP 中间件兼容边界
+
+`ha-server` 使用 `tower-http 0.7` 的 `cors` / `trace` / `fs` 特征。CORS 仍由显式来源列表决定，不启用新增 CSRF 中间件来替代现有 `UiRequestPolicy` 与鉴权。文件服务继续在路径授权后使用 `ServeFile`，单段 Range 返回 `206`；多段 Range 返回 `416`，错误响应不携带表示内容类型或编码的头。静态 GUI 的 `ServeDir` 保留 `index.html` 回退；无回退时带尾斜杠的文件路径返回 `404`。不启用忽略多段 Range、HTML 默认扩展名或新增重定向选项。
+
+上游变更与版本依据：[0.7.0](https://github.com/tower-rs/tower-http/releases/tag/tower-http-0.7.0)、[0.7.1](https://github.com/tower-rs/tower-http/releases/tag/tower-http-0.7.1)。`reqwest` 的传递依赖继续使用锁中的 `tower-http 0.6`；本次不改变出站重定向策略。
+
 ## Transport 方法矩阵
 
 `Transport` 接口的每个方法都有两套实现。下表是最能体现两种协议差异的部分（完整方法清单见 `src/lib/transport.ts`）：
