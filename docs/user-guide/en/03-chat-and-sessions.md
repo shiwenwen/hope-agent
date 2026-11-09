@@ -325,6 +325,20 @@ Use **Follow with personal assistant** in a Goal panel to establish a baseline. 
 
 The first implementation delegates to local regular work conversations. Conversations that receive private work retain a private marker and cannot be attached to ordinary work IM. Web access requires a configured server owner token and a signed-in owner.
 
+### Contact the assistant through a dedicated Telegram bot
+
+When using a standalone server, update both the desktop and server to the same version. Open **Connect Telegram** in the personal assistant panel and enter the token of a bot created for the assistant. Existing work bots continue to serve project conversations. One bot cannot serve both purposes.
+
+1. Generate a pairing code and send the displayed pairing command to the bot in your own Telegram private chat.
+2. Return to Hope, verify the candidate user and private chat IDs, confirm, then wait for the activation message in Telegram and press its button.
+3. Select each work conversation, allow status queries, and optionally enable delegation, stopping delegated work, and completion notices. Set an expiry date. To receive proactive notices, also turn off **Pause notifications**.
+
+Proactive completion notices use the valid timezone in your profile, stay quiet from 22:00 to 08:00, and are limited to two attempts per local day. Without a valid timezone they remain in HA, and the notification panel explains the deferral. Replies to your current questions are unaffected. Notices are not sent after their permission expires or after 24 hours.
+
+Once paired, ask about authorized work or delegate a follow-up through Telegram. Completion notices cover requests delegated through this bot. This first version shows status there; open Hope to read source messages and result contents. Handle tool approvals and questions in Hope too. Group messages, forwarded content, and commands accumulated before activation are not executed. Platform messages older than five minutes are not accepted as new commands either.
+
+You can pause proactive notices, revoke one conversation's permissions, or remove the pairing. Changing permissions may cancel previously queued commands or replies; send a new command if needed. Replacing the connection or pairing again requires fresh grants. **Accepted by platform** means Telegram returned a message ID. For **Unknown**, check the private chat first: Hope does not automatically resend an uncertain delivery.
+
 ## Next steps
 
 - Make the AI remember your preferences → [04 Memory](04-memory.md)

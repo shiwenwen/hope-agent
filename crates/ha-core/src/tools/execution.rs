@@ -292,6 +292,12 @@ impl ToolExecContext {
         submitted_name: &str,
         canonical: &str,
     ) -> Option<String> {
+        if self
+            .tool_scope
+            .is_some_and(|scope| !scope.allows(canonical))
+        {
+            return Some("Tool is unavailable in this restricted context".to_owned());
+        }
         if !crate::eval_context::tool_allowed_for_experiment(self.session_id.as_deref(), canonical)
         {
             return Some(format!(
@@ -1074,7 +1080,9 @@ pub async fn execute_tool_with_context(
     // double a hook's side effects and re-apply an arg rewrite to its own output.
     let pre_skip_prompt: bool;
     let pre_force_prompt: bool;
-    let patched_args_holder: Option<Value> = if ctx.bypass_async_dispatch {
+    let patched_args_holder: Option<Value> = if ctx.bypass_async_dispatch
+        || ctx.tool_scope == Some(crate::tool_defs::ToolScope::PersonalAssistantIm)
+    {
         pre_skip_prompt = false;
         pre_force_prompt = false;
         None

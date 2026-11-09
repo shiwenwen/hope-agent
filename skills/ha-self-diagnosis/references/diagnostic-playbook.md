@@ -44,6 +44,14 @@ sqlite3 -readonly -cmd ".headers on" -cmd ".mode column" ~/.hope-agent/sessions.
 - Grep: `category='chat'`, `source='personal_assistant'`.
 - Gotcha: a queued task waits behind the target's ordinary FIFO and Stop fences. Only the exact admitted turn determines completion. Private targets cannot be attached to work IM. Once private data exists, HTTP requires a configured owner token; scoped legacy event/resource tickets are insufficient.
 
+### Personal assistant IM — `personal-assistant.md`
+
+- Entry: kernel `ha-core/src/personal_assistant_im/`, adapter `ha-channel/src/personal_assistant_im/`, owner routes `ha-server/src/routes/personal_assistant_im.rs` and the personal assistant panel.
+- State: read-only `sessions.db` projections from `im_bot_purposes`, `assistant_im_connection`, `assistant_im_grants`, `assistant_im_activations`, `assistant_im_commands`, `assistant_im_views`, `assistant_im_deliveries` and `assistant_im_notification_attempts`. Never print credential references, pairing codes, raw updates or message text in diagnostics.
+- Grep: `category='channel'`, `source='personal_assistant_im'`.
+- Notification policy: valid owner-profile IANA timezone is required, 22:00–08:00 is quiet, and at most two proactive attempts are admitted per local day. The timestamp-only attempts ledger survives connection removal; submitting/unknown attempts consume the limit. Inspect `deferredReason` for pending receipts. Immediate replies bypass this proactive limit.
+- Gotcha: a token rotation does not change the stable Bot ID or its claimed purpose. Owner confirmation only queues activation; the Primary sends it even when the control UI is a Secondary. Check the activation attempt, pairing generation, explicit private-chat activation, grant revision/expiry and Stop epochs before blaming the model. IM uses a restricted view, not the desktop home's full history. `accepted` is a platform message ID, not a read receipt; `unknown` is not safe to replay. Ordinary work routes and scoped web tickets cannot authorize this owner-only surface.
+
 Per subsystem: the architecture doc, the diagnostic entry module(s), the
 runtime state (DB / config), the stable `logs.db` `category` to grep, and the
 gotcha that most often explains a failure. Open every DB read-only.

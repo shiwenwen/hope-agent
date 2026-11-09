@@ -44,6 +44,7 @@ pub mod misc;
 pub mod onboarding;
 pub mod permission;
 pub mod personal_assistant;
+pub mod personal_assistant_im;
 pub mod pet;
 pub mod plan;
 pub mod plan_index;

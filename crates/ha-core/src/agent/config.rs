@@ -662,6 +662,19 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
         .map(|session| session.incognito)
         .unwrap_or(session_id.is_some() && session_db.is_some());
 
+    if session_meta
+        .as_ref()
+        .is_some_and(|session| session.kind == crate::session::SessionKind::PersonalAssistantIm)
+    {
+        return SystemPromptBuild {
+            prompt: crate::personal_assistant_im::SYSTEM_PROMPT.to_owned(),
+            static_memory_refs: Vec::new(),
+            static_memory_manifest: Default::default(),
+            core_memory_snapshot: None,
+            legacy_memory_selection: None,
+        };
+    }
+
     // Try loading the agent definition
     if let Ok(definition) = crate::agent_loader::load_agent(agent_id) {
         // Resolve the current project (if any) via session → session.project_id.

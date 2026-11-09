@@ -69,9 +69,13 @@ async fn private_event_access_allowed(
     {
         return true;
     }
-    !db.run(|db| db.has_personal_assistant_private_data())
-        .await
-        .unwrap_or(true)
+    !db.run(|db| {
+        Ok::<_, anyhow::Error>(
+            db.has_personal_assistant_private_data()? || db.assistant_im_connection()?.is_some(),
+        )
+    })
+    .await
+    .unwrap_or(true)
 }
 
 fn remote_terminal_access_allowed() -> bool {
@@ -243,6 +247,20 @@ async fn handle_events_socket(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn dedicated_connection_activity_requires_owner_before_home_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(
+            ha_core::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .unwrap(),
+        );
+        db.save_assistant_im_connection(123, "private_bot", &uuid::Uuid::new_v4().to_string(), 1)
+            .unwrap();
+        assert!(db.has_personal_assistant_private_data().unwrap());
+        let auth = crate::middleware::AuthState::new(None, None, false);
+        assert!(!private_event_access_allowed(&db, &auth, &HeaderMap::new(), None).await);
+    }
 
     #[tokio::test]
     async fn private_data_requires_owner_event_authority() {

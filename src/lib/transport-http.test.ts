@@ -22,6 +22,44 @@ test("personal assistant owner commands use their dedicated HTTP routes", async 
   }
 })
 
+test("personal assistant IM commands preserve owner routes and private JSON bodies", async () => {
+  fetchMock.mockImplementation(async () => new Response("null", { status: 200 }))
+  const transport = new HttpTransport("http://localhost:8420", "synthetic-owner")
+  const input = {
+    sessionId: "work-1",
+    revision: 4,
+    queryStatus: true,
+    delegate: false,
+    stop: false,
+    completionNotice: true,
+    expiresAt: 1900000000,
+  }
+  const cases = [
+    ["status", {}, "GET", "/status"],
+    ["configure", { token: "synthetic-private-bot-token" }, "POST", "/connection"],
+    ["begin_pairing", {}, "POST", "/pairing/code"],
+    ["confirm_pairing", { generation: 3, userId: 101, chatId: 101 }, "POST", "/pairing/confirm"],
+    ["set_grant", { input }, "POST", "/grants"],
+    ["revoke_grant", { sessionId: "work-1" }, "DELETE", "/grants/work-1"],
+    ["revoke_pairing", {}, "DELETE", "/pairing"],
+    ["remove_connection", {}, "DELETE", "/connection"],
+    ["set_notifications_paused", { paused: true }, "POST", "/notifications"],
+  ] as const
+  for (const [action, args, method, path] of cases) {
+    await transport.call("personal_assistant_im_" + action, args)
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://localhost:8420/api/personal-assistant/im" + path,
+      expect.objectContaining({
+        method,
+        headers: expect.objectContaining({ Authorization: "Bearer synthetic-owner" }),
+        body: method === "POST" ? JSON.stringify(args) : undefined,
+      }),
+    )
+  }
+  expect(fetchMock).toHaveBeenCalledTimes(9)
+  expect(fetchMock.mock.calls.every(([url]) => !url.includes("synthetic-"))).toBe(true)
+})
+
 test("HTTP discovery flattens the draft config and returns the typed list without inference normalization", async () => {
   const result = { models: [{ id: "model-A", name: "Model A" }], truncated: false }
   fetchMock.mockResolvedValue(new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json" } }))

@@ -1,6 +1,6 @@
 # 个人助手
 
-个人助手在侧栏有固定入口，使用同一数据根内唯一的私人会话。它经正常的聊天内核接收主人指令，使用会话工具查状态、创建工作会话或派工。本文描述第一项实现，专属 IM 的扩展契约见[设计提案](../../proposals/personal-assistant/im.md)。
+个人助手在侧栏有固定入口，使用同一数据根内唯一的私人会话。它经正常的聊天内核接收主人指令，使用会话工具查状态、创建工作会话或派工。专属 Telegram 私聊通过独立配对和会话授权接入；早期产品比较及扩展方向保留在[设计提案](../../proposals/personal-assistant/im.md)，实现边界以本文为准。
 
 ## 数据和执行
 
@@ -24,6 +24,69 @@
 
 主人可选择一个已有 Goal 建立本地关注。首次记录基线，随后进入阻塞或完成待验收时产生事项。重复事件及描述修改不产生新提醒，来源失效后停止披露。读取和比较状态沿用 Goal 台账，不调用模型。关注和已读不会改变 Goal 的完成或验收结果。
 
+## 专属 Telegram 入口
+
+主人在个人助手面板填写一个新建 Telegram Bot 的凭据。凭据写入独立的受保护文件，状态 API、配置导出和事件均不返回凭据。`getMe` 返回的稳定 Bot ID 在 `im_bot_purposes` 中认领用途；同一个 Bot 不能同时作为工作 Bot 和个人助手 Bot，换 Token 不改变用途。工作 Bot 的启停及编辑也核验该认领。
+
+配对按「主人取得短时一次性码 → 本人向 Bot 私聊发送码 → 主人在 HA 核对用户及私聊 ID → 本人在该私聊点击启用」推进。群聊、频道、转发消息及通过其他 Bot 发送的内容不受理。配对前、启用前的普通消息不成为新指令；平台消息超过五分钟或比本机时间超前三十秒时，仅消费更新，不执行。已在时效内受理的命令再按冻结授权及 Stop 代际处理。原始平台更新先按 Bot、更新 ID 和配对代际防重，再提交命令台账。桌面和 HTTP 主人确认候选时只将启用消息入队，Primary 统一消费；因此 Server 为主进程、桌面为控制端时也能完成配对。启用消息的短时 nonce 在专属私有台账中待发，领取、撤销或过期后清除；提交后结果未知时不自动重发。撤销配对或替换连接会废弃旧授权、待处理命令和待发消息。
+
+每个工作会话分别授权「查状态、派工、停止交办、完成通知」并设置有效期。后三项要求同时允许查状态。配置、配对及授权只开放给桌面主人和已验证的 HTTP 主人，没有模型工具入口。已有工作 IM 绑定、无痕、导入及特殊会话不能授权。授予权限不会把原会话的全文提供给 Telegram。
+
+```mermaid
+flowchart TB
+    Owner[桌面或已登录的 Web 主人]
+    Home[固定个人助手主对话]
+    Config[专属 Bot 配置与配对界面]
+    Telegram[主人 Telegram 私聊]
+    Raw[独立 Telegram 适配器<br/>私聊、消息时效与更新去重]
+    Ledger[内核命令台账<br/>配对代际和授权版本<br/>全局及会话 Stop 代际]
+    View[按当前授权建立的私人 IM 对话视图<br/>固定提示词与受限状态上下文]
+    Kernel[TurnKernel<br/>来源凭证与执行守卫<br/>用量及终态记录]
+    ImTools[IM 工具白名单<br/>查状态 / 派工 / 停止单项交办]
+    HomeTools[主人会话工具<br/>查找 / 历史 / 新建 / 派工 / 按回执继续]
+    PauseSnapshot[主人正式源轮次的暂停回执快照<br/>旧源轮次不能获取新 Stop 权限]
+    Continue[标准 Continue 服务<br/>转换锁与最终事务复验<br/>只恢复回执捕获的工作]
+    Queue[共享目标 FIFO<br/>独立请求与确切目标轮次]
+    Work[合格本地工作会话<br/>原工具权限、审批和问答继续生效]
+    Receipts[私人工作台账<br/>确切轮次状态与结果引用]
+    Outbox[独立投递台账<br/>发送前复核授权及代际<br/>pending / submitting / accepted / unknown]
+    NotificationPolicy[主动完成提醒策略<br/>主人 IANA 时区 22–08 勿扰<br/>当地日最多两次，UTC 尝试台账占额]
+    Protocol[底层 HTTP 与代理能力]
+    Old[原工作 IM 账号与路由]
+    Owner --> Home
+    Owner --> Config --> Ledger
+    Telegram --> Raw --> Ledger --> View --> Kernel
+    Home --> Kernel
+    Kernel -->|主人 Home 来源| HomeTools
+    Kernel -->|正式 Home 准入时捕获| PauseSnapshot
+    HomeTools -.->|仅查本轮快照| PauseSnapshot
+    HomeTools -->|明确继续及确切回执| Continue --> Work
+    Kernel -->|专属 IM 来源| ImTools
+    HomeTools --> Queue
+    ImTools --> Queue --> Work --> Receipts
+    Receipts -->|主人面板与下一轮参考| Home
+    Receipts -->|IM 交办终态且已授权通知| Outbox
+    Kernel -->|IM 本轮答复| Outbox
+    Outbox -.->|主动通知提交前原子占额| NotificationPolicy
+    Outbox --> Raw --> Telegram
+    Raw -.-> Protocol
+    Old -.-> Protocol
+```
+
+### 对话视图和执行来源
+
+IM 视图按连接、配对代际和会话授权版本划分。主人桌面主对话的历史、自动记忆、工作目录提示词、自定义 Agent 指令和 IDE 上下文不进入该视图。模型只得到当前授权的状态投影，工具白名单进一步限制可读范围与可执行操作。更改授权后使用新视图，旧历史不会在扩大或缩小权限后重新进入上下文。普通会话检索、自动记忆和工作 IM 无法读取这些视图。
+
+平台来源由内核台账封存，模型不能提交用户 ID、连接 ID 或授权版本来升级来源。命令在执行前、工具调用时及交办入队时复核当前配对、授权和 Stop 状态。后台执行仍走 `TurnRequest`、来源专用 `TurnSubmission` 和 `TurnKernel`，不建立另一套 Provider 或工具循环。IM 不能借派工把状态查询权限变成完整的主对话读取权限。
+
+### 结果投递与重启
+
+Telegram 首期回复受限的工作状态，结果正文与原始消息由主人回到 HA 查看。完成通知仅针对通过该专属 IM 交办的请求，还要求该会话的通知授权；暂停期间的终态不会在恢复后补发，暂停不影响普通对话回复。派工使用相同请求台账与目标 FIFO，停止动作指向该请求绑定的轮次，不代替整会话的 Stop / Continue。
+
+主动完成通知使用主人资料中的有效 IANA 时区，22:00–08:00 延后发送，当地日合计最多两次。缺少有效时区或资料读取失败时保留待发，不猜测 Server 时区。即时私聊答复不占主动额度，也不会被延后的完成提醒阻塞。发送前在同一 `IMMEDIATE` 事务中写入 `assistant_im_notification_attempts` 并进入 `submitting`；结果未知或提交后崩溃仍占一次。该台账只留投递 ID 与 UTC 尝试时间，独立于连接和会话的删除，解绑重配不会重置名额。待发完成提醒仍遵守原授权有效期和最长 24 小时保留期。
+
+`assistant_im_activations` 单独记录配对启用消息，`assistant_im_commands` 与 `assistant_im_deliveries` 记录命令和普通出站尝试，Primary 单独运行接收、命令处理和投递循环。发送前重新核对授权版本、有效期、配对代际和目标资格。只有平台返回消息 ID 才记录 `accepted`，不把它表示为已读。跨过 `submitting` 后出现超时或进程重启记为 `unknown`，不自动重发；已经提交的消息也不能通过删除本地台账撤回。
+
 ## 诊断
 
 - 找不到主入口时，核对当前数据根和 `personal_assistant` 会话类型。
@@ -31,3 +94,7 @@
 - 请求结束状态以绑定的 `chat_turns` 为准。中断和无法确认结果的任务由主人决定如何接续。
 - Web 提示需要鉴权时，配置当前服务的 Owner Token 并重新登录。凭据放在 header 或登录请求体中。
 - 工作 IM 拒绝挂接目标时，检查目标是否持有私人交办标记。
+- 专属 Bot 无法保存时，检查稳定 Bot ID 的用途认领及原工作 Bot 身份能否核验；不要通过换 Token 绕过用途冲突。
+- 配对停留在待启用时，核对 HA 中确认的私聊身份、一次性启用按钮和配对有效期。重新配对后旧消息不会自动执行。
+- 能收到指令却不能派工时，核对该会话的授权版本、有效期和 Stop 状态；源消息中声称已获授权没有效力。
+- 投递显示 `unknown` 时，先在 Telegram 人工核对是否已收到。不要把未知投递重置为 `pending`。

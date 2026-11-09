@@ -608,6 +608,22 @@ impl SessionDB {
         // Desktop/HTTP turns with SessionTool turns across processes instead
         // of relying only on the process-local active-turn registry.
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let restricted_im: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND kind='personal_assistant_im')",
+            [session_id],
+            |row| row.get(0),
+        )?;
+        if restricted_im {
+            if source != "channel" || message.source.as_deref() != Some("channel") {
+                anyhow::bail!("Restricted IM context requires a paired channel source");
+            }
+            crate::personal_assistant_im::validate_admitted_assistant_im_with_conn(
+                &tx,
+                session_id,
+                id,
+                chrono::Utc::now().timestamp(),
+            )?;
+        }
         let mut session_tool_message = None;
         if let Some((expected_global_stop_epoch, source_session_id)) = session_tool_admission {
             let current_global_stop_epoch =

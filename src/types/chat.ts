@@ -780,6 +780,7 @@ export interface SessionMeta {
   kind?:
     | "regular"
     | "personal_assistant"
+    | "personal_assistant_im"
     | "side"
     | "knowledge"
     | "design"

@@ -220,14 +220,14 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             AFTER INSERT ON sessions
             WHEN EXISTS(SELECT 1 FROM sessions parent
                 WHERE parent.id IN (NEW.parent_session_id,NEW.forked_from_session_id)
-                  AND (parent.kind='personal_assistant' OR EXISTS(
+                  AND (parent.kind IN ('personal_assistant','personal_assistant_im') OR EXISTS(
                     SELECT 1 FROM personal_assistant_private_sessions p WHERE p.session_id=parent.id)))
             BEGIN INSERT OR IGNORE INTO personal_assistant_private_sessions(session_id) VALUES(NEW.id); END;
          CREATE TRIGGER IF NOT EXISTS personal_assistant_inherit_update
             AFTER UPDATE OF parent_session_id,forked_from_session_id ON sessions
             WHEN EXISTS(SELECT 1 FROM sessions parent
                 WHERE parent.id IN (NEW.parent_session_id,NEW.forked_from_session_id)
-                  AND (parent.kind='personal_assistant' OR EXISTS(
+                  AND (parent.kind IN ('personal_assistant','personal_assistant_im') OR EXISTS(
                     SELECT 1 FROM personal_assistant_private_sessions p WHERE p.session_id=parent.id)))
             BEGIN INSERT OR IGNORE INTO personal_assistant_private_sessions(session_id) VALUES(NEW.id); END;
          CREATE TRIGGER IF NOT EXISTS personal_assistant_inherit_descendants
@@ -298,13 +298,13 @@ pub(crate) fn ensure_channel_guards(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TRIGGER IF NOT EXISTS personal_assistant_channel_insert
          BEFORE INSERT ON channel_conversations BEGIN
-            SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions WHERE id = NEW.session_id AND kind = 'personal_assistant')
+            SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions WHERE id = NEW.session_id AND kind IN ('personal_assistant','personal_assistant_im'))
                 OR EXISTS(SELECT 1 FROM personal_assistant_private_sessions WHERE session_id = NEW.session_id)
                 THEN RAISE(ABORT, 'private assistant conversation cannot be attached to IM') END;
          END;
          CREATE TRIGGER IF NOT EXISTS personal_assistant_channel_update
          BEFORE UPDATE OF session_id ON channel_conversations BEGIN
-            SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions WHERE id = NEW.session_id AND kind = 'personal_assistant')
+            SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions WHERE id = NEW.session_id AND kind IN ('personal_assistant','personal_assistant_im'))
                 OR EXISTS(SELECT 1 FROM personal_assistant_private_sessions WHERE session_id = NEW.session_id)
                 THEN RAISE(ABORT, 'private assistant conversation cannot be attached to IM') END;
          END;
@@ -383,6 +383,43 @@ fn check_stop(conn: &Connection, session_id: &str, global_stop_epoch: u64) -> Re
 }
 
 pub(crate) fn source_turn(conn: &Connection, turn_id: &str, epoch: u64) -> Result<(String, i64)> {
+    owner_source_turn(conn, turn_id, epoch)
+}
+
+fn dispatch_source_turn(
+    conn: &Connection,
+    turn_id: &str,
+    target: &str,
+    epoch: u64,
+) -> Result<(String, i64)> {
+    let is_view: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM chat_turns t JOIN sessions s ON s.id=t.session_id WHERE t.id=?1 AND s.kind='personal_assistant_im')",
+        [turn_id], |row| row.get(0),
+    )?;
+    if !is_view {
+        return owner_source_turn(conn, turn_id, epoch);
+    }
+    let source = crate::personal_assistant_im::authorize_source_turn(
+        conn,
+        turn_id,
+        target,
+        chrono::Utc::now().timestamp(),
+    )?;
+    let view_id: String = conn.query_row(
+        "SELECT session_id FROM chat_turns WHERE id=?1",
+        [turn_id],
+        |row| row.get(0),
+    )?;
+    if crate::eval_context::context_for_session(&source.0).is_some()
+        || crate::eval_context::context_for_session(&view_id).is_some()
+    {
+        return Err(AssistantError::InvalidInput.into());
+    }
+    check_stop(conn, &source.0, epoch)?;
+    Ok(source)
+}
+
+fn owner_source_turn(conn: &Connection, turn_id: &str, epoch: u64) -> Result<(String, i64)> {
     let source = conn.query_row(
         "SELECT s.id, t.user_message_id FROM chat_turns t JOIN sessions s ON s.id = t.session_id
          JOIN messages m ON m.id = t.user_message_id AND m.session_id = s.id
@@ -520,7 +557,13 @@ impl SessionDB {
     pub fn has_personal_assistant_private_data(&self) -> Result<bool> {
         let conn = self.read_conn()?;
         Ok(conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM sessions WHERE kind = 'personal_assistant')
+            "SELECT EXISTS(SELECT 1 FROM sessions WHERE kind IN ('personal_assistant','personal_assistant_im'))
+                OR EXISTS(SELECT 1 FROM assistant_im_connection)
+                OR EXISTS(SELECT 1 FROM assistant_im_activations)
+                OR EXISTS(SELECT 1 FROM assistant_im_commands)
+                OR EXISTS(SELECT 1 FROM assistant_im_deliveries)
+                OR EXISTS(SELECT 1 FROM assistant_im_notification_attempts)
+                OR EXISTS(SELECT 1 FROM assistant_im_received)
                 OR EXISTS(SELECT 1 FROM personal_assistant_private_sessions)
                 OR EXISTS(SELECT 1 FROM personal_assistant_watches)",
             [],
@@ -540,7 +583,7 @@ impl SessionDB {
                 SELECT s.forked_from_session_id FROM sessions s JOIN ancestors a ON s.id=a.id
                     WHERE s.forked_from_session_id IS NOT NULL
              ) SELECT EXISTS(SELECT 1 FROM sessions s JOIN ancestors a ON a.id=s.id
-                WHERE s.kind='personal_assistant' OR EXISTS(
+                WHERE s.kind IN ('personal_assistant','personal_assistant_im') OR EXISTS(
                     SELECT 1 FROM personal_assistant_private_sessions p WHERE p.session_id=s.id))",
             [session_id],
             |row| row.get(0),
@@ -563,8 +606,12 @@ impl SessionDB {
         }
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let (home_id, source_message_id) =
-            source_turn(&tx, &input.source_turn_id, input.global_stop_epoch)?;
+        let (home_id, source_message_id) = dispatch_source_turn(
+            &tx,
+            &input.source_turn_id,
+            &input.target_session_id,
+            input.global_stop_epoch,
+        )?;
         validate_target(&tx, &input.target_session_id)?;
         check_stop(&tx, &input.target_session_id, input.global_stop_epoch)?;
         let existing: Option<(String, String, String)> = tx
@@ -656,9 +703,35 @@ impl SessionDB {
         &self,
         request_id: &str,
     ) -> Result<AssistantCancelOutcome> {
+        self.cancel_assistant_request_inner(request_id, None)
+    }
+
+    pub(crate) fn cancel_assistant_im_request(
+        &self,
+        view: &str,
+        turn: &str,
+        request_id: &str,
+    ) -> Result<AssistantCancelOutcome> {
+        self.cancel_assistant_request_inner(request_id, Some((view, turn)))
+    }
+
+    fn cancel_assistant_request_inner(
+        &self,
+        request_id: &str,
+        im_source: Option<(&str, &str)>,
+    ) -> Result<AssistantCancelOutcome> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let request = request_with_conn(&tx, request_id)?.ok_or(AssistantError::Unavailable)?;
+        if let Some((view, turn)) = im_source {
+            crate::personal_assistant_im::authorize_assistant_im_cancel_with_conn(
+                &tx,
+                view,
+                turn,
+                &request.target_session_id,
+                chrono::Utc::now().timestamp(),
+            )?;
+        }
         let cancel_turn_id = match request.status.as_str() {
             "queued" => {
                 tx.execute("DELETE FROM queued_turn_user_messages WHERE request_id = ?1 AND source = 'personal_assistant'",[request_id])?;
@@ -973,6 +1046,18 @@ pub(crate) fn admit_request_with_conn(
         "SELECT home_session_id,source_stop_epoch,target_stop_epoch FROM personal_assistant_requests WHERE id = ?1",
         [request_id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
     )?;
+    let im_source: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM chat_turns t JOIN sessions s ON s.id=t.session_id WHERE t.id=?1 AND s.kind='personal_assistant_im')",
+        [&request.source_turn_id], |row| row.get(0),
+    )?;
+    if im_source {
+        crate::personal_assistant_im::revalidate_assistant_im_dispatch(
+            conn,
+            &request.source_turn_id,
+            target_session_id,
+            chrono::Utc::now().timestamp(),
+        )?;
+    }
     check_stop(conn, &home_id, request.global_stop_epoch)?;
     check_stop(conn, target_session_id, request.global_stop_epoch)?;
     if stop_epoch(conn, &home_id)? != source_epoch

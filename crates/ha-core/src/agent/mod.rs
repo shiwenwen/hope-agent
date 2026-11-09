@@ -1231,6 +1231,9 @@ impl AssistantAgent {
     /// sentence as another independent cache block.
     #[doc(hidden)]
     pub fn current_active_memory_suffix(&self) -> Option<std::sync::Arc<String>> {
+        if self.is_restricted_assistant_im() {
+            return None;
+        }
         self.active_memory_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1239,6 +1242,9 @@ impl AssistantAgent {
 
     #[doc(hidden)]
     pub fn current_legacy_memory_suffix(&self) -> Option<std::sync::Arc<String>> {
+        if self.is_restricted_assistant_im() {
+            return None;
+        }
         self.legacy_memory_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1564,6 +1570,9 @@ impl AssistantAgent {
 
     #[doc(hidden)]
     pub fn current_procedure_memory_suffix(&self) -> Option<std::sync::Arc<String>> {
+        if self.is_restricted_assistant_im() {
+            return None;
+        }
         self.procedure_memory_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1649,6 +1658,9 @@ impl AssistantAgent {
 
     #[doc(hidden)]
     pub async fn warm_memory_agent_config(&self) {
+        if self.is_restricted_assistant_im() {
+            return;
+        }
         let agent_id = self.agent_id.clone();
         let fingerprint = crate::blocking::run_blocking(move || {
             active_memory::agent_config_fingerprint(&agent_id)
@@ -1740,6 +1752,10 @@ impl AssistantAgent {
     /// Never blocks the chat loop longer than `active_memory.timeout_ms`.
     #[doc(hidden)]
     pub async fn refresh_active_memory_suffix(&self, user_text: &str) {
+        if self.is_restricted_assistant_im() {
+            self.set_active_memory_recall(None);
+            return;
+        }
         use std::time::Duration;
 
         let memory_runtime = crate::config::cached_config().memory.clone();
@@ -2469,6 +2485,14 @@ impl AssistantAgent {
     /// bounded dynamic soft-guidance suffix.
     #[doc(hidden)]
     pub async fn refresh_experience_memory_trace(&self, user_text: &str) {
+        if self.is_restricted_assistant_im() {
+            self.set_experience_memory_refs(
+                Vec::new(),
+                None,
+                retrieval_planner::disabled_layer("experience", "restricted_im"),
+            );
+            return;
+        }
         const EXPERIENCE_CANDIDATE_LIMIT: usize = 4;
 
         if self.session_is_incognito() {
@@ -2679,6 +2703,13 @@ impl AssistantAgent {
     /// Chips. It does not inject graph text into the prompt.
     #[doc(hidden)]
     pub async fn refresh_graph_memory_trace(&self, user_text: &str) {
+        if self.is_restricted_assistant_im() {
+            self.set_graph_memory_refs(
+                Vec::new(),
+                retrieval_planner::disabled_layer("graph", "restricted_im"),
+            );
+            return;
+        }
         if self.session_is_incognito() {
             self.set_graph_memory_refs(
                 Vec::new(),
@@ -2865,6 +2896,9 @@ impl AssistantAgent {
     /// provider layer to inject as another independent block (read bridge ③).
     #[doc(hidden)]
     pub fn current_related_notes_suffix(&self) -> Option<std::sync::Arc<String>> {
+        if self.is_restricted_assistant_im() {
+            return None;
+        }
         self.related_notes_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -2997,6 +3031,10 @@ impl AssistantAgent {
     #[doc(hidden)]
     pub async fn refresh_related_notes_suffix(&self, user_text: &str) {
         use std::time::Duration;
+        if self.is_restricted_assistant_im() {
+            self.set_related_notes_recall(None);
+            return;
+        }
 
         // Incognito → never surface notes (close-on-exit, D10). Clear any stale
         // suffix from a previous turn.
@@ -3146,6 +3184,9 @@ impl AssistantAgent {
     /// system block so task-kind churn does not invalidate prompt-cache hits.
     #[doc(hidden)]
     pub fn refresh_coding_profile_suffix(&self, user_text: &str) {
+        if self.is_restricted_assistant_im() {
+            return;
+        }
         let block = coding_profile::CodingSessionProfile::classify(user_text)
             .map(|profile| std::sync::Arc::new(profile.render_prompt_block()));
         *self
@@ -3158,6 +3199,9 @@ impl AssistantAgent {
     /// user message looked like a coding task.
     #[doc(hidden)]
     pub fn current_coding_profile_suffix(&self) -> Option<std::sync::Arc<String>> {
+        if self.is_restricted_assistant_im() {
+            return None;
+        }
         self.coding_profile_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -3168,6 +3212,9 @@ impl AssistantAgent {
     /// provider-layer code that needs to inject it as a second system block.
     #[doc(hidden)]
     pub fn current_awareness_suffix(&self) -> Option<std::sync::Arc<String>> {
+        if self.is_restricted_assistant_im() {
+            return None;
+        }
         self.awareness_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -3180,7 +3227,7 @@ impl AssistantAgent {
     /// when `mode == LlmDigest` and throttle allows.
     #[doc(hidden)]
     pub async fn refresh_awareness_suffix(&self, user_text: &str) {
-        if self.session_is_incognito() {
+        if self.session_is_incognito() || self.is_restricted_assistant_im() {
             *self
                 .awareness_suffix
                 .lock()
@@ -3483,6 +3530,11 @@ impl AssistantAgent {
     /// Set the per-turn tool-visibility scope (see [`crate::tool_defs::ToolScope`]).
     /// `Some(Knowledge)` trims the injected tool set to the knowledge-space
     /// white-list; `None` (default) applies no extra narrowing.
+    #[doc(hidden)]
+    pub fn is_restricted_assistant_im(&self) -> bool {
+        self.tool_scope == Some(crate::tool_defs::ToolScope::PersonalAssistantIm)
+    }
+
     pub fn set_tool_scope(&mut self, scope: Option<crate::tool_defs::ToolScope>) {
         self.tool_scope = scope;
     }
@@ -3918,10 +3970,14 @@ impl AssistantAgent {
             .iter()
             .map(|name| crate::mcp::canonical_tool_name(name).unwrap_or_else(|| name.clone()))
             .collect();
-        let activation_guidance = crate::system_prompt::build_tool_activation_guidance_packages(
-            &self.agent_id,
-            self.subagent_depth,
-        );
+        let activation_guidance = if self.is_restricted_assistant_im() {
+            Default::default()
+        } else {
+            crate::system_prompt::build_tool_activation_guidance_packages(
+                &self.agent_id,
+                self.subagent_depth,
+            )
+        };
 
         let mut deferred_schemas = Vec::new();
         let mut deferred_builtin_names = std::collections::HashSet::new();
@@ -4211,6 +4267,33 @@ impl AssistantAgent {
     /// so those stay off the async worker; readers that miss the cache fall
     /// back to the original synchronous compute.
     pub(crate) async fn refresh_turn_prompt_cache(&self, model: &str, provider: &str) {
+        // The sealed scope survives view deletion and cache/failover rebuilds.
+        // Never consult owner configuration to recover a missing IM session.
+        if self.is_restricted_assistant_im() {
+            self.static_memory_refs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
+            *self
+                .static_memory_manifest
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Default::default();
+            *self
+                .core_memory_snapshot
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+            *self
+                .turn_prompt_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(types::TurnPromptCache {
+                model: model.to_owned(),
+                provider: provider.to_owned(),
+                base_prompt: Arc::new(crate::personal_assistant_im::SYSTEM_PROMPT.to_owned()),
+                legacy_memory_selection: None,
+            });
+            return;
+        }
+
         let agent_id = self.agent_id.clone();
         let session_id = self.session_id.clone();
         let session_db = self.session_db.clone();
@@ -4274,6 +4357,9 @@ impl AssistantAgent {
     }
 
     pub(crate) fn build_full_system_prompt(&self, model: &str, provider: &str) -> String {
+        if self.is_restricted_assistant_im() {
+            return crate::personal_assistant_im::SYSTEM_PROMPT.to_owned();
+        }
         let prompt = self
             .cached_turn_prompt(model, provider, |cache| (*cache.base_prompt).clone())
             .unwrap_or_else(|| {
@@ -4308,6 +4394,9 @@ impl AssistantAgent {
     }
 
     fn append_stable_capability_prompt(&self, mut prompt: String) -> String {
+        if self.is_restricted_assistant_im() {
+            return crate::personal_assistant_im::SYSTEM_PROMPT.to_owned();
+        }
         // Single walk over the static catalog: classify every tool's fate
         // up front, then drive both the eager-capability guidance blocks
         // and the # Unconfigured Capabilities section from the same map.
@@ -4426,6 +4515,9 @@ impl AssistantAgent {
     /// the same initial policy revision.
     #[doc(hidden)]
     pub async fn prepare_session_policy_context(&self) -> (Option<String>, Option<String>) {
+        if self.is_restricted_assistant_im() {
+            return (None, None);
+        }
         let session_db = self.session_db.clone();
         let session_id = self.session_id.clone();
         let incognito = self.session_is_incognito();
@@ -4501,6 +4593,9 @@ impl AssistantAgent {
     /// note_* tools see, so it never advertises a KB the tools would deny.
     #[doc(hidden)]
     pub async fn prepare_attached_knowledge_section(&self) -> Option<String> {
+        if self.is_restricted_assistant_im() {
+            return None;
+        }
         let access = (*self.resolve_kb_access()).clone();
         crate::blocking::run_blocking(move || {
             Self::build_attached_knowledge_section_for_access(&access)
@@ -4510,6 +4605,9 @@ impl AssistantAgent {
 
     #[doc(hidden)]
     pub async fn prepare_im_attachment_data(&self) -> Option<String> {
+        if self.is_restricted_assistant_im() {
+            return None;
+        }
         let session_id = self.session_id.clone()?;
         let session_db = self.session_db.clone();
         crate::blocking::run_blocking(move || {
@@ -4524,6 +4622,9 @@ impl AssistantAgent {
 
     #[doc(hidden)]
     pub async fn prepare_user_profile_data(&self) -> Option<String> {
+        if self.is_restricted_assistant_im() {
+            return None;
+        }
         crate::blocking::run_blocking(|| {
             let config = crate::user_config::load_user_config().ok()?;
             crate::user_config::build_user_context(&config)
@@ -4537,6 +4638,9 @@ impl AssistantAgent {
     /// governed by the live dispatch and permission layers.
     #[doc(hidden)]
     pub fn current_capability_catalog_suffix(&self) -> Option<String> {
+        if self.is_restricted_assistant_im() {
+            return None;
+        }
         let app_config = crate::config::cached_config();
         let caps = self.agent_caps();
         let mcp_scope_allows_prompt = self
@@ -4682,6 +4786,7 @@ impl AssistantAgent {
             _ => (Vec::new(), Vec::new()),
         };
         crate::tool_defs::ToolExecContext {
+            tool_scope: self.tool_scope,
             context_window_tokens: Some(self.context_window),
             used_tokens,
             home_dir: self.agent_home(),
@@ -4731,7 +4836,11 @@ impl AssistantAgent {
             agent_custom_approval_enabled: caps.enable_custom_tool_approval,
             agent_custom_approval_tools: caps.custom_approval_tools.clone(),
             project_id,
-            async_tool_policy: caps.async_tool_policy,
+            async_tool_policy: if self.is_restricted_assistant_im() {
+                crate::agent_config::AsyncToolPolicy::NeverBackground
+            } else {
+                caps.async_tool_policy
+            },
             async_job_id_override: None,
             bypass_async_dispatch: false,
             suppress_global_tool_timeout: false,
@@ -4793,6 +4902,9 @@ impl AssistantAgent {
     /// Apply the context engine's optional stable, trusted behavior contract.
     #[doc(hidden)]
     pub fn apply_engine_prompt_addition(&self, system_prompt: &mut String) {
+        if self.is_restricted_assistant_im() {
+            return;
+        }
         if let Some(addition) = self.context_engine.stable_system_prompt_addition() {
             system_prompt.push_str("\n\n");
             system_prompt.push_str(&addition);

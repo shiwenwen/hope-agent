@@ -12,6 +12,9 @@ const NOT_CONTROLLED_MESSAGE: &str =
 /// `cancel_runtime_task` directly with identities captured by their own trusted
 /// snapshot; an opaque id supplied by a model never gets that unscoped power.
 pub(crate) async fn tool_runtime_cancel(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    if crate::personal_assistant_im::scoped_tools::restricted(ctx) {
+        return crate::personal_assistant_im::scoped_tools::cancel(args, ctx).await;
+    }
     let kind_str = args
         .get("kind")
         .and_then(|v| v.as_str())
