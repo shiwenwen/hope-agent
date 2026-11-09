@@ -683,7 +683,7 @@ mod tests {
                 assert!(handle_session(&db, None, &private.id[..8]).is_err());
             }
         }
-        for query in ["", "needle"] {
+        for query in ["", "needle", "eed"] {
             let result = handle_sessions(&db, query).unwrap();
             assert!(!result.content.contains("private-name"));
             assert!(!result.content.contains("secret-value"));
@@ -693,9 +693,11 @@ mod tests {
             assert_eq!(sessions.len(), 1, "query={query}");
             assert_eq!(sessions[0].id, live.id);
         }
-        let hits = db.search_distinct_session_snippets("needle", 1).unwrap();
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].0, live.id);
+        for query in ["needle", "eed"] {
+            let hits = db.search_distinct_session_snippets(query, 1).unwrap();
+            assert_eq!(hits.len(), 1, "query={query}");
+            assert_eq!(hits[0].0, live.id);
+        }
         assert!(db
             .search_distinct_session_snippets("private-only-marker", 10)
             .unwrap()

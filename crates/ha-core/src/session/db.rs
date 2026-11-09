@@ -7961,16 +7961,16 @@ impl SessionDB {
             }
         }
 
-        // Window function partitions by session and keeps the top-ranked
-        // hit per session before applying the LIMIT, so 100 hits in one
-        // session don't displace single-hit sessions further down.
+        // Materialize the FTS-only projection before windowing: SQLite FTS5
+        // cannot evaluate snippet() in the window-function context. The window
+        // then keeps one best-ranked hit per session before LIMIT, so a chatty
+        // session cannot crowd out other matching sessions.
         if !fts_query.is_empty() && results.len() < limit {
             let sql = format!(
-                "SELECT session_id, snippet FROM (
+                "WITH matching AS MATERIALIZED (
                      SELECT m.session_id AS session_id,
                             snippet(messages_fts, 0, '\x02', '\x03', '…', 16) AS snippet,
-                            fts.rank AS rank,
-                            ROW_NUMBER() OVER (PARTITION BY m.session_id ORDER BY fts.rank) AS rn
+                            fts.rank AS rank
                      FROM messages_fts fts
                      JOIN messages m ON m.id = fts.rowid
                      JOIN sessions s ON s.id = m.session_id
@@ -7981,6 +7981,11 @@ impl SessionDB {
                        AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
                        AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
                        AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
+                 )
+                 SELECT session_id, snippet FROM (
+                     SELECT session_id, snippet, rank,
+                            ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY rank) AS rn
+                     FROM matching
                  ) WHERE rn = 1
                  ORDER BY rank
                  LIMIT {}",
@@ -8005,11 +8010,10 @@ impl SessionDB {
 
         if !trigram_query.is_empty() && results.len() < limit {
             let trigram_sql = format!(
-                "SELECT session_id, snippet FROM (
+                "WITH matching AS MATERIALIZED (
                      SELECT m.session_id AS session_id,
                             snippet(messages_trigram_fts, 0, '\x02', '\x03', '…', 16) AS snippet,
-                            tri.rank AS rank,
-                            ROW_NUMBER() OVER (PARTITION BY m.session_id ORDER BY tri.rank) AS rn
+                            tri.rank AS rank
                      FROM messages_trigram_fts tri
                      JOIN messages m ON m.id = tri.rowid
                      JOIN sessions s ON s.id = m.session_id
@@ -8020,6 +8024,11 @@ impl SessionDB {
                        AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant')
                        AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
                        AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
+                 )
+                 SELECT session_id, snippet FROM (
+                     SELECT session_id, snippet, rank,
+                            ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY rank) AS rn
+                     FROM matching
                  ) WHERE rn = 1
                  ORDER BY rank
                  LIMIT {}",
