@@ -17,7 +17,7 @@ use ha_eval_spec::model::{
     reject_embedded_secrets, CampaignBudget, ModelCampaignOutcome, ModelShardResult,
 };
 use ha_eval_spec::{digest_file, read_json, stable_shard, write_json, CaseResult, EvalStatus};
-use rand::RngCore;
+use rand::Rng;
 use serde::Deserialize;
 use std::collections::{BTreeSet, VecDeque};
 use std::fs;
@@ -644,8 +644,14 @@ struct LiveTelemetrySnapshot {
     cost: LiveCostMetrics,
     tools: LiveToolMetrics,
     orchestration: LiveOrchestrationMetrics,
+    trace: LiveTraceStatus,
     #[serde(default)]
     events: Vec<LiveTelemetryEvent>,
+}
+
+#[derive(Deserialize)]
+struct LiveTraceStatus {
+    closed: bool,
 }
 
 #[derive(Deserialize)]
@@ -701,15 +707,13 @@ async fn emit_live_trial_progress(
     events: &mpsc::UnboundedSender<AppControlEvent>,
 ) {
     for trial_id in candidate_trial_ids {
-        // Product telemetry is attempt-scoped so a retry never collides with
-        // the previous attempt's still-closing Session graph. Prefer the
-        // newest attempt and retain the legacy stable ID as a compatibility
-        // fallback for older sidecars.
+        // Logical trial IDs are shared by paired models. Only read telemetry
+        // from this campaign and attempt; a legacy fallback can read another
+        // model's already completed trial.
         let mut snapshot = None;
         for product_trial_id in [
-            format!("{trial_id}-attempt-2"),
-            format!("{trial_id}-attempt-1"),
-            trial_id.clone(),
+            crate::model::product_trial_id(campaign_id, trial_id, 2),
+            crate::model::product_trial_id(campaign_id, trial_id, 1),
         ] {
             let response = match client
                 .get(format!(
@@ -738,6 +742,11 @@ async fn emit_live_trial_progress(
                 completed,
                 total,
             });
+        }
+        // Shard results are delivered together, but a completed runtime trace
+        // must not keep publishing a growing clock as if its task were active.
+        if snapshot.trace.closed {
+            continue;
         }
         let latest = snapshot.events.last();
         let _ = events.send(AppControlEvent::TrialProgress {
@@ -869,7 +878,7 @@ async fn run_experiment(
     plan: EvalAppPlan,
     product_binary: PathBuf,
     output_root: PathBuf,
-    config: serde_json::Value,
+    mut config: serde_json::Value,
     provider_secrets_b64: String,
     mut cancel: watch::Receiver<bool>,
     events: &mpsc::UnboundedSender<AppControlEvent>,
@@ -918,7 +927,13 @@ async fn run_experiment(
                 total: total_trials,
             });
             let case_timer = Instant::now();
-            let mut result = match crate::adapters::run_context_compaction(suite, case) {
+            #[cfg(feature = "full-runner")]
+            let execution = crate::adapters::run_context_compaction(suite, case);
+            #[cfg(not(feature = "full-runner"))]
+            let execution: Result<CaseResult> = Err(anyhow!(
+                "deterministic App safety suites require a full-runner build"
+            ));
+            let mut result = match execution {
                 Ok(result) => result,
                 Err(error) => CaseResult {
                     suite_id: suite.id.clone(),
@@ -1021,6 +1036,25 @@ async fn run_experiment(
     fs::create_dir_all(&home_dir)?;
     fs::create_dir_all(&workspace)?;
     let _runtime_cleanup = RuntimeCleanup(experiment_root.join("runtime"));
+    // The versioned unattended fixture has no owner answerer. Expiry keeps
+    // unanswered questions closed; it never supplies an affirmative answer.
+    let unattended_v2 = plan.campaigns.iter().any(|campaign| {
+        campaign.resolved_plan.suites.iter().any(|suite| {
+            suite.cases.iter().any(|case| {
+                ha_eval_spec::resolve_contained(&root.join("evals/live"), &case.scenario_path)
+                    .and_then(|path| {
+                        ha_eval_spec::read_json::<ha_eval_spec::model::LiveAgentScenario>(&path)
+                    })
+                    .is_ok_and(|scenario| {
+                        crate::model_adapter::scenario_has_ready_control_plane(&scenario)
+                    })
+            })
+        })
+    });
+    if unattended_v2 {
+        config["askUserQuestionTimeoutEnabled"] = serde_json::json!(true);
+        config["askUserQuestionTimeoutSecs"] = serde_json::json!(30);
+    }
     write_json(&data_dir.join("config.json"), &config)?;
     let runtime_config_digest = digest_file(&data_dir.join("config.json"))?;
     let server_bind = reserve_loopback_address()?;
@@ -1182,6 +1216,10 @@ async fn run_experiment(
                     .arg(&job.output)
                     .arg("--confirm-model-costs")
                     .env("HA_MODEL_EVAL_APP_CONTROL", "1")
+                    .env(
+                        super::model::SERVER_TRIAL_LOCK_ENV,
+                        data_dir.join("server-trials.lock"),
+                    )
                     .env("HA_MODEL_EVAL_APP_PLAN", &app_plan_path)
                     .env("HA_MODEL_EVAL_SOURCE", "local_app")
                     .env("HA_MODEL_EVAL_SERVER_URL", &server_url)

@@ -9,6 +9,98 @@ const MID_LOOP_SUMMARY_HYSTERESIS_DELTA: f64 = 0.15;
 const MID_LOOP_MAX_SUMMARY_ATTEMPTS_PER_TURN: u32 = 2;
 const MID_LOOP_MIN_ROUNDS_BETWEEN_SUMMARIES: u32 = 3;
 
+fn compaction_flush_model(
+    conversation_provider: Option<&crate::provider::ProviderConfig>,
+    conversation_model: &str,
+    providers: &[crate::provider::ProviderConfig],
+    provider_override: Option<&str>,
+    model_override: Option<&str>,
+) -> Option<crate::memory::extract_runtime::MemoryExtractModel> {
+    let provider = match provider_override {
+        Some(id) => crate::provider::find_provider(providers, id)?,
+        None => conversation_provider?,
+    };
+    let model_id = model_override.unwrap_or(conversation_model);
+    if !provider.enabled || provider.model_config(model_id).is_none() {
+        return None;
+    }
+    Some(crate::memory::extract_runtime::MemoryExtractModel::capture(
+        provider, model_id,
+    ))
+}
+
+#[cfg(test)]
+mod compaction_flush_model_tests {
+    use super::compaction_flush_model;
+    use crate::provider::{ApiType, ProviderConfig};
+    use serde_json::json;
+
+    fn provider(id: &str, models: &[&str]) -> ProviderConfig {
+        let mut provider = ProviderConfig::new(
+            id.to_string(),
+            ApiType::OpenaiChat,
+            "https://example.invalid/v1".to_string(),
+            "test-only-key".to_string(),
+        );
+        provider.id = id.to_string();
+        provider.models = models
+            .iter()
+            .map(|id| serde_json::from_value(json!({"id": id, "name": id})).unwrap())
+            .collect();
+        provider
+    }
+
+    #[test]
+    fn inherits_conversation_binding_instead_of_first_provider_or_model() {
+        let first = provider("first", &["stable"]);
+        let selected = provider("selected", &["stable", "preview"]);
+        let providers = vec![first, selected.clone()];
+        let model =
+            compaction_flush_model(Some(&selected), "preview", &providers, None, None).unwrap();
+        assert_eq!(model.provider_id(), "selected");
+        assert_eq!(model.model_id(), "preview");
+    }
+
+    #[test]
+    fn honors_explicit_override_and_rejects_unavailable_bindings() {
+        let first = provider("first", &["stable"]);
+        let selected = provider("selected", &["preview"]);
+        let providers = vec![first.clone(), selected.clone()];
+        let model = compaction_flush_model(
+            Some(&selected),
+            "preview",
+            &providers,
+            Some("first"),
+            Some("stable"),
+        )
+        .unwrap();
+        assert_eq!(model.provider_id(), "first");
+        assert_eq!(model.model_id(), "stable");
+        assert!(compaction_flush_model(None, "preview", &providers, None, None).is_none());
+        assert!(compaction_flush_model(
+            Some(&selected),
+            "preview",
+            &providers,
+            Some("missing"),
+            None
+        )
+        .is_none());
+        assert!(compaction_flush_model(
+            Some(&selected),
+            "preview",
+            &providers,
+            None,
+            Some("missing")
+        )
+        .is_none());
+        let mut disabled = first;
+        disabled.enabled = false;
+        assert!(
+            compaction_flush_model(Some(&disabled), "stable", &providers, None, None).is_none()
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CompactionRunTrigger {
     Manual,
@@ -362,6 +454,7 @@ impl AssistantAgent {
 
     /// Replace the conversation history (used to restore context from DB).
     pub fn set_conversation_history(&self, history: Vec<serde_json::Value>) {
+        self.clear_summary_fork_template();
         *self
             .conversation_history
             .lock()
@@ -1140,30 +1233,53 @@ impl AssistantAgent {
                             && options.allow_memory_flush;
 
                         if flush_enabled {
-                            // Resolve provider config on the current thread before spawning
-                            let flush_provider =
-                                crate::config::cached_config().providers.first().cloned();
+                            // Match inline/idle extraction precedence, and capture
+                            // the conversation lease when no override was selected.
+                            // Provider/model list order must never choose the model.
+                            let store = crate::config::cached_config();
+                            let global_extract = crate::memory::load_extract_config();
+                            let agent_def = crate::agent_loader::load_agent(&self.agent_id).ok();
+                            let agent_mem = agent_def.as_ref().map(|d| &d.config.memory);
+                            let provider_override = agent_mem
+                                .and_then(|m| m.extract_provider_id.as_deref())
+                                .or_else(|| {
+                                    global_extract
+                                        .model_override
+                                        .as_ref()
+                                        .map(|m| m.provider_id.as_str())
+                                })
+                                .or(global_extract.extract_provider_id.as_deref());
+                            let model_override = agent_mem
+                                .and_then(|m| m.extract_model_id.as_deref())
+                                .or_else(|| {
+                                    global_extract
+                                        .model_override
+                                        .as_ref()
+                                        .map(|m| m.model_id.as_str())
+                                })
+                                .or(global_extract.extract_model_id.as_deref());
+                            let flush_model = compaction_flush_model(
+                                self.provider_config.as_deref(),
+                                self.provider.model(),
+                                &store.providers,
+                                provider_override,
+                                model_override,
+                            );
 
-                            if let Some(prov) = flush_provider {
-                                if let Some(model) = prov.models.first().cloned() {
-                                    let agent_id = self.agent_id.clone();
-                                    let session_id = self.session_id.clone().unwrap_or_default();
-                                    let msgs = split.summarizable.clone();
-                                    let model_ref =
-                                        crate::memory::extract_runtime::MemoryExtractModel::capture(
-                                            &prov,
-                                            model.id.clone(),
-                                        );
-                                    let session_db = self.session_db.clone();
+                            if let Some(model_ref) = flush_model {
+                                let agent_id = self.agent_id.clone();
+                                let session_id = self.session_id.clone().unwrap_or_default();
+                                let msgs = split.summarizable.clone();
+                                let session_db = self.session_db.clone();
 
-                                    // Use a new tokio runtime on a background thread to avoid
-                                    // Send bounds issues with the parent async context.
-                                    std::thread::spawn(move || {
-                                        let rt = tokio::runtime::Builder::new_current_thread()
-                                            .enable_all()
-                                            .build();
-                                        if let Ok(rt) = rt {
-                                            let result = rt.block_on(async {
+                                // Use a new tokio runtime on a background thread to avoid
+                                // Send bounds issues with the parent async context.
+                                std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Builder::new_current_thread()
+                                        .enable_all()
+                                        .build();
+                                    if let Ok(rt) = rt {
+                                        let result = rt.block_on(async {
                                                 tokio::time::timeout(
                                                     std::time::Duration::from_secs(30),
                                                     crate::memory::extract_runtime::flush_before_compact(
@@ -1176,35 +1292,40 @@ impl AssistantAgent {
                                                 )
                                                 .await
                                             });
-                                            match result {
-                                                Ok(Ok(count)) if count > 0 => {
-                                                    app_info!(
-                                                        "memory",
-                                                        "flush",
-                                                        "Flushed {} memories before compaction",
-                                                        count
-                                                    );
-                                                }
-                                                Ok(Err(e)) => {
-                                                    app_warn!(
-                                                        "memory",
-                                                        "flush",
-                                                        "Memory flush failed: {}",
-                                                        e
-                                                    );
-                                                }
-                                                Err(_) => {
-                                                    app_warn!(
-                                                        "memory",
-                                                        "flush",
-                                                        "Memory flush timed out (30s)"
-                                                    );
-                                                }
-                                                _ => {}
+                                        match result {
+                                            Ok(Ok(count)) if count > 0 => {
+                                                app_info!(
+                                                    "memory",
+                                                    "flush",
+                                                    "Flushed {} memories before compaction",
+                                                    count
+                                                );
                                             }
+                                            Ok(Err(e)) => {
+                                                app_warn!(
+                                                    "memory",
+                                                    "flush",
+                                                    "Memory flush failed: {}",
+                                                    e
+                                                );
+                                            }
+                                            Err(_) => {
+                                                app_warn!(
+                                                    "memory",
+                                                    "flush",
+                                                    "Memory flush timed out (30s)"
+                                                );
+                                            }
+                                            _ => {}
                                         }
-                                    });
-                                }
+                                    }
+                                });
+                            } else {
+                                app_warn!(
+                                    "memory",
+                                    "flush",
+                                    "Skipping memory flush: configured extraction provider/model is unavailable"
+                                );
                             }
                         }
                     }
@@ -1228,109 +1349,126 @@ impl AssistantAgent {
                         );
                     }
 
-                    // The summarization request has its own capacity boundary. It
-                    // must fit both the optional dedicated model and the
-                    // conversation-model fallback; otherwise a history overflow
-                    // simply turns into a second overflow while trying to compact.
-                    // Use the model-neutral upper bound here so CJK/code are not
-                    // reduced to the old bytes/4 approximation.
-                    let dedicated_summary_window = self
-                        .compaction_provider
-                        .as_ref()
-                        .and_then(|provider| provider.context_window())
-                        .filter(|window| *window > 0);
-                    let summary_context_window = match (
-                        (self.context_window > 0).then_some(self.context_window),
-                        dedicated_summary_window,
-                    ) {
-                        (Some(conversation), Some(dedicated)) => conversation.min(dedicated),
-                        (Some(conversation), None) => conversation,
-                        (None, Some(dedicated)) => dedicated,
-                        (None, None) => 0,
-                    };
-                    let summary_safety_headroom = u64::from(summary_context_window / 50).max(1_024);
-                    let summary_target_input_upper = u64::from(summary_context_window)
-                        .saturating_sub(u64::from(compact_config.summary_max_tokens))
-                        .saturating_sub(summary_safety_headroom);
-                    let build_summary_request = |messages: &[serde_json::Value]| {
-                        let (prompt_messages, previous_summary) =
-                            context_compact::peel_previous_summary(messages);
-                        let prompt = context_compact::build_summarization_prompt(
-                            &prompt_messages,
-                            previous_summary.as_deref(),
-                            compact_config,
-                        );
-                        let capacity_text = format!(
-                            "{}\n\n{}",
-                            context_compact::SUMMARIZATION_SYSTEM_PROMPT,
-                            prompt
-                        );
-                        let upper = crate::token_accounting::service()
-                            .count_text(
-                                crate::token_accounting::ProviderFamily::Unknown,
-                                "tier3-summary-input",
-                                &capacity_text,
-                            )
-                            .upper_bound;
-                        (prompt, upper)
-                    };
-
-                    // Prepare only the one-shot summary input. These
-                    // deterministic Tier 0/2 edits are never published to the
-                    // canonical history or the main request projection, so
-                    // they cannot churn the conversation's prompt-cache
-                    // prefix. If they are insufficient, the summary attempt
-                    // still fails closed before network I/O.
-                    let mut summary_input_messages = split.summarizable.clone();
-                    let (_, summary_input_before) = build_summary_request(&summary_input_messages);
-                    let mut summary_input_projection_used = false;
-                    if summary_context_window > 0
-                        && summary_input_before > summary_target_input_upper
-                    {
-                        let protected_start = summary_input_messages.len();
-                        for tier in [
-                            context_compact::CapacityPressureTier::Tier0,
-                            context_compact::CapacityPressureTier::Tier2,
-                        ] {
-                            let pressure = context_compact::apply_capacity_pressure_tier(
-                                &mut summary_input_messages,
-                                protected_start,
-                                compact_config,
-                                tier,
-                                summary_target_input_upper,
-                                |candidate| Ok(build_summary_request(candidate).1),
-                            );
-                            match pressure {
-                                Ok(result) => {
-                                    summary_input_projection_used |= !result.edits.is_empty();
-                                    if result.reached_target {
-                                        break;
-                                    }
-                                }
-                                Err(error) => {
-                                    if let Some(manifest) = compact_result.manifest.as_mut() {
-                                        manifest.warnings.push(format!(
-                                            "summary_input_projection_failed:{error}"
-                                        ));
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if summary_input_projection_used {
+                    let summary_fork = self.prepare_summary_fork(&split.summarizable);
+                    let (prompt, prompt_capacity_error) = if let Some(fork) = &summary_fork {
                         if let Some(manifest) = compact_result.manifest.as_mut() {
                             manifest
                                 .warnings
-                                .push("summary_input_projection_only".to_string());
+                                .push("summary_native_prefix_fork".to_string());
                         }
-                    }
-                    let (prompt, summary_input_upper) =
-                        build_summary_request(&summary_input_messages);
-                    let summary_total_upper = summary_input_upper
-                        .saturating_add(u64::from(compact_config.summary_max_tokens))
-                        .saturating_add(summary_safety_headroom);
-                    let prompt_capacity_error = (summary_context_window == 0
+                        app_debug!(
+                            "context",
+                            "compact",
+                            "native summary fork input_upper={}",
+                            fork.input_upper
+                        );
+                        (String::new(), None)
+                    } else {
+                        // The summarization request has its own capacity boundary. It
+                        // must fit both the optional dedicated model and the
+                        // conversation-model fallback; otherwise a history overflow
+                        // simply turns into a second overflow while trying to compact.
+                        // Use the model-neutral upper bound here so CJK/code are not
+                        // reduced to the old bytes/4 approximation.
+                        let dedicated_summary_window = self
+                            .compaction_provider
+                            .as_ref()
+                            .and_then(|provider| provider.context_window())
+                            .filter(|window| *window > 0);
+                        let summary_context_window = match (
+                            (self.context_window > 0).then_some(self.context_window),
+                            dedicated_summary_window,
+                        ) {
+                            (Some(conversation), Some(dedicated)) => conversation.min(dedicated),
+                            (Some(conversation), None) => conversation,
+                            (None, Some(dedicated)) => dedicated,
+                            (None, None) => 0,
+                        };
+                        let summary_safety_headroom =
+                            u64::from(summary_context_window / 50).max(1_024);
+                        let summary_target_input_upper = u64::from(summary_context_window)
+                            .saturating_sub(u64::from(compact_config.summary_max_tokens))
+                            .saturating_sub(summary_safety_headroom);
+                        let build_summary_request = |messages: &[serde_json::Value]| {
+                            let (prompt_messages, previous_summary) =
+                                context_compact::peel_previous_summary(messages);
+                            let prompt = context_compact::build_summarization_prompt(
+                                &prompt_messages,
+                                previous_summary.as_deref(),
+                                compact_config,
+                            );
+                            let capacity_text = format!(
+                                "{}\n\n{}",
+                                context_compact::SUMMARIZATION_SYSTEM_PROMPT,
+                                prompt
+                            );
+                            let upper = crate::token_accounting::service()
+                                .count_text(
+                                    crate::token_accounting::ProviderFamily::Unknown,
+                                    "tier3-summary-input",
+                                    &capacity_text,
+                                )
+                                .upper_bound;
+                            (prompt, upper)
+                        };
+
+                        // Prepare only the one-shot summary input. These
+                        // deterministic Tier 0/2 edits are never published to the
+                        // canonical history or the main request projection, so
+                        // they cannot churn the conversation's prompt-cache
+                        // prefix. If they are insufficient, the summary attempt
+                        // still fails closed before network I/O.
+                        let mut summary_input_messages = split.summarizable.clone();
+                        let (_, summary_input_before) =
+                            build_summary_request(&summary_input_messages);
+                        let mut summary_input_projection_used = false;
+                        if summary_context_window > 0
+                            && summary_input_before > summary_target_input_upper
+                        {
+                            let protected_start = summary_input_messages.len();
+                            for tier in [
+                                context_compact::CapacityPressureTier::Tier0,
+                                context_compact::CapacityPressureTier::Tier2,
+                            ] {
+                                let pressure = context_compact::apply_capacity_pressure_tier(
+                                    &mut summary_input_messages,
+                                    protected_start,
+                                    compact_config,
+                                    tier,
+                                    summary_target_input_upper,
+                                    |candidate| Ok(build_summary_request(candidate).1),
+                                );
+                                match pressure {
+                                    Ok(result) => {
+                                        summary_input_projection_used |= !result.edits.is_empty();
+                                        if result.reached_target {
+                                            break;
+                                        }
+                                    }
+                                    Err(error) => {
+                                        if let Some(manifest) = compact_result.manifest.as_mut() {
+                                            manifest.warnings.push(format!(
+                                                "summary_input_projection_failed:{error}"
+                                            ));
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if summary_input_projection_used {
+                            if let Some(manifest) = compact_result.manifest.as_mut() {
+                                manifest
+                                    .warnings
+                                    .push("summary_input_projection_only".to_string());
+                            }
+                        }
+                        let (prompt, summary_input_upper) =
+                            build_summary_request(&summary_input_messages);
+                        let summary_total_upper = summary_input_upper
+                            .saturating_add(u64::from(compact_config.summary_max_tokens))
+                            .saturating_add(summary_safety_headroom);
+                        let prompt_capacity_error = (summary_context_window == 0
                     || summary_total_upper > u64::from(summary_context_window))
                 .then(|| {
                     format!(
@@ -1341,6 +1479,8 @@ impl AssistantAgent {
                         summary_context_window
                     )
                 });
+                        (prompt, prompt_capacity_error)
+                    };
 
                     let summary_future = tokio::time::timeout(
                         std::time::Duration::from_secs(compact_config.summarization_timeout_secs),
@@ -1348,7 +1488,7 @@ impl AssistantAgent {
                             if let Some(error) = prompt_capacity_error {
                                 anyhow::bail!(error);
                             }
-                            self.summarize_with_model(&prompt).await
+                            self.summarize_with_model(&prompt, summary_fork).await
                         },
                     );
                     let summary_result = if let Some(cancel) = options.cancel.clone() {
@@ -1447,6 +1587,7 @@ impl AssistantAgent {
                                     details.summary_tokens = Some(summary_tokens);
                                 }
                                 run_outcome.summary_applied = true;
+                                self.clear_summary_fork_template();
                                 run_outcome.summary_reason = Some(options.summary_reason);
                                 self.tier3_summary_applied_this_turn
                                     .store(true, std::sync::atomic::Ordering::Release);
@@ -2087,9 +2228,24 @@ impl AssistantAgent {
 
     /// Non-streaming LLM call for context summarization.
     /// If a CompactionProvider is configured, tries it first; on failure falls
-    /// back to the conversation model using the same independent summarizer
-    /// request shape and bounded retry policy.
-    async fn summarize_with_model(&self, prompt: &str) -> Result<String> {
+    /// back to the conversation model with bounded retries. Native forks are
+    /// available only when no dedicated model or reasoning override is set.
+    async fn summarize_with_model(
+        &self,
+        prompt: &str,
+        summary_fork: Option<Arc<super::summary_fork::SummaryForkRequest>>,
+    ) -> Result<String> {
+        if self.compact_config.summary_reasoning_effort.is_some()
+            && self
+                .compact_config
+                .effective_summarization_model_ref()
+                .is_some()
+            && self.compaction_provider.is_none()
+        {
+            return Err(crate::failover::ProviderRequestContractError(
+                "The configured summary model is unavailable while a reasoning override is selected. Existing history is preserved; choose an available summary model or restore the default policy.".into(),
+            ).into());
+        }
         // Try pluggable CompactionProvider first (if configured)
         if let Some(ref provider) = self.compaction_provider {
             app_info!(
@@ -2106,6 +2262,9 @@ impl AssistantAgent {
                     match crate::context_compact::validate_summarization_output(&summary) {
                         Ok(()) => return Ok(summary),
                         Err(error) => {
+                            if self.compact_config.summary_reasoning_effort.is_some() {
+                                return Err(summary_policy_failure());
+                            }
                             app_warn!(
                                 "agent",
                                 "summarize",
@@ -2123,6 +2282,9 @@ impl AssistantAgent {
                     {
                         return Err(e);
                     }
+                    if self.compact_config.summary_reasoning_effort.is_some() {
+                        return Err(summary_policy_failure());
+                    }
                     app_warn!(
                         "agent",
                         "summarize",
@@ -2134,13 +2296,13 @@ impl AssistantAgent {
             }
         }
 
-        // Do not reuse the main chat snapshot here. A cached side query would
-        // send the old history once as the cached prefix and a second time in
-        // `prompt`, while also demoting the summarizer system contract to a
-        // user message. Build an independent one-shot request instead. When
-        // the conversation provider has normal failover context, reuse the
-        // dedicated summarizer wrapper so transient API failures get its
-        // bounded retry policy without changing request semantics.
+        // The native fork has its own counted source guard and carries only
+        // the checkpoint directive after the original history. Never pass the
+        // serialized independent `prompt` through a generic cached side query:
+        // that would duplicate history and change its trust framing.
+        // When no verified native fork fits, keep the independent request's
+        // summarizer system contract. Both paths use the dedicated wrapper's
+        // bounded retry policy without rotating credentials or models.
         if let (Some(provider_config), Some(session_id)) =
             (self.provider_config.clone(), self.session_id.clone())
         {
@@ -2151,13 +2313,18 @@ impl AssistantAgent {
                 self.user_agent.clone(),
                 format!("conversation model {}", self.provider.model()),
                 self.context_window,
-            );
+            )
+            .with_summary_reasoning_effort(self.compact_config.summary_reasoning_effort)
+            .with_summary_fork(summary_fork);
             return crate::context_compact::CompactionProvider::summarize(
                 &provider,
                 prompt,
                 self.compact_config.summary_max_tokens,
             )
-            .await;
+            .await
+            .map_err(|error| {
+                summary_error_for_policy(self.compact_config.summary_reasoning_effort, error)
+            });
         }
 
         // Legacy/test constructors without provider metadata cannot safely
@@ -2175,10 +2342,16 @@ impl AssistantAgent {
             &self.provider,
             &self.user_agent,
             prompt,
+            summary_fork.as_deref(),
             self.compact_config.summary_max_tokens,
+            self.compact_config.summary_reasoning_effort,
+            &self.thinking_style,
             Some(usage_event),
         )
         .await
+        .map_err(|error| {
+            summary_error_for_policy(self.compact_config.summary_reasoning_effort, error)
+        })
     }
 
     /// Build `LlmProvider` from config + optional [`AuthProfile`] override.
@@ -2459,9 +2632,24 @@ impl AssistantAgent {
                 // Streamed thinking is still surfaced to the UI live; it just
                 // never persists into history.
                 "reasoning" => continue,
-                // Native Responses API items — pass through
+                "function_call" => {
+                    let mut call = item.clone();
+                    // Older synthesized history confused the invocation ID
+                    // with the optional provider item ID. Remove only that
+                    // invalid duplicate; keep genuine provider envelopes.
+                    if let Some(id) = item.get("id").and_then(|id| id.as_str()) {
+                        if !id.starts_with("fc")
+                            && item.get("call_id").and_then(|id| id.as_str()) == Some(id)
+                        {
+                            if let Some(fields) = call.as_object_mut() {
+                                fields.remove("id");
+                            }
+                        }
+                    }
+                    result.push(call);
+                }
+                // Other native Responses API items — pass through
                 "message"
-                | "function_call"
                 | "function_call_output"
                 | "tool_search_call"
                 | "tool_search_output"
@@ -2594,6 +2782,29 @@ impl AssistantAgent {
 
 // ── Standalone summarization helpers ─────────────────────────────────
 
+fn summary_policy_failure() -> anyhow::Error {
+    crate::failover::ProviderRequestContractError(
+        "Summary generation failed with the explicit reasoning override. Existing history is preserved; retry manually or change the summary policy. No automatic model fallback was attempted."
+            .into(),
+    )
+    .into()
+}
+
+fn summary_error_for_policy(
+    effort: Option<crate::context_compact::SummaryReasoningEffort>,
+    error: anyhow::Error,
+) -> anyhow::Error {
+    if effort.is_some()
+        && !crate::failover::classify_error_with_evidence(&error)
+            .0
+            .is_terminal()
+    {
+        summary_policy_failure()
+    } else {
+        error
+    }
+}
+
 /// Direct one-shot summarization call (decoupled from AssistantAgent).
 /// Used by both the default fallback path and `DedicatedModelProvider`.
 ///
@@ -2603,16 +2814,34 @@ pub(crate) async fn summarize_direct(
     provider: &LlmProvider,
     user_agent: &str,
     prompt: &str,
+    summary_fork: Option<&super::summary_fork::SummaryForkRequest>,
     max_tokens: u32,
+    reasoning_effort: Option<crate::context_compact::SummaryReasoningEffort>,
+    thinking_style: &crate::provider::ThinkingStyle,
     usage_event: Option<crate::model_usage::ModelUsageEvent>,
 ) -> Result<String> {
     use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
+    let session_id = usage_event
+        .as_ref()
+        .and_then(|event| event.session_id.clone());
+    let _eval_call_guard = crate::eval_context::retain_model_call(session_id.as_deref())?;
 
-    let started = std::time::Instant::now();
-    let client = crate::provider::apply_proxy(reqwest::Client::builder().user_agent(user_agent))
-        .build()
-        .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
-
+    if summary_fork.is_some_and(|fork| !fork.matches_provider(provider)) {
+        return Err(crate::failover::ProviderRequestContractError(
+            "Summary prefix no longer matches the selected provider account or model; existing history is preserved.".into(),
+        ).into());
+    }
+    let client =
+        crate::provider::apply_model_proxy(reqwest::Client::builder().user_agent(user_agent))
+            .build()
+            .map_err(|error| anyhow::anyhow!("HTTP client error: {}", error))?;
+    let mut attempt = usage_event.map(|mut event| {
+        event.metadata = Some(serde_json::json!({ "max_tokens": max_tokens, "summary_request_mode": if summary_fork.is_some() { "native_prefix_fork" } else { "independent" } }));
+        crate::model_usage::ModelUsageAttemptGuard::new(event)
+    });
+    if let Some(attempt) = attempt.as_mut() {
+        attempt.arm();
+    }
     let result = provider
         .as_adapter()
         .one_shot(
@@ -2620,42 +2849,29 @@ pub(crate) async fn summarize_direct(
             OneShotRequest {
                 instruction: prompt,
                 max_tokens,
-                mode: OneShotMode::Independent {
-                    system: SUMMARIZATION_SYSTEM_PROMPT,
+                mode: match (summary_fork, reasoning_effort) {
+                    (Some(fork), None) => OneShotMode::SummaryFork(fork),
+                    (_, Some(effort)) => OneShotMode::Summary {
+                        system: SUMMARIZATION_SYSTEM_PROMPT,
+                        effort,
+                        thinking_style,
+                    },
+                    (None, None) => OneShotMode::Independent {
+                        system: SUMMARIZATION_SYSTEM_PROMPT,
+                    },
                 },
                 user_content: None,
             },
         )
-        .await;
-
-    let result = match result {
-        Ok(result) => result,
-        Err(e) => {
-            if let Some(mut event) = usage_event {
-                event.duration_ms = Some(started.elapsed().as_millis() as u64);
-                event.success = false;
-                event.error = Some(e.to_string());
-                event.metadata = Some(serde_json::json!({ "max_tokens": max_tokens }));
-                crate::model_usage::record_model_usage_best_effort(event);
-            }
-            return Err(e);
-        }
-    };
-
-    if let Some(mut event) = usage_event {
-        if result.usage.input_coverage.is_present() {
-            event.input_tokens = Some(result.usage.input_tokens);
-            event.cache_creation_input_tokens = Some(result.usage.cache_creation_input_tokens);
-            event.cache_read_input_tokens = Some(result.usage.cache_read_input_tokens);
-        }
-        if result.usage.output_coverage.is_present() {
-            event.output_tokens = Some(result.usage.output_tokens);
-        }
-        event.duration_ms = Some(started.elapsed().as_millis() as u64);
-        event.metadata = Some(serde_json::json!({ "max_tokens": max_tokens }));
-        crate::model_usage::record_model_usage_best_effort(event);
+        .await
+        .map_err(crate::model_usage::one_shot_transport_error);
+    if let Some(attempt) = attempt {
+        attempt.finish(
+            result.as_ref().ok().map(|result| &result.usage),
+            result.as_ref().err(),
+        );
     }
-
+    let result = result?;
     crate::context_compact::validate_summarization_output(&result.text)
         .map_err(|error| anyhow::anyhow!("Invalid summarization response: {error}"))?;
     Ok(result.text)
@@ -2679,6 +2895,8 @@ pub struct DedicatedModelProvider {
     user_agent: String,
     display_name: String,
     context_window: u32,
+    summary_reasoning_effort: Option<crate::context_compact::SummaryReasoningEffort>,
+    summary_fork: Option<Arc<super::summary_fork::SummaryForkRequest>>,
 }
 
 impl DedicatedModelProvider {
@@ -2697,7 +2915,25 @@ impl DedicatedModelProvider {
             user_agent,
             display_name,
             context_window,
+            summary_reasoning_effort: None,
+            summary_fork: None,
         }
+    }
+
+    pub fn with_summary_reasoning_effort(
+        mut self,
+        effort: Option<crate::context_compact::SummaryReasoningEffort>,
+    ) -> Self {
+        self.summary_reasoning_effort = effort;
+        self
+    }
+
+    fn with_summary_fork(
+        mut self,
+        fork: Option<Arc<super::summary_fork::SummaryForkRequest>>,
+    ) -> Self {
+        self.summary_fork = fork;
+        self
     }
 }
 
@@ -2710,6 +2946,9 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
         let model_id = self.model_id.as_str();
         let user_agent = self.user_agent.as_str();
         let session_id_for_usage = self.session_id.clone();
+        let reasoning_effort = self.summary_reasoning_effort;
+        let summary_fork = self.summary_fork.clone();
+        let thinking_style = provider_config.effective_thinking_style_for_model(model_id);
 
         execute_with_failover(
             provider_config,
@@ -2721,6 +2960,8 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
                 // the `.await` inside build_llm_provider (Codex branch).
                 let profile_owned = profile.cloned();
                 let session_id_for_usage = session_id_for_usage.clone();
+                let thinking_style = thinking_style.clone();
+                let summary_fork = summary_fork.clone();
                 async move {
                     let provider = AssistantAgent::build_llm_provider(
                         provider_config,
@@ -2737,8 +2978,17 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
                     usage_event.provider_name = Some(provider_config.name.clone());
                     usage_event.model_id = Some(model_id.to_string());
                     usage_event.session_id = Some(session_id_for_usage);
-                    summarize_direct(&provider, user_agent, prompt, max_tokens, Some(usage_event))
-                        .await
+                    summarize_direct(
+                        &provider,
+                        user_agent,
+                        prompt,
+                        summary_fork.as_deref(),
+                        max_tokens,
+                        reasoning_effort,
+                        &thinking_style,
+                        Some(usage_event),
+                    )
+                    .await
                 }
             },
         )
@@ -3085,11 +3335,19 @@ mod mid_loop_compaction_tests {
     #[tokio::test]
     async fn mid_loop_compaction_propagates_provider_terminals_without_continuing() {
         use crate::failover::{classify_error_with_evidence, FailoverReason};
-        for reason in [
+        for (reason, summary_reasoning_effort) in [
             FailoverReason::ProviderBlocked,
             FailoverReason::RequestContract,
             FailoverReason::RetryDeferred,
-        ] {
+        ]
+        .into_iter()
+        .flat_map(|reason| {
+            [
+                None,
+                Some(crate::context_compact::SummaryReasoningEffort::None),
+            ]
+            .map(move |effort| (reason, effort))
+        }) {
             let mut agent = AssistantAgent::new_anthropic("test-key");
             agent.context_window = 12_000;
             agent.set_context_engine(Arc::new(ForceTier3Engine));
@@ -3098,6 +3356,7 @@ mod mid_loop_compaction_tests {
                 preserve_recent_rounds: 1,
                 summarization_threshold: 0.71,
                 summary_max_tokens: 256,
+                summary_reasoning_effort,
                 ..Default::default()
             });
             let original = vec![
@@ -3127,6 +3386,38 @@ mod mid_loop_compaction_tests {
             assert_eq!(classify_error_with_evidence(&error).0, reason);
             assert_eq!(canonical, original);
         }
+    }
+
+    #[tokio::test]
+    async fn summary_reasoning_override_does_not_fall_back_from_an_unavailable_model() {
+        let mut agent = AssistantAgent::new_anthropic("synthetic-key");
+        agent.provider = crate::agent::LlmProvider::OpenAIChat {
+            api_key: "synthetic-key".into(),
+            base_url: "unsupported://isolated-fixture".into(),
+            model: "synthetic-model".into(),
+        };
+        agent.set_compact_config(CompactConfig {
+            summary_reasoning_effort: Some(crate::context_compact::SummaryReasoningEffort::None),
+            model_override: Some(crate::provider::ActiveModel {
+                provider_id: "missing-provider".into(),
+                model_id: "missing-model".into(),
+            }),
+            ..Default::default()
+        });
+        let original = vec![json!({"role":"user","content":"preserve the original history"})];
+        agent.set_conversation_history(original.clone());
+        let error = agent
+            .summarize_with_model("synthetic summary prompt", None)
+            .await
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("configured summary model is unavailable"));
+        assert_eq!(
+            crate::failover::classify_error_with_evidence(&error).0,
+            crate::failover::FailoverReason::RequestContract
+        );
+        assert_eq!(agent.get_conversation_history(), original);
     }
 
     #[tokio::test]
@@ -3480,6 +3771,44 @@ mod responses_history_tests {
         ]);
         assert_eq!(merged.len(), 1);
         assert!(crate::context_compact::is_side_snapshot(&merged[0]));
+    }
+
+    #[test]
+    fn responses_history_repairs_legacy_call_ids_without_losing_provider_metadata() {
+        let mut legacy = json!({
+            "type": "function_call", "id": "call_old", "call_id": "call_old",
+            "name": "read", "arguments": "{}", "namespace": "files"
+        });
+        crate::context_compact::mark_side_snapshot(&mut legacy);
+        let native = json!({
+            "type": "function_call", "id": "fc_native", "call_id": "call_native",
+            "name": "read", "arguments": "{}", "namespace": "files",
+            "provider_future_field": "keep"
+        });
+        let same_valid_id = json!({
+            "type": "function_call", "id": "fc_legacy", "call_id": "fc_legacy",
+            "name": "read", "arguments": "{}"
+        });
+        let output = json!({
+            "type": "function_call_output", "call_id": "call_old", "output": "done"
+        });
+        let history = vec![
+            legacy.clone(),
+            native.clone(),
+            same_valid_id.clone(),
+            output.clone(),
+        ];
+        let normalized = AssistantAgent::normalize_history_for_responses(&history);
+        legacy.as_object_mut().unwrap().remove("id");
+        assert_eq!(normalized, vec![legacy, native, same_valid_id, output]);
+        assert_eq!(
+            history[0]["id"], "call_old",
+            "input history must stay untouched"
+        );
+        assert_eq!(
+            AssistantAgent::normalize_history_for_responses(&normalized),
+            normalized
+        );
     }
 
     #[test]

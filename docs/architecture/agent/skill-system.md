@@ -1663,3 +1663,7 @@ interface SlashCommandDef {
   descriptionRaw?: string  // skill 命令的原始描述
 }
 ```
+
+### 自动复盘的会话与评测归因
+
+PostTurn 复盘在排队前保留实际 Session 的后台模型守卫，手动复盘在周期内保留守卫；automation 的 session_key 使用实际会话 ID，复盘请求、用量与无痕判断均沿该来源。隔离真实模型评测中 automation 只使用会话已接纳的模型 pin；缺失或不可用即在请求前拒绝，不回落共享默认模型或消费者覆盖。普通会话继续保留既有消费者模型覆盖与自动化默认链。后台复盘不构成 durable async job 的能力信号。

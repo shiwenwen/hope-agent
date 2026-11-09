@@ -1,3 +1,23 @@
+/// Compile literal interactive prompt text for the Markdown-only keyboard API.
+/// Do not promote user/model text into links, images, mentions or QQ tags.
+pub(super) fn text_to_qqbot_markdown(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '\\' | '`' | '*' | '_' | '{' | '}' | '[' | ']' | '(' | ')' | '#' | '+' | '-' | '.'
+            | '!' | '|' | '~' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// Convert Markdown text to QQ Bot plain text.
 ///
 /// QQ Bot has limited markdown support, so we strip formatting markers
@@ -166,6 +186,39 @@ pub fn markdown_to_qqbot_text(md: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keyboard_prompt_escapes_markup_and_control_tags() {
+        assert_eq!(
+            text_to_qqbot_markdown("<@123> <qqbot-at-everyone /> &lt; &#60; **批准**\n![图](https://example.com)"),
+            "&lt;@123&gt; &lt;qqbot\\-at\\-everyone /&gt; &amp;lt; &amp;\\#60; \\*\\*批准\\*\\*\n\\!\\[图\\]\\(https://example\\.com\\)"
+        );
+    }
+
+    #[test]
+    fn keyboard_prompt_keeps_unicode_and_escapes_existing_backslashes() {
+        assert_eq!(
+            text_to_qqbot_markdown("选择 你好😀\n1. C:\\tmp\\file\n`code` # [ok]"),
+            "选择 你好😀\n1\\. C:\\\\tmp\\\\file\n\\`code\\` \\# \\[ok\\]"
+        );
+        assert_eq!(text_to_qqbot_markdown(""), "");
+    }
+
+    #[test]
+    fn keyboard_prompt_remains_literal_in_commonmark() {
+        use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+        let text = "<qqbot-at-everyone /> &lt; &#60; <@123> **批准** [run](https://example.com) ![图](https://example.com/x) `code` \\[]";
+        let compiled = text_to_qqbot_markdown(text);
+        let mut literal = String::new();
+        for event in Parser::new(&compiled) {
+            match event {
+                Event::Text(value) => literal.push_str(&value),
+                Event::Start(Tag::Paragraph) | Event::End(TagEnd::Paragraph) => {}
+                other => panic!("prompt introduced markup: {other:?}"),
+            }
+        }
+        assert_eq!(literal, text);
+    }
 
     #[test]
     fn test_plain_text() {

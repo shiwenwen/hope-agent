@@ -20,7 +20,7 @@ use serde_json::Value;
 use super::estimation::{set_tool_result_unit_text, tool_result_units};
 use super::types::ToolResultLocator;
 
-const PROJECTION_RENDERER_VERSION: u16 = 1;
+const PROJECTION_RENDERER_VERSION: u16 = 2;
 static NEXT_PROCESS_EPOCH_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Provider-level shape of a result occurrence.

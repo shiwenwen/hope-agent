@@ -270,6 +270,13 @@ jobs:
             echo "CHANGELOG.md"
             echo "docs/release-notes/${TAG}.md"
             echo "docs/release-notes/${TAG}.en.md"
+            # Public setup guides linked by recent notes. Older tags can
+            # predate these paths; only stage guides shipped by this tag.
+            for p in "docs/user-guide/02-模型与Provider.md" "docs/user-guide/en/02-models-and-providers.md"; do
+              if git cat-file -e "${TAG}:${p}" 2>/dev/null; then
+                echo "$p"
+              fi
+            done
           } > "$WORK/allowed-docs.txt"
           while IFS= read -r p; do
             if ! git cat-file -e "${TAG}:${p}" 2>/dev/null; then
@@ -306,59 +313,17 @@ jobs:
         run: bash scripts/r2-endpoint.sh
 
       - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: 24.22.1
 
       - name: Install rclone (pinned) + jq
-        env:
-          # Pinned deliberately. `apt-get install rclone` gives whatever the
-          # runner image's distro ships — Ubuntu 24.04 is on 1.60.1 — so the
-          # flags this workflow depends on would silently change with the
-          # image. A release-critical publish path must not inherit its tool
-          # version from the base image.
-          R2_RCLONE_PIN: v1.74.4
-          # https://downloads.rclone.org/v1.74.4/SHA256SUMS (reviewed 2026-08-31)
-          R2_RCLONE_SHA256: fe435e0c36228e7c2f116a8701f01127bb1f694005fc11d1f27186c8bca4115d
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq jq unzip
-          tmp="$(mktemp -d)"
-          curl -fsSL -o "$tmp/rclone.zip" \
-            "https://downloads.rclone.org/${R2_RCLONE_PIN}/rclone-${R2_RCLONE_PIN}-linux-amd64.zip"
-          printf '%s  %s\n' "$R2_RCLONE_SHA256" "$tmp/rclone.zip" | sha256sum --check --status
-          unzip -q "$tmp/rclone.zip" -d "$tmp"
-          sudo install -m 755 "$tmp/rclone-${R2_RCLONE_PIN}-linux-amd64/rclone" /usr/local/bin/rclone
-          rm -rf "$tmp"
-          rclone version | head -1 || true
-
-          # Assert the flags this workflow depends on actually exist. Without
-          # this, an unsupported flag surfaces as an opaque failure partway
-          # through the first upload; here it is one clear line before any
-          # bytes move. --metadata-set is what applies Cache-Control during the
-          # PUT (see the R2_UPLOAD_FLAGS note on why --header-upload was dropped).
-          # Capture once, then match against the captured text. Do NOT pipe
-          # rclone into `grep -q`: grep exits on first match and closes the
-          # pipe, rclone dies of SIGPIPE, and `set -o pipefail` turns that
-          # into a failed pipeline — so a flag that EXISTS gets reported
-          # missing. It bites exactly the flags that appear early in the
-          # output (the global ones) while late backend flags pass, which is
-          # what made the first failure look like a version problem.
-          flags_help="$(rclone help flags 2>/dev/null || true)"
-          if [[ -z "$flags_help" ]]; then
-            echo "::error::\`rclone help flags\` produced no output — cannot verify flag support"
-            exit 1
-          fi
-          missing=()
-          for flag in --metadata --metadata-set --checksum --s3-no-check-bucket; do
-            grep -q -- "$flag" <<<"$flags_help" || missing+=("$flag")
-          done
-          if (( ${#missing[@]} )); then
-            echo "::error::rclone ${R2_RCLONE_PIN} does not support: ${missing[*]} — pin a version that does"
-            exit 1
-          fi
-          echo "rclone flag support OK: --metadata --metadata-set --checksum --s3-no-check-bucket"
+          bash scripts/install-rclone.sh "$RUNNER_TEMP/hope-rclone-bin"
+          echo "$RUNNER_TEMP/hope-rclone-bin" >> "$GITHUB_PATH"
 
       - name: Download release assets + manifest
         env:

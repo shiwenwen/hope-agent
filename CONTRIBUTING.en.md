@@ -36,6 +36,8 @@ git checkout -b feat/xxx   # or fix/xxx, docs/xxx
 
 ### 2. Set up the environment
 
+Use Node.js 24 to match CI and Docker. `@testing-library/jest-dom` 7 requires Node.js 22+ and the existing `@testing-library/dom` 10 peer dependency; tests continue to load matchers through `@testing-library/jest-dom/vitest`.
+
 ```bash
 pnpm install              # frontend deps + Husky pre-push hooks
 pnpm dev:desktop          # default desktop dev (frontend + Rust backend hot-reload)
