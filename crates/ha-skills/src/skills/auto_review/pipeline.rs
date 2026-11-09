@@ -130,6 +130,11 @@ pub async fn run_review_cycle(
     let started = Instant::now();
     let fire_reason = gate.fire_reason().to_string();
     let _gate = gate; // hold for the duration of the cycle
+    let _manual_eval_guard = if trigger == ReviewTrigger::Manual {
+        ha_core::eval_context::retain_model_automation(session_id)?
+    } else {
+        None
+    };
     let cfg = cached_config().skills.auto_review.clone().sanitize();
 
     let outcome = match run_inner(session_id, &cfg, main_agent).await {
@@ -274,7 +279,7 @@ async fn run_inner(
     let instruction = format!("{}\n\n{}", system_prompt, user_prompt);
 
     // ── Gate 3: LLM review ─────────────────────────────────────────────
-    let response_text = query_review_agent(&instruction, cfg, main_agent).await?;
+    let response_text = query_review_agent(session_id, &instruction, cfg, main_agent).await?;
     let decision = parse_review_response(&response_text).context("parse review decision JSON")?;
 
     // ── Route ──────────────────────────────────────────────────────────
@@ -290,6 +295,7 @@ async fn run_inner(
 }
 
 async fn query_review_agent(
+    session_id: &str,
     instruction: &str,
     cfg: &SkillsAutoReviewConfig,
     main_agent: Option<&AssistantAgent>,
@@ -310,7 +316,7 @@ async fn query_review_agent(
         let fut = ha_core::automation::run(ha_core::automation::ModelTaskSpec {
             purpose: "skills.auto_review",
             chain: chain.into_vec(),
-            session_key: "automation:skills_auto_review",
+            session_key: session_id,
             instruction,
             max_tokens: 4096,
         });
@@ -320,7 +326,9 @@ async fn query_review_agent(
         return Ok(res.text);
     }
 
-    if let Some(agent) = main_agent {
+    if let Some(agent) =
+        main_agent.filter(|_| ha_core::eval_context::context_for_session(session_id).is_none())
+    {
         let fut = agent.side_query(instruction, 4096);
         let res = tokio::time::timeout(timeout, fut)
             .await
@@ -333,7 +341,7 @@ async fn query_review_agent(
     let fut = ha_core::automation::run(ha_core::automation::ModelTaskSpec {
         purpose: "skills.auto_review",
         chain,
-        session_key: "automation:skills_auto_review",
+        session_key: session_id,
         instruction,
         max_tokens: 4096,
     });

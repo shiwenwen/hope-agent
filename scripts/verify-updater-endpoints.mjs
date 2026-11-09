@@ -115,7 +115,7 @@ function main() {
       console.error(`  endpoint:                       ${entry}`);
       console.error(`  mirror-release-r2.yml PUBLIC_BASE: ${publicBase}`);
       console.error(
-        "  Resolve by pointing both at the same host (and remember README.md / README.en.md / update-linux-repo.yml / linux-repo/rpm/hope-agent.repo carry the same base).",
+        "  Resolve by pointing both at the same host (and remember README.md / README.zh-CN.md / update-linux-repo.yml / linux-repo/rpm/hope-agent.repo carry the same base).",
       );
     }
   }

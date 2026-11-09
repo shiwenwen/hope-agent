@@ -192,8 +192,8 @@ static TOGETHER_IMAGE: CompatProvider = CompatProvider(CompatProfile {
     extra_body: &[],
 });
 
-/// xAI Grok Imagine: no size/quality/style knobs; dimensions are expressed
-/// as aspect ratio + resolution tier.
+/// xAI Grok Imagine: dimensions use aspect ratio + resolution tier;
+/// Imagine 2.0 quality is supplied by model-level `extra`.
 static XAI_IMAGE: CompatProvider = CompatProvider(CompatProfile {
     vendor: "xai",
     path: "/v1/images/generations",

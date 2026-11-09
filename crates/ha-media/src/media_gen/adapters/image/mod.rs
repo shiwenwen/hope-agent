@@ -14,3 +14,6 @@ pub(crate) mod siliconflow;
 pub(crate) mod stability;
 pub(crate) mod tongyi;
 pub(crate) mod zhipu;
+
+#[cfg(test)]
+mod asset_download_tests;

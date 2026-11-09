@@ -60,7 +60,7 @@ flowchart TB
 
 生产路径先用 `classify_error_with_evidence(&anyhow::Error)` 读取 typed error 和 Provider 结构化字段，再把确实没有类型证据的错误交给 `classify_error(&str)`。总共有 **11 种**语义类别；自由文本分类只是兼容诊断，不能覆盖请求 WAL 已知的发送阶段。
 
-**裸 500 / 504** 含义太泛（"maximum output tokens is 500"、"model v504-preview" 都会误命中），必须带 `http` / `status` / `response code` / API error 等显式上下文才算 Overloaded。Context overflow 更严格：本地完整请求预检或 Provider status/code/type 才能产生高置信 typed evidence；`context window`、`token limit`、`request too large` 等裸文本只记 `TextHint`，按普通错误处理，绝不触发有损 Tier 4。
+**所有数字状态码** 都必须带 `http` / `status` / `response code` / API error 等显式上下文，或在消息开头与标准 HTTP 原因短语一起出现，例如 `404 Not Found`。会话或请求 ID、模型名、Token 数量中的 `401 / 403 / 429 / 503` 等数字不能触发鉴权、限流或全局凭据冷却；单独的 500 / 504 也不构成过载证据。Context overflow 更严格：本地完整请求预检或 Provider status/code/type 才能产生高置信 typed evidence；`context window`、`token limit`、`request too large` 等裸文本只记 `TextHint`，按普通错误处理，绝不触发有损 Tier 4。
 
 | Reason | 触发关键字（节选） | 行为 |
 |---|---|---|
@@ -255,7 +255,7 @@ return   max(delay + jitter, 0)
 
 `failover/mod.rs` 与 `failover/executor.rs` 的单测把以下不变量钉死，可当作行为规格来读：
 
-- **分类正确**：14 类 `FailoverReason` 的类型化与文本边界各自命中；裸 500 / 504 无 HTTP 上下文时归 Unknown，裸溢出文本只作提示；错误文本不能冒充新增终态标记。
+- **分类正确**：14 类 `FailoverReason` 的类型化与文本边界各自命中；数字状态码没有 HTTP 上下文或标准原因短语时归 Unknown，会话 ID 不得冷却凭据；裸溢出文本只作提示，错误文本不能冒充新增终态标记。
 - **决策矩阵**：`is_retryable` / `is_terminal` / `is_profile_rotatable` / `profile_cooldown_secs` 对每个 reason 的取值。
 - **退避**：`retry_delay_ms` 的 ±10% 抖动范围与 clamp。
 - **Cooldown / Sticky**：0 时长不入 map；LRU 驱逐保留近期、`get` 触发提升。

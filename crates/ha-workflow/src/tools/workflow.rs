@@ -202,8 +202,11 @@ fn workflow_authoring_guide(workflow_mode: ha_core::workflow_mode::WorkflowMode)
             "workflow.progress({ message, phase?, percent?, counters?, payload?, importance? })",
             "workflow.checkpoint({ title, summary, phase?, importance?, inject?, findings?, evidence?, decisions?, next?, payload? })",
             "workflow.report({ title?, summary, nextAction?, needsUser?, inject?, payload? })",
-            "workflow.fileSearch({ query, limit?, label? }) / read / grep / tool",
-            "workflow.validate / review / verify / diff / askUser",
+            "workflow.fileSearch({ query, root?, limit?, label? })",
+            "workflow.read({ path, offset?, limit? }) / workflow.grep({ pattern, path?, glob? })",
+            "workflow.tool({ name, args, label? }); pass one options object, not positional name/args arguments",
+            "workflow.validate({ commands, reason?, label? }); commands is an array of shell command strings",
+            "workflow.review / verify / diff / askUser",
             "workflow.trace / block / repairLoop / now / random / finish; V5 finish blocks unresolved child failures unless an explicit allow_partial policy includes a reason"
         ],
         "typedResults": "For machine-consumed child output, provide a bounded outputSchema and schemaRetries. agentResult validates JSON, applies bounded read-only schema repair, and returns original/resolved run provenance.",
@@ -1033,5 +1036,11 @@ mod tests {
         assert!(guide["typedResults"]
             .as_str()
             .is_some_and(|value| value.contains("schema repair")));
+        assert!(guide["host"].as_array().is_some_and(|items| {
+            items.iter().any(|item| {
+                item.as_str()
+                    .is_some_and(|value| value.starts_with("workflow.tool({ name, args, label? })"))
+            })
+        }));
     }
 }

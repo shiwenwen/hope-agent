@@ -1,0 +1,35 @@
+{
+  "scenarioId": "HA-E2E-002",
+  "fixtureVersion": "1.8.0",
+  "synthetic": true,
+  "expectedCapabilities": [
+    "goal",
+    "workflow",
+    "subagent",
+    "async_jobs",
+    "tool"
+  ],
+  "workItems": [
+    {
+      "id": "HA-E2E-002-A",
+      "value": 17,
+      "action": "inspect",
+      "date": "2026-01-01",
+      "citation": "fixture:HA-E2E-002-A"
+    },
+    {
+      "id": "HA-E2E-002-B",
+      "value": 29,
+      "action": "execute",
+      "date": "2026-01-15",
+      "citation": "fixture:HA-E2E-002-B"
+    },
+    {
+      "id": "HA-E2E-002-C",
+      "value": 43,
+      "action": "verify",
+      "date": "2026-01-16",
+      "citation": "fixture:HA-E2E-002-C"
+    }
+  ]
+}

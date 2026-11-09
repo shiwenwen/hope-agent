@@ -107,7 +107,12 @@ pub async fn run(
                 if !peer.ip().is_loopback() {
                     continue;
                 }
-                match read_request(stream, &supervisor_token).await? {
+                // An incomplete or oversized unauthenticated request must not
+                // terminate the supervisor and its unrelated running trials.
+                let Ok(request) = read_request(stream, &supervisor_token).await else {
+                    continue;
+                };
+                match request {
                     SupervisorRequest::Health(mut stream) => {
                         let running = child.try_wait().context("checking Hope server process")?.is_none();
                         write_response(&mut stream, if running { 200 } else { 503 }, if running { "ok" } else { "server_exited" }).await?;
@@ -467,18 +472,45 @@ enum SupervisorRequest {
 }
 
 async fn read_request(mut stream: TcpStream, token: &str) -> Result<SupervisorRequest> {
-    let mut bytes = vec![0u8; 16 * 1024];
-    let read = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut bytes))
-        .await
-        .context("timing out supervisor request read")??;
-    bytes.truncate(read);
+    let mut bytes = Vec::new();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        let mut chunk = [0u8; 1024];
+        loop {
+            let read = stream.read(&mut chunk).await?;
+            if read == 0 {
+                bail!("incomplete supervisor request headers");
+            }
+            bytes.extend_from_slice(&chunk[..read]);
+            if bytes.len() > 16 * 1024 {
+                bail!("supervisor request headers exceed limit");
+            }
+            if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("timing out supervisor request read")??;
     let request = std::str::from_utf8(&bytes).context("supervisor request is not UTF-8")?;
-    let mut lines = request.split("\r\n");
+    let mut lines = request
+        .split("\r\n\r\n")
+        .next()
+        .unwrap_or_default()
+        .split("\r\n");
     let request_line = lines.next().unwrap_or_default();
-    let authorized = lines.any(|line| {
-        line.strip_prefix("Authorization: Bearer ")
-            .is_some_and(|candidate| constant_time_eq(candidate.as_bytes(), token.as_bytes()))
-    });
+    let headers = lines
+        .filter_map(|line| line.split_once(':'))
+        .filter(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+        .map(|(_, value)| value.trim_matches([' ', '\t']))
+        .collect::<Vec<_>>();
+    let authorized = headers.len() == 1
+        && headers[0]
+            .split_once(' ')
+            .is_some_and(|(scheme, candidate)| {
+                scheme.eq_ignore_ascii_case("bearer")
+                    && constant_time_eq(candidate.as_bytes(), token.as_bytes())
+            });
     if !authorized {
         return Ok(SupervisorRequest::Unauthorized(stream));
     }
@@ -519,6 +551,58 @@ async fn write_response(stream: &mut TcpStream, status: u16, body: &str) -> Resu
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn supervisor_accepts_reqwest_lowercase_bearer_headers() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            match super::read_request(stream, "synthetic-supervisor-token")
+                .await
+                .unwrap()
+            {
+                super::SupervisorRequest::Health(mut stream) => {
+                    super::write_response(&mut stream, 200, "ok").await.unwrap()
+                }
+                _ => panic!("valid reqwest Bearer header rejected"),
+            }
+        });
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(format!("http://{address}/health"))
+            .bearer_auth("synthetic-supervisor-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn supervisor_waits_for_fragmented_headers_and_rejects_wrong_or_duplicate_auth() {
+        use tokio::io::AsyncWriteExt;
+        for (header, accepted) in [
+            ("aUtHoRiZaTiOn: bearer synthetic-supervisor-token\r\n", true),
+            ("authorization: Bearer wrong-token\r\n", false),
+            ("Authorization: Bearer synthetic-supervisor-token\r\nauthorization: Bearer wrong-token\r\n", false),
+        ] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let request = super::read_request(stream, "synthetic-supervisor-token").await.unwrap();
+                assert_eq!(matches!(request, super::SupervisorRequest::Restart(_)), accepted);
+            });
+            let mut client = tokio::net::TcpStream::connect(address).await.unwrap();
+            client.write_all(b"POST /restart HTTP/1.1\r\nHost: localhost\r\n").await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            client.write_all(header.as_bytes()).await.unwrap();
+            client.write_all(b"\r\n").await.unwrap();
+            server.await.unwrap();
+        }
+    }
     use super::*;
 
     #[test]
