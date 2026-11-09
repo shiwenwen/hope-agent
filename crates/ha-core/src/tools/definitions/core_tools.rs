@@ -107,7 +107,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_RUNTIME_CANCEL.into(),
-            description: "Cancel a session async job, subagent, or process. `requested` is not termination; check `finalStatus` or status. Unknown targets return `refused`. This is cancellation, not pause; use `manage_cron` for schedules. In the owner's personal assistant, use kind=assistant_request and the exact request ID to cancel one delegated item.".into(),
+            description: "Cancel a session async job, subagent, or process. `requested` is not termination; check `finalStatus` or status. Unknown targets return `refused`. This is cancellation, not pause; use `manage_cron` for schedules. Personal assistant: kind=assistant_request cancels only that request ID.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -118,7 +118,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "kind": {
                         "type": "string",
                         "enum": ["async_job", "subagent", "process", "assistant_request"],
-                        "description": "assistant_request is restricted to a live owner turn in the personal assistant."
+                        "description": "assistant_request requires an authorized live personal-assistant turn."
                     },
                     "id": {
                         "type": "string",
