@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Obscurify.ai 服务商**：新增隐私优先的 OpenAI Chat 兼容网关模板（`https://obscurify.ai/v1`），预置 DeepSeek V4 Flash、GLM 5.3、Kimi K2 0905、Qwen3 Coder 与 Llama 3.3 70B，上下文与价格取自其公开的 `/v1/models`。
+
 - **缓存成本与延迟评测**：新增可显式运行的缓存专项，分阶段检查历史复用、状态更新、工具与手动或自动摘要后的事实保留，并导出缓存用量、延迟和基于价格表的费用报告。 (#900)
 - **长对话缓存与摘要**：修正历史缓存断点，避免动态观察数据干扰复用；符合条件的摘要沿用主对话前缀和推理设置，容量不足或使用摘要专用配置时保留独立摘要。 (#900)
 

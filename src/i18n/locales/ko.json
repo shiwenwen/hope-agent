@@ -4196,6 +4196,10 @@
       "name": "Venice",
       "description": "개인 정보 보호를 우선하는 AI 추론 플랫폼"
     },
+    "obscurify": {
+      "name": "Obscurify.ai",
+      "description": "프라이버시 우선 AI 게이트웨이, 이메일 없는 계정, 200개 이상의 모델"
+    },
     "synthetic": {
       "name": "Synthetic",
       "description": "오픈 소스 모델 추론(Anthropic 호환)"

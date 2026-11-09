@@ -4196,6 +4196,10 @@
       "name": "Venice",
       "description": "Nền tảng suy luận AI ưu tiên quyền riêng tư"
     },
+    "obscurify": {
+      "name": "Obscurify.ai",
+      "description": "Cổng AI ưu tiên quyền riêng tư, tài khoản không cần email, hơn 200 mô hình"
+    },
     "synthetic": {
       "name": "Synthetic",
       "description": "Suy luận mô hình nguồn mở (tương thích Anthropic)"
