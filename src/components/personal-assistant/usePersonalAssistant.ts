@@ -39,7 +39,10 @@ export interface AssistantWatch {
 }
 
 export function requestNeedsResponse(request: AssistantRequest): boolean {
-  return (request.status === "running" || request.status === "cancellation_requested") && (request.pendingInteractionCount ?? 0) > 0
+  return (
+    (request.status === "running" || request.status === "cancellation_requested") &&
+    (request.pendingInteractionCount ?? 0) > 0
+  )
 }
 
 const emptyData = { requests: [] as AssistantRequest[], watches: [] as AssistantWatch[] }
@@ -54,6 +57,7 @@ export function usePersonalAssistant() {
   const enabled = useRef(true)
   const failed = useRef(false)
   const runningTargets = useRef(new Set<string>())
+  const watchedGoals = useRef<Map<string, string> | null>(null)
 
   const refresh = useCallback(async () => {
     const version = ++requestVersion.current
@@ -75,12 +79,14 @@ export function usePersonalAssistant() {
           )
           .map((request) => request.targetSessionId),
       )
+      watchedGoals.current = new Map(watches.map((watch) => [watch.goalId, watch.sessionId]))
       setData({ requests, watches, revision, authorized: true })
       setError(null)
     } catch (cause) {
       if (!current()) return
       failed.current = true
       runningTargets.current.clear()
+      watchedGoals.current = null
       setData({ ...emptyData, revision, authorized: false })
       setError(String(cause))
     } finally {
@@ -95,7 +101,8 @@ export function usePersonalAssistant() {
     setLoading(false)
     failed.current = false
     runningTargets.current.clear()
-    let interactionTimer: ReturnType<typeof setTimeout> | undefined
+    watchedGoals.current = null
+    let eventTimer: ReturnType<typeof setTimeout> | undefined
     const onChange = () => {
       if (enabled.current && !failed.current && document.visibilityState === "visible")
         void refresh()
@@ -103,8 +110,32 @@ export function usePersonalAssistant() {
     const onVerify = () => {
       if (enabled.current && document.visibilityState === "visible") void refresh()
     }
+    const scheduleRefresh = () => {
+      if (eventTimer !== undefined) return
+      eventTimer = setTimeout(() => {
+        eventTimer = undefined
+        onChange()
+      }, 200)
+    }
+    const onGoalChange = (payload: unknown) => {
+      // Goal mutations update the inbox projection in SQL. Their own events
+      // invalidate it even when no assistant request is currently running.
+      const goal = payload as { id?: unknown; goalId?: unknown; sessionId?: unknown } | null
+      const goalId = goal?.goalId ?? goal?.id
+      const watched = watchedGoals.current
+      if (
+        watched &&
+        !(typeof goalId === "string" && watched.has(goalId)) &&
+        !(typeof goal?.sessionId === "string" && [...watched.values()].includes(goal.sessionId))
+      )
+        return
+      scheduleRefresh()
+    }
     const offChange = transport.listen("personal_assistant:changed", onChange)
     const offResync = transport.listen(TRANSPORT_EVENT_RESYNC_REQUIRED, onVerify)
+    const offGoalUpdated = transport.listen("goal:updated", onGoalChange)
+    const offGoalEvent = transport.listen("goal:event", onGoalChange)
+    const offGoalCreated = transport.listen("goal:created", onGoalChange)
     const offInteraction = transport.listen("session_pending_interactions_changed", (payload) => {
       const sessionId = (payload as { sessionId?: string } | null)?.sessionId
       if (
@@ -112,8 +143,7 @@ export function usePersonalAssistant() {
         (sessionId && !runningTargets.current.has(sessionId))
       )
         return
-      clearTimeout(interactionTimer)
-      interactionTimer = setTimeout(onChange, 200)
+      scheduleRefresh()
     })
     document.addEventListener("visibilitychange", onVerify)
     if (enabled.current) void refresh()
@@ -123,8 +153,11 @@ export function usePersonalAssistant() {
       requestVersion.current++
       offChange()
       offResync()
+      offGoalUpdated()
+      offGoalEvent()
+      offGoalCreated()
       offInteraction()
-      clearTimeout(interactionTimer)
+      clearTimeout(eventTimer)
       document.removeEventListener("visibilitychange", onVerify)
     }
   }, [transport, revision, refresh])

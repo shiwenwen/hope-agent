@@ -2,7 +2,8 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
-import { usePersonalAssistant } from "./usePersonalAssistant"
+import type { Goal, GoalEvent } from "@/components/chat/workspace/useGoal"
+import { usePersonalAssistant, type AssistantWatch } from "./usePersonalAssistant"
 
 const fixture = vi.hoisted(() => ({
   revision: 1,
@@ -18,7 +19,7 @@ vi.mock("@/lib/transport-provider", () => ({
   useTransportRevision: () => fixture.revision,
   getTransportRevision: () => fixture.revision,
 }))
-const watch = {
+const watch: AssistantWatch = {
   sessionId: "work-a",
   goalId: "goal-a",
   objective: "Private release",
@@ -34,7 +35,10 @@ const request = {
   status: "running",
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 beforeEach(() => {
   fixture.revision = 1
   fixture.listeners.clear()
@@ -48,14 +52,104 @@ beforeEach(() => {
 })
 
 describe("personal assistant owner projection", () => {
+  it("refreshes watched Goal attention from real Goal events while the assistant is idle", async () => {
+    const goal: Goal = {
+      id: watch.goalId,
+      sessionId: watch.sessionId,
+      objective: watch.objective,
+      completionCriteria: "Release is verified",
+      state: "active",
+      createdAt: "2026-11-09T00:00:00Z",
+      updatedAt: "2026-11-09T00:00:00Z",
+      finalEvidence: {},
+      lastEvaluatorResult: {},
+    }
+    const event: GoalEvent = {
+      id: 10,
+      goalId: watch.goalId,
+      seq: 1,
+      kind: "goal_state_changed",
+      payload: { from: "active", to: "blocked", reason: "Missing evidence" },
+      createdAt: "2026-11-09T00:00:01Z",
+    }
+    let watches: AssistantWatch[] = [
+      { ...watch, state: "active", needsAttention: false, reason: null },
+    ]
+    fixture.call.mockImplementation(async (command: string) =>
+      command === "personal_assistant_inbox" ? watches : [],
+    )
+    const { result, unmount } = renderHook(usePersonalAssistant)
+    await waitFor(() => expect(result.current.authorized).toBe(true))
+    expect(result.current.requests).toEqual([])
+    expect(result.current.watches.filter((goal) => goal.needsAttention)).toHaveLength(0)
+    vi.useFakeTimers()
+    const before = fixture.call.mock.calls.length
+    act(() => {
+      fixture.listeners.get("goal:updated")?.({
+        ...goal,
+        id: "other-goal",
+        sessionId: "other-work",
+      })
+      fixture.listeners.get("goal:event")?.({ ...event, goalId: "other-goal" })
+    })
+    await act(async () => vi.advanceTimersByTimeAsync(200))
+    expect(fixture.call).toHaveBeenCalledTimes(before)
+
+    watches = [{ ...watch }]
+    act(() => {
+      // A committed mutation normally emits an event and the Goal snapshot.
+      fixture.listeners.get("goal:event")?.(event)
+      fixture.listeners.get("goal:updated")?.({ ...goal, state: "blocked" })
+    })
+    await act(async () => vi.advanceTimersByTimeAsync(200))
+    expect(fixture.call).toHaveBeenCalledTimes(before + 2)
+    expect(result.current.watches[0].reason).toBe("blocked")
+    expect(result.current.watches.filter((goal) => goal.needsAttention)).toHaveLength(1)
+
+    watches = [{ ...watch, state: "completed", reason: "awaiting_acceptance", eventId: 5 }]
+    act(() =>
+      fixture.listeners.get("goal:event")?.({
+        ...event,
+        id: 11,
+        seq: 2,
+        payload: { from: "evaluating", to: "completed", reason: null },
+      }),
+    )
+    await act(async () => vi.advanceTimersByTimeAsync(200))
+    expect(result.current.watches[0].reason).toBe("awaiting_acceptance")
+
+    watches = [{ ...watch, state: "active", needsAttention: false, reason: null }]
+    act(() => fixture.listeners.get("goal:updated")?.(goal))
+    await act(async () => vi.advanceTimersByTimeAsync(200))
+    expect(result.current.watches.filter((goal) => goal.needsAttention)).toHaveLength(0)
+
+    // Creating a successor removes the previous watch through the SQL trigger.
+    watches = []
+    act(() => fixture.listeners.get("goal:created")?.({ ...goal, id: "successor" }))
+    await act(async () => vi.advanceTimersByTimeAsync(200))
+    expect(result.current.watches).toEqual([])
+    unmount()
+    expect(fixture.listeners.has("goal:updated")).toBe(false)
+    expect(fixture.listeners.has("goal:event")).toBe(false)
+    expect(fixture.listeners.has("goal:created")).toBe(false)
+  })
+
   it("refreshes waiting interactions only for a currently delegated target", async () => {
     const { result } = renderHook(usePersonalAssistant)
     await waitFor(() => expect(result.current.requests).toEqual([request]))
     const before = fixture.call.mock.calls.length
-    act(() => fixture.listeners.get("session_pending_interactions_changed")?.({ sessionId: "unrelated" }))
+    act(() =>
+      fixture.listeners.get("session_pending_interactions_changed")?.({ sessionId: "unrelated" }),
+    )
     expect(fixture.call.mock.calls).toHaveLength(before)
-    fixture.call.mockImplementation(async command => command === "list_personal_assistant_requests" ? [{ ...request, pendingInteractionCount: 1 }] : [watch])
-    act(() => fixture.listeners.get("session_pending_interactions_changed")?.({ sessionId: "work-a" }))
+    fixture.call.mockImplementation(async (command) =>
+      command === "list_personal_assistant_requests"
+        ? [{ ...request, pendingInteractionCount: 1 }]
+        : [watch],
+    )
+    act(() =>
+      fixture.listeners.get("session_pending_interactions_changed")?.({ sessionId: "work-a" }),
+    )
     await waitFor(() => expect(result.current.requests[0].pendingInteractionCount).toBe(1))
   })
 
@@ -69,7 +163,14 @@ describe("personal assistant owner projection", () => {
     expect(result.current.watches).toEqual([])
     expect(result.current.authorized).toBe(false)
     const attempts = fixture.call.mock.calls.length
-    act(() => fixture.listeners.get("personal_assistant:changed")?.())
+    vi.useFakeTimers()
+    act(() => {
+      fixture.listeners.get("personal_assistant:changed")?.()
+      fixture.listeners.get("goal:updated")?.({ id: watch.goalId, sessionId: watch.sessionId })
+      fixture.listeners.get("goal:event")?.({ id: 10, goalId: watch.goalId })
+    })
+    await act(async () => vi.advanceTimersByTimeAsync(200))
+    vi.useRealTimers()
     expect(fixture.call.mock.calls).toHaveLength(attempts)
     fixture.call.mockResolvedValue([])
     act(() => fixture.listeners.get(TRANSPORT_EVENT_RESYNC_REQUIRED)?.())
