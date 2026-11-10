@@ -315,9 +315,9 @@ Type `/` in the chat input box or in any IM channel to trigger a slash command. 
 
 ## 3.10 Personal assistant
 
-Open the assistant’s pinned avatar and name at the top of the sidebar to return to the same ongoing conversation. Ask it to find existing work conversations, check their progress, or delegate separate tasks. Toggle **Items** to see delegated work and followed goals in a right panel on wide windows or a dialog on smaller windows. Open a source conversation to take over or cancel a single delegation.
+Open the assistant’s pinned avatar at the top of the sidebar to return to the same ongoing conversation. Ask it to find existing work conversations, check their progress, or delegate separate tasks. Toggle **Items** to see delegated work and followed goals in a right panel on wide windows or a dialog on smaller windows. Open a source conversation to take over or cancel a single delegation.
 
-Click the avatar in the conversation header or **Assistant settings**, then use **Profile** to set a name, upload and crop an avatar, choose a preset, or restore the default. Names contain 1–32 characters. Saving updates the entry, header, and greeting without replacing the home conversation, clearing history, or changing delegated work and permissions. This identity is separate from other Agents and your own profile.
+Click the avatar in the conversation header or **Assistant settings**, then use **Profile** to set a name, upload and crop an avatar, choose a preset, or restore the default. The default name is Hope, and custom names contain 1–32 characters. Saving updates the entry tooltip, header, and greeting without replacing the home conversation, clearing history, or changing delegated work and permissions. This identity is separate from other Agents and your own profile.
 
 Assistant history cannot be edited and resent, so delegation instructions remain linked to their receipts. Send a new message to correct an instruction, or stop the relevant delegation in the work panel.
 
