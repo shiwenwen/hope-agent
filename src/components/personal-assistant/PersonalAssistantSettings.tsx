@@ -46,7 +46,8 @@ function AssistantProfileForm({
   }, [])
   const current = () => mounted.current && revision === getTransportRevision()
   const { cropSrc, handleAvatarPick, handleCropConfirm, handleCropCancel } = useAvatarUpload({
-    fileName: () => `assistant-${crypto.randomUUID()}.png`,
+    fileName: () =>
+      `assistant-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`}.png`,
     logCategory: "PersonalAssistantSettings",
     onSaved: (avatar) => {
       if (current()) setDraft((value) => ({ ...value, avatar }))

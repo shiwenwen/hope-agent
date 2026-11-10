@@ -87,7 +87,10 @@ beforeEach(() => {
       return []
     })
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 function Harness() {
   const state = usePersonalAssistant()
@@ -122,6 +125,21 @@ function Harness() {
 }
 
 describe("personal assistant profile settings", () => {
+  it("uploads and saves an avatar on HTTP origins without crypto.randomUUID", async () => {
+    vi.stubGlobal("crypto", {})
+    render(<Harness />)
+    await screen.findByRole("textbox", { name: en.personalAssistant.settings.name })
+    fireEvent.click(
+      screen.getByRole("button", { name: en.personalAssistant.settings.uploadAvatar }),
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm crop" }))
+    await waitFor(() =>
+      expect(document.querySelector('img[src="/api/avatars/avatar.png"]')).not.toBeNull(),
+    )
+    fireEvent.click(screen.getByRole("button", { name: en.common.save }))
+    await waitFor(() => expect(profile.avatar).toBe("/isolated/avatars/avatar.png"))
+  })
+
   it("does not upload an old owner's image after switching connections while reading the crop", async () => {
     let resolve!: (value: ArrayBuffer) => void
     fixture.readBuffer.mockImplementation(
