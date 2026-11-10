@@ -3,6 +3,11 @@ import { getTransportRevision, useTransport, useTransportRevision } from "@/lib/
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import type { SessionMeta } from "@/types/chat"
 
+export interface AssistantProfile {
+  name: string
+  avatar: string | null
+}
+
 export interface AssistantRequest {
   id: string
   sourceTurnId: string
@@ -45,7 +50,11 @@ export function requestNeedsResponse(request: AssistantRequest): boolean {
   )
 }
 
-const emptyData = { requests: [] as AssistantRequest[], watches: [] as AssistantWatch[] }
+const emptyData = {
+  requests: [] as AssistantRequest[],
+  watches: [] as AssistantWatch[],
+  profile: null as AssistantProfile | null,
+}
 
 export function usePersonalAssistant() {
   const transport = useTransport()
@@ -65,9 +74,10 @@ export function usePersonalAssistant() {
     setLoading(true)
     const current = () => version === requestVersion.current && revision === getTransportRevision()
     try {
-      const [requests, watches] = await Promise.all([
+      const [requests, watches, profile] = await Promise.all([
         transport.call<AssistantRequest[]>("list_personal_assistant_requests"),
         transport.call<AssistantWatch[]>("personal_assistant_inbox"),
+        transport.call<AssistantProfile>("get_personal_assistant_profile"),
       ])
       if (!current()) return
       failed.current = false
@@ -80,7 +90,7 @@ export function usePersonalAssistant() {
           .map((request) => request.targetSessionId),
       )
       watchedGoals.current = new Map(watches.map((watch) => [watch.goalId, watch.sessionId]))
-      setData({ requests, watches, revision, authorized: true })
+      setData({ requests, watches, profile, revision, authorized: true })
       setError(null)
     } catch (cause) {
       if (!current()) return
@@ -189,6 +199,19 @@ export function usePersonalAssistant() {
     [transport, revision, refresh],
   )
 
+  const saveProfile = useCallback(
+    async (profile: AssistantProfile) => {
+      if (revision !== getTransportRevision()) throw new Error("Assistant connection changed")
+      const saved = await transport.call<AssistantProfile>("update_personal_assistant_profile", {
+        profile,
+      })
+      if (revision !== getTransportRevision()) return null
+      await refresh()
+      return saved
+    },
+    [transport, revision, refresh],
+  )
+
   return {
     ...(data.revision === revision ? data : { ...emptyData, authorized: false }),
     error,
@@ -197,6 +220,7 @@ export function usePersonalAssistant() {
     open,
     watchGoal,
     cancel,
+    saveProfile,
   }
 }
 

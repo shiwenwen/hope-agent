@@ -102,7 +102,7 @@ describe("personal assistant owner projection", () => {
       fixture.listeners.get("goal:updated")?.({ ...goal, state: "blocked" })
     })
     await act(async () => vi.advanceTimersByTimeAsync(200))
-    expect(fixture.call).toHaveBeenCalledTimes(before + 2)
+    expect(fixture.call).toHaveBeenCalledTimes(before + 3)
     expect(result.current.watches[0].reason).toBe("blocked")
     expect(result.current.watches.filter((goal) => goal.needsAttention)).toHaveLength(1)
 

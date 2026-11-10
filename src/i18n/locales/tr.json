@@ -12989,6 +12989,27 @@
       "cancelled": "İptal edildi",
       "failed": "Başarısız"
     },
-    "historyLocked": "Asistan geçmişi yeniden yazılamaz. Bir talimatı düzeltmek için yeni bir mesaj gönderin veya çalışma panelinden bir görevlendirmeyi durdurun."
+    "historyLocked": "Asistan geçmişi yeniden yazılamaz. Bir talimatı düzeltmek için yeni bir mesaj gönderin veya çalışma panelinden bir görevlendirmeyi durdurun.",
+    "items": "İşler",
+    "settings": {
+      "title": "Asistan ayarları",
+      "description": "Asistanınızın profilini ve özel mesajlaşma bağlantısını yönetin.",
+      "profile": "Profil",
+      "im": "Mesajlaşma bağlantısı",
+      "name": "Asistan adı",
+      "nameHint": "1–32 karakter kullanın. Adı değiştirmek konuşmayı ve işleri korur.",
+      "uploadAvatar": "Avatar yükle",
+      "resetAvatar": "Varsayılanı geri yükle",
+      "presetAvatar": "Hazır avatarlar",
+      "presets": {
+        "sparkles": "Parıltı avatarı",
+        "bot": "Robot avatarı",
+        "heart": "Kalp avatarı"
+      },
+      "identityHint": "Bu profil kişisel asistanınıza aittir. Diğer Agents ve kendi profilinizden ayrı saklanır.",
+      "botIdentityHint": "Telegram Bot adı ve avatarı Telegram üzerinden ayrı yönetilir. Buradaki değişiklikler Bot profilini güncellemez."
+    },
+    "welcomeTitle": "Ben {{name}}",
+    "welcomeBody": "Ne yapmak istediğinizi söyleyin. Konuşmayı sürdürmek veya devredilen işleri kontrol etmek için buraya dönebilirsiniz."
   }
 }

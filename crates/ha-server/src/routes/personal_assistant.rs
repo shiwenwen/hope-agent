@@ -1,7 +1,7 @@
 //! Explicit-owner UI operations for the private assistant.
 use axum::extract::Path;
 use axum::{Extension, Json};
-use ha_core::personal_assistant::{AssistantRequest, AssistantWatch};
+use ha_core::personal_assistant::{AssistantProfile, AssistantRequest, AssistantWatch};
 use ha_core::session::SessionMeta;
 
 use crate::error::AppError;
@@ -17,6 +17,34 @@ fn require_owner(auth: &AuthState) -> Result<(), AppError> {
         ));
     }
     Ok(())
+}
+
+#[derive(serde::Deserialize)]
+pub struct UpdateProfileInput {
+    pub profile: AssistantProfile,
+}
+
+pub async fn get_personal_assistant_profile(
+    Extension(auth): Extension<AuthState>,
+) -> Result<Json<AssistantProfile>, AppError> {
+    require_owner(&auth)?;
+    Ok(Json(
+        session_db()?
+            .run(|db| db.personal_assistant_profile())
+            .await?,
+    ))
+}
+
+pub async fn update_personal_assistant_profile(
+    Extension(auth): Extension<AuthState>,
+    Json(input): Json<UpdateProfileInput>,
+) -> Result<Json<AssistantProfile>, AppError> {
+    require_owner(&auth)?;
+    Ok(Json(
+        session_db()?
+            .run(move |db| db.update_personal_assistant_profile(input.profile))
+            .await?,
+    ))
 }
 
 pub async fn ensure_personal_assistant_home(
@@ -92,6 +120,25 @@ mod tests {
     #[tokio::test]
     async fn every_assistant_route_rejects_a_no_auth_server_before_database_access() {
         let auth = AuthState::new(None, None, false);
+        assert_eq!(
+            get_personal_assistant_profile(Extension(auth.clone()))
+                .await
+                .unwrap_err()
+                .status,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            update_personal_assistant_profile(
+                Extension(auth.clone()),
+                Json(UpdateProfileInput {
+                    profile: ha_core::personal_assistant::default_assistant_profile()
+                }),
+            )
+            .await
+            .unwrap_err()
+            .status,
+            StatusCode::FORBIDDEN
+        );
         assert_eq!(
             ensure_personal_assistant_home(Extension(auth.clone()))
                 .await

@@ -20,10 +20,11 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { cn } from "@/lib/utils"
+import { PersonalAssistantAvatar } from "@/components/personal-assistant/PersonalAssistantAvatar"
+import type { AssistantProfile } from "@/components/personal-assistant/usePersonalAssistant"
 import appLogoUrl from "@/assets/logo.png"
 import {
   MessageSquare,
-  Sparkles,
   Bot,
   Brain,
   CircleHelp,
@@ -83,6 +84,7 @@ interface IconSidebarProps {
   onOpenPersonalAssistant?: () => void
   assistantActive?: boolean
   assistantAttentionCount?: number
+  assistantProfile?: AssistantProfile | null
   onOpenAgents: () => void
   onOpenModelConfig: () => void
   onOpenChannels: () => void
@@ -127,6 +129,7 @@ export default function IconSidebar({
   onOpenPersonalAssistant,
   assistantActive = false,
   assistantAttentionCount = 0,
+  assistantProfile,
   onOpenAgents,
   onOpenModelConfig,
   onOpenChannels,
@@ -216,19 +219,6 @@ export default function IconSidebar({
     badge?: string
     onClick: () => void
   }> = [
-    ...(onOpenPersonalAssistant
-      ? [
-          {
-            id: "personalAssistant",
-            label: t("personalAssistant.title"),
-            icon: Sparkles,
-            menuClass: "[@media(max-height:920px)]:flex",
-            active: assistantActive,
-            badge: assistantAttentionCount > 0 ? String(assistantAttentionCount) : undefined,
-            onClick: onOpenPersonalAssistant,
-          },
-        ]
-      : []),
     {
       id: "agents",
       label: t("settings.agents"),
@@ -322,9 +312,41 @@ export default function IconSidebar({
     },
   ]
   return (
-    <div className="w-[76px] h-full min-h-0 shrink-0 overflow-hidden border-r border-border-soft bg-surface-sidebar flex flex-col items-center">
+    <div className="w-[52px] h-full min-h-0 shrink-0 overflow-hidden border-r border-border-soft bg-surface-sidebar flex flex-col items-center">
       {/* Drag region for window movement — covers traffic light area */}
       <div className="w-full pt-10 flex flex-col items-center gap-1" data-tauri-drag-region>
+        {onOpenPersonalAssistant && (
+          <div className="relative shrink-0">
+            <IconTip
+              label={`${assistantProfile?.name || "Hope"} · ${t("personalAssistant.title")}`}
+              side="right"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onOpenPersonalAssistant}
+                aria-label={`${assistantProfile?.name || "Hope"} · ${t("personalAssistant.title")}`}
+                aria-pressed={assistantActive}
+                className={cn(
+                  "rounded-xl h-8 w-8 shrink-0",
+                  assistantActive
+                    ? "bg-secondary text-foreground hover:bg-secondary"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <PersonalAssistantAvatar avatar={assistantProfile?.avatar} className="h-7 w-7" />
+              </Button>
+            </IconTip>
+            {assistantAttentionCount > 0 && (
+              <span
+                className="pointer-events-none absolute -right-1.5 -top-1 rounded-full bg-destructive px-1 text-[10px] text-white"
+                aria-label={t("personalAssistant.attention", { count: assistantAttentionCount })}
+              >
+                {assistantAttentionCount}
+              </span>
+            )}
+          </div>
+        )}
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div className="relative">
@@ -333,7 +355,7 @@ export default function IconSidebar({
                   variant="ghost"
                   size="icon"
                   className={cn(
-                    "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                    "rounded-xl h-8 w-8 shrink-0",
                     view === "chat" && !assistantActive
                       ? "bg-secondary text-foreground hover:bg-secondary"
                       : "text-muted-foreground hover:text-foreground",
@@ -342,18 +364,12 @@ export default function IconSidebar({
                   aria-label={conversationsAriaLabel}
                 >
                   <MessageSquare className="h-4 w-4" />
-                  <span
-                    aria-hidden="true"
-                    className="block w-full truncate px-1 text-[10px] leading-3"
-                  >
-                    {t("chat.conversations")}
-                  </span>
                 </Button>
               </IconTip>
               {!!totalUnreadCount && totalUnreadCount > 0 && (
                 <span
                   aria-hidden="true"
-                  className="pointer-events-none absolute right-0 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-destructive px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200"
+                  className="pointer-events-none absolute -right-1.5 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-destructive px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200"
                 >
                   {regularUnreadBadgeLabel}
                 </span>
@@ -377,41 +393,6 @@ export default function IconSidebar({
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
-        {onOpenPersonalAssistant && (
-          <div className="relative [@media(max-height:920px)]:hidden">
-            <IconTip label={t("personalAssistant.title")} side="right">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onOpenPersonalAssistant}
-                aria-label={t("personalAssistant.title")}
-                aria-pressed={assistantActive}
-                className={cn(
-                  "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
-                  assistantActive
-                    ? "bg-secondary text-foreground hover:bg-secondary"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Sparkles className="h-4 w-4" />
-                <span
-                  aria-hidden="true"
-                  className="block w-full truncate px-1 text-[10px] leading-3"
-                >
-                  {t("personalAssistant.title")}
-                </span>
-              </Button>
-            </IconTip>
-            {assistantAttentionCount > 0 && (
-              <span
-                className="pointer-events-none absolute right-0 -top-1 rounded-full bg-destructive px-1 text-[10px] text-white"
-                aria-label={t("personalAssistant.attention", { count: assistantAttentionCount })}
-              >
-                {assistantAttentionCount}
-              </span>
-            )}
-          </div>
-        )}
         {/* Knowledge Space entry — grouped directly under Conversations */}
         <div className="w-full flex justify-center">
           <ContextMenu>
@@ -429,7 +410,7 @@ export default function IconSidebar({
                     variant="ghost"
                     size="icon"
                     className={cn(
-                      "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                      "rounded-xl h-8 w-8 shrink-0",
                       view === "knowledge" || knowledgeDetached
                         ? "bg-secondary text-foreground hover:bg-secondary"
                         : "text-muted-foreground hover:text-foreground",
@@ -445,12 +426,6 @@ export default function IconSidebar({
                     }}
                   >
                     <Library className="h-4 w-4" />
-                    <span
-                      aria-hidden="true"
-                      className="block w-full truncate px-1 text-[10px] leading-3"
-                    >
-                      {t("knowledge.title", "Knowledge Space")}
-                    </span>
                   </Button>
                 </IconTip>
               </div>
@@ -483,7 +458,7 @@ export default function IconSidebar({
                     variant="ghost"
                     size="icon"
                     className={cn(
-                      "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                      "rounded-xl h-8 w-8 shrink-0",
                       view === "design" || designDetached
                         ? "bg-secondary text-foreground hover:bg-secondary"
                         : "text-muted-foreground hover:text-foreground",
@@ -497,12 +472,6 @@ export default function IconSidebar({
                     }}
                   >
                     <Palette className="h-4 w-4" />
-                    <span
-                      aria-hidden="true"
-                      className="block w-full truncate px-1 text-[10px] leading-3"
-                    >
-                      {t("design.title", "Design Space")}
-                    </span>
                   </Button>
                 </IconTip>
               </div>
@@ -526,7 +495,7 @@ export default function IconSidebar({
               size="icon"
               aria-label={t("artifacts.title", "Artifacts")}
               className={cn(
-                "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                "rounded-xl h-8 w-8 shrink-0",
                 view === "artifacts"
                   ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
@@ -534,9 +503,6 @@ export default function IconSidebar({
               onClick={onOpenArtifacts}
             >
               <PackageOpen className="h-4 w-4" />
-              <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-                {t("artifacts.title", "Artifacts")}
-              </span>
             </Button>
           </IconTip>
         </div>
@@ -551,7 +517,7 @@ export default function IconSidebar({
                     size="icon"
                     aria-label={t("cron.title")}
                     className={cn(
-                      "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                      "rounded-xl h-8 w-8 shrink-0",
                       view === "calendar"
                         ? "bg-secondary text-foreground hover:bg-secondary"
                         : "text-muted-foreground hover:text-foreground",
@@ -559,16 +525,10 @@ export default function IconSidebar({
                     onClick={onOpenCalendar}
                   >
                     <CalendarDays className="h-4 w-4" />
-                    <span
-                      aria-hidden="true"
-                      className="block w-full truncate px-1 text-[10px] leading-3"
-                    >
-                      {t("cron.title")}
-                    </span>
                   </Button>
                 </IconTip>
                 {cronUnreadCount > 0 && (
-                  <span className="pointer-events-none absolute right-0 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-destructive px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200">
+                  <span className="pointer-events-none absolute -right-1.5 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-destructive px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200">
                     {cronUnreadBadgeLabel}
                   </span>
                 )}
@@ -593,7 +553,7 @@ export default function IconSidebar({
               size="icon"
               aria-label={t("dashboard.title")}
               className={cn(
-                "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                "rounded-xl h-8 w-8 shrink-0",
                 view === "dashboard"
                   ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
@@ -601,9 +561,6 @@ export default function IconSidebar({
               onClick={onOpenDashboard}
             >
               <BarChart3 className="h-4 w-4" />
-              <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-                {t("dashboard.title")}
-              </span>
             </Button>
           </IconTip>
         </div>
@@ -620,7 +577,7 @@ export default function IconSidebar({
               size="icon"
               aria-label={t("settings.agents")}
               className={cn(
-                "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                "rounded-xl h-8 w-8 shrink-0",
                 view === "agents"
                   ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
@@ -628,9 +585,6 @@ export default function IconSidebar({
               onClick={onOpenAgents}
             >
               <Bot className="h-4 w-4" />
-              <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-                {t("settings.agents")}
-              </span>
             </Button>
           </IconTip>
         </div>
@@ -643,7 +597,7 @@ export default function IconSidebar({
               size="icon"
               aria-label={t("settings.modelConfig")}
               className={cn(
-                "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                "rounded-xl h-8 w-8 shrink-0",
                 view === "modelConfig"
                   ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
@@ -651,9 +605,6 @@ export default function IconSidebar({
               onClick={onOpenModelConfig}
             >
               <Server className="h-4 w-4" />
-              <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-                {t("settings.modelConfig")}
-              </span>
             </Button>
           </IconTip>
         </div>
@@ -666,7 +617,7 @@ export default function IconSidebar({
               size="icon"
               aria-label={t("settings.channels")}
               className={cn(
-                "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                "rounded-xl h-8 w-8 shrink-0",
                 view === "channels"
                   ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
@@ -674,9 +625,6 @@ export default function IconSidebar({
               onClick={onOpenChannels}
             >
               <MessageCircle className="h-4 w-4" />
-              <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-                {t("settings.channels")}
-              </span>
             </Button>
           </IconTip>
         </div>
@@ -690,7 +638,7 @@ export default function IconSidebar({
                 size="icon"
                 aria-label={t("settings.skills")}
                 className={cn(
-                  "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                  "rounded-xl h-8 w-8 shrink-0",
                   view === "skills"
                     ? "bg-secondary text-foreground hover:bg-secondary"
                     : "text-muted-foreground hover:text-foreground",
@@ -698,16 +646,10 @@ export default function IconSidebar({
                 onClick={onOpenSkills}
               >
                 <Puzzle className="h-4 w-4" />
-                <span
-                  aria-hidden="true"
-                  className="block w-full truncate px-1 text-[10px] leading-3"
-                >
-                  {t("settings.skills")}
-                </span>
               </Button>
             </IconTip>
             {skillDraftCount > 0 && (
-              <span className="pointer-events-none absolute right-0 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-amber-500 px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200">
+              <span className="pointer-events-none absolute -right-1.5 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-amber-500 px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200">
                 {skillDraftBadgeLabel}
               </span>
             )}
@@ -722,7 +664,7 @@ export default function IconSidebar({
               size="icon"
               aria-label={t("settings.memory")}
               className={cn(
-                "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                "rounded-xl h-8 w-8 shrink-0",
                 view === "memory"
                   ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
@@ -730,9 +672,6 @@ export default function IconSidebar({
               onClick={onOpenMemory}
             >
               <Brain className="h-4 w-4" />
-              <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-                {t("settings.memory")}
-              </span>
             </Button>
           </IconTip>
         </div>
@@ -754,7 +693,7 @@ export default function IconSidebar({
             size="icon"
             aria-label={t("plans.title")}
             className={cn(
-              "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+              "rounded-xl h-8 w-8 shrink-0",
               view === "plans"
                 ? "bg-secondary text-foreground hover:bg-secondary"
                 : "text-muted-foreground hover:text-foreground",
@@ -762,9 +701,6 @@ export default function IconSidebar({
             onClick={onOpenPlans}
           >
             <ClipboardList className="h-4 w-4" />
-            <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-              {t("plans.title")}
-            </span>
           </Button>
         </IconTip>
       </div>
@@ -776,33 +712,26 @@ export default function IconSidebar({
             variant="ghost"
             size="icon"
             aria-label={t("settings.logs")}
-            className="rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5 text-muted-foreground hover:text-foreground"
+            className="rounded-xl h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
             onClick={() => onOpenSettings("logs")}
           >
             <ScrollText className="h-4 w-4" />
-            <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-              {t("settings.logs")}
-            </span>
           </Button>
         </IconTip>
       </div>
 
-      <div className="hidden w-full justify-center mt-0.5 [@media(max-height:920px)]:flex">
+      <div className="hidden w-full justify-center mt-0.5 [@media(max-height:880px)]:flex">
         <div className="relative">
           <IconTip label={t("common.more")} side="right">
             <Button
               variant="ghost"
               size="icon"
-              aria-label={assistantAttentionCount > 0 ? `${t("common.more")} · ${t("personalAssistant.attention", { count: assistantAttentionCount })}` : t("common.more")}
+              aria-label={t("common.more")}
               aria-expanded={showMoreMenu}
-              className="rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5 text-muted-foreground hover:text-foreground"
+              className="rounded-xl h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
               onClick={() => setShowMoreMenu((open) => !open)}
             >
               <Ellipsis className="h-4 w-4" />
-              {assistantAttentionCount > 0 && <span aria-hidden="true" className="absolute right-0 top-0 rounded-full bg-destructive px-1 text-[10px] text-white">{assistantAttentionCount}</span>}
-              <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-                {t("common.more")}
-              </span>
             </Button>
           </IconTip>
           {showMoreMenu && (
@@ -866,7 +795,7 @@ export default function IconSidebar({
               variant="ghost"
               size="icon"
               aria-label={t("theme.title")}
-              className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-[68px] shrink-0 flex-col gap-0.5"
+              className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8 shrink-0"
               onClick={cycleTheme}
             >
               {theme === "auto" ? (
@@ -876,9 +805,6 @@ export default function IconSidebar({
               ) : (
                 <Moon className="h-4 w-4" />
               )}
-              <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-                {t("theme.title")}
-              </span>
             </Button>
           </IconTip>
 
@@ -889,16 +815,10 @@ export default function IconSidebar({
                 variant="ghost"
                 size="icon"
                 aria-label={t("language.title")}
-                className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-[68px] shrink-0 flex-col gap-0.5"
+                className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8 shrink-0"
                 onClick={() => setShowLangMenu(!showLangMenu)}
               >
                 <Languages className="h-4 w-4" />
-                <span
-                  aria-hidden="true"
-                  className="block w-full truncate px-1 text-[10px] leading-3"
-                >
-                  {t("language.title")}
-                </span>
               </Button>
             </IconTip>
             <FloatingMenu
@@ -961,13 +881,10 @@ export default function IconSidebar({
               variant="ghost"
               size="icon"
               aria-label={t("help.title")}
-              className="rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5 text-muted-foreground hover:text-foreground"
+              className="rounded-xl h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
               onClick={() => void openHelpWindow()}
             >
               <CircleHelp className="h-4 w-4" />
-              <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-                {t("help.title")}
-              </span>
             </Button>
           </IconTip>
         </div>
@@ -993,7 +910,7 @@ export default function IconSidebar({
                     aria-pressed={petToggle.enabled}
                     disabled={!petToggle.ready || petToggle.updating}
                     className={cn(
-                      "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5 hover:bg-secondary/70 disabled:opacity-45",
+                      "rounded-xl h-8 w-8 shrink-0 hover:bg-secondary/70 disabled:opacity-45",
                       petToggle.enabled ? "text-foreground" : "text-muted-foreground",
                       petToggle.updating && "animate-pulse",
                     )}
@@ -1004,12 +921,6 @@ export default function IconSidebar({
                     ) : (
                       <Egg className="h-4 w-4" />
                     )}
-                    <span
-                      aria-hidden="true"
-                      className="block w-full truncate px-1 text-[10px] leading-3"
-                    >
-                      {t("pet.settings.wake", { defaultValue: "Desktop pet" })}
-                    </span>
                   </Button>
                 </IconTip>
               </div>
@@ -1078,7 +989,7 @@ export default function IconSidebar({
               size="icon"
               aria-label={t("chat.settings")}
               className={cn(
-                "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
+                "rounded-xl h-8 w-8 shrink-0",
                 view === "settings"
                   ? "bg-secondary text-foreground hover:bg-secondary"
                   : "text-muted-foreground hover:text-foreground",
@@ -1086,9 +997,6 @@ export default function IconSidebar({
               onClick={() => onOpenSettings()}
             >
               <Settings className="h-4 w-4" />
-              <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-                {t("chat.settings")}
-              </span>
             </Button>
           </IconTip>
         </div>
@@ -1101,14 +1009,11 @@ export default function IconSidebar({
                 variant="ghost"
                 size="icon"
                 aria-label={t("about.title")}
-                className="h-11 w-11 flex-col gap-0.5 rounded-full border border-border-soft bg-surface-floating/80 p-0 shadow-panel hover:bg-secondary/70"
+                className="h-11 w-11 rounded-full border border-border-soft bg-surface-floating/80 p-0 shadow-panel hover:bg-secondary/70"
                 onClick={() => onOpenSettings("about")}
               >
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-secondary">
+                <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-secondary">
                   <img src={appLogoUrl} alt="" className="h-full w-full object-cover" />
-                </span>
-                <span aria-hidden="true" className="block w-full truncate text-[10px] leading-3">
-                  {t("about.title")}
                 </span>
               </Button>
             </IconTip>
@@ -1121,7 +1026,7 @@ export default function IconSidebar({
                   variant="outline"
                   size="sm"
                   aria-label={t("about.updateAvailable", { version: pendingUpdate.version })}
-                  className="absolute -top-1 left-1/2 z-20 h-4 w-8 -translate-x-1/2 rounded-full border-0 bg-emerald-500 px-1 text-[8px] font-semibold leading-none text-white shadow-none hover:bg-emerald-600 dark:bg-emerald-500 dark:text-white dark:hover:bg-emerald-400"
+                  className="absolute bottom-[-1px] left-1/2 z-20 h-4 w-8 -translate-x-1/2 rounded-full border-0 bg-emerald-500 px-1 text-[8px] font-semibold leading-none text-white shadow-none hover:bg-emerald-600 dark:bg-emerald-500 dark:text-white dark:hover:bg-emerald-400"
                   onClick={() => {
                     if (onOpenUpdatePanel) {
                       onOpenUpdatePanel()

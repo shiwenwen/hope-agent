@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **个人助手与侧栏**：固定助手头像入口，支持独立取名、头像上传裁剪与预设，将 IM 连接和授权收进助手设置，并提供可收起的事项面板；主导航收窄为 52px 的纯图标侧栏，完整名称在悬浮提示中显示。 (#910)
+
 ## [0.73.0] - 2026-11-10
 
 ### Added

@@ -12989,6 +12989,27 @@
       "cancelled": "Cancelado",
       "failed": "Fallido"
     },
-    "historyLocked": "No se puede reescribir el historial del asistente. Envía un mensaje nuevo para corregir una instrucción o detén una delegación en el panel de trabajo."
+    "historyLocked": "No se puede reescribir el historial del asistente. Envía un mensaje nuevo para corregir una instrucción o detén una delegación en el panel de trabajo.",
+    "items": "Asuntos",
+    "settings": {
+      "title": "Ajustes del asistente",
+      "description": "Gestiona el perfil del asistente y su conexión privada de mensajería.",
+      "profile": "Perfil",
+      "im": "Conexión de mensajería",
+      "name": "Nombre del asistente",
+      "nameHint": "Usa entre 1 y 32 caracteres. Cambiar el nombre conserva la conversación y las tareas.",
+      "uploadAvatar": "Subir avatar",
+      "resetAvatar": "Restaurar predeterminado",
+      "presetAvatar": "Avatares predefinidos",
+      "presets": {
+        "sparkles": "Avatar de destellos",
+        "bot": "Avatar de robot",
+        "heart": "Avatar de corazón"
+      },
+      "identityHint": "Este perfil pertenece a tu asistente personal. Se guarda separado de otros Agents y de tu perfil.",
+      "botIdentityHint": "Telegram gestiona por separado el nombre y el avatar del Bot. Estos cambios no actualizan su perfil."
+    },
+    "welcomeTitle": "Soy {{name}}",
+    "welcomeBody": "Dime qué quieres hacer. Puedes volver para continuar la conversación o consultar el trabajo delegado."
   }
 }

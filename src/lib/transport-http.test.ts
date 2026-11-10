@@ -10,15 +10,49 @@ test("personal assistant owner commands use their dedicated HTTP routes", async 
   const transport = new HttpTransport("http://localhost:8420", "synthetic-owner")
   const cases = [
     ["ensure_personal_assistant_home", {}, "POST", "/home"],
+    ["get_personal_assistant_profile", {}, "GET", "/profile"],
+    [
+      "update_personal_assistant_profile",
+      { profile: { name: "Hope", avatar: "preset:bot" } },
+      "PUT",
+      "/profile",
+    ],
     ["list_personal_assistant_requests", {}, "GET", "/requests"],
-    ["cancel_personal_assistant_request", { id: "request-1" }, "POST", "/requests/request-1/cancel"],
+    [
+      "cancel_personal_assistant_request",
+      { id: "request-1" },
+      "POST",
+      "/requests/request-1/cancel",
+    ],
     ["personal_assistant_inbox", {}, "GET", "/watches"],
-    ["watch_personal_goal", { sessionId: "work-1", goalId: "goal-1" }, "POST", "/watches/work-1/goal-1"],
-    ["unwatch_personal_goal", { sessionId: "work-1", goalId: "goal-1" }, "DELETE", "/watches/work-1/goal-1"],
+    [
+      "watch_personal_goal",
+      { sessionId: "work-1", goalId: "goal-1" },
+      "POST",
+      "/watches/work-1/goal-1",
+    ],
+    [
+      "unwatch_personal_goal",
+      { sessionId: "work-1", goalId: "goal-1" },
+      "DELETE",
+      "/watches/work-1/goal-1",
+    ],
   ] as const
   for (const [command, args, method, path] of cases) {
     await transport.call(command, args)
-    expect(fetchMock).toHaveBeenLastCalledWith("http://localhost:8420/api/personal-assistant" + path, expect.objectContaining({ method }))
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://localhost:8420/api/personal-assistant" + path,
+      expect.objectContaining({
+        method,
+        headers: expect.objectContaining({ Authorization: "Bearer synthetic-owner" }),
+        body:
+          method === "PUT"
+            ? JSON.stringify(args)
+            : method === "POST"
+              ? expect.any(String)
+              : undefined,
+      }),
+    )
   }
 })
 
@@ -62,15 +96,31 @@ test("personal assistant IM commands preserve owner routes and private JSON bodi
 
 test("HTTP discovery flattens the draft config and returns the typed list without inference normalization", async () => {
   const result = { models: [{ id: "model-A", name: "Model A" }], truncated: false }
-  fetchMock.mockResolvedValue(new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json" } }))
-  const config = { id: "saved-provider", apiType: "openai-chat", apiKey: "masked...key", authProfiles: [], models: [] }
+  fetchMock.mockResolvedValue(
+    new Response(JSON.stringify(result), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+  )
+  const config = {
+    id: "saved-provider",
+    apiType: "openai-chat",
+    apiKey: "masked...key",
+    authProfiles: [],
+    models: [],
+  }
   const transport = new HttpTransport("http://localhost:8420", "synthetic-owner")
   expect(await transport.call("discover_provider_models", { config })).toEqual(result)
-  expect(fetchMock).toHaveBeenCalledExactlyOnceWith("http://localhost:8420/api/providers/discover-models", expect.objectContaining({ method: "POST", body: JSON.stringify(config) }))
+  expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+    "http://localhost:8420/api/providers/discover-models",
+    expect.objectContaining({ method: "POST", body: JSON.stringify(config) }),
+  )
 })
 
 test("HTTP directory browsing encodes the optional folder-only filter", async () => {
-  fetchMock.mockImplementation(async () => new Response(JSON.stringify({ entries: [] }), { status: 200 }))
+  fetchMock.mockImplementation(
+    async () => new Response(JSON.stringify({ entries: [] }), { status: 200 }),
+  )
   const transport = new HttpTransport("http://localhost:8420", "synthetic-owner")
   await transport.listServerDirectory("/tmp/with space", true)
   const url = new URL(fetchMock.mock.calls[0][0])

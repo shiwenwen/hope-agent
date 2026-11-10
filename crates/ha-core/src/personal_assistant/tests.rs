@@ -47,6 +47,92 @@ fn input(target: &str) -> AssistantDispatchInput {
     }
 }
 
+#[test]
+fn profile_defaults_are_read_only_and_updates_preserve_home_history_and_work() {
+    isolated_test(|db, path| {
+        assert_eq!(
+            db.personal_assistant_profile().unwrap(),
+            default_assistant_profile()
+        );
+        assert!(!db.has_personal_assistant_private_data().unwrap());
+        let home = seed_source(&db);
+        seed_target(&db, "profile-work");
+        let request = db
+            .enqueue_personal_assistant_request(input("profile-work"))
+            .unwrap();
+        let saved = db
+            .update_personal_assistant_profile(AssistantProfile {
+                name: "  Mira  ".into(),
+                avatar: Some("preset:bot".into()),
+            })
+            .unwrap();
+        assert_eq!(saved.name, "Mira");
+        assert_eq!(db.ensure_personal_assistant_home().unwrap().id, home.id);
+        assert_eq!(db.get_session(&home.id).unwrap().unwrap().title, home.title);
+        assert_eq!(
+            db.list_personal_assistant_requests().unwrap()[0].id,
+            request.id
+        );
+        assert!(db.get_chat_turn("owner-turn").unwrap().is_some());
+        let reopened = SessionDB::open(&path.to_path_buf()).unwrap();
+        assert_eq!(reopened.personal_assistant_profile().unwrap(), saved);
+        assert_eq!(
+            reopened.ensure_personal_assistant_home().unwrap().id,
+            home.id
+        );
+    });
+}
+
+#[test]
+fn invalid_profile_updates_leave_the_previous_identity_unchanged() {
+    isolated_test(|db, _| {
+        for name in ["".to_owned(), "x".repeat(33), "a\nb".to_owned()] {
+            assert!(db
+                .update_personal_assistant_profile(AssistantProfile { name, avatar: None })
+                .is_err());
+        }
+        for avatar in [
+            "https://example.com/avatar.png",
+            "/etc/passwd",
+            "preset:unknown",
+        ] {
+            assert!(db
+                .update_personal_assistant_profile(AssistantProfile {
+                    name: "Mira".into(),
+                    avatar: Some(avatar.into())
+                })
+                .is_err());
+        }
+        assert_eq!(
+            db.personal_assistant_profile().unwrap(),
+            default_assistant_profile()
+        );
+        assert!(!db.has_personal_assistant_private_data().unwrap());
+    });
+}
+
+#[test]
+fn profile_accepts_only_uploaded_image_paths_and_makes_the_root_private() {
+    isolated_test(|db, _| {
+        let avatars = crate::paths::avatars_dir().unwrap();
+        std::fs::create_dir_all(&avatars).unwrap();
+        let picture = avatars.join("picture.png");
+        std::fs::write(&picture, b"fixture").unwrap();
+        let saved = db
+            .update_personal_assistant_profile(AssistantProfile {
+                name: "Mira".into(),
+                avatar: Some(picture.to_string_lossy().into()),
+            })
+            .unwrap();
+        assert!(saved.avatar.unwrap().ends_with("picture.png"));
+        assert!(db.has_personal_assistant_private_data().unwrap());
+        assert_eq!(
+            db.ensure_personal_assistant_home().unwrap().kind,
+            crate::session::SessionKind::PersonalAssistant
+        );
+    });
+}
+
 fn admit(
     db: &SessionDB,
     home: &SessionMeta,

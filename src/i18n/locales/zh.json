@@ -12989,6 +12989,27 @@
       "cancelled": "已取消",
       "failed": "失败"
     },
-    "historyLocked": "助手历史不支持编辑重发。请发送新消息更正指令，或在工作面板停止单项交办。"
+    "historyLocked": "助手历史不支持编辑重发。请发送新消息更正指令，或在工作面板停止单项交办。",
+    "items": "事项",
+    "settings": {
+      "title": "助手设置",
+      "description": "管理个人助手的资料与专属 IM 连接。",
+      "profile": "助手资料",
+      "im": "IM 连接",
+      "name": "助手名字",
+      "nameHint": "填写 1–32 个字符。改名后保留原对话和交办事项。",
+      "uploadAvatar": "上传头像",
+      "resetAvatar": "恢复默认",
+      "presetAvatar": "预设头像",
+      "presets": {
+        "sparkles": "星光头像",
+        "bot": "机器人头像",
+        "heart": "爱心头像"
+      },
+      "identityHint": "这是个人助手的独立资料，与其他 Agent 和你的个人资料分开保存。",
+      "botIdentityHint": "Telegram Bot 的名字和头像由平台单独管理，这里的修改不会同步到 Bot 资料。"
+    },
+    "welcomeTitle": "我是{{name}}",
+    "welcomeBody": "告诉我你想做什么。你可以随时回来继续对话，或查看交办工作的进展。"
   }
 }

@@ -147,6 +147,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 
 | Category | Description |
 |----------|-------------|
+| `personal_assistant_profile` | Owner UI only: reads return fixed redacted `name` / `avatar` placeholders and the location of Assistant settings, never the private profile. Writes are rejected. The owner can rename the assistant or upload/crop/select/reset its avatar in Assistant settings without changing the home, Agent config, work, or IM permissions. |
 | `tool_result_disk_threshold` | Read-only legacy compatibility value. Disk persistence is currently unavailable; tool results keep using the bounded in-context preview, and `update_settings` rejects writes. |
 | `active_model` | Current primary model — use Settings UI |
 | `fallback_models` | Fallback chain — use Settings UI |
