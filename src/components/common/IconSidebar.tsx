@@ -312,7 +312,7 @@ export default function IconSidebar({
     },
   ]
   return (
-    <div className="w-[76px] h-full min-h-0 shrink-0 overflow-hidden border-r border-border-soft bg-surface-sidebar flex flex-col items-center">
+    <div className="w-[52px] h-full min-h-0 shrink-0 overflow-hidden border-r border-border-soft bg-surface-sidebar flex flex-col items-center">
       {/* Drag region for window movement — covers traffic light area */}
       <div className="w-full pt-10 flex flex-col items-center gap-1" data-tauri-drag-region>
         {onOpenPersonalAssistant && (
