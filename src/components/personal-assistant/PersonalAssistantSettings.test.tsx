@@ -100,6 +100,20 @@ function Harness() {
         onOpenSettings={vi.fn()}
         onToggleItems={vi.fn()}
         onSearch={vi.fn()}
+        workbench={{
+          width: 0,
+          layoutMode: "docked",
+          tabs: [],
+          launchItems: [],
+          activeId: null,
+          docked: false,
+          onExpand: vi.fn(),
+          onSelect: vi.fn(),
+          onOpen: vi.fn(),
+          onCloseTab: vi.fn(),
+          onReorder: vi.fn(),
+          onCloseWorkbench: vi.fn(),
+        }}
       />
       <PersonalAssistantWelcome profile={state.profile} />
       <PersonalAssistantSettings state={state} sessions={[]} open onOpenChange={vi.fn()} />

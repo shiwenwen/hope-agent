@@ -5287,6 +5287,25 @@ export default function ChatScreen({
                 } else setAssistantItemsMobileOpen((value) => !value)
               }}
               onSearch={openSessionSearch}
+              workbench={{
+                width: rightPanelWidth,
+                layoutMode: workbenchLayoutMode,
+                tabs: workbenchTabs,
+                launchItems: titleBarRightPanels,
+                activeId: activeWorkbenchTabId,
+                collapsed: rightPanelCollapsed,
+                docked: hasOpenExclusiveRightPanel,
+                resizing: workbenchResizing,
+                maximized: workbenchMaximized,
+                onSelect: handleSelectWorkbenchTab,
+                onOpen: handleOpenWorkbenchPanel,
+                onCloseTab: handleCloseWorkbenchTab,
+                onReorder: handleReorderWorkbenchTabs,
+                onToggleTabWindow: handleToggleWorkbenchTabWindow,
+                onToggleMaximize: handleToggleWorkbenchMaximize,
+                onCloseWorkbench: handleCollapseWorkbench,
+                onExpand: handleExpandWorkbench,
+              }}
             />
           ) : (
             <ChatTitleBar
