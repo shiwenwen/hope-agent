@@ -1,11 +1,11 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
+import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { requestNeedsResponse } from "./usePersonalAssistant"
-import { PersonalAssistantImPanel } from "./PersonalAssistantImPanel"
-import type { SessionMeta } from "@/types/chat"
 import type {
   AssistantRequest,
   AssistantWatch,
@@ -16,14 +16,12 @@ export function PersonalAssistantPanel({
   state,
   onOpenRequest,
   onOpenGoal,
-  sessions = [],
-  visible = true,
+  onClose,
 }: {
   state: PersonalAssistantState
   onOpenRequest: (request: AssistantRequest) => Promise<void>
   onOpenGoal: (watch: AssistantWatch) => Promise<void>
-  sessions?: SessionMeta[]
-  visible?: boolean
+  onClose?: () => void
 }) {
   const { t } = useTranslation()
   const [pending, setPending] = useState<string | null>(null)
@@ -39,20 +37,30 @@ export function PersonalAssistantPanel({
   }
   return (
     <section
-      aria-label={t("personalAssistant.title")}
-      className="min-w-0 border-b border-border-soft px-4 py-2"
+      aria-label={t("personalAssistant.items")}
+      className="flex h-full min-h-0 min-w-0 flex-col px-4 py-3"
     >
-      <Tabs defaultValue="work">
+      <Tabs defaultValue="work" className="flex min-h-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{t("personalAssistant.title")}</span>
+          <span className="text-sm font-medium">{t("personalAssistant.items")}</span>
+          {onClose && (
+            <IconTip label={t("common.close")}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="ml-auto h-7 w-7"
+                onClick={onClose}
+                aria-label={t("common.close")}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </IconTip>
+          )}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <TabsList className="h-auto max-w-full flex-wrap justify-start">
             <TabsTrigger value="work">{t("personalAssistant.work")}</TabsTrigger>
             <TabsTrigger value="goals">{t("personalAssistant.goals")}</TabsTrigger>
-            {state.authorized && (
-              <TabsTrigger value="im">
-                {t("personalAssistant.im.title", "Connect Telegram")}
-              </TabsTrigger>
-            )}
           </TabsList>
           <Button
             variant="ghost"
@@ -63,15 +71,13 @@ export function PersonalAssistantPanel({
             {t(state.loading ? "common.loading" : "common.refresh")}
           </Button>
         </div>
-        <p className="py-1 text-xs text-muted-foreground">
-          {t("personalAssistant.historyLocked")}
-        </p>
+        <p className="py-1 text-xs text-muted-foreground">{t("personalAssistant.historyLocked")}</p>
         {state.error && (
           <p role="alert" className="py-2 text-sm text-destructive">
             {state.error}
           </p>
         )}
-        <TabsContent value="work" className="max-h-56 space-y-2 overflow-y-auto">
+        <TabsContent value="work" className="min-h-0 flex-1 space-y-2 overflow-y-auto">
           {!state.error && !state.loading && state.requests.length === 0 && (
             <p className="text-sm text-muted-foreground">{t("personalAssistant.emptyWork")}</p>
           )}
@@ -120,7 +126,7 @@ export function PersonalAssistantPanel({
             </article>
           ))}
         </TabsContent>
-        <TabsContent value="goals" className="max-h-56 space-y-2 overflow-y-auto">
+        <TabsContent value="goals" className="min-h-0 flex-1 space-y-2 overflow-y-auto">
           {!state.error && !state.loading && state.watches.length === 0 && (
             <p className="text-sm text-muted-foreground">{t("personalAssistant.emptyGoals")}</p>
           )}
@@ -157,11 +163,6 @@ export function PersonalAssistantPanel({
             </article>
           ))}
         </TabsContent>
-        {state.authorized && (
-          <TabsContent value="im" className="max-h-[60vh] overflow-y-auto">
-            <PersonalAssistantImPanel sessions={sessions} visible={visible} />
-          </TabsContent>
-        )}
       </Tabs>
     </section>
   )

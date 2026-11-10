@@ -12989,6 +12989,27 @@
       "cancelled": "Cancelado",
       "failed": "Falhou"
     },
-    "historyLocked": "O histórico do assistente não pode ser reescrito. Envie uma nova mensagem para corrigir uma instrução ou pare uma delegação no painel de trabalho."
+    "historyLocked": "O histórico do assistente não pode ser reescrito. Envie uma nova mensagem para corrigir uma instrução ou pare uma delegação no painel de trabalho.",
+    "items": "Pendências",
+    "settings": {
+      "title": "Configurações do assistente",
+      "description": "Gerencie o perfil do assistente e sua conexão privada de mensagens.",
+      "profile": "Perfil",
+      "im": "Conexão de mensagens",
+      "name": "Nome do assistente",
+      "nameHint": "Use de 1 a 32 caracteres. Renomear mantém a conversa e as tarefas.",
+      "uploadAvatar": "Enviar avatar",
+      "resetAvatar": "Restaurar padrão",
+      "presetAvatar": "Avatares predefinidos",
+      "presets": {
+        "sparkles": "Avatar de brilho",
+        "bot": "Avatar de robô",
+        "heart": "Avatar de coração"
+      },
+      "identityHint": "Este perfil pertence ao assistente pessoal e fica separado dos outros Agents e do seu próprio perfil.",
+      "botIdentityHint": "O Telegram gerencia o nome e o avatar do Bot separadamente. As alterações aqui não atualizam o perfil do Bot."
+    },
+    "welcomeTitle": "Sou {{name}}",
+    "welcomeBody": "Conte o que deseja fazer. Você pode voltar para continuar a conversa ou acompanhar o trabalho delegado."
   }
 }

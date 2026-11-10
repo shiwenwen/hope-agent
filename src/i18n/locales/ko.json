@@ -12989,6 +12989,27 @@
       "cancelled": "취소됨",
       "failed": "실패"
     },
-    "historyLocked": "어시스턴트 기록은 수정 후 다시 보낼 수 없습니다. 새 메시지로 지시를 정정하거나 작업 패널에서 개별 위임을 중지하세요."
+    "historyLocked": "어시스턴트 기록은 수정 후 다시 보낼 수 없습니다. 새 메시지로 지시를 정정하거나 작업 패널에서 개별 위임을 중지하세요.",
+    "items": "할 일",
+    "settings": {
+      "title": "도우미 설정",
+      "description": "도우미 프로필과 전용 IM 연결을 관리하세요.",
+      "profile": "도우미 프로필",
+      "im": "IM 연결",
+      "name": "도우미 이름",
+      "nameHint": "1~32자로 입력하세요. 이름을 바꿔도 대화와 맡긴 작업은 유지됩니다.",
+      "uploadAvatar": "아바타 업로드",
+      "resetAvatar": "기본값 복원",
+      "presetAvatar": "기본 제공 아바타",
+      "presets": {
+        "sparkles": "반짝임 아바타",
+        "bot": "로봇 아바타",
+        "heart": "하트 아바타"
+      },
+      "identityHint": "개인 도우미 전용 프로필입니다. 다른 Agent 및 내 프로필과 별도로 저장됩니다.",
+      "botIdentityHint": "Telegram Bot의 이름과 아바타는 Telegram에서 별도로 관리합니다. 여기서 바꿔도 Bot 프로필에는 반영되지 않습니다."
+    },
+    "welcomeTitle": "{{name}}입니다",
+    "welcomeBody": "하고 싶은 일을 알려 주세요. 언제든 돌아와 대화를 이어 가거나 맡긴 작업의 진행 상황을 확인할 수 있습니다."
   }
 }

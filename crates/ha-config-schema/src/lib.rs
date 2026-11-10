@@ -24,6 +24,7 @@ pub mod mcp;
 pub mod media_gen;
 pub mod memory;
 pub mod permission;
+pub mod personal_assistant;
 pub mod pet;
 pub mod provider;
 pub mod session_title;

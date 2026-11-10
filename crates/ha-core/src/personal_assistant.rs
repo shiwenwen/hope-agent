@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::session::{SessionDB, SessionMeta};
 
+mod profile;
+pub use ha_config_schema::personal_assistant::AssistantProfile;
+pub use profile::default_assistant_profile;
+
 pub const INBOX_CHANGED_EVENT: &str = "personal_assistant:changed";
 const MAX_OPEN_REQUESTS: i64 = 64;
 const MAX_WATCHES: i64 = 64;
@@ -168,7 +172,12 @@ pub async fn enrich_personal_assistant_requests(
 
 pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
     conn.execute_batch(
-        "CREATE UNIQUE INDEX IF NOT EXISTS personal_assistant_single_home
+        "CREATE TABLE IF NOT EXISTS personal_assistant_profile (
+            singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+            name TEXT NOT NULL,
+            avatar TEXT
+         );
+         CREATE UNIQUE INDEX IF NOT EXISTS personal_assistant_single_home
             ON sessions(kind) WHERE kind = 'personal_assistant';
          CREATE TABLE IF NOT EXISTS personal_assistant_private_sessions (
             session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE
@@ -558,6 +567,7 @@ impl SessionDB {
         let conn = self.read_conn()?;
         Ok(conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM sessions WHERE kind IN ('personal_assistant','personal_assistant_im'))
+                OR EXISTS(SELECT 1 FROM personal_assistant_profile)
                 OR EXISTS(SELECT 1 FROM assistant_im_connection)
                 OR EXISTS(SELECT 1 FROM assistant_im_activations)
                 OR EXISTS(SELECT 1 FROM assistant_im_commands)

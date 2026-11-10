@@ -1006,6 +1006,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Goals --
   get_active_goal: { method: "GET", path: "/api/sessions/{sessionId}/goal" },
   ensure_personal_assistant_home: { method: "POST", path: "/api/personal-assistant/home" },
+  get_personal_assistant_profile: { method: "GET", path: "/api/personal-assistant/profile" },
+  update_personal_assistant_profile: { method: "PUT", path: "/api/personal-assistant/profile" },
   list_personal_assistant_requests: { method: "GET", path: "/api/personal-assistant/requests" },
   cancel_personal_assistant_request: {
     method: "POST",
@@ -1013,14 +1015,35 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   },
   personal_assistant_inbox: { method: "GET", path: "/api/personal-assistant/watches" },
   personal_assistant_im_status: { method: "GET", path: "/api/personal-assistant/im/status" },
-  personal_assistant_im_configure: { method: "POST", path: "/api/personal-assistant/im/connection" },
-  personal_assistant_im_begin_pairing: { method: "POST", path: "/api/personal-assistant/im/pairing/code" },
-  personal_assistant_im_confirm_pairing: { method: "POST", path: "/api/personal-assistant/im/pairing/confirm" },
+  personal_assistant_im_configure: {
+    method: "POST",
+    path: "/api/personal-assistant/im/connection",
+  },
+  personal_assistant_im_begin_pairing: {
+    method: "POST",
+    path: "/api/personal-assistant/im/pairing/code",
+  },
+  personal_assistant_im_confirm_pairing: {
+    method: "POST",
+    path: "/api/personal-assistant/im/pairing/confirm",
+  },
   personal_assistant_im_set_grant: { method: "POST", path: "/api/personal-assistant/im/grants" },
-  personal_assistant_im_revoke_grant: { method: "DELETE", path: "/api/personal-assistant/im/grants/{sessionId}" },
-  personal_assistant_im_revoke_pairing: { method: "DELETE", path: "/api/personal-assistant/im/pairing" },
-  personal_assistant_im_remove_connection: { method: "DELETE", path: "/api/personal-assistant/im/connection" },
-  personal_assistant_im_set_notifications_paused: { method: "POST", path: "/api/personal-assistant/im/notifications" },
+  personal_assistant_im_revoke_grant: {
+    method: "DELETE",
+    path: "/api/personal-assistant/im/grants/{sessionId}",
+  },
+  personal_assistant_im_revoke_pairing: {
+    method: "DELETE",
+    path: "/api/personal-assistant/im/pairing",
+  },
+  personal_assistant_im_remove_connection: {
+    method: "DELETE",
+    path: "/api/personal-assistant/im/connection",
+  },
+  personal_assistant_im_set_notifications_paused: {
+    method: "POST",
+    path: "/api/personal-assistant/im/notifications",
+  },
   watch_personal_goal: {
     method: "POST",
     path: "/api/personal-assistant/watches/{sessionId}/{goalId}",

@@ -1,6 +1,29 @@
 use crate::commands::CmdError;
-use ha_core::personal_assistant::{AssistantRequest, AssistantWatch};
+use ha_core::personal_assistant::{AssistantProfile, AssistantRequest, AssistantWatch};
 use ha_core::session::SessionMeta;
+
+#[tauri::command]
+pub async fn get_personal_assistant_profile(
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<AssistantProfile, CmdError> {
+    state
+        .session_db
+        .run(|db| db.personal_assistant_profile())
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn update_personal_assistant_profile(
+    profile: AssistantProfile,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<AssistantProfile, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.update_personal_assistant_profile(profile))
+        .await
+        .map_err(Into::into)
+}
 
 #[tauri::command]
 pub async fn ensure_personal_assistant_home(

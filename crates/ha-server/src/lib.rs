@@ -2325,6 +2325,11 @@ fn build_router_with_cors(
             post(routes::execution_mode::set_workflow_mode),
         )
         .route(
+            "/personal-assistant/profile",
+            get(routes::personal_assistant::get_personal_assistant_profile)
+                .put(routes::personal_assistant::update_personal_assistant_profile),
+        )
+        .route(
             "/personal-assistant/home",
             post(routes::personal_assistant::ensure_personal_assistant_home),
         )

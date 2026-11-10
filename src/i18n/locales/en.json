@@ -12989,6 +12989,27 @@
       "cancelled": "Cancelled",
       "failed": "Failed"
     },
-    "historyLocked": "Assistant history cannot be rewritten. Send a new message to correct an instruction, or stop a delegation in the work panel."
+    "historyLocked": "Assistant history cannot be rewritten. Send a new message to correct an instruction, or stop a delegation in the work panel.",
+    "items": "Items",
+    "settings": {
+      "title": "Assistant settings",
+      "description": "Manage your assistant’s identity and private IM connection.",
+      "profile": "Profile",
+      "im": "IM connection",
+      "name": "Assistant name",
+      "nameHint": "Use 1–32 characters. Renaming keeps your conversation and work.",
+      "uploadAvatar": "Upload avatar",
+      "resetAvatar": "Restore default",
+      "presetAvatar": "Preset avatars",
+      "presets": {
+        "sparkles": "Sparkles avatar",
+        "bot": "Robot avatar",
+        "heart": "Heart avatar"
+      },
+      "identityHint": "This identity belongs to your personal assistant. It is separate from other Agents and your own profile.",
+      "botIdentityHint": "Telegram manages the Bot name and avatar separately. Changes here do not update the Bot profile."
+    },
+    "welcomeTitle": "I’m {{name}}",
+    "welcomeBody": "Tell me what you’d like to work on. You can return here to continue the conversation or check delegated work."
   }
 }

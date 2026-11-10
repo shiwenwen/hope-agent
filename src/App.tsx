@@ -2,7 +2,14 @@ import { useState, useEffect, useCallback, useRef, lazy, Suspense, type ReactNod
 import { useTranslation } from "react-i18next"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { listen } from "@tauri-apps/api/event"
-import { getTransport, setDirtyTransportConfirmText, useTransport } from "@/lib/transport-provider"
+import {
+  getTransport,
+  getTransportRevision,
+  setDirtyTransportConfirmText,
+  useTransport,
+  useTransportRevision,
+} from "@/lib/transport-provider"
+import type { AssistantProfile } from "@/components/personal-assistant/usePersonalAssistant"
 import { parsePayload, isTauriMode } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { MAIN_WINDOW_MIN_HEIGHT, MAIN_WINDOW_MIN_WIDTH } from "@/lib/mainWindowSize"
@@ -191,6 +198,14 @@ type PetInstallLinkEvent = {
 export default function App() {
   const { t, i18n } = useTranslation()
   const chatTransport = useTransport()
+  const assistantScope = useTransportRevision()
+  const [assistantIdentity, setAssistantIdentity] = useState<{
+    profile: AssistantProfile | null
+    scope: number
+  } | null>(null)
+  const handleAssistantProfileChange = useCallback((profile: AssistantProfile | null) => {
+    setAssistantIdentity({ profile, scope: getTransportRevision() })
+  }, [])
   const chatTransportScope = useRef({ transport: chatTransport, key: 0 })
   if (chatTransportScope.current.transport !== chatTransport) {
     chatTransportScope.current = {
@@ -1184,6 +1199,9 @@ export default function App() {
                 view={view}
                 assistantActive={view === "chat" && assistantActive}
                 assistantAttentionCount={assistantAttentionCount}
+                assistantProfile={
+                  assistantIdentity?.scope === assistantScope ? assistantIdentity.profile : null
+                }
                 onOpenPersonalAssistant={() => {
                   setAssistantNavigation({ mode: "assistant", nonce: Date.now() })
                   setView("chat")
@@ -1496,6 +1514,7 @@ export default function App() {
                   assistantNavigation={assistantNavigation}
                   onAssistantStateChange={setAssistantActive}
                   onAssistantAttentionChange={setAssistantAttentionCount}
+                  onAssistantProfileChange={handleAssistantProfileChange}
                   onAssistantNavigated={(nonce) =>
                     setAssistantNavigation((current) => (current?.nonce === nonce ? null : current))
                   }

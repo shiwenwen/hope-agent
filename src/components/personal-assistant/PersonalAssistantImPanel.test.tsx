@@ -14,6 +14,7 @@ import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import type { SessionMeta } from "@/types/chat"
 import { PersonalAssistantImPanel } from "./PersonalAssistantImPanel"
 import { PersonalAssistantPanel } from "./PersonalAssistantPanel"
+import { PersonalAssistantSettings } from "./PersonalAssistantSettings"
 import type { PersonalAssistantState } from "./usePersonalAssistant"
 import { usePersonalAssistantIm, type AssistantImSnapshot } from "./usePersonalAssistantIm"
 
@@ -350,7 +351,7 @@ describe("assistant IM private scope", () => {
     expect(screen.queryByText("/ha_pair one-time-secret")).toBeNull()
   })
 
-  it("reads IM settings only while their visible owner tab is open", async () => {
+  it("keeps IM configuration in assistant settings and reads it only while the visible IM tab is open", async () => {
     const state = {
       authorized: true,
       loading: false,
@@ -361,22 +362,24 @@ describe("assistant IM private scope", () => {
       cancel: vi.fn(),
       watchGoal: vi.fn(),
       open: vi.fn(),
+      profile: { name: "Hope", avatar: null },
+      saveProfile: vi.fn(),
     } as PersonalAssistantState
+    const panel = render(
+      <PersonalAssistantPanel state={state} onOpenRequest={vi.fn()} onOpenGoal={vi.fn()} />,
+    )
+    expect(screen.queryByRole("tab", { name: en.personalAssistant.im.title })).toBeNull()
+    panel.unmount()
     const { rerender } = render(
-      <PersonalAssistantPanel
-        state={state}
-        sessions={[work]}
-        onOpenRequest={vi.fn()}
-        onOpenGoal={vi.fn()}
-      />,
+      <PersonalAssistantSettings open onOpenChange={vi.fn()} state={state} sessions={[work]} />,
     )
     expect(fixture.call).not.toHaveBeenCalled()
-    fireEvent.mouseDown(screen.getByRole("tab", { name: en.personalAssistant.im.title }), {
+    fireEvent.mouseDown(screen.getByRole("tab", { name: en.personalAssistant.settings.im }), {
       button: 0,
       ctrlKey: false,
     })
     await screen.findByRole("button", { name: en.personalAssistant.im.pair })
-    fireEvent.mouseDown(screen.getByRole("tab", { name: en.personalAssistant.work }), {
+    fireEvent.mouseDown(screen.getByRole("tab", { name: en.personalAssistant.settings.profile }), {
       button: 0,
       ctrlKey: false,
     })
@@ -384,18 +387,18 @@ describe("assistant IM private scope", () => {
     const attempts = fixture.call.mock.calls.length
     changed()
     expect(fixture.call).toHaveBeenCalledTimes(attempts)
-    fireEvent.mouseDown(screen.getByRole("tab", { name: en.personalAssistant.im.title }), {
+    fireEvent.mouseDown(screen.getByRole("tab", { name: en.personalAssistant.settings.im }), {
       button: 0,
       ctrlKey: false,
     })
     await screen.findByRole("button", { name: en.personalAssistant.im.pair })
     rerender(
-      <PersonalAssistantPanel
+      <PersonalAssistantSettings
+        open
+        onOpenChange={vi.fn()}
         visible={false}
         state={state}
         sessions={[work]}
-        onOpenRequest={vi.fn()}
-        onOpenGoal={vi.fn()}
       />,
     )
     expect(screen.queryByRole("button", { name: en.personalAssistant.im.pair })).toBeNull()

@@ -20,10 +20,11 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { cn } from "@/lib/utils"
+import { PersonalAssistantAvatar } from "@/components/personal-assistant/PersonalAssistantAvatar"
+import type { AssistantProfile } from "@/components/personal-assistant/usePersonalAssistant"
 import appLogoUrl from "@/assets/logo.png"
 import {
   MessageSquare,
-  Sparkles,
   Bot,
   Brain,
   CircleHelp,
@@ -83,6 +84,7 @@ interface IconSidebarProps {
   onOpenPersonalAssistant?: () => void
   assistantActive?: boolean
   assistantAttentionCount?: number
+  assistantProfile?: AssistantProfile | null
   onOpenAgents: () => void
   onOpenModelConfig: () => void
   onOpenChannels: () => void
@@ -127,6 +129,7 @@ export default function IconSidebar({
   onOpenPersonalAssistant,
   assistantActive = false,
   assistantAttentionCount = 0,
+  assistantProfile,
   onOpenAgents,
   onOpenModelConfig,
   onOpenChannels,
@@ -216,19 +219,6 @@ export default function IconSidebar({
     badge?: string
     onClick: () => void
   }> = [
-    ...(onOpenPersonalAssistant
-      ? [
-          {
-            id: "personalAssistant",
-            label: t("personalAssistant.title"),
-            icon: Sparkles,
-            menuClass: "[@media(max-height:920px)]:flex",
-            active: assistantActive,
-            badge: assistantAttentionCount > 0 ? String(assistantAttentionCount) : undefined,
-            onClick: onOpenPersonalAssistant,
-          },
-        ]
-      : []),
     {
       id: "agents",
       label: t("settings.agents"),
@@ -325,6 +315,44 @@ export default function IconSidebar({
     <div className="w-[76px] h-full min-h-0 shrink-0 overflow-hidden border-r border-border-soft bg-surface-sidebar flex flex-col items-center">
       {/* Drag region for window movement — covers traffic light area */}
       <div className="w-full pt-10 flex flex-col items-center gap-1" data-tauri-drag-region>
+        {onOpenPersonalAssistant && (
+          <div className="relative shrink-0">
+            <IconTip
+              label={`${assistantProfile?.name || "Hope"} · ${t("personalAssistant.title")}`}
+              side="right"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onOpenPersonalAssistant}
+                aria-label={`${assistantProfile?.name || "Hope"} · ${t("personalAssistant.title")}`}
+                aria-pressed={assistantActive}
+                className={cn(
+                  "rounded-xl h-12 w-[68px] shrink-0 flex-col gap-0.5",
+                  assistantActive
+                    ? "bg-secondary text-foreground hover:bg-secondary"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <PersonalAssistantAvatar avatar={assistantProfile?.avatar} className="h-7 w-7" />
+                <span
+                  aria-hidden="true"
+                  className="block w-full truncate px-1 text-[10px] leading-3"
+                >
+                  {assistantProfile?.name || "Hope"}
+                </span>
+              </Button>
+            </IconTip>
+            {assistantAttentionCount > 0 && (
+              <span
+                className="pointer-events-none absolute right-0 -top-1 rounded-full bg-destructive px-1 text-[10px] text-white"
+                aria-label={t("personalAssistant.attention", { count: assistantAttentionCount })}
+              >
+                {assistantAttentionCount}
+              </span>
+            )}
+          </div>
+        )}
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div className="relative">
@@ -377,41 +405,6 @@ export default function IconSidebar({
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
-        {onOpenPersonalAssistant && (
-          <div className="relative [@media(max-height:920px)]:hidden">
-            <IconTip label={t("personalAssistant.title")} side="right">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onOpenPersonalAssistant}
-                aria-label={t("personalAssistant.title")}
-                aria-pressed={assistantActive}
-                className={cn(
-                  "rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5",
-                  assistantActive
-                    ? "bg-secondary text-foreground hover:bg-secondary"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Sparkles className="h-4 w-4" />
-                <span
-                  aria-hidden="true"
-                  className="block w-full truncate px-1 text-[10px] leading-3"
-                >
-                  {t("personalAssistant.title")}
-                </span>
-              </Button>
-            </IconTip>
-            {assistantAttentionCount > 0 && (
-              <span
-                className="pointer-events-none absolute right-0 -top-1 rounded-full bg-destructive px-1 text-[10px] text-white"
-                aria-label={t("personalAssistant.attention", { count: assistantAttentionCount })}
-              >
-                {assistantAttentionCount}
-              </span>
-            )}
-          </div>
-        )}
         {/* Knowledge Space entry — grouped directly under Conversations */}
         <div className="w-full flex justify-center">
           <ContextMenu>
@@ -787,19 +780,18 @@ export default function IconSidebar({
         </IconTip>
       </div>
 
-      <div className="hidden w-full justify-center mt-0.5 [@media(max-height:920px)]:flex">
+      <div className="hidden w-full justify-center mt-0.5 [@media(max-height:880px)]:flex">
         <div className="relative">
           <IconTip label={t("common.more")} side="right">
             <Button
               variant="ghost"
               size="icon"
-              aria-label={assistantAttentionCount > 0 ? `${t("common.more")} · ${t("personalAssistant.attention", { count: assistantAttentionCount })}` : t("common.more")}
+              aria-label={t("common.more")}
               aria-expanded={showMoreMenu}
               className="rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5 text-muted-foreground hover:text-foreground"
               onClick={() => setShowMoreMenu((open) => !open)}
             >
               <Ellipsis className="h-4 w-4" />
-              {assistantAttentionCount > 0 && <span aria-hidden="true" className="absolute right-0 top-0 rounded-full bg-destructive px-1 text-[10px] text-white">{assistantAttentionCount}</span>}
               <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
                 {t("common.more")}
               </span>
