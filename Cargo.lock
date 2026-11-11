@@ -6736,9 +6736,9 @@ dependencies = [
 
 [[package]]
 name = "pdfium-render"
-version = "0.9.5"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "296b1146652b486ea6eea0d316e85ab6837ff69e8d2b1568e6fa7bc38bd4c00e"
+checksum = "8948a803616a9e936b15a6637af2cd48c5fb8ae0fcdeb3c32eac3a540e255a19"
 dependencies = [
  "bitflags 2.13.1",
  "bytemuck",
@@ -9360,9 +9360,8 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-deep-link"
-version = "2.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab551d9bec27bb79d1c7fe5ed38c5cfd1cebb86efa745acc65f5853f345f6e56"
+version = "2.6.2"
+source = "git+https://github.com/tauri-apps/plugins-workspace?rev=463977675da7bbb257dee59669b5e122c8d681db#463977675da7bbb257dee59669b5e122c8d681db"
 dependencies = [
  "dunce",
  "plist",
@@ -9489,9 +9488,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-single-instance"
-version = "2.5.5"
+version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "726b6da0dd5bd1344f84f4108a622c07d01923baacb5c803a605189672c5352f"
+checksum = "561cd99484561bc39c954768e7b41a66cebbe1ac3d9d081c34361f740c489e2c"
 dependencies = [
  "serde",
  "serde_json",
@@ -11969,7 +11968,3 @@ dependencies = [
  "winnow 1.0.4",
 ]
 
-[[patch.unused]]
-name = "tauri-plugin-deep-link"
-version = "2.6.2"
-source = "git+https://github.com/tauri-apps/plugins-workspace?rev=463977675da7bbb257dee59669b5e122c8d681db#463977675da7bbb257dee59669b5e122c8d681db"

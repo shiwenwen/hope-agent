@@ -52,11 +52,12 @@ MCP 客户端要解决的问题很直接：**外部世界的能力千差万别�
 - **默认不信任**。stdio server 本质是任意二进制、网络 server 的 URL 可能指向内网。所以出站 URL 全程过 SSRF 门、工具调用默认过审批门、子进程只继承白名单环境变量——放宽任何一道都要用户显式声明 `Trusted`。
 - **零 Tauri、一套代码三处跑**。全部业务逻辑在纯 Rust 特征 crate 里，桌面 GUI、HTTP 守护进程、ACP stdio 三种运行模式共用同一条代码路径。
 
-依赖维护：当前锁定 `rmcp 3.7.0`，沿用已有客户端角色与协议协商。Streamable HTTP 仍使用
+依赖维护：当前锁定 `rmcp 3.9.0`，沿用已有客户端角色与协议协商。Streamable HTTP 仍使用
 `BoundedMcpHttpClient` 和应用构造的禁止重定向客户端，stdio / WebSocket 仍使用应用的消息大小限制；
 不因 SDK 默认适配器新增同源重定向或认证能力而替换这些入口。OAuth discovery、凭据写入和刷新
 继续由 `ha-mcp` 自身实现。SDK 对放弃请求的取消通知与连接结束清理只影响已有请求生命周期，
-不增加工具授权或新的服务端执行入口。
+不增加工具授权或新的服务端执行入口。3.9.0 新增的 Skills 扩展未声明或接线，
+不因升级而开放资源目录读取；应用继续使用自己的响应大小限制与 OAuth 流程。
 
 覆盖范围一览：
 
@@ -761,7 +762,7 @@ Dashboard Learning Tab → 选时间窗口 → 按 `ref_id` 前缀 `mcp__` 过�
 
 | 维度 | hope-agent | openclaw | claude-code |
 |---|---|---|---|
-| SDK | `rmcp` 3.5.1（Rust） | `@modelcontextprotocol/sdk`（TS） | 同 openclaw |
+| SDK | `rmcp` 3.9.0（Rust） | `@modelcontextprotocol/sdk`（TS） | 同 openclaw |
 | Transport | stdio / HTTP / SSE / WebSocket（4） | stdio / Streamable HTTP（2） | stdio / SSE / HTTP / WebSocket（4） |
 | 工具命名 | `mcp__<server>__<tool>` | 同 | 同 |
 | Scope 分层 | 全局（项目 / 临时预留） | 单层 | project / user / local（3 层） |
