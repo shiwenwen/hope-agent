@@ -26,13 +26,19 @@ pub async fn events_ws(
     let protocol = crate::middleware::event_ticket_protocol(&headers).filter(|protocol| {
         protocol
             .strip_prefix(crate::middleware::EVENT_TICKET_PROTOCOL_PREFIX)
-            .is_some_and(|ticket| auth.check_access_ticket(ticket, "events"))
+            .is_some_and(|ticket| {
+                auth.check_access_ticket(ticket, "events")
+                    || auth.check_access_ticket(ticket, "owner_events")
+            })
     });
     // Authentication was already checked by middleware. Revalidate after
     // subscribing to changes to close the race where a token rotates between
     // middleware and the WebSocket upgrade.
     if auth.auth_required() && protocol.is_none() && !auth.headers_are_owner_authenticated(&headers)
     {
+        return axum::http::StatusCode::UNAUTHORIZED.into_response();
+    }
+    if !private_event_access_allowed(&ctx.session_db, &auth, &headers, protocol.as_deref()).await {
         return axum::http::StatusCode::UNAUTHORIZED.into_response();
     }
     let ws = match protocol {
@@ -49,6 +55,28 @@ pub async fn events_ws(
 const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// Max consecutive lag events before disconnecting.
 const MAX_LAG_COUNT: u32 = 3;
+
+async fn private_event_access_allowed(
+    db: &Arc<ha_core::session::SessionDB>,
+    auth: &crate::middleware::AuthState,
+    headers: &HeaderMap,
+    protocol: Option<&str>,
+) -> bool {
+    if (auth.auth_required() && auth.headers_are_owner_authenticated(headers))
+        || protocol
+            .and_then(|p| p.strip_prefix(crate::middleware::EVENT_TICKET_PROTOCOL_PREFIX))
+            .is_some_and(|ticket| auth.check_access_ticket(ticket, "owner_events"))
+    {
+        return true;
+    }
+    !db.run(|db| {
+        Ok::<_, anyhow::Error>(
+            db.has_personal_assistant_private_data()? || db.assistant_im_connection()?.is_some(),
+        )
+    })
+    .await
+    .unwrap_or(true)
+}
 
 fn remote_terminal_access_allowed() -> bool {
     ha_core::config::cached_config()
@@ -126,10 +154,13 @@ async fn handle_events_socket(
                 break;
             }
             _ = credential_check.tick() => {
+                if !private_event_access_allowed(&ctx.session_db, &auth, &headers, event_protocol.as_deref()).await {
+                    break;
+                }
                 let ticket_is_valid = event_protocol.as_deref().is_some_and(|protocol| {
                     protocol
                         .strip_prefix(crate::middleware::EVENT_TICKET_PROTOCOL_PREFIX)
-                        .is_some_and(|ticket| auth.check_access_ticket(ticket, "events"))
+                        .is_some_and(|ticket| auth.check_access_ticket(ticket, "events") || auth.check_access_ticket(ticket, "owner_events"))
                 });
                 if auth.auth_required()
                     && !ticket_is_valid
@@ -144,6 +175,9 @@ async fn handle_events_socket(
             result = app_rx.recv() => {
                 match result {
                     Ok(event) => {
+                        if !private_event_access_allowed(&ctx.session_db, &auth, &headers, event_protocol.as_deref()).await {
+                            break;
+                        }
                         app_lag_count = 0;
                         if ha_core::terminal::is_terminal_event_name(&event.name)
                             && !remote_terminal_access_allowed()
@@ -170,6 +204,9 @@ async fn handle_events_socket(
             result = terminal_rx.recv() => {
                 match result {
                     Ok(event) => {
+                        if !private_event_access_allowed(&ctx.session_db, &auth, &headers, event_protocol.as_deref()).await {
+                            break;
+                        }
                         terminal_lag_count = 0;
                         if !remote_terminal_access_allowed() {
                             continue;
@@ -205,4 +242,54 @@ async fn handle_events_socket(
     }
 
     let _ = socket.close().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn dedicated_connection_activity_requires_owner_before_home_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(
+            ha_core::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .unwrap(),
+        );
+        db.save_assistant_im_connection(123, "private_bot", &uuid::Uuid::new_v4().to_string(), 1)
+            .unwrap();
+        assert!(db.has_personal_assistant_private_data().unwrap());
+        let auth = crate::middleware::AuthState::new(None, None, false);
+        assert!(!private_event_access_allowed(&db, &auth, &HeaderMap::new(), None).await);
+    }
+
+    #[tokio::test]
+    async fn private_data_requires_owner_event_authority() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(
+            ha_core::session::SessionDB::open_ephemeral_for_test(&dir.path().join("sessions.db"))
+                .unwrap(),
+        );
+        ha_core::channel::db::ChannelDB::new(db.clone())
+            .migrate()
+            .unwrap();
+        let auth = crate::middleware::AuthState::new(Some("test-owner".into()), None, false);
+        let headers = HeaderMap::new();
+        let ordinary = format!(
+            "{}{}",
+            crate::middleware::EVENT_TICKET_PROTOCOL_PREFIX,
+            auth.create_access_ticket("events", 900).unwrap()
+        );
+        let owner = format!(
+            "{}{}",
+            crate::middleware::EVENT_TICKET_PROTOCOL_PREFIX,
+            auth.create_access_ticket("owner_events", 900).unwrap()
+        );
+        assert!(private_event_access_allowed(&db, &auth, &headers, Some(&ordinary)).await);
+        db.ensure_personal_assistant_home().unwrap();
+        let anonymous = crate::middleware::AuthState::new(None, None, false);
+        assert!(!private_event_access_allowed(&db, &anonymous, &headers, None).await);
+        assert!(!private_event_access_allowed(&db, &auth, &headers, None).await);
+        assert!(!private_event_access_allowed(&db, &auth, &headers, Some(&ordinary)).await);
+        assert!(private_event_access_allowed(&db, &auth, &headers, Some(&owner)).await);
+    }
 }

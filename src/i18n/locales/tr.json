@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Onay başka bir cihazda yanıtlandı"
   },
   "auth": {
+    "ownerTokenSetupBody": "Bu sunucuda özel asistan verileri var. Masaüstü ayarlarında veya sunucu başlangıç yapılandırmasında bir Server Owner Token belirleyin, ardından giriş yapmak için buraya dönün.",
     "checking": "Sunucu güvenliği denetleniyor…",
     "fingerprint": "Sunucu token parmak izi: {{fingerprint}}",
     "retry": "Tekrar dene",
@@ -12910,5 +12911,105 @@
       "degraded": "Kısıtlı",
       "blocked": "Engellendi"
     }
+  },
+  "personalAssistant": {
+    "im": {
+      "identityInUse": "Bu bot zaten iş konuşmalarında kullanılıyor. Asistan için ayrı bir bot oluşturun; mevcut bağlantı değiştirilmedi.",
+      "title": "Telegram bağla",
+      "separateBot": "Asistan için ayrı bir Telegram botu oluşturun ve özel sohbetinizi eşleştirin. Proje sohbetleri için iş botunu kullanın.",
+      "token": "Özel bot belirteci",
+      "connect": "Doğrula ve bağla",
+      "botId": "Bot kimliği",
+      "userId": "Telegram kullanıcı kimliği",
+      "chatId": "Özel sohbet kimliği",
+      "pair": "Eşleştirme kodu oluştur",
+      "codeExpires": "Kodun sona erme zamanı",
+      "restartPairing": "Eşleştirmeyi yeniden başlat",
+      "confirm": "Bu Telegram hesabını doğrula",
+      "unpair": "Özel sohbet eşleştirmesini kaldır",
+      "remove": "Asistan botunu kaldır",
+      "paused": "Proaktif bildirimleri duraklat",
+      "work": "Bu sohbetten erişilebilen işler",
+      "chooseWork": "Sohbet seç",
+      "noWork": "Önce Hope içinde bir iş sohbeti açın veya oluşturun.",
+      "queryStatus": "İş durumunu sor",
+      "delegate": "Yeni iş devret",
+      "stop": "Devredilen işi durdur",
+      "completionNotice": "Tamamlanma bildirimleri al",
+      "expires": "İznin sona erme zamanı",
+      "statusOnly": "Telegram yanıtları iş durumunu gösterir. Kaynak mesajları ve sonuçları incelemek için Hope uygulamasını açın.",
+      "revoke": "Erişimi iptal et",
+      "receipts": "Gönderim kayıtları",
+      "openBot": "Botu Telegram içinde aç",
+      "expired": "Süresi doldu",
+      "noAccess": "Erişim iptal edildi",
+      "state": {
+        "unpaired": "Özel sohbetinizi bu botla eşleştirin.",
+        "awaiting_code": "Eşleştirme komutunu bu botun özel sohbetine gönderin.",
+        "awaiting_confirmation": "Bir özel sohbet kodu gönderdi. Yalnızca bu Telegram kimliğinin size ait olduğunu doğruladıktan sonra onaylayın.",
+        "awaiting_activation": "Botun özel sohbetine dönüp Etkinleştir düğmesine basın. Bundan sonra gönderilen yeni mesajlar kabul edilir.",
+        "active": "Özel sohbetiniz etkinleştirildi. Erişebileceği işleri aşağıdan seçin."
+      },
+      "delivery": {
+        "pending": "Gönderim bekleniyor",
+        "submitting": "Gönderiliyor",
+        "accepted": "Platform kabul etti",
+        "unknown": "Sonuç bilinmiyor",
+        "cancelled": "İptal edildi"
+      },
+      "notificationPolicy": "Proaktif bildirimler: {{start}}–{{end}} arasında sessiz saatler ve yerel gün başına en fazla {{limit}} bildirim. Bu politika mesajlarınıza verilen yanıtları sınırlamaz.",
+      "notificationTimezone": "Sahibin saat dilimi: {{timezone}}",
+      "notificationTimezoneRequired": "Proaktif bildirimler devre dışı. Etkinleştirmek için sahip profilinde geçerli bir IANA saat dilimi ayarlayın.",
+      "deferred": {
+        "timezone_required": "Geçerli bir sahip saat dilimi bekleniyor",
+        "quiet_hours": "Sessiz saatlerin bitmesi bekleniyor",
+        "daily_limit": "Günlük bildirim sınırına ulaşıldı"
+      }
+    },
+    "stop": "İşi durdur",
+    "title": "Kişisel asistan",
+    "work": "Devredilen işler",
+    "goals": "Takip edilen hedefler",
+    "emptyWork": "Asistanınızdan mevcut sohbetlerinizdeki işleri koordine etmesini isteyin.",
+    "emptyGoals": "Yeni engelleri ve kabul isteklerini burada görmek için hedefi çalışma alanından takip edin.",
+    "watchGoal": "Asistanla takip et",
+    "unwatchGoal": "Takibi bırak",
+    "opening": "Asistanınız açılıyor…",
+    "source": "Kaynağı aç",
+    "unavailable": "Bu öğe artık kullanılamıyor.",
+    "attention": "İlgi gerekiyor ({{count}})",
+    "blocked": "Yeni engel",
+    "awaiting_acceptance": "Kabulünüz bekleniyor",
+    "status": {
+      "queued": "Sırada",
+      "running": "Çalışıyor",
+      "cancellation_requested": "Durdurma istendi",
+      "completed": "Tamamlandı",
+      "interrupted": "Kesildi",
+      "cancelled": "İptal edildi",
+      "failed": "Başarısız"
+    },
+    "historyLocked": "Asistan geçmişi yeniden yazılamaz. Bir talimatı düzeltmek için yeni bir mesaj gönderin veya çalışma panelinden bir görevlendirmeyi durdurun.",
+    "items": "İşler",
+    "settings": {
+      "title": "Asistan ayarları",
+      "description": "Asistanınızın profilini ve özel mesajlaşma bağlantısını yönetin.",
+      "profile": "Profil",
+      "im": "Mesajlaşma bağlantısı",
+      "name": "Asistan adı",
+      "nameHint": "1–32 karakter kullanın. Adı değiştirmek konuşmayı ve işleri korur.",
+      "uploadAvatar": "Avatar yükle",
+      "resetAvatar": "Varsayılanı geri yükle",
+      "presetAvatar": "Hazır avatarlar",
+      "presets": {
+        "sparkles": "Parıltı avatarı",
+        "bot": "Robot avatarı",
+        "heart": "Kalp avatarı"
+      },
+      "identityHint": "Bu profil kişisel asistanınıza aittir. Diğer Agents ve kendi profilinizden ayrı saklanır.",
+      "botIdentityHint": "Telegram Bot adı ve avatarı Telegram üzerinden ayrı yönetilir. Buradaki değişiklikler Bot profilini güncellemez."
+    },
+    "welcomeTitle": "Ben {{name}}",
+    "welcomeBody": "Ne yapmak istediğinizi söyleyin. Konuşmayı sürdürmek veya devredilen işleri kontrol etmek için buraya dönebilirsiniz."
   }
 }

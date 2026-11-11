@@ -231,6 +231,7 @@ export interface GoalWatchdogFinding {
 }
 
 export interface GoalStateSnapshot {
+  loadedSessionId?: string | null
   snapshot: GoalSnapshot | null
   activity: AutonomyActivity | null
   watchdogFindings: GoalWatchdogFinding[]
@@ -257,6 +258,7 @@ export function useGoal(
 ): GoalStateSnapshot {
   const { incognito = false, disabled = false } = opts
   const [snapshot, setSnapshot] = useState<GoalSnapshot | null>(null)
+  const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null)
   const [activity, setActivity] = useState<AutonomyActivity | null>(null)
   const [watchdogFindings, setWatchdogFindings] = useState<GoalWatchdogFinding[]>([])
   const [loading, setLoading] = useState(false)
@@ -311,6 +313,7 @@ export function useGoal(
         }
         if (reqRef.current !== req) return
         setSnapshot(next)
+        setLoadedSessionId(sessionId)
         setActivity(nextActivity)
         setWatchdogFindings(Array.isArray(nextFindings) ? nextFindings : [])
         setLoading(false)
@@ -320,6 +323,7 @@ export function useGoal(
         const message = e instanceof Error ? e.message : String(e)
         logger.error("ui", "useGoal", "Failed to load active goal", e)
         setError(message)
+        setLoadedSessionId(sessionId)
         setActivity(null)
         setWatchdogFindings([])
         setLoading(false)
@@ -383,6 +387,7 @@ export function useGoal(
   return useMemo(
     () => ({
       snapshot,
+      loadedSessionId,
       activity,
       watchdogFindings,
       loading,
@@ -390,6 +395,15 @@ export function useGoal(
       refresh: fetchGoal,
       setSnapshot: setSnapshotFromOwner,
     }),
-    [activity, error, fetchGoal, loading, setSnapshotFromOwner, snapshot, watchdogFindings],
+    [
+      activity,
+      error,
+      fetchGoal,
+      loadedSessionId,
+      loading,
+      setSnapshotFromOwner,
+      snapshot,
+      watchdogFindings,
+    ],
   )
 }

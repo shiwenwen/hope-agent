@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Approval handled on another device"
   },
   "auth": {
+    "ownerTokenSetupBody": "This server contains private assistant data. Set a Server Owner Token in the desktop settings or server startup configuration, then return here to sign in.",
     "checking": "Checking server security…",
     "fingerprint": "Server token fingerprint: {{fingerprint}}",
     "retry": "Try again",
@@ -12910,5 +12911,105 @@
       "degraded": "Degraded",
       "blocked": "Blocked"
     }
+  },
+  "personalAssistant": {
+    "im": {
+      "identityInUse": "This bot is already used for work conversations. Create a separate assistant bot; the existing connection has not been changed.",
+      "title": "Connect Telegram",
+      "separateBot": "Create a dedicated Telegram bot for assistant chat, then pair your own private chat. Use your work bot for project conversations.",
+      "token": "Dedicated bot token",
+      "connect": "Verify and connect bot",
+      "botId": "Bot ID",
+      "userId": "Telegram user ID",
+      "chatId": "Private chat ID",
+      "pair": "Generate pairing code",
+      "codeExpires": "Pairing code expires",
+      "restartPairing": "Start pairing again",
+      "confirm": "Confirm this Telegram account",
+      "unpair": "Unpair private chat",
+      "remove": "Remove assistant bot",
+      "paused": "Pause proactive notifications",
+      "work": "Work available from this private chat",
+      "chooseWork": "Choose a conversation",
+      "noWork": "Open or create a work conversation in Hope first.",
+      "queryStatus": "Ask about work status",
+      "delegate": "Delegate new work",
+      "stop": "Stop delegated work",
+      "completionNotice": "Receive completion notices",
+      "expires": "Permission expires",
+      "statusOnly": "Telegram replies show work status. Open Hope to review source messages and results.",
+      "revoke": "Revoke access",
+      "receipts": "Delivery receipts",
+      "openBot": "Open bot in Telegram",
+      "expired": "Expired",
+      "noAccess": "Access revoked",
+      "state": {
+        "unpaired": "Connect your private chat to this bot.",
+        "awaiting_code": "Send the pairing command to this bot in your own private chat.",
+        "awaiting_confirmation": "A private chat submitted the code. Confirm only after checking that this Telegram identity is yours.",
+        "awaiting_activation": "Return to the bot’s private chat and press Enable. Only new messages after that step can be accepted.",
+        "active": "Your private chat is enabled. Choose the work it may access below."
+      },
+      "delivery": {
+        "pending": "Waiting to send",
+        "submitting": "Submitting",
+        "accepted": "Platform accepted",
+        "unknown": "Outcome unknown",
+        "cancelled": "Cancelled"
+      },
+      "notificationPolicy": "Proactive notices: quiet from {{start}} to {{end}}; at most {{limit}} per local day. Replies to your messages are not limited by this policy.",
+      "notificationTimezone": "Owner time zone: {{timezone}}",
+      "notificationTimezoneRequired": "Proactive notices are disabled. Set a valid IANA time zone in your owner profile to enable them.",
+      "deferred": {
+        "timezone_required": "Waiting for a valid owner time zone",
+        "quiet_hours": "Waiting for quiet hours to end",
+        "daily_limit": "Daily notice limit reached"
+      }
+    },
+    "stop": "Stop work",
+    "title": "Personal assistant",
+    "work": "Delegated work",
+    "goals": "Followed goals",
+    "emptyWork": "Ask your assistant to coordinate work in your existing conversations.",
+    "emptyGoals": "Follow a goal from its workspace to receive new blockers and acceptance requests here.",
+    "watchGoal": "Follow in assistant",
+    "unwatchGoal": "Stop following",
+    "opening": "Opening your assistant…",
+    "source": "Open source",
+    "unavailable": "This item is no longer available.",
+    "attention": "Needs attention ({{count}})",
+    "blocked": "New blocker",
+    "awaiting_acceptance": "Awaiting your acceptance",
+    "status": {
+      "queued": "Queued",
+      "running": "Working",
+      "cancellation_requested": "Stop requested",
+      "completed": "Completed",
+      "interrupted": "Interrupted",
+      "cancelled": "Cancelled",
+      "failed": "Failed"
+    },
+    "historyLocked": "Assistant history cannot be rewritten. Send a new message to correct an instruction, or stop a delegation in the work panel.",
+    "items": "Items",
+    "settings": {
+      "title": "Assistant settings",
+      "description": "Manage your assistant’s identity and private IM connection.",
+      "profile": "Profile",
+      "im": "IM connection",
+      "name": "Assistant name",
+      "nameHint": "Use 1–32 characters. Renaming keeps your conversation and work.",
+      "uploadAvatar": "Upload avatar",
+      "resetAvatar": "Restore default",
+      "presetAvatar": "Preset avatars",
+      "presets": {
+        "sparkles": "Sparkles avatar",
+        "bot": "Robot avatar",
+        "heart": "Heart avatar"
+      },
+      "identityHint": "This identity belongs to your personal assistant. It is separate from other Agents and your own profile.",
+      "botIdentityHint": "Telegram manages the Bot name and avatar separately. Changes here do not update the Bot profile."
+    },
+    "welcomeTitle": "I’m {{name}}",
+    "welcomeBody": "Tell me what you’d like to work on. You can return here to continue the conversation or check delegated work."
   }
 }

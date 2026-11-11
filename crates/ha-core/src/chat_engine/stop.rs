@@ -241,6 +241,11 @@ fn prepare_and_pause_session_autonomy_blocking(
     Ok(pause)
 }
 
+#[cfg(test)]
+pub(crate) async fn hold_autonomy_transition_for_test() -> tokio::sync::OwnedMutexGuard<()> {
+    autonomy_transition_lock().lock_owned().await
+}
+
 async fn prepare_and_pause_session_autonomy(
     db: Arc<SessionDB>,
     session_id: String,
@@ -344,7 +349,39 @@ async fn continue_session_inner_for_tier(
     expected_pause_id: &str,
     primary: bool,
 ) -> anyhow::Result<crate::session::SessionAutonomyResumeOutcome> {
+    continue_session_inner_with_assistant(db, session_id, expected_pause_id, primary, None).await
+}
+
+pub(crate) async fn continue_session_from_assistant(
+    db: Arc<SessionDB>,
+    proof: crate::personal_assistant_continue::AssistantContinueProof,
+) -> anyhow::Result<crate::session::SessionAutonomyResumeOutcome> {
+    let target = proof.target_session_id.clone();
+    let pause = proof.pause_id.clone();
+    continue_session_inner_with_assistant(
+        db,
+        &target,
+        &pause,
+        crate::runtime_lock::is_primary(),
+        Some(proof),
+    )
+    .await
+}
+
+async fn continue_session_inner_with_assistant(
+    db: Arc<SessionDB>,
+    session_id: &str,
+    expected_pause_id: &str,
+    primary: bool,
+    assistant: Option<crate::personal_assistant_continue::AssistantContinueProof>,
+) -> anyhow::Result<crate::session::SessionAutonomyResumeOutcome> {
     let transition_guard = autonomy_transition_lock().lock_owned().await;
+    if assistant.as_ref().is_some_and(|proof| {
+        autonomy_stop_pending(&proof.source_session_id)
+            || super::active_turn::stop_cleanup_active(&proof.source_session_id)
+    }) {
+        anyhow::bail!("Owner turn was superseded by Stop");
+    }
     if autonomy_stop_pending(session_id) || super::active_turn::stop_cleanup_active(session_id) {
         anyhow::bail!("Continue was superseded by a newer Stop; the pause fence remains active");
     }
@@ -353,6 +390,11 @@ async fn continue_session_inner_for_tier(
     let outcome = db
         .clone()
         .run(move |db| {
+            if let Some(proof) = &assistant {
+                db.with_conn_internal(|conn| {
+                    crate::personal_assistant_continue::validate_with_conn(conn, proof)
+                })?;
+            }
             let Some(pause) = db.active_session_autonomy_pause(&sid)? else {
                 return Ok(crate::session::SessionAutonomyResumeOutcome::default());
             };
@@ -389,7 +431,7 @@ async fn continue_session_inner_for_tier(
                 }
             }
 
-            if !db.finish_session_autonomy_resume(&pause.id)? {
+            if !db.finish_session_autonomy_resume_with_assistant(&pause.id, assistant.as_ref())? {
                 anyhow::bail!("session pause receipt was consumed concurrently");
             }
             Ok(crate::session::SessionAutonomyResumeOutcome {

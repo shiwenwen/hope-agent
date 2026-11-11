@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Kelulusan dikendalikan pada peranti lain"
   },
   "auth": {
+    "ownerTokenSetupBody": "Pelayan ini mempunyai data pembantu peribadi. Tetapkan Server Owner Token dalam tetapan desktop atau konfigurasi permulaan pelayan, kemudian kembali ke sini untuk log masuk.",
     "checking": "Memeriksa keselamatan pelayan…",
     "fingerprint": "Cap jari token pelayan: {{fingerprint}}",
     "retry": "Cuba lagi",
@@ -12910,5 +12911,105 @@
       "degraded": "Terhad",
       "blocked": "Disekat"
     }
+  },
+  "personalAssistant": {
+    "im": {
+      "identityInUse": "Bot ini sudah digunakan untuk perbualan kerja. Cipta bot berasingan untuk pembantu; sambungan sedia ada tidak berubah.",
+      "title": "Sambungkan Telegram",
+      "separateBot": "Sediakan bot Telegram khusus untuk pembantu dan padankan sembang peribadi anda. Gunakan bot kerja untuk perbualan projek.",
+      "token": "Token bot khusus",
+      "connect": "Sahkan dan sambungkan",
+      "botId": "ID bot",
+      "userId": "ID pengguna Telegram",
+      "chatId": "ID sembang peribadi",
+      "pair": "Jana kod padanan",
+      "codeExpires": "Kod tamat tempoh",
+      "restartPairing": "Mulakan padanan semula",
+      "confirm": "Sahkan akaun Telegram ini",
+      "unpair": "Nyahpaut sembang peribadi",
+      "remove": "Alih keluar bot pembantu",
+      "paused": "Jeda pemberitahuan proaktif",
+      "work": "Kerja tersedia dari sembang ini",
+      "chooseWork": "Pilih perbualan",
+      "noWork": "Buka atau cipta perbualan kerja dalam Hope dahulu.",
+      "queryStatus": "Tanya status kerja",
+      "delegate": "Wakilkan kerja baharu",
+      "stop": "Hentikan kerja diwakilkan",
+      "completionNotice": "Terima notis selesai",
+      "expires": "Kebenaran tamat tempoh",
+      "statusOnly": "Balasan Telegram menunjukkan status kerja. Buka Hope untuk menyemak mesej sumber dan hasil.",
+      "revoke": "Tarik balik akses",
+      "receipts": "Resit penghantaran",
+      "openBot": "Buka bot dalam Telegram",
+      "expired": "Tamat tempoh",
+      "noAccess": "Akses ditarik balik",
+      "state": {
+        "unpaired": "Padankan sembang peribadi anda dengan bot ini.",
+        "awaiting_code": "Hantar arahan padanan kepada bot ini dalam sembang peribadi anda.",
+        "awaiting_confirmation": "Satu sembang peribadi menghantar kod. Sahkan hanya selepas memastikan identiti Telegram ini milik anda.",
+        "awaiting_activation": "Kembali ke sembang peribadi bot dan tekan Aktifkan. Hanya mesej baharu selepas langkah ini diterima.",
+        "active": "Sembang peribadi telah diaktifkan. Pilih kerja yang boleh diakses di bawah."
+      },
+      "delivery": {
+        "pending": "Menunggu penghantaran",
+        "submitting": "Sedang menghantar",
+        "accepted": "Diterima platform",
+        "unknown": "Hasil tidak diketahui",
+        "cancelled": "Dibatalkan"
+      },
+      "notificationPolicy": "Notis proaktif: waktu senyap dari {{start}} hingga {{end}}, maksimum {{limit}} sehari mengikut waktu tempatan. Dasar ini tidak mengehadkan balasan kepada mesej anda.",
+      "notificationTimezone": "Zon waktu pemilik: {{timezone}}",
+      "notificationTimezoneRequired": "Notis proaktif dinyahdayakan. Tetapkan zon waktu IANA yang sah dalam profil pemilik untuk mendayakannya.",
+      "deferred": {
+        "timezone_required": "Menunggu zon waktu pemilik yang sah",
+        "quiet_hours": "Menunggu waktu senyap tamat",
+        "daily_limit": "Had notis harian telah dicapai"
+      }
+    },
+    "stop": "Hentikan kerja",
+    "title": "Pembantu peribadi",
+    "work": "Tugas diwakilkan",
+    "goals": "Matlamat diikuti",
+    "emptyWork": "Minta pembantu menyelaraskan kerja dalam perbualan sedia ada.",
+    "emptyGoals": "Ikuti matlamat dari ruang kerjanya untuk menerima halangan baharu dan permintaan penerimaan di sini.",
+    "watchGoal": "Ikuti melalui pembantu",
+    "unwatchGoal": "Berhenti mengikuti",
+    "opening": "Membuka pembantu anda…",
+    "source": "Buka sumber",
+    "unavailable": "Item ini tidak lagi tersedia.",
+    "attention": "Memerlukan perhatian ({{count}})",
+    "blocked": "Halangan baharu",
+    "awaiting_acceptance": "Menunggu penerimaan anda",
+    "status": {
+      "queued": "Dalam giliran",
+      "running": "Sedang bekerja",
+      "cancellation_requested": "Henti diminta",
+      "completed": "Selesai",
+      "interrupted": "Terganggu",
+      "cancelled": "Dibatalkan",
+      "failed": "Gagal"
+    },
+    "historyLocked": "Sejarah pembantu tidak boleh ditulis semula. Hantar mesej baharu untuk membetulkan arahan atau hentikan tugasan yang diwakilkan dalam panel kerja.",
+    "items": "Urusan",
+    "settings": {
+      "title": "Tetapan pembantu",
+      "description": "Urus profil pembantu dan sambungan pemesejan peribadinya.",
+      "profile": "Profil",
+      "im": "Sambungan pemesejan",
+      "name": "Nama pembantu",
+      "nameHint": "Gunakan 1–32 aksara. Menukar nama mengekalkan perbualan dan tugasan.",
+      "uploadAvatar": "Muat naik avatar",
+      "resetAvatar": "Pulihkan lalai",
+      "presetAvatar": "Avatar tersedia",
+      "presets": {
+        "sparkles": "Avatar kilauan",
+        "bot": "Avatar robot",
+        "heart": "Avatar hati"
+      },
+      "identityHint": "Profil ini milik pembantu peribadi anda. Ia disimpan berasingan daripada Agent lain dan profil anda sendiri.",
+      "botIdentityHint": "Nama dan avatar Telegram Bot diurus secara berasingan di Telegram. Perubahan di sini tidak mengemas kini profil Bot."
+    },
+    "welcomeTitle": "Saya {{name}}",
+    "welcomeBody": "Beritahu saya perkara yang anda mahu lakukan. Anda boleh kembali untuk menyambung perbualan atau menyemak tugasan yang diberikan."
   }
 }

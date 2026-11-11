@@ -172,6 +172,11 @@ pub fn build_tool_media_items_attachments_meta(media_items: &Value) -> Option<St
 pub enum SessionKind {
     #[default]
     Regular,
+    /// The owner-only persistent assistant home. Cross-session and IM access
+    /// require personal-assistant admission, independently of display kind.
+    PersonalAssistant,
+    /// Restricted context owned by one paired IM authority generation.
+    PersonalAssistantIm,
     Side,
     Knowledge,
     /// A design-space per-project chat thread — persisted (history survives)
@@ -186,6 +191,8 @@ impl SessionKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             SessionKind::Regular => "regular",
+            SessionKind::PersonalAssistant => "personal_assistant",
+            SessionKind::PersonalAssistantIm => "personal_assistant_im",
             SessionKind::Side => "side",
             SessionKind::Knowledge => "knowledge",
             SessionKind::Design => "design",
@@ -197,6 +204,8 @@ impl SessionKind {
     /// falls back to `Regular` so old rows / forward-compat writes are safe.
     pub fn from_db_string(s: &str) -> Self {
         match s {
+            "personal_assistant" => SessionKind::PersonalAssistant,
+            "personal_assistant_im" => SessionKind::PersonalAssistantIm,
             "side" => SessionKind::Side,
             "knowledge" => SessionKind::Knowledge,
             "design" => SessionKind::Design,

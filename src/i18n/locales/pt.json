@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Aprovação tratada em outro dispositivo"
   },
   "auth": {
+    "ownerTokenSetupBody": "Este servidor contém dados privados do assistente. Defina um Server Owner Token nas configurações do aplicativo ou de inicialização do servidor e volte aqui para entrar.",
     "checking": "Verificando a segurança do servidor…",
     "fingerprint": "Impressão digital do token: {{fingerprint}}",
     "retry": "Tentar novamente",
@@ -12910,5 +12911,105 @@
       "degraded": "Degradado",
       "blocked": "Bloqueado"
     }
+  },
+  "personalAssistant": {
+    "im": {
+      "identityInUse": "Este bot já é usado em conversas de trabalho. Crie outro para o assistente; a conexão existente não foi alterada.",
+      "title": "Conectar Telegram",
+      "separateBot": "Configure um bot do Telegram exclusivo para o assistente e vincule seu chat privado. Use o bot de trabalho para conversas de projetos.",
+      "token": "Token do bot exclusivo",
+      "connect": "Verificar e conectar",
+      "botId": "ID do bot",
+      "userId": "ID do usuário no Telegram",
+      "chatId": "ID do chat privado",
+      "pair": "Gerar código de vinculação",
+      "codeExpires": "Validade do código",
+      "restartPairing": "Reiniciar vinculação",
+      "confirm": "Confirmar esta conta do Telegram",
+      "unpair": "Desvincular chat privado",
+      "remove": "Remover bot do assistente",
+      "paused": "Pausar notificações proativas",
+      "work": "Trabalho disponível neste chat",
+      "chooseWork": "Escolher conversa",
+      "noWork": "Primeiro abra ou crie uma conversa de trabalho no Hope.",
+      "queryStatus": "Consultar status do trabalho",
+      "delegate": "Delegar novo trabalho",
+      "stop": "Parar trabalho delegado",
+      "completionNotice": "Receber avisos de conclusão",
+      "expires": "Validade da permissão",
+      "statusOnly": "As respostas no Telegram mostram o status do trabalho. Abra o Hope para revisar mensagens de origem e resultados.",
+      "revoke": "Revogar acesso",
+      "receipts": "Confirmações de envio",
+      "openBot": "Abrir bot no Telegram",
+      "expired": "Expirado",
+      "noAccess": "Acesso revogado",
+      "state": {
+        "unpaired": "Vincule seu chat privado a este bot.",
+        "awaiting_code": "Envie o comando de vinculação para este bot no seu chat privado.",
+        "awaiting_confirmation": "Um chat privado enviou o código. Confirme somente após verificar que esta identidade do Telegram é sua.",
+        "awaiting_activation": "Volte ao chat privado do bot e toque em Ativar. Serão aceitas as novas mensagens enviadas depois disso.",
+        "active": "Seu chat privado está ativo. Escolha abaixo os trabalhos aos quais ele pode acessar."
+      },
+      "delivery": {
+        "pending": "Aguardando envio",
+        "submitting": "Enviando",
+        "accepted": "Aceito pela plataforma",
+        "unknown": "Resultado desconhecido",
+        "cancelled": "Cancelado"
+      },
+      "notificationPolicy": "Avisos proativos: silêncio das {{start}} às {{end}}, no máximo {{limit}} por dia local. Esta política não limita as respostas às suas mensagens.",
+      "notificationTimezone": "Fuso horário do proprietário: {{timezone}}",
+      "notificationTimezoneRequired": "Os avisos proativos estão desativados. Defina um fuso horário IANA válido no perfil do proprietário para ativá-los.",
+      "deferred": {
+        "timezone_required": "Aguardando um fuso horário válido do proprietário",
+        "quiet_hours": "Aguardando o fim do horário de silêncio",
+        "daily_limit": "Limite diário de avisos atingido"
+      }
+    },
+    "stop": "Parar trabalho",
+    "title": "Assistente pessoal",
+    "work": "Trabalho delegado",
+    "goals": "Objetivos acompanhados",
+    "emptyWork": "Peça ao assistente para coordenar o trabalho nas suas conversas existentes.",
+    "emptyGoals": "Acompanhe um objetivo no espaço de trabalho para receber novos bloqueios e pedidos de aceitação aqui.",
+    "watchGoal": "Acompanhar no assistente",
+    "unwatchGoal": "Parar de acompanhar",
+    "opening": "Abrindo seu assistente…",
+    "source": "Abrir origem",
+    "unavailable": "Este item não está mais disponível.",
+    "attention": "Precisam de atenção ({{count}})",
+    "blocked": "Novo bloqueio",
+    "awaiting_acceptance": "Aguardando sua aceitação",
+    "status": {
+      "queued": "Na fila",
+      "running": "Em andamento",
+      "cancellation_requested": "Parada solicitada",
+      "completed": "Concluído",
+      "interrupted": "Interrompido",
+      "cancelled": "Cancelado",
+      "failed": "Falhou"
+    },
+    "historyLocked": "O histórico do assistente não pode ser reescrito. Envie uma nova mensagem para corrigir uma instrução ou pare uma delegação no painel de trabalho.",
+    "items": "Pendências",
+    "settings": {
+      "title": "Configurações do assistente",
+      "description": "Gerencie o perfil do assistente e sua conexão privada de mensagens.",
+      "profile": "Perfil",
+      "im": "Conexão de mensagens",
+      "name": "Nome do assistente",
+      "nameHint": "Use de 1 a 32 caracteres. Renomear mantém a conversa e as tarefas.",
+      "uploadAvatar": "Enviar avatar",
+      "resetAvatar": "Restaurar padrão",
+      "presetAvatar": "Avatares predefinidos",
+      "presets": {
+        "sparkles": "Avatar de brilho",
+        "bot": "Avatar de robô",
+        "heart": "Avatar de coração"
+      },
+      "identityHint": "Este perfil pertence ao assistente pessoal e fica separado dos outros Agents e do seu próprio perfil.",
+      "botIdentityHint": "O Telegram gerencia o nome e o avatar do Bot separadamente. As alterações aqui não atualizam o perfil do Bot."
+    },
+    "welcomeTitle": "Sou {{name}}",
+    "welcomeBody": "Conte o que deseja fazer. Você pode voltar para continuar a conversa ou acompanhar o trabalho delegado."
   }
 }

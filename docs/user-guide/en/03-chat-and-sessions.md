@@ -13,6 +13,7 @@ This chapter covers everyday use: how to use the chat interface, how to send ima
 - [3.7 Session working directory](#37-session-working-directory)
 - [3.8 Context compaction for long conversations](#38-context-compaction-for-long-conversations)
 - [3.9 Slash command reference](#39-slash-command-reference)
+- [3.10 Personal assistant](#310-personal-assistant)
 
 ---
 
@@ -311,6 +312,34 @@ Type `/` in the chat input box or in any IM channel to trigger a slash command. 
 > For more differences in how IM-related commands behave, see [10 · IM Channels](10-im-channels.md).
 
 ---
+
+## 3.10 Personal assistant
+
+Open the assistant’s pinned avatar at the top of the sidebar to return to the same ongoing conversation. Ask it to find existing work conversations, check their progress, or delegate separate tasks. Toggle **Items** to see delegated work and followed goals in a right panel on wide windows or a dialog on smaller windows. Open a source conversation to take over or cancel a single delegation.
+
+Click the avatar in the conversation header or **Assistant settings**, then use **Profile** to set a name, upload and crop an avatar, choose a preset, or restore the default. The default name is Hope, and custom names contain 1–32 characters. Saving updates the entry tooltip, header, and greeting without replacing the home conversation, clearing history, or changing delegated work and permissions. This identity is separate from other Agents and your own profile.
+
+Assistant history cannot be edited and resent, so delegation instructions remain linked to their receipts. Send a new message to correct an instruction, or stop the relevant delegation in the work panel.
+
+For paused work, explicitly ask the personal assistant to continue the named conversation. It resumes only the goals, workflows, and other work captured by the Stop receipt available to this turn. A later Stop requires a new instruction. Interrupted ordinary tasks are not automatically rerun; inspect existing progress before delegating a follow-up.
+
+Use **Follow with personal assistant** in a Goal panel to establish a baseline. New blockers and pending acceptance appear in the assistant. Reading an item or unfollowing a Goal does not change its outcome.
+
+The first implementation delegates to local regular work conversations. Conversations that receive private work retain a private marker and cannot be attached to ordinary work IM. Web access requires a configured server owner token and a signed-in owner.
+
+### Contact the assistant through a dedicated Telegram bot
+
+When using a standalone server, update both the desktop and server to the same version. Open **Assistant settings → IM connection**, enter the token of a bot created for the assistant, and manage pairing, conversation permissions, and notifications there. Telegram manages the Bot name and avatar separately; changing the assistant’s HA profile does not update its Telegram profile. Existing work bots continue to serve project conversations. One bot cannot serve both purposes.
+
+1. Generate a pairing code and send the displayed pairing command to the bot in your own Telegram private chat.
+2. Return to Hope, verify the candidate user and private chat IDs, confirm, then wait for the activation message in Telegram and press its button.
+3. Select each work conversation, allow status queries, and optionally enable delegation, stopping delegated work, and completion notices. Set an expiry date. To receive proactive notices, also turn off **Pause notifications**.
+
+Proactive completion notices use the valid timezone in your profile, stay quiet from 22:00 to 08:00, and are limited to two attempts per local day. Without a valid timezone they remain in HA, and the notification panel explains the deferral. Replies to your current questions are unaffected. Notices are not sent after their permission expires or after 24 hours.
+
+Once paired, ask about authorized work or delegate a follow-up through Telegram. Completion notices cover requests delegated through this bot. This first version shows status there; open Hope to read source messages and result contents. Handle tool approvals and questions in Hope too. Group messages, forwarded content, and commands accumulated before activation are not executed. Platform messages older than five minutes are not accepted as new commands either.
+
+You can pause proactive notices, revoke one conversation's permissions, or remove the pairing. Changing permissions may cancel previously queued commands or replies; send a new command if needed. Replacing the connection or pairing again requires fresh grants. **Accepted by platform** means Telegram returned a message ID. For **Unknown**, check the private chat first: Hope does not automatically resend an uncertain delivery.
 
 ## Next steps
 
