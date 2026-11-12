@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Runcrate 服务商模板**：新增 Runcrate 预设（OpenAI Chat 兼容），内置 DeepSeek V4.1 Flash、GLM 5.3、gpt-oss 120B 等开源模型。
+
 ### Fixed
 
 - 更新 MCP 与基础依赖，保留响应大小限制和深链兼容补丁，避免引入未经桌面与 PDF 动态库验证的更新。 (#912)
