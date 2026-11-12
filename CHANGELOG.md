@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Hope 个人助手**：默认聚焦简洁对话，将模型、权限、事项和工作台改为按需展开，并保留待处理事项、停止及工作台操作入口。 (#916)
+
 ### Fixed
 
 - 更新 MCP 与基础依赖，保留响应大小限制和深链兼容补丁，避免引入未经桌面与 PDF 动态库验证的更新。 (#912)
