@@ -2004,6 +2004,17 @@ describe("assistant composer presentation", () => {
     expect(screen.queryByRole("button", { name: /chat.permissionMode.default.label/ })).toBeNull()
   })
 
+  test("reveals permission controls when the keyboard shortcut changes the mode", () => {
+    const { props } = renderChatInput({ presentation: "assistant" })
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", shiftKey: true })
+    expect(props.onPermissionModeChange).toHaveBeenCalledWith("smart")
+    expect(screen.getByRole("button", { name: "chat.composerOptions" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    )
+    expect(screen.getByRole("button", { name: /chat.permissionMode.default.label/ })).toBeVisible()
+  })
+
   test("leaves Send and Stop reachable while options are closed", () => {
     const { props } = renderChatInput({
       presentation: "assistant",

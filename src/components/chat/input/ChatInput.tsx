@@ -1404,6 +1404,7 @@ export default function ChatInput({
     if (e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault()
       onPermissionModeChange(getNextPermissionMode(permissionMode))
+      if (assistantPresentation) setComposerOptionsOpen(true)
       return
     }
     const sendsWithEnter = enterToSend.ready && enterToSend.enabled && !e.shiftKey
