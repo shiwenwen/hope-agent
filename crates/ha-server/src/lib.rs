@@ -2325,6 +2325,69 @@ fn build_router_with_cors(
             post(routes::execution_mode::set_workflow_mode),
         )
         .route(
+            "/personal-assistant/profile",
+            get(routes::personal_assistant::get_personal_assistant_profile)
+                .put(routes::personal_assistant::update_personal_assistant_profile),
+        )
+        .route(
+            "/personal-assistant/home",
+            post(routes::personal_assistant::ensure_personal_assistant_home),
+        )
+        .route(
+            "/personal-assistant/im/status",
+            get(routes::personal_assistant_im::personal_assistant_im_status),
+        )
+        .route(
+            "/personal-assistant/im/connection",
+            post(routes::personal_assistant_im::personal_assistant_im_configure)
+                .delete(routes::personal_assistant_im::personal_assistant_im_remove_connection),
+        )
+        .route(
+            "/personal-assistant/im/pairing/code",
+            post(routes::personal_assistant_im::personal_assistant_im_begin_pairing),
+        )
+        .route(
+            "/personal-assistant/im/pairing/confirm",
+            post(routes::personal_assistant_im::personal_assistant_im_confirm_pairing),
+        )
+        .route(
+            "/personal-assistant/im/pairing",
+            axum::routing::delete(
+                routes::personal_assistant_im::personal_assistant_im_revoke_pairing,
+            ),
+        )
+        .route(
+            "/personal-assistant/im/grants",
+            post(routes::personal_assistant_im::personal_assistant_im_set_grant),
+        )
+        .route(
+            "/personal-assistant/im/grants/{sessionId}",
+            axum::routing::delete(
+                routes::personal_assistant_im::personal_assistant_im_revoke_grant,
+            ),
+        )
+        .route(
+            "/personal-assistant/im/notifications",
+            post(routes::personal_assistant_im::personal_assistant_im_set_notifications_paused),
+        )
+        .route(
+            "/personal-assistant/requests",
+            get(routes::personal_assistant::list_personal_assistant_requests),
+        )
+        .route(
+            "/personal-assistant/requests/{id}/cancel",
+            post(routes::personal_assistant::cancel_personal_assistant_request),
+        )
+        .route(
+            "/personal-assistant/watches",
+            get(routes::personal_assistant::personal_assistant_inbox),
+        )
+        .route(
+            "/personal-assistant/watches/{sid}/{gid}",
+            post(routes::personal_assistant::watch_personal_goal)
+                .delete(routes::personal_assistant::unwatch_personal_goal),
+        )
+        .route(
             "/sessions/{sid}/goal",
             get(routes::goal::get_active_goal).post(routes::goal::create_goal),
         )

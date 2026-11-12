@@ -30,9 +30,9 @@ dependencies = [
 
 [[package]]
 name = "aes"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35f0f96ce78e38c3dc6d8948aa8163d06385be74000f3c7a95bf1eef35d3ea32"
+checksum = "fc0fc36d7440d015b45468ba08a21e80e056ebbd014c611c6298bb7503e04bd1"
 dependencies = [
  "cipher 0.5.2",
  "cpubits",
@@ -2491,9 +2491,9 @@ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 
 [[package]]
 name = "flate2"
-version = "1.1.10"
+version = "1.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e634e2e0ebac1ee034020da1ca582e17ffe4e0f5e985823721e168928136dcb"
+checksum = "626d4928326b646e70f65ed36fc7cf9f206bdb68a0019ee7c6b4709da4e084c4"
 dependencies = [
  "crc32fast",
  "miniz_oxide 0.9.1",
@@ -3120,7 +3120,7 @@ dependencies = [
 
 [[package]]
 name = "ha-acp"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3140,7 +3140,7 @@ dependencies = [
 
 [[package]]
 name = "ha-agent-loop"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -3149,7 +3149,7 @@ dependencies = [
 
 [[package]]
 name = "ha-agent-runtime"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3168,7 +3168,7 @@ dependencies = [
 
 [[package]]
 name = "ha-base"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3199,7 +3199,7 @@ dependencies = [
 
 [[package]]
 name = "ha-browser"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3232,7 +3232,7 @@ dependencies = [
 
 [[package]]
 name = "ha-browser-host"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
@@ -3243,9 +3243,9 @@ dependencies = [
 
 [[package]]
 name = "ha-channel"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
- "aes 0.9.3",
+ "aes 0.9.4",
  "anyhow",
  "async-trait",
  "axum",
@@ -3289,7 +3289,7 @@ dependencies = [
 
 [[package]]
 name = "ha-config-schema"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3303,9 +3303,9 @@ dependencies = [
 
 [[package]]
 name = "ha-core"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
- "aes 0.9.3",
+ "aes 0.9.4",
  "anyhow",
  "arboard",
  "arc-swap",
@@ -3385,7 +3385,7 @@ dependencies = [
 
 [[package]]
 name = "ha-cron"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3402,7 +3402,7 @@ dependencies = [
 
 [[package]]
 name = "ha-dash"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3421,7 +3421,7 @@ dependencies = [
 
 [[package]]
 name = "ha-design"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3464,7 +3464,7 @@ dependencies = [
 
 [[package]]
 name = "ha-eval"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3506,7 +3506,7 @@ dependencies = [
 
 [[package]]
 name = "ha-eval-runtime"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3545,7 +3545,7 @@ dependencies = [
 
 [[package]]
 name = "ha-goal"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3559,7 +3559,7 @@ dependencies = [
 
 [[package]]
 name = "ha-improve"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3578,7 +3578,7 @@ dependencies = [
 
 [[package]]
 name = "ha-knowledge"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3613,7 +3613,7 @@ dependencies = [
 
 [[package]]
 name = "ha-local-llm"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3638,7 +3638,7 @@ dependencies = [
 
 [[package]]
 name = "ha-mac"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3655,7 +3655,7 @@ dependencies = [
 
 [[package]]
 name = "ha-mcp"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3683,7 +3683,7 @@ dependencies = [
 
 [[package]]
 name = "ha-media"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3713,7 +3713,7 @@ dependencies = [
 
 [[package]]
 name = "ha-memory"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3737,7 +3737,7 @@ dependencies = [
 
 [[package]]
 name = "ha-pet"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3761,7 +3761,7 @@ dependencies = [
 
 [[package]]
 name = "ha-server"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3808,7 +3808,7 @@ dependencies = [
 
 [[package]]
 name = "ha-skills"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3831,7 +3831,7 @@ dependencies = [
 
 [[package]]
 name = "ha-updater"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3857,7 +3857,7 @@ dependencies = [
 
 [[package]]
 name = "ha-vcs"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3881,7 +3881,7 @@ dependencies = [
 
 [[package]]
 name = "ha-weather"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "ha-base",
@@ -3895,7 +3895,7 @@ dependencies = [
 
 [[package]]
 name = "ha-workflow"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4011,7 +4011,7 @@ checksum = "b0b3ba31f6dc772cc8221ce81dbbbd64fa1e668255a6737d95eeace59b5a8823"
 
 [[package]]
 name = "hope-agent"
-version = "0.72.0"
+version = "0.74.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -5098,9 +5098,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.34"
+version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "loop9"
@@ -6164,9 +6164,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.81"
+version = "0.10.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77823a27f0babb03091cb9ed9ef80af3b39dbc82f97e8fa530374b7dafd87a45"
+checksum = "4de8111e94a56adca7ebfe6c365b6d42f99deb69b74b6becacd4204e2f193aa2"
 dependencies = [
  "bitflags 2.13.1",
  "cfg-if",
@@ -6204,9 +6204,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.117"
+version = "0.9.118"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b47e7e6bb2c38cd930d25a23b40fa52e068c10e85f3e03a7f5ba5aaca5713695"
+checksum = "19c413d6ec9ebaf5e1c829d355cb3e9f783778d700f135be0921d52fce3c60ae"
 dependencies = [
  "cc",
  "libc",
@@ -7923,9 +7923,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "3.8.0"
+version = "3.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f"
+checksum = "d24a7e92f4bcaa36b97fa93c4fa7ca8f3e669eced949345b3462dba333c7f909"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -7943,6 +7943,7 @@ dependencies = [
  "rmcp-macros",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "sse-stream",
  "thiserror 2.0.19",
  "tokio",
@@ -7954,9 +7955,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp-macros"
-version = "3.8.0"
+version = "3.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b0748e054a5f5598b3213cf72099ae6b2745ba4d996c59ccf455150a7dbb839"
+checksum = "b3140f24a766f80f9ec1607bde85680959a69b83d46fa9ce87dadab7e67ab029"
 dependencies = [
  "darling 0.24.1",
  "proc-macro2",
@@ -10448,9 +10449,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.29.0"
+version = "1.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
+checksum = "4a06f08a856b009bc7bbaf7d3e79808595d032dd19074c0c2ef26e49e03e6bdc"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -11853,9 +11854,9 @@ dependencies = [
 
 [[package]]
 name = "zlib-rs"
-version = "0.6.6"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b142a20ec14a91d5bc708c1dc21b080c550113d8aa77afa29635673a65dd02c5"
+checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
 
 [[package]]
 name = "zmij"
@@ -11966,3 +11967,4 @@ dependencies = [
  "syn 2.0.119",
  "winnow 1.0.4",
 ]
+

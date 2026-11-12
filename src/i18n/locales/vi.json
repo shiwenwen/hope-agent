@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Phê duyệt đã được xử lý trên thiết bị khác"
   },
   "auth": {
+    "ownerTokenSetupBody": "Máy chủ này có dữ liệu trợ lý riêng tư. Đặt Server Owner Token trong cài đặt ứng dụng máy tính hoặc cấu hình khởi động máy chủ, rồi quay lại đây để đăng nhập.",
     "checking": "Đang kiểm tra bảo mật máy chủ…",
     "fingerprint": "Dấu vân tay token máy chủ: {{fingerprint}}",
     "retry": "Thử lại",
@@ -12914,5 +12915,105 @@
       "degraded": "Hạn chế",
       "blocked": "Bị chặn"
     }
+  },
+  "personalAssistant": {
+    "im": {
+      "identityInUse": "Bot này đã được dùng cho hội thoại công việc. Hãy tạo bot riêng cho trợ lý; kết nối hiện tại không thay đổi.",
+      "title": "Kết nối Telegram",
+      "separateBot": "Thiết lập bot Telegram riêng cho trợ lý rồi ghép đôi cuộc trò chuyện riêng của bạn. Dùng bot công việc cho các cuộc trò chuyện dự án.",
+      "token": "Token bot riêng",
+      "connect": "Xác minh và kết nối",
+      "botId": "ID bot",
+      "userId": "ID người dùng Telegram",
+      "chatId": "ID trò chuyện riêng",
+      "pair": "Tạo mã ghép đôi",
+      "codeExpires": "Mã ghép đôi hết hạn",
+      "restartPairing": "Bắt đầu ghép đôi lại",
+      "confirm": "Xác nhận tài khoản Telegram này",
+      "unpair": "Hủy ghép đôi trò chuyện riêng",
+      "remove": "Xóa bot trợ lý",
+      "paused": "Tạm dừng thông báo chủ động",
+      "work": "Công việc khả dụng từ cuộc trò chuyện này",
+      "chooseWork": "Chọn cuộc trò chuyện",
+      "noWork": "Trước tiên hãy mở hoặc tạo cuộc trò chuyện công việc trong Hope.",
+      "queryStatus": "Hỏi trạng thái công việc",
+      "delegate": "Giao công việc mới",
+      "stop": "Dừng công việc được giao",
+      "completionNotice": "Nhận thông báo hoàn tất",
+      "expires": "Quyền hết hạn",
+      "statusOnly": "Phản hồi Telegram hiển thị trạng thái công việc. Mở Hope để xem tin nhắn nguồn và kết quả.",
+      "revoke": "Thu hồi quyền",
+      "receipts": "Xác nhận gửi",
+      "openBot": "Mở bot trong Telegram",
+      "expired": "Đã hết hạn",
+      "noAccess": "Đã thu hồi quyền",
+      "state": {
+        "unpaired": "Ghép đôi cuộc trò chuyện riêng của bạn với bot này.",
+        "awaiting_code": "Gửi lệnh ghép đôi cho bot này trong cuộc trò chuyện riêng của bạn.",
+        "awaiting_confirmation": "Một cuộc trò chuyện riêng đã gửi mã. Chỉ xác nhận sau khi kiểm tra danh tính Telegram này là của bạn.",
+        "awaiting_activation": "Quay lại trò chuyện riêng của bot và nhấn Bật. Chỉ tin nhắn mới gửi sau bước đó được tiếp nhận.",
+        "active": "Trò chuyện riêng đã bật. Chọn công việc được phép truy cập bên dưới."
+      },
+      "delivery": {
+        "pending": "Đang chờ gửi",
+        "submitting": "Đang gửi",
+        "accepted": "Nền tảng đã tiếp nhận",
+        "unknown": "Chưa rõ kết quả",
+        "cancelled": "Đã hủy"
+      },
+      "notificationPolicy": "Thông báo chủ động: giờ yên lặng từ {{start}} đến {{end}}, tối đa {{limit}} thông báo mỗi ngày theo giờ địa phương. Chính sách này không giới hạn phản hồi tin nhắn của bạn.",
+      "notificationTimezone": "Múi giờ của chủ sở hữu: {{timezone}}",
+      "notificationTimezoneRequired": "Thông báo chủ động đang tắt. Hãy đặt múi giờ IANA hợp lệ trong hồ sơ chủ sở hữu để bật thông báo.",
+      "deferred": {
+        "timezone_required": "Đang chờ múi giờ hợp lệ của chủ sở hữu",
+        "quiet_hours": "Đang chờ hết giờ yên lặng",
+        "daily_limit": "Đã đạt giới hạn thông báo hằng ngày"
+      }
+    },
+    "stop": "Dừng công việc",
+    "title": "Trợ lý cá nhân",
+    "work": "Công việc được giao",
+    "goals": "Mục tiêu theo dõi",
+    "emptyWork": "Nhờ trợ lý điều phối công việc trong các cuộc trò chuyện hiện có.",
+    "emptyGoals": "Theo dõi mục tiêu từ không gian làm việc để nhận trở ngại mới và yêu cầu nghiệm thu tại đây.",
+    "watchGoal": "Theo dõi bằng trợ lý",
+    "unwatchGoal": "Ngừng theo dõi",
+    "opening": "Đang mở trợ lý…",
+    "source": "Mở nguồn",
+    "unavailable": "Mục này không còn khả dụng.",
+    "attention": "Cần xử lý ({{count}})",
+    "blocked": "Trở ngại mới",
+    "awaiting_acceptance": "Đang chờ bạn nghiệm thu",
+    "status": {
+      "queued": "Đang xếp hàng",
+      "running": "Đang xử lý",
+      "cancellation_requested": "Đã yêu cầu dừng",
+      "completed": "Hoàn tất",
+      "interrupted": "Bị gián đoạn",
+      "cancelled": "Đã hủy",
+      "failed": "Thất bại"
+    },
+    "historyLocked": "Không thể viết lại lịch sử của trợ lý. Hãy gửi tin nhắn mới để sửa chỉ dẫn hoặc dừng một công việc đã giao trong bảng công việc.",
+    "items": "Công việc",
+    "settings": {
+      "title": "Cài đặt trợ lý",
+      "description": "Quản lý hồ sơ trợ lý và kết nối nhắn tin riêng.",
+      "profile": "Hồ sơ",
+      "im": "Kết nối nhắn tin",
+      "name": "Tên trợ lý",
+      "nameHint": "Dùng từ 1–32 ký tự. Đổi tên vẫn giữ cuộc trò chuyện và các công việc đã giao.",
+      "uploadAvatar": "Tải ảnh đại diện",
+      "resetAvatar": "Khôi phục mặc định",
+      "presetAvatar": "Ảnh đại diện có sẵn",
+      "presets": {
+        "sparkles": "Ảnh đại diện lấp lánh",
+        "bot": "Ảnh đại diện rô-bốt",
+        "heart": "Ảnh đại diện trái tim"
+      },
+      "identityHint": "Đây là hồ sơ riêng của trợ lý cá nhân, được lưu tách biệt với các Agent khác và hồ sơ của bạn.",
+      "botIdentityHint": "Tên và ảnh đại diện của Telegram Bot được quản lý riêng trên Telegram. Thay đổi ở đây không cập nhật hồ sơ Bot."
+    },
+    "welcomeTitle": "Tôi là {{name}}",
+    "welcomeBody": "Hãy cho tôi biết bạn muốn làm gì. Bạn có thể quay lại để tiếp tục trò chuyện hoặc xem tiến độ công việc đã giao."
   }
 }

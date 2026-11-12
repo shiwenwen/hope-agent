@@ -158,6 +158,8 @@ impl std::fmt::Debug for SessionDbHandle {
 /// [`crate::tools::pending_approvals_per_session`] for the canonical pattern).
 #[derive(Debug, Clone, Default)]
 pub struct ToolExecContext {
+    /// Kernel-selected schema and execution ceiling.
+    pub tool_scope: Option<super::ToolScope>,
     /// Model context window in tokens (for dynamic output truncation)
     pub context_window_tokens: Option<u32>,
     /// Estimated tokens currently used by system prompt + messages + max_output.
@@ -534,6 +536,9 @@ impl ToolExecContext {
 
     /// Whether the tool is visible under the current combined restrictions.
     pub fn is_tool_visible(&self, name: &str) -> bool {
+        if self.tool_scope.is_some_and(|scope| !scope.allows(name)) {
+            return false;
+        }
         super::tool_visible_with_filters(
             name,
             &self.agent_tool_filter,

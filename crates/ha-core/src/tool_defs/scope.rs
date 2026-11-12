@@ -104,6 +104,8 @@ pub fn is_design_scope_tool(name: &str) -> bool {
 pub enum ToolScope {
     Knowledge,
     Design,
+    /// Sealed, owner-paired IM view. Never widens platform authority.
+    PersonalAssistantIm,
 }
 
 impl ToolScope {
@@ -122,6 +124,14 @@ impl ToolScope {
         match self {
             ToolScope::Knowledge => is_knowledge_scope_tool(name),
             ToolScope::Design => is_design_scope_tool(name),
+            ToolScope::PersonalAssistantIm => matches!(
+                name,
+                TOOL_SESSIONS_LIST
+                    | TOOL_SESSION_STATUS
+                    | TOOL_SESSIONS_SEND
+                    | TOOL_RUNTIME_CANCEL
+                    | TOOL_TOOL_SEARCH
+            ),
         }
     }
 }

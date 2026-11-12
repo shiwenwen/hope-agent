@@ -164,6 +164,7 @@
     "resolvedElsewhere": "审批已由其他端处理"
   },
   "auth": {
+    "ownerTokenSetupBody": "此服务已保存私人助手数据。请从桌面设置或服务启动配置中设置 Server Owner Token，再回到这里登录。",
     "checking": "正在检查服务器安全状态…",
     "fingerprint": "服务器 Token 指纹：{{fingerprint}}",
     "retry": "重试",
@@ -12914,5 +12915,105 @@
       "degraded": "降级",
       "blocked": "受阻"
     }
+  },
+  "personalAssistant": {
+    "im": {
+      "identityInUse": "这个机器人已用于工作会话。请为个人助手新建一个机器人，现有连接没有改变。",
+      "title": "连接 Telegram",
+      "separateBot": "为个人助手配置专用 Telegram 机器人，并配对本人的私聊。项目工作对话使用工作机器人。",
+      "token": "专用机器人令牌",
+      "connect": "核对身份并连接",
+      "botId": "机器人 ID",
+      "userId": "Telegram 用户 ID",
+      "chatId": "本人私聊 ID",
+      "pair": "生成配对码",
+      "codeExpires": "配对码到期时间",
+      "restartPairing": "重新开始配对",
+      "confirm": "确认此 Telegram 账号",
+      "unpair": "解除本人私聊配对",
+      "remove": "移除助手机器人",
+      "paused": "暂停主动通知",
+      "work": "此私聊可以操作的工作",
+      "chooseWork": "选择工作对话",
+      "noWork": "请先在 Hope 打开或创建工作对话。",
+      "queryStatus": "查询工作状态",
+      "delegate": "交办新工作",
+      "stop": "停止交办工作",
+      "completionNotice": "接收完成提醒",
+      "expires": "权限到期时间",
+      "statusOnly": "Telegram 回复展示工作状态。来源消息与结果可在 Hope 查看。",
+      "revoke": "撤回权限",
+      "receipts": "投递回执",
+      "openBot": "在 Telegram 打开机器人",
+      "expired": "已到期",
+      "noAccess": "权限已撤回",
+      "state": {
+        "unpaired": "请连接此机器人的本人私聊。",
+        "awaiting_code": "请在此机器人的本人私聊中发送配对命令。",
+        "awaiting_confirmation": "有个私聊提交了配对码。请核对这个 Telegram 身份确实属于你，再确认。",
+        "awaiting_activation": "请回到此机器人的私聊中点「启用」。此后新发的消息才会受理。",
+        "active": "本人私聊已启用，请在下方选择允许操作的工作。"
+      },
+      "delivery": {
+        "pending": "等待发送",
+        "submitting": "正在提交",
+        "accepted": "平台已接收",
+        "unknown": "结果未知",
+        "cancelled": "已取消"
+      },
+      "notificationPolicy": "主动通知：{{start}}–{{end}} 勿扰，每个当地日最多 {{limit}} 条。此策略不限制对你消息的即时回复。",
+      "notificationTimezone": "主人时区：{{timezone}}",
+      "notificationTimezoneRequired": "主动通知已关闭。请在主人资料中设置有效的 IANA 时区后启用。",
+      "deferred": {
+        "timezone_required": "等待有效的主人时区",
+        "quiet_hours": "等待勿扰时段结束",
+        "daily_limit": "已达到每日通知上限"
+      }
+    },
+    "stop": "停止工作",
+    "title": "个人助手",
+    "work": "交办工作",
+    "goals": "关注的目标",
+    "emptyWork": "在这里交办，让已有工作对话分别推进。",
+    "emptyGoals": "在工作区关注目标后，这里会提示新的阻塞和待验收事项。",
+    "watchGoal": "让助手关注",
+    "unwatchGoal": "停止关注",
+    "opening": "正在打开个人助手…",
+    "source": "打开来源",
+    "unavailable": "此事项已不可用。",
+    "attention": "待处理（{{count}}）",
+    "blocked": "新的阻塞",
+    "awaiting_acceptance": "等待你验收",
+    "status": {
+      "queued": "排队中",
+      "running": "办理中",
+      "cancellation_requested": "已请求停止",
+      "completed": "已完成",
+      "interrupted": "已中断",
+      "cancelled": "已取消",
+      "failed": "失败"
+    },
+    "historyLocked": "助手历史不支持编辑重发。请发送新消息更正指令，或在工作面板停止单项交办。",
+    "items": "事项",
+    "settings": {
+      "title": "助手设置",
+      "description": "管理个人助手的资料与专属 IM 连接。",
+      "profile": "助手资料",
+      "im": "IM 连接",
+      "name": "助手名字",
+      "nameHint": "填写 1–32 个字符。改名后保留原对话和交办事项。",
+      "uploadAvatar": "上传头像",
+      "resetAvatar": "恢复默认",
+      "presetAvatar": "预设头像",
+      "presets": {
+        "sparkles": "星光头像",
+        "bot": "机器人头像",
+        "heart": "爱心头像"
+      },
+      "identityHint": "这是个人助手的独立资料，与其他 Agent 和你的个人资料分开保存。",
+      "botIdentityHint": "Telegram Bot 的名字和头像由平台单独管理，这里的修改不会同步到 Bot 资料。"
+    },
+    "welcomeTitle": "我是{{name}}",
+    "welcomeBody": "告诉我你想做什么。你可以随时回来继续对话，或查看交办工作的进展。"
   }
 }

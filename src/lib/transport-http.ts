@@ -1005,6 +1005,53 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Goals --
   get_active_goal: { method: "GET", path: "/api/sessions/{sessionId}/goal" },
+  ensure_personal_assistant_home: { method: "POST", path: "/api/personal-assistant/home" },
+  get_personal_assistant_profile: { method: "GET", path: "/api/personal-assistant/profile" },
+  update_personal_assistant_profile: { method: "PUT", path: "/api/personal-assistant/profile" },
+  list_personal_assistant_requests: { method: "GET", path: "/api/personal-assistant/requests" },
+  cancel_personal_assistant_request: {
+    method: "POST",
+    path: "/api/personal-assistant/requests/{id}/cancel",
+  },
+  personal_assistant_inbox: { method: "GET", path: "/api/personal-assistant/watches" },
+  personal_assistant_im_status: { method: "GET", path: "/api/personal-assistant/im/status" },
+  personal_assistant_im_configure: {
+    method: "POST",
+    path: "/api/personal-assistant/im/connection",
+  },
+  personal_assistant_im_begin_pairing: {
+    method: "POST",
+    path: "/api/personal-assistant/im/pairing/code",
+  },
+  personal_assistant_im_confirm_pairing: {
+    method: "POST",
+    path: "/api/personal-assistant/im/pairing/confirm",
+  },
+  personal_assistant_im_set_grant: { method: "POST", path: "/api/personal-assistant/im/grants" },
+  personal_assistant_im_revoke_grant: {
+    method: "DELETE",
+    path: "/api/personal-assistant/im/grants/{sessionId}",
+  },
+  personal_assistant_im_revoke_pairing: {
+    method: "DELETE",
+    path: "/api/personal-assistant/im/pairing",
+  },
+  personal_assistant_im_remove_connection: {
+    method: "DELETE",
+    path: "/api/personal-assistant/im/connection",
+  },
+  personal_assistant_im_set_notifications_paused: {
+    method: "POST",
+    path: "/api/personal-assistant/im/notifications",
+  },
+  watch_personal_goal: {
+    method: "POST",
+    path: "/api/personal-assistant/watches/{sessionId}/{goalId}",
+  },
+  unwatch_personal_goal: {
+    method: "DELETE",
+    path: "/api/personal-assistant/watches/{sessionId}/{goalId}",
+  },
   get_autonomy_activity: { method: "GET", path: "/api/sessions/{sessionId}/activity" },
   list_goal_watchdog_findings: { method: "GET", path: "/api/sessions/{sessionId}/goal/watchdog" },
   create_goal: { method: "POST", path: "/api/sessions/{sessionId}/goal" },
@@ -2095,7 +2142,11 @@ function normalizeHttpCommandArgs(
       ? (request as Record<string, unknown>)
       : args
   }
-  if (command === "add_provider" || command === "test_provider" || command === "discover_provider_models") {
+  if (
+    command === "add_provider" ||
+    command === "test_provider" ||
+    command === "discover_provider_models"
+  ) {
     return providerConfigFromArgs(args) ?? args
   }
   if (command === "update_provider") {

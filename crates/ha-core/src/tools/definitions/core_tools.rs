@@ -107,7 +107,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_RUNTIME_CANCEL.into(),
-            description: "Cancel a session async job, subagent, or process. `requested` is not termination; check `finalStatus` or status. Unknown targets return `refused`. This is cancellation, not pause; use `manage_cron` for schedules.".into(),
+            description: "Cancel an owned async job, subagent, process, or assistant_request. `requested` is not termination; check `finalStatus`. Unknown IDs return `refused`. Cancellation, not pause; schedules use `manage_cron`.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -117,8 +117,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "kind": {
                         "type": "string",
-                        "enum": ["async_job", "subagent", "process"],
-                        "description": "Runtime kind: async_job, subagent, or process."
+                        "enum": ["async_job", "subagent", "process", "assistant_request"],
+                        "description": "assistant_request requires an authorized live personal-assistant turn."
                     },
                     "id": {
                         "type": "string",
@@ -131,7 +131,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_SESSION_CONTINUE.into(),
-            description: "Resume the current conversation only when the user explicitly asks. Use the exact `pause_id` from `<session-paused>`; stale ids fail; do not call for status or replanning.".into(),
+            description: "When user explicitly asks: resume current conversation with system pause_id. Owner home may set session_id from this turn's status pauseId; do not call for status.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -140,6 +140,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "type": "object",
                 "properties": {
                     "pause_id": {
+                        "type": "string"
+                    },
+                    "session_id": {
                         "type": "string"
                     }
                 },
@@ -2684,6 +2687,7 @@ mod tests {
         assert!(kinds.iter().any(|kind| kind == "async_job"));
         assert!(kinds.iter().any(|kind| kind == "subagent"));
         assert!(kinds.iter().any(|kind| kind == "process"));
+        assert!(kinds.iter().any(|kind| kind == "assistant_request"));
         assert!(!kinds.iter().any(|kind| kind == "cron"));
         for contract in ["not termination", "`refused`", "not pause"] {
             assert!(runtime_cancel.description.contains(contract), "{contract}");

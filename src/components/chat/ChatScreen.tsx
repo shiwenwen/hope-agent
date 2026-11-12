@@ -1,5 +1,17 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
+import { PersonalAssistantPanel } from "@/components/personal-assistant/PersonalAssistantPanel"
+import { PersonalAssistantHeader } from "@/components/personal-assistant/PersonalAssistantHeader"
+import { PersonalAssistantSettings } from "@/components/personal-assistant/PersonalAssistantSettings"
+import { PersonalAssistantWelcome } from "@/components/personal-assistant/PersonalAssistantWelcome"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import {
+  usePersonalAssistant,
+  requestNeedsResponse,
+  type AssistantRequest,
+  type AssistantWatch,
+  type AssistantProfile,
+} from "@/components/personal-assistant/usePersonalAssistant"
 import { getTransport, useTransport } from "@/lib/transport-provider"
 import { parsePayload, TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 import { isMacControlToolFrameForSession } from "@/hooks/useMacControlFrame"
@@ -257,6 +269,11 @@ type IncognitoLeaveIntent =
   | { type: "newProjectChat"; projectId: string; defaultAgentId?: string | null }
 
 interface ChatScreenProps {
+  assistantNavigation?: { mode: "assistant" | "regular"; nonce: number } | null
+  onAssistantStateChange?: (active: boolean) => void
+  onAssistantAttentionChange?: (count: number) => void
+  onAssistantProfileChange?: (profile: AssistantProfile | null) => void
+  onAssistantNavigated?: (nonce: number) => void
   /** Chat stays mounted across App views; only a selected view can read messages. */
   isViewVisible: boolean
   onOpenAgentSettings?: (agentId: string) => void
@@ -636,6 +653,11 @@ function upsertManualCompactNotice(
 }
 
 export default function ChatScreen({
+  assistantNavigation,
+  onAssistantStateChange,
+  onAssistantAttentionChange,
+  onAssistantProfileChange,
+  onAssistantNavigated,
   isViewVisible,
   onOpenAgentSettings,
   onCodexReauth,
@@ -661,6 +683,17 @@ export default function ChatScreen({
 }: ChatScreenProps) {
   const { t } = useTranslation()
   const transport = useTransport()
+  const assistant = usePersonalAssistant()
+  const [assistantSettingsOpen, setAssistantSettingsOpen] = useState(false)
+  const [assistantItemsExpanded, setAssistantItemsExpanded] = useState(true)
+  const [assistantItemsMobileOpen, setAssistantItemsMobileOpen] = useState(false)
+  const assistantWide = useViewportMediaQuery("(min-width: 1100px)")
+  useEffect(() => {
+    onAssistantProfileChange?.(assistant.profile)
+  }, [assistant.profile, onAssistantProfileChange])
+  const [assistantOpening, setAssistantOpening] = useState(false)
+  const assistantNavigationRef = useRef<number | null>(null)
+  const previousRegularSessionRef = useRef<string | null>(null)
   const [messageTailVisible, setMessageTailVisible] = useState(true)
   const surfaceReadable = useReadableSurface(isViewVisible)
   const transcriptSurfaceReadable = surfaceReadable && messageTailVisible
@@ -928,11 +961,25 @@ export default function ChatScreen({
     [session.sessions, session.currentSessionId],
   )
   const isCodexImported = currentSessionMeta?.origin?.kind === "codex"
+  const isPersonalAssistant = currentSessionMeta?.kind === "personal_assistant"
+  useEffect(() => {
+    onAssistantStateChange?.(isPersonalAssistant)
+    if (currentSessionMeta && !isPersonalAssistant)
+      previousRegularSessionRef.current = currentSessionMeta.id
+  }, [currentSessionMeta, isPersonalAssistant, onAssistantStateChange])
+  useEffect(() => {
+    onAssistantAttentionChange?.(
+      assistant.watches.filter((watch) => watch.needsAttention).length +
+        assistant.requests.filter(requestNeedsResponse).length,
+    )
+  }, [assistant.watches, assistant.requests, onAssistantAttentionChange])
   const [sideChats, setSideChats] = useState<SessionMeta[]>([])
   const [sideChatStateSourceId, setSideChatStateSourceId] = useState<string | null>(null)
   const [activeSideChatId, setActiveSideChatId] = useState<string | null>(null)
   const [sideChatPanelOpen, setSideChatPanelOpen] = useState(false)
-  const [sideChatReadReceipt, setSideChatReadReceipt] = useState<EmbeddedChatReadReceipt | null>(null)
+  const [sideChatReadReceipt, setSideChatReadReceipt] = useState<EmbeddedChatReadReceipt | null>(
+    null,
+  )
   const [sideChatCreatingSourceId, setSideChatCreatingSourceId] = useState<string | null>(null)
   const [sideChatSeed, setSideChatSeed] = useState<SideChatSeed | null>(null)
   const sideChatFileQuoteHandlerRef = useRef<((quote: PendingFileQuote) => void) | null>(null)
@@ -975,7 +1022,9 @@ export default function ChatScreen({
     visibleSideChatPanelOpen ? visibleActiveSideChatId : null,
   )
   const backgroundJobs =
-    visibleSideChatPanelOpen && visibleActiveSideChatId ? sideChatBackgroundJobs : mainBackgroundJobs
+    visibleSideChatPanelOpen && visibleActiveSideChatId
+      ? sideChatBackgroundJobs
+      : mainBackgroundJobs
   const sideChatSubagentRuns = useSubagentRuns(
     visibleSideChatPanelOpen ? visibleActiveSideChatId : null,
   )
@@ -3970,6 +4019,65 @@ export default function ChatScreen({
     setPendingControlFocus(null)
   }, [openWorkspacePanel, pendingControlFocus, planMode, session.currentSessionId])
 
+  useEffect(() => {
+    if (!assistantNavigation || assistantNavigationRef.current === assistantNavigation.nonce) return
+    assistantNavigationRef.current = assistantNavigation.nonce
+    let disposed = false
+    const sourceId = session.currentSessionIdRef.current
+    setAssistantOpening(true)
+    void (async () => {
+      try {
+        if (assistantNavigation.mode === "regular") {
+          if (previousRegularSessionRef.current)
+            await handleSwitchSession(previousRegularSessionRef.current)
+          else await handleStartNewChat(session.currentAgentId)
+          return
+        }
+        const home = await assistant.open()
+        if (disposed || !home || session.currentSessionIdRef.current !== sourceId) return
+        await handleSwitchSession(home.id)
+      } catch (error) {
+        if (!disposed) toast.error(String(error))
+      } finally {
+        if (!disposed) setAssistantOpening(false)
+        onAssistantNavigated?.(assistantNavigation.nonce)
+      }
+    })()
+    return () => {
+      disposed = true
+    }
+    // The nonce is a navigation command. Session changes must not replay it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assistantNavigation])
+
+  const openAssistantRequest = async (request: AssistantRequest) => {
+    const sourceId = session.currentSessionIdRef.current
+    const latest = await transport.call<AssistantRequest[]>("list_personal_assistant_requests")
+    if (transport !== getTransport() || session.currentSessionIdRef.current !== sourceId) return
+    const current = latest.find(
+      (row) => row.id === request.id && row.targetSessionId === request.targetSessionId,
+    )
+    if (!current) throw new Error(t("personalAssistant.unavailable"))
+    await handleSwitchSession(current.targetSessionId, {
+      targetMessageId: current.resultMessageId ?? undefined,
+    })
+  }
+  const openAssistantGoal = async (watch: AssistantWatch) => {
+    const sourceId = session.currentSessionIdRef.current
+    const latest = await transport.call<AssistantWatch[]>("personal_assistant_inbox")
+    if (transport !== getTransport() || session.currentSessionIdRef.current !== sourceId) return
+    if (!latest.some((row) => row.sessionId === watch.sessionId && row.goalId === watch.goalId))
+      throw new Error(t("personalAssistant.unavailable"))
+    const result = await handleSwitchSession(watch.sessionId)
+    if (result === "switched")
+      setPendingControlFocus({
+        sessionId: watch.sessionId,
+        kind: "goal",
+        itemId: watch.goalId,
+        nonce: Date.now(),
+      })
+  }
+
   const handleWorkspaceFocusRequestHandled = useCallback((nonce: number) => {
     setWorkspaceFocusRequest((current) => (current?.nonce === nonce ? null : current))
   }, [])
@@ -4361,7 +4469,8 @@ export default function ChatScreen({
     const unlisten = getTransport().listen("mac_control:frame", (raw) => {
       if (macControlPanelDismissedRef.current) return
       const payload = parsePayload<MacControlFrameOpenHint>(raw)
-      if (!payload || !isMacControlToolFrameForSession(payload, activeConversationSurfaceSessionId)) return
+      if (!payload || !isMacControlToolFrameForSession(payload, activeConversationSurfaceSessionId))
+        return
       setShowMacControlPanel(true)
     })
     return () => {
@@ -4937,54 +5046,68 @@ export default function ChatScreen({
   const heroComposerActive =
     emptySessionInputHero && !isCronSession && !isSubagentSession && !isCodexImported
 
+  if (isPersonalAssistant && !assistant.authorized) {
+    return (
+      <div className="min-w-0 flex-1">
+        <PersonalAssistantPanel
+          state={assistant}
+          onOpenRequest={openAssistantRequest}
+          onOpenGoal={openAssistantGoal}
+        />
+      </div>
+    )
+  }
+
   return (
     <>
       {/* Sidebar */}
-      <ChatSidebar
-        sessions={session.sessions}
-        agents={session.agents}
-        projects={projects}
-        projectsLoading={projectsInitialLoading}
-        currentSessionId={session.currentSessionId}
-        readableSessionId={activeSessionReadable ? session.currentSessionId : null}
-        loadingSessionIds={session.loadingSessionIds}
-        sessionsLoading={session.sessionsLoading}
-        totalUnreadCount={session.totalUnreadCount}
-        panelWidth={panelWidth}
-        renderedWidth={sidebarSqueezedWidth}
-        sidebarCollapsed={sidebarCollapsed}
-        onPanelWidthChange={setPanelWidth}
-        onSidebarCollapsedChange={handleSidebarCollapsedChange}
-        onSwitchSession={handleSwitchSession}
-        onNewChat={handleStartNewChat}
-        onImportComplete={async () => {
-          await session.refreshImportedSessions()
-          await reloadSessions()
-        }}
-        onArchiveSession={session.handleArchiveSession}
-        onEditAgent={onOpenAgentSettings}
-        onToggleSessionPinned={session.handleToggleSessionPinned}
-        onReorderAgents={session.handleReorderAgents}
-        onMarkAllRead={refreshUnreadState}
-        onRenameSession={handleRenameSession}
-        onOpenProjectSettings={openProjectOverview}
-        onAddProject={openCreateProject}
-        onNewChatInProject={(projectId) => {
-          // Enter a project draft (lazy creation). Agent resolution, draft reset
-          // and incognito-off (project + incognito are mutually exclusive) all
-          // live in handleNewChatInProject.
-          void handleNewChatInProject(projectId)
-        }}
-        onArchiveProject={(projectId, archived) => {
-          void archiveProject(projectId, archived)
-        }}
-        onReorderProjects={(projectIds) => {
-          void reorderProjects(projectIds)
-        }}
-        onMoveSessionToProject={handleMoveSessionToProject}
-        searchFocusSignal={globalSearchFocusSignal}
-        unreadFocusSignal={unreadFocusSignal}
-      />
+      {!isPersonalAssistant && (
+        <ChatSidebar
+          sessions={session.sessions.filter((row) => row.kind !== "personal_assistant")}
+          agents={session.agents}
+          projects={projects}
+          projectsLoading={projectsInitialLoading}
+          currentSessionId={session.currentSessionId}
+          readableSessionId={activeSessionReadable ? session.currentSessionId : null}
+          loadingSessionIds={session.loadingSessionIds}
+          sessionsLoading={session.sessionsLoading}
+          totalUnreadCount={session.totalUnreadCount}
+          panelWidth={panelWidth}
+          renderedWidth={sidebarSqueezedWidth}
+          sidebarCollapsed={sidebarCollapsed}
+          onPanelWidthChange={setPanelWidth}
+          onSidebarCollapsedChange={handleSidebarCollapsedChange}
+          onSwitchSession={handleSwitchSession}
+          onNewChat={handleStartNewChat}
+          onImportComplete={async () => {
+            await session.refreshImportedSessions()
+            await reloadSessions()
+          }}
+          onArchiveSession={session.handleArchiveSession}
+          onEditAgent={onOpenAgentSettings}
+          onToggleSessionPinned={session.handleToggleSessionPinned}
+          onReorderAgents={session.handleReorderAgents}
+          onMarkAllRead={refreshUnreadState}
+          onRenameSession={handleRenameSession}
+          onOpenProjectSettings={openProjectOverview}
+          onAddProject={openCreateProject}
+          onNewChatInProject={(projectId) => {
+            // Enter a project draft (lazy creation). Agent resolution, draft reset
+            // and incognito-off (project + incognito are mutually exclusive) all
+            // live in handleNewChatInProject.
+            void handleNewChatInProject(projectId)
+          }}
+          onArchiveProject={(projectId, archived) => {
+            void archiveProject(projectId, archived)
+          }}
+          onReorderProjects={(projectIds) => {
+            void reorderProjects(projectIds)
+          }}
+          onMoveSessionToProject={handleMoveSessionToProject}
+          searchFocusSignal={globalSearchFocusSignal}
+          unreadFocusSignal={unreadFocusSignal}
+        />
+      )}
 
       {/* Project create/edit dialog */}
       <ProjectDialog
@@ -5144,60 +5267,102 @@ export default function ChatScreen({
               onResizingChange={setWorkbenchResizing}
             />
           )}
-          <ChatTitleBar
-            agentName={session.agentName}
-            currentAgentId={session.currentAgentId}
-            currentSessionId={session.currentSessionId}
-            sessions={session.sessions}
-            messages={session.messages}
-            contextUsageOverride={contextUsage}
-            activeModel={activeModel}
-            availableModels={availableModels}
-            reasoningEffort={reasoningEffort}
-            loading={session.loading}
-            compacting={compacting}
-            onCompactContext={isCodexImported ? undefined : runCompactContextForCurrentSession}
-            onRenameSession={handleRenameSession}
-            onViewSystemPrompt={loadSystemPrompt}
-            systemPromptLoading={systemPromptLoading}
-            onCommandAction={handleCommandAction}
-            onOpenSearch={openSessionSearch}
-            onScheduleSession={canScheduleCurrentSession ? openScheduleSession : undefined}
-            searchOpen={searchBarOpen}
-            effectiveWorkingDir={effectiveWorkingDir}
-            workingDirSource={workingDirSource}
-            project={currentProject}
-            onOpenProjectSettings={openProjectOverview}
-            onOpenHandover={(sid) => setHandoverSessionId(sid)}
-            agents={session.agents}
-            onChangeAgent={handleChangeAgent}
-            sidebarCollapsed={sidebarCollapsed}
-            onExpandSidebar={() => handleSidebarCollapsedChange(false)}
-            incognitoEnabled={incognitoEnabled}
-            incognitoDisabledReason={incognitoDisabledReason}
-            onIncognitoChange={handleIncognitoChange}
-            workbenchWidth={rightPanelWidth}
-            workbenchLayoutMode={workbenchLayoutMode}
-            workbenchTabs={workbenchTabs}
-            workbenchLaunchItems={titleBarRightPanels}
-            activeWorkbenchTabId={activeWorkbenchTabId}
-            workbenchCollapsed={rightPanelCollapsed}
-            workbenchDocked={hasOpenExclusiveRightPanel}
-            workbenchResizing={workbenchResizing}
-            workbenchMaximized={workbenchMaximized}
-            onSelectWorkbenchTab={handleSelectWorkbenchTab}
-            onOpenWorkbenchPanel={handleOpenWorkbenchPanel}
-            onCloseWorkbenchTab={handleCloseWorkbenchTab}
-            onReorderWorkbenchTabs={handleReorderWorkbenchTabs}
-            onToggleWorkbenchTabWindow={handleToggleWorkbenchTabWindow}
-            onToggleWorkbenchMaximize={handleToggleWorkbenchMaximize}
-            onCollapseWorkbench={handleCollapseWorkbench}
-            onExpandWorkbench={handleExpandWorkbench}
-            onStatusOpenChange={setEnvironmentPopoverOpen}
-            onOpenWorkspace={openWorkspacePanel}
-            terminalOpen={terminalOpen}
-            onToggleTerminal={() => setTerminalOpen((value) => !value)}
-          />
+          {isPersonalAssistant ? (
+            <PersonalAssistantHeader
+              profile={assistant.profile}
+              attentionCount={
+                assistant.watches.filter((watch) => watch.needsAttention).length +
+                assistant.requests.filter(requestNeedsResponse).length
+              }
+              itemsOpen={
+                assistantWide ? assistantItemsExpanded && !workbenchOpen : assistantItemsMobileOpen
+              }
+              onOpenSettings={() => setAssistantSettingsOpen(true)}
+              onToggleItems={() => {
+                if (assistantWide) {
+                  if (workbenchOpen) {
+                    handleCollapseWorkbench()
+                    setAssistantItemsExpanded(true)
+                  } else setAssistantItemsExpanded((value) => !value)
+                } else setAssistantItemsMobileOpen((value) => !value)
+              }}
+              onSearch={openSessionSearch}
+              workbench={{
+                width: rightPanelWidth,
+                layoutMode: workbenchLayoutMode,
+                tabs: workbenchTabs,
+                launchItems: titleBarRightPanels,
+                activeId: activeWorkbenchTabId,
+                collapsed: rightPanelCollapsed,
+                docked: hasOpenExclusiveRightPanel,
+                resizing: workbenchResizing,
+                maximized: workbenchMaximized,
+                onSelect: handleSelectWorkbenchTab,
+                onOpen: handleOpenWorkbenchPanel,
+                onCloseTab: handleCloseWorkbenchTab,
+                onReorder: handleReorderWorkbenchTabs,
+                onToggleTabWindow: handleToggleWorkbenchTabWindow,
+                onToggleMaximize: handleToggleWorkbenchMaximize,
+                onCloseWorkbench: handleCollapseWorkbench,
+                onExpand: handleExpandWorkbench,
+              }}
+            />
+          ) : (
+            <ChatTitleBar
+              agentName={session.agentName}
+              currentAgentId={session.currentAgentId}
+              currentSessionId={session.currentSessionId}
+              sessions={session.sessions}
+              messages={session.messages}
+              contextUsageOverride={contextUsage}
+              activeModel={activeModel}
+              availableModels={availableModels}
+              reasoningEffort={reasoningEffort}
+              loading={session.loading}
+              compacting={compacting}
+              onCompactContext={isCodexImported ? undefined : runCompactContextForCurrentSession}
+              onRenameSession={handleRenameSession}
+              onViewSystemPrompt={loadSystemPrompt}
+              systemPromptLoading={systemPromptLoading}
+              onCommandAction={handleCommandAction}
+              onOpenSearch={openSessionSearch}
+              onScheduleSession={canScheduleCurrentSession ? openScheduleSession : undefined}
+              searchOpen={searchBarOpen}
+              effectiveWorkingDir={effectiveWorkingDir}
+              workingDirSource={workingDirSource}
+              project={currentProject}
+              onOpenProjectSettings={openProjectOverview}
+              onOpenHandover={(sid) => setHandoverSessionId(sid)}
+              agents={session.agents}
+              onChangeAgent={handleChangeAgent}
+              sidebarCollapsed={sidebarCollapsed}
+              onExpandSidebar={() => handleSidebarCollapsedChange(false)}
+              incognitoEnabled={incognitoEnabled}
+              incognitoDisabledReason={incognitoDisabledReason}
+              onIncognitoChange={handleIncognitoChange}
+              workbenchWidth={rightPanelWidth}
+              workbenchLayoutMode={workbenchLayoutMode}
+              workbenchTabs={workbenchTabs}
+              workbenchLaunchItems={titleBarRightPanels}
+              activeWorkbenchTabId={activeWorkbenchTabId}
+              workbenchCollapsed={rightPanelCollapsed}
+              workbenchDocked={hasOpenExclusiveRightPanel}
+              workbenchResizing={workbenchResizing}
+              workbenchMaximized={workbenchMaximized}
+              onSelectWorkbenchTab={handleSelectWorkbenchTab}
+              onOpenWorkbenchPanel={handleOpenWorkbenchPanel}
+              onCloseWorkbenchTab={handleCloseWorkbenchTab}
+              onReorderWorkbenchTabs={handleReorderWorkbenchTabs}
+              onToggleWorkbenchTabWindow={handleToggleWorkbenchTabWindow}
+              onToggleWorkbenchMaximize={handleToggleWorkbenchMaximize}
+              onCollapseWorkbench={handleCollapseWorkbench}
+              onExpandWorkbench={handleExpandWorkbench}
+              onStatusOpenChange={setEnvironmentPopoverOpen}
+              onOpenWorkspace={openWorkspacePanel}
+              terminalOpen={terminalOpen}
+              onToggleTerminal={() => setTerminalOpen((value) => !value)}
+            />
+          )}
 
           {scheduleSessionTarget && (
             <CronJobForm
@@ -5211,6 +5376,37 @@ export default function ChatScreen({
             sessionId={activeConversationSurfaceSessionId}
             onOpenSettings={onOpenSettings}
           />
+          {assistantOpening && (
+            <p role="status" className="px-4 py-2 text-sm text-muted-foreground">
+              {t("personalAssistant.opening")}
+            </p>
+          )}
+          {isPersonalAssistant && (
+            <PersonalAssistantSettings
+              open={assistantSettingsOpen}
+              onOpenChange={setAssistantSettingsOpen}
+              visible={isViewVisible && isPersonalAssistant}
+              sessions={session.sessions}
+              state={assistant}
+            />
+          )}
+          {isPersonalAssistant && assistantItemsMobileOpen && !assistantWide && isViewVisible && (
+            <Dialog open onOpenChange={setAssistantItemsMobileOpen}>
+              <DialogContent
+                className="flex h-[min(720px,85dvh)] max-w-lg flex-col p-0"
+                aria-describedby={undefined}
+                showCloseButton={false}
+              >
+                <DialogTitle className="sr-only">{t("personalAssistant.items")}</DialogTitle>
+                <PersonalAssistantPanel
+                  state={assistant}
+                  onOpenRequest={openAssistantRequest}
+                  onOpenGoal={openAssistantGoal}
+                  onClose={() => setAssistantItemsMobileOpen(false)}
+                />
+              </DialogContent>
+            </Dialog>
+          )}
 
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <div
@@ -5299,7 +5495,9 @@ export default function ChatScreen({
                   onSwitchModel={handleMessageSwitchModel}
                   onViewSystemPrompt={loadSystemPrompt}
                   compacting={compacting}
-                  onCompactContext={isCodexImported ? undefined : runCompactContextForCurrentSession}
+                  onCompactContext={
+                    isCodexImported ? undefined : runCompactContextForCurrentSession
+                  }
                   onOpenDashboardTab={onOpenDashboardTab}
                   onViewChildSession={(sid) => {
                     setSubagentPreviewSessionId(sid)
@@ -5318,6 +5516,7 @@ export default function ChatScreen({
                   onForkFromMessage={isCodexImported ? undefined : handleForkFromMessage}
                   onEditAndResend={
                     !isCodexImported &&
+                    !isPersonalAssistant &&
                     !isCronSession &&
                     !isSubagentSession &&
                     stream.pendingSends.length === 0
@@ -5423,13 +5622,17 @@ export default function ChatScreen({
                     >
                       {heroComposerActive && (
                         <div className="mb-5 sm:mb-6">
-                          <ChatWelcomeHero
-                            incognito={incognitoEnabled}
-                            projectName={currentProject?.name ?? null}
-                            onProjectSuggestion={
-                              currentProject ? handleProjectWelcomeSuggestion : undefined
-                            }
-                          />
+                          {isPersonalAssistant ? (
+                            <PersonalAssistantWelcome profile={assistant.profile} />
+                          ) : (
+                            <ChatWelcomeHero
+                              incognito={incognitoEnabled}
+                              projectName={currentProject?.name ?? null}
+                              onProjectSuggestion={
+                                currentProject ? handleProjectWelcomeSuggestion : undefined
+                              }
+                            />
+                          )}
                         </div>
                       )}
                       <ChatInput
@@ -5649,6 +5852,20 @@ export default function ChatScreen({
               ) : null}
             </div>
 
+            {isPersonalAssistant && assistantWide && assistantItemsExpanded && !workbenchOpen && (
+              <aside
+                className="h-full w-80 shrink-0 border-l border-border-soft bg-background"
+                aria-label={t("personalAssistant.items")}
+              >
+                <PersonalAssistantPanel
+                  state={assistant}
+                  onOpenRequest={openAssistantRequest}
+                  onOpenGoal={openAssistantGoal}
+                  onClose={() => setAssistantItemsExpanded(false)}
+                />
+              </aside>
+            )}
+
             {/* Always mounted, `empty` when nothing is open: the Canvas panel
                 owns the only `canvas_show` listener and the session's canvas
                 restore, so unmounting it makes the canvas unreachable (and
@@ -5817,6 +6034,17 @@ export default function ChatScreen({
                   contentKey="workspace"
                 >
                   <WorkspacePanel
+                    personalGoalWatches={assistant.watches}
+                    onWatchPersonalGoal={
+                      !isPersonalAssistant &&
+                      !isCodexImported &&
+                      !isCronSession &&
+                      !isSubagentSession &&
+                      !currentSessionMeta?.incognito &&
+                      !currentSessionMeta?.channelInfo
+                        ? assistant.watchGoal
+                        : undefined
+                    }
                     taskSnapshot={taskProgressSnapshot}
                     taskExecutionState={workspaceTaskExecutionState}
                     messages={session.messages}
@@ -5842,7 +6070,9 @@ export default function ChatScreen({
                     availableModels={availableModels}
                     currentAgentId={session.currentAgentId}
                     compacting={compacting}
-                    onCompactContext={isCodexImported ? undefined : runCompactContextForCurrentSession}
+                    onCompactContext={
+                      isCodexImported ? undefined : runCompactContextForCurrentSession
+                    }
                     onCommandAction={handleCommandAction}
                     onViewSystemPrompt={loadSystemPrompt}
                     systemPromptLoading={systemPromptLoading}

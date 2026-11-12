@@ -242,6 +242,23 @@ pub struct HookDispatcher;
 
 impl HookDispatcher {
     pub async fn dispatch(event: HookEvent, input: HookInput) -> HookOutcome {
+        // The sealed IM execution paths skip hooks from their immutable
+        // ToolScope. This live check also covers non-turn lifecycle callers,
+        // while preserving ordinary preflight for not-yet-created sessions.
+        if let Some(db) = crate::get_session_db().cloned() {
+            let sid = input.common().session_id.clone();
+            if db
+                .run(move |db| db.get_session(&sid))
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|session| {
+                    session.kind == crate::session::SessionKind::PersonalAssistantIm
+                })
+            {
+                return HookOutcome::noop();
+            }
+        }
         // Resolve the effective registry for this session's working dir so
         // project/local-scope hooks merge on top of the global (user+managed)
         // scope (design §4). Falls back to the global registry for app-global

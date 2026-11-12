@@ -12,6 +12,9 @@ const NOT_CONTROLLED_MESSAGE: &str =
 /// `cancel_runtime_task` directly with identities captured by their own trusted
 /// snapshot; an opaque id supplied by a model never gets that unscoped power.
 pub(crate) async fn tool_runtime_cancel(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    if crate::personal_assistant_im::scoped_tools::restricted(ctx) {
+        return crate::personal_assistant_im::scoped_tools::cancel(args, ctx).await;
+    }
     let kind_str = args
         .get("kind")
         .and_then(|v| v.as_str())
@@ -20,6 +23,43 @@ pub(crate) async fn tool_runtime_cancel(args: &Value, ctx: &ToolExecContext) -> 
         .get("id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("runtime_cancel: missing required `id` parameter"))?;
+
+    if kind_str == "assistant_request" {
+        let db = ctx
+            .session_db
+            .as_ref()
+            .map(|handle| handle.0.clone())
+            .or_else(|| crate::get_session_db().cloned())
+            .ok_or_else(|| anyhow!("Assistant database unavailable"))?;
+        let session_id = ctx
+            .session_id
+            .clone()
+            .ok_or_else(|| anyhow!(NOT_CONTROLLED_MESSAGE))?;
+        let turn_id = ctx
+            .turn_id
+            .clone()
+            .ok_or_else(|| anyhow!(NOT_CONTROLLED_MESSAGE))?;
+        db.run(move |db| {
+            let source = db
+                .get_session(&session_id)?
+                .ok_or_else(|| anyhow!(NOT_CONTROLLED_MESSAGE))?;
+            let turn = db
+                .get_chat_turn(&turn_id)?
+                .ok_or_else(|| anyhow!(NOT_CONTROLLED_MESSAGE))?;
+            if source.kind.as_str() != "personal_assistant"
+                || turn.session_id != session_id
+                || !matches!(turn.source.as_str(), "desktop" | "http")
+                || turn.status.as_str() != "running"
+            {
+                anyhow::bail!(NOT_CONTROLLED_MESSAGE);
+            }
+            anyhow::Ok(())
+        })
+        .await?;
+        let request =
+            super::sessions::cancel_personal_assistant_dispatch(db, id.to_owned()).await?;
+        return Ok(serde_json::to_string(&request)?);
+    }
 
     let kind = match kind_str {
         "async_job" => RuntimeTaskKind::AsyncJob,

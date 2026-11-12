@@ -73,7 +73,7 @@ export default function ServerStatusIndicator({ onOpen, className }: ServerStatu
           size="icon"
           onClick={onOpen}
           className={cn(
-            "relative rounded-xl h-8 w-[68px] shrink-0 flex-col gap-0.5 text-muted-foreground hover:text-foreground",
+            "relative rounded-xl h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground",
             className,
           )}
           aria-label={t("settings.serverRuntimeStatus")}
@@ -92,13 +92,10 @@ export default function ServerStatusIndicator({ onOpen, className }: ServerStatu
             )}
           />
           {!isFailed && status && wsTotal > 0 && (
-            <span className="absolute bottom-0 right-0 min-w-[14px] h-[14px] px-1 rounded-full bg-primary text-primary-foreground text-[9px] font-semibold flex items-center justify-center">
+            <span className="absolute -bottom-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-primary text-primary-foreground text-[9px] font-semibold flex items-center justify-center">
               {wsTotal > 99 ? "99+" : wsTotal}
             </span>
           )}
-          <span aria-hidden="true" className="block w-full truncate px-1 text-[10px] leading-3">
-            {t("settings.server")}
-          </span>
         </Button>
       </TooltipTrigger>
       <TooltipContent side="right" className="p-2.5">

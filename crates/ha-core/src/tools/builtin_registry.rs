@@ -47,8 +47,8 @@ pub(crate) fn builtin_entries() -> Vec<BuiltinToolEntry> {
         // 注册外部分发条目；schema 仍在 definitions::core_tools。
         BuiltinToolEntry { name: super::TOOL_AGENTS_LIST, aliases: &[], handler: tool_handler!(|args, ctx| super::agents::tool_agents_list(args).await) },
         BuiltinToolEntry { name: super::TOOL_SESSIONS_CREATE, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_create(args, ctx).await) },
-        BuiltinToolEntry { name: super::TOOL_SESSIONS_LIST, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_list(args).await) },
-        BuiltinToolEntry { name: super::TOOL_SESSION_STATUS, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_session_status(args).await) },
+        BuiltinToolEntry { name: super::TOOL_SESSIONS_LIST, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_list(args, ctx).await) },
+        BuiltinToolEntry { name: super::TOOL_SESSION_STATUS, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_session_status(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_SESSIONS_SEARCH, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_search(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_SESSIONS_HISTORY, aliases: &[], handler: tool_handler!(|args, ctx| super::sessions::tool_sessions_history(args, ctx).await) },
         BuiltinToolEntry { name: super::TOOL_SESSIONS_SEND, aliases: &[], handler: tool_handler!(|args, ctx| Box::pin(super::sessions::tool_sessions_send(args, ctx)).await) },
