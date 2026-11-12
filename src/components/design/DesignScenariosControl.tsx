@@ -72,7 +72,7 @@ function ArtifactScenariosControl({ artifactId, onApply }: Props) {
   const [draft, setDraft] = useState("")
   const [busy, setBusy] = useState(false)
   const onApplyRef = useRef(onApply)
-  const requestScopeRef = useRef<object | null>(null)
+  const requestScopeRef = useRef<{ transport: ReturnType<typeof getTransport> } | null>(null)
 
   useEffect(() => {
     onApplyRef.current = onApply
@@ -85,7 +85,7 @@ function ArtifactScenariosControl({ artifactId, onApply }: Props) {
 
   useEffect(() => {
     let alive = true
-    const scope = {}
+    const scope = { transport: tx }
     requestScopeRef.current = scope
     setEnvelope(null)
     setSelectedId("default")
@@ -130,7 +130,7 @@ function ArtifactScenariosControl({ artifactId, onApply }: Props) {
 
   const save = async () => {
     const scope = requestScopeRef.current
-    if (!envelope || !scope || busy) return
+    if (!envelope || !scope || busy || scope.transport !== tx || getTransport() !== tx) return
     const isCurrent = () => requestScopeRef.current === scope && getTransport() === tx
     let value: Manifest
     try {

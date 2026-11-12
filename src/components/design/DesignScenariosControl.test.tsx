@@ -210,4 +210,14 @@ describe("DesignScenariosControl", () => {
     expect(success).toHaveBeenCalledOnce()
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
+
+  it("does not submit an old draft after the connection changes before rerender", async () => {
+    render(<DesignScenariosControl artifactId="A" onApply={vi.fn()} />)
+    await openEditor()
+    transport = { call }
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    expect(call).toHaveBeenCalledOnce()
+    expect(success).not.toHaveBeenCalled()
+    expect(error).not.toHaveBeenCalled()
+  })
 })
