@@ -9,7 +9,7 @@ const { call, success, error } = vi.hoisted(() => ({
   success: vi.fn(),
   error: vi.fn(),
 }))
-const transport = { call }
+let transport = { call }
 vi.mock("@/lib/transport-provider", () => ({ getTransport: () => transport }))
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), error: vi.fn() } }))
 vi.mock("sonner", () => ({ toast: { success, error } }))
@@ -49,6 +49,7 @@ function deferred<T>() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  transport = { call }
   call.mockImplementation((command: string, { artifactId }: { artifactId: string }) => {
     if (command === "get_design_scenarios_cmd") return Promise.resolve(fixture(artifactId))
     throw new Error(`Unexpected command: ${command}`)
@@ -170,5 +171,43 @@ describe("DesignScenariosControl", () => {
     await act(async () => pending.resolve(fixture("A")))
     expect(onApply).not.toHaveBeenCalled()
     expect(screen.getByRole("combobox")).toHaveTextContent("B")
+  })
+
+  it("resets the editor on transport replacement and keeps a newer save busy", async () => {
+    const oldSave = deferred<ReturnType<typeof fixture>>()
+    const newSave = deferred<ReturnType<typeof fixture>>()
+    const onApply = vi.fn()
+    const view = render(<DesignScenariosControl artifactId="A" onApply={onApply} />)
+    await openEditor()
+    call.mockReturnValueOnce(oldSave.promise)
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    transport = { call }
+    call.mockResolvedValueOnce(fixture("new-connection"))
+    view.rerender(<DesignScenariosControl artifactId="A" onApply={onApply} />)
+    await waitFor(() => expect(screen.getByRole("combobox")).toHaveTextContent("new-connection"))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    const editor = await openEditor()
+    expect(JSON.parse((editor as HTMLTextAreaElement).value)).toEqual(
+      fixture("new-connection").manifest,
+    )
+    call.mockReturnValueOnce(newSave.promise)
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    expect(call).toHaveBeenLastCalledWith("save_design_scenarios_cmd", {
+      artifactId: "A",
+      expectedHash: "hash-new-connection",
+      manifest: fixture("new-connection").manifest,
+    })
+    onApply.mockClear()
+    await act(async () => oldSave.resolve(fixture("old-connection")))
+    expect(onApply).not.toHaveBeenCalled()
+    expect(success).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled()
+    await act(async () => newSave.resolve(fixture("new-save")))
+    expect(onApply).toHaveBeenLastCalledWith(fixture("new-save").manifest.scenarios[0], {
+      width: 390,
+      height: 844,
+    })
+    expect(success).toHaveBeenCalledOnce()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 })

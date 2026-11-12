@@ -88,9 +88,13 @@ function ArtifactScenariosControl({ artifactId, onApply }: Props) {
     const scope = {}
     requestScopeRef.current = scope
     setEnvelope(null)
+    setSelectedId("default")
+    setDialogOpen(false)
+    setDraft("")
+    setBusy(false)
     tx.call<ManifestEnvelope>("get_design_scenarios_cmd", { artifactId })
       .then((value) => {
-        if (!alive) return
+        if (!alive || getTransport() !== tx) return
         setEnvelope(value)
         const first = value.manifest.scenarios[0]
         setSelectedId(first?.id ?? "default")
@@ -127,6 +131,7 @@ function ArtifactScenariosControl({ artifactId, onApply }: Props) {
   const save = async () => {
     const scope = requestScopeRef.current
     if (!envelope || !scope || busy) return
+    const isCurrent = () => requestScopeRef.current === scope && getTransport() === tx
     let value: Manifest
     try {
       value = JSON.parse(draft) as Manifest
@@ -141,7 +146,7 @@ function ArtifactScenariosControl({ artifactId, onApply }: Props) {
         expectedHash: envelope.hash,
         manifest: value,
       })
-      if (requestScopeRef.current !== scope) return
+      if (!isCurrent()) return
       setEnvelope(saved)
       const first = saved.manifest.scenarios[0]
       setSelectedId(first?.id ?? "default")
@@ -149,11 +154,11 @@ function ArtifactScenariosControl({ artifactId, onApply }: Props) {
       setDialogOpen(false)
       toast.success(t("design.scenarios.saved", "场景清单已保存"))
     } catch (e) {
-      if (requestScopeRef.current !== scope) return
+      if (!isCurrent()) return
       logger.error("design", "DesignScenariosControl::save", "save failed", e)
       toast.error(t("design.scenarios.saveFailed", "场景清单保存失败"))
     } finally {
-      if (requestScopeRef.current === scope) setBusy(false)
+      if (isCurrent()) setBusy(false)
     }
   }
 
