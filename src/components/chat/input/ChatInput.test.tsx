@@ -37,6 +37,7 @@ vi.mock("./MentionComposerInput", async () => {
     default: React.forwardRef(function MockComposer(
       props: {
         value?: string
+        placeholder?: string
         onChange?: (v: string) => void
         onKeyDown?: (e: React.KeyboardEvent<HTMLElement>) => void
         onPaste?: (e: {
@@ -74,6 +75,7 @@ vi.mock("./MentionComposerInput", async () => {
       return React.createElement("div", {
         role: "textbox",
         "aria-multiline": "true",
+        "aria-placeholder": props.placeholder,
         contentEditable: !props.readOnly,
         suppressContentEditableWarning: true,
         onInput: (e: React.FormEvent<HTMLDivElement>) =>
@@ -1075,13 +1077,19 @@ describe("ChatInput", () => {
   })
 
   test("disables workflow controls and ignores mode events on embedded surfaces", () => {
-    renderChatInput({ currentSessionId: "side", enableWorkflowMode: false, draftWorkflowMode: "on" })
+    renderChatInput({
+      currentSessionId: "side",
+      enableWorkflowMode: false,
+      draftWorkflowMode: "on",
+    })
     expect(transportMock.call).not.toHaveBeenCalledWith("get_workflow_mode", { sessionId: "side" })
     expect(screen.queryByRole("button", { name: "工作流模式" })).toBeNull()
     act(() => {
-      window.dispatchEvent(new CustomEvent("hope-agent:workflow-mode-changed", {
-        detail: { sessionId: "side", mode: "on" },
-      }))
+      window.dispatchEvent(
+        new CustomEvent("hope-agent:workflow-mode-changed", {
+          detail: { sessionId: "side", mode: "on" },
+        }),
+      )
     })
     expect(screen.queryByText("chat.workflowMode.active")).toBeNull()
     expect(transportMock.call).not.toHaveBeenCalledWith("set_workflow_mode", expect.anything())
@@ -1958,5 +1966,69 @@ describe("ChatInput", () => {
 
     expect(screen.getByText("chat.taskProgressFailed")).toBeTruthy()
     expect(screen.queryByText("chat.taskProgressRunning")).toBeNull()
+  })
+})
+
+describe("assistant composer presentation", () => {
+  test("keeps advanced choices on demand and uses the existing model and permission handlers", async () => {
+    const alternativeModel = { ...model, modelId: "other", modelName: "Other Model" }
+    const { props } = renderChatInput({
+      presentation: "assistant",
+      availableModels: [model, alternativeModel],
+    })
+    expect(screen.getByRole("textbox")).toHaveAttribute(
+      "aria-placeholder",
+      "personalAssistant.messagePlaceholder",
+    )
+    expect(screen.queryByRole("button", { name: /chat.permissionMode.default.label/ })).toBeNull()
+    expect(screen.queryByText(model.modelName)).toBeNull()
+    const options = screen.getByRole("button", { name: "chat.composerOptions" })
+    fireEvent.click(options)
+    expect(options).toHaveAttribute("aria-expanded", "true")
+    fireEvent.click(screen.getByRole("button", { name: /GPT Test.*effort.medium/ }))
+    fireEvent.click(await screen.findByRole("button", { name: "GPT Test" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Other Model" }))
+    expect(props.onModelChange).toHaveBeenCalledWith("openai::other", {
+      applyToAgentDefault: false,
+    })
+    fireEvent.click(screen.getByRole("button", { name: /chat.permissionMode.default.label/ }))
+    fireEvent.click(screen.getByText("chat.permissionMode.smart.label"))
+    expect(props.onPermissionModeChange).toHaveBeenCalledWith("smart", {
+      applyToAgentDefault: false,
+    })
+    fireEvent.click(screen.getByRole("button", { name: /GPT Test.*effort.medium/ }))
+    fireEvent.click(await screen.findByRole("button", { name: "GPT Test" }))
+    fireEvent.click(options)
+    expect(screen.queryByRole("menu")).toBeNull()
+    expect(options).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByRole("button", { name: /chat.permissionMode.default.label/ })).toBeNull()
+  })
+
+  test("leaves Send and Stop reachable while options are closed", () => {
+    const { props } = renderChatInput({
+      presentation: "assistant",
+      input: "Hello",
+      loading: true,
+      onStop: vi.fn(),
+    })
+    fireEvent.click(screen.getByRole("button", { name: "chat.stopReply" }))
+    expect(props.onStop).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole("button", { name: "chat.queueMessage" }))
+    expect(props.onSend).toHaveBeenCalledOnce()
+  })
+
+  test("starts with compact task progress and still opens work details", () => {
+    const onOpenWorkspace = vi.fn()
+    renderChatInput({
+      presentation: "assistant",
+      taskProgressSnapshot: inProgressTaskSnapshot,
+      onOpenWorkspace,
+    })
+    expect(screen.getByRole("button", { name: /^chat.tasks / })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    )
+    fireEvent.click(screen.getByRole("button", { name: "打开工作台" }))
+    expect(onOpenWorkspace).toHaveBeenCalledOnce()
   })
 })

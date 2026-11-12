@@ -1339,7 +1339,8 @@
     "channelUnreadStatus": "محادثة مراسلة فورية غير مقروءة",
     "generatedImageName": "الصورة المُنشأة {{index}}",
     "noAgents": "لا يوجد وكلاء",
-    "sessionFailed": "فشلت المحادثة"
+    "sessionFailed": "فشلت المحادثة",
+    "composerOptions": "خيارات المحادثة"
   },
   "codexAuth": {
     "expiredDescription": "رمز OAuth لـ Codex لم يعد صالحاً. يرجى تسجيل الدخول مرة أخرى للمتابعة.",
@@ -13010,6 +13011,7 @@
       "botIdentityHint": "يُدار اسم Telegram Bot وصورته بشكل منفصل في Telegram. التغييرات هنا لا تُحدّث ملف البوت."
     },
     "welcomeTitle": "أنا {{name}}",
-    "welcomeBody": "أخبرني بما تريد إنجازه. يمكنك العودة لمتابعة المحادثة أو الاطلاع على تقدم المهام المفوّضة."
+    "welcomeBody": "أخبرني بما تريد إنجازه. يمكنك العودة لمتابعة المحادثة أو الاطلاع على تقدم المهام المفوّضة.",
+    "messagePlaceholder": "كيف يمكنني مساعدتك؟"
   }
 }
