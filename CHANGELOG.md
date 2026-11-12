@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.75.0] - 2026-11-13
+
 ### Fixed
 
 - 更新 MCP 与基础依赖，保留响应大小限制和深链兼容补丁，避免引入未经桌面与 PDF 动态库验证的更新。 (#912)
