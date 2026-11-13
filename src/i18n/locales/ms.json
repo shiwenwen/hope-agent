@@ -1339,7 +1339,8 @@
     "channelUnreadStatus": "Perbualan IM belum dibaca",
     "generatedImageName": "Imej yang dijana {{index}}",
     "noAgents": "Tiada ejen",
-    "sessionFailed": "Perbualan gagal"
+    "sessionFailed": "Perbualan gagal",
+    "composerOptions": "Pilihan perbualan"
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth Codex anda tidak lagi sah. Sila log masuk semula untuk meneruskan.",
@@ -13010,6 +13011,7 @@
       "botIdentityHint": "Nama dan avatar Telegram Bot diurus secara berasingan di Telegram. Perubahan di sini tidak mengemas kini profil Bot."
     },
     "welcomeTitle": "Saya {{name}}",
-    "welcomeBody": "Beritahu saya perkara yang anda mahu lakukan. Anda boleh kembali untuk menyambung perbualan atau menyemak tugasan yang diberikan."
+    "welcomeBody": "Beritahu saya perkara yang anda mahu lakukan. Anda boleh kembali untuk menyambung perbualan atau menyemak tugasan yang diberikan.",
+    "messagePlaceholder": "Apa yang boleh saya bantu?"
   }
 }

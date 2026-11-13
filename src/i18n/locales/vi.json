@@ -1339,7 +1339,8 @@
     "channelUnreadStatus": "Cuộc trò chuyện IM chưa đọc",
     "generatedImageName": "Hình ảnh đã tạo {{index}}",
     "noAgents": "Không có tác tử",
-    "sessionFailed": "Cuộc trò chuyện thất bại"
+    "sessionFailed": "Cuộc trò chuyện thất bại",
+    "composerOptions": "Tùy chọn trò chuyện"
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth của Codex không còn hợp lệ. Vui lòng đăng nhập lại để tiếp tục.",
@@ -13010,6 +13011,7 @@
       "botIdentityHint": "Tên và ảnh đại diện của Telegram Bot được quản lý riêng trên Telegram. Thay đổi ở đây không cập nhật hồ sơ Bot."
     },
     "welcomeTitle": "Tôi là {{name}}",
-    "welcomeBody": "Hãy cho tôi biết bạn muốn làm gì. Bạn có thể quay lại để tiếp tục trò chuyện hoặc xem tiến độ công việc đã giao."
+    "welcomeBody": "Hãy cho tôi biết bạn muốn làm gì. Bạn có thể quay lại để tiếp tục trò chuyện hoặc xem tiến độ công việc đã giao.",
+    "messagePlaceholder": "Bạn muốn tôi giúp việc gì?"
   }
 }

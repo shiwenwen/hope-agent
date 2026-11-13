@@ -685,7 +685,7 @@ export default function ChatScreen({
   const transport = useTransport()
   const assistant = usePersonalAssistant()
   const [assistantSettingsOpen, setAssistantSettingsOpen] = useState(false)
-  const [assistantItemsExpanded, setAssistantItemsExpanded] = useState(true)
+  const [assistantItemsExpanded, setAssistantItemsExpanded] = useState(false)
   const [assistantItemsMobileOpen, setAssistantItemsMobileOpen] = useState(false)
   const assistantWide = useViewportMediaQuery("(min-width: 1100px)")
   useEffect(() => {
@@ -962,6 +962,7 @@ export default function ChatScreen({
   )
   const isCodexImported = currentSessionMeta?.origin?.kind === "codex"
   const isPersonalAssistant = currentSessionMeta?.kind === "personal_assistant"
+  const currentSessionKindResolved = currentSessionMeta !== null
   useEffect(() => {
     onAssistantStateChange?.(isPersonalAssistant)
     if (currentSessionMeta && !isPersonalAssistant)
@@ -4187,10 +4188,10 @@ export default function ChatScreen({
   }, [])
 
   useEffect(() => {
-    if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
+    if (!hasOpenExclusiveRightPanel && rightPanelCollapsed && !isPersonalAssistant) {
       setRightPanelCollapsed(false)
     }
-  }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
+  }, [hasOpenExclusiveRightPanel, rightPanelCollapsed, isPersonalAssistant])
 
   // Give-up order as the window narrows (steps 1-3 live in useWorkbenchSizing):
   //   1. conversation + workbench shrink together, down to their ideal minimums
@@ -4332,6 +4333,7 @@ export default function ChatScreen({
   const workbenchSessionCacheRef = useRef(new Map<string, RestorableWorkbenchSessionState>())
   const activeWorkbenchSessionRef = useRef(DRAFT_WORKBENCH_KEY)
   const activeWorkbenchIncognitoRef = useRef(false)
+  const activeWorkbenchKindResolvedRef = useRef(false)
   const suppressWorkbenchOrderWriteRef = useRef(false)
   const switchFilePreviewScope = filePreview.switchScope
   const switchFileTabsScope = fileTabs.switchScope
@@ -4368,7 +4370,21 @@ export default function ChatScreen({
     const nextKey = session.currentSessionId ?? DRAFT_WORKBENCH_KEY
     const previousKey = activeWorkbenchSessionRef.current
     const leavingIncognito = activeWorkbenchIncognitoRef.current
-    if (previousKey === nextKey && leavingIncognito === incognitoEnabled) return
+    if (previousKey === nextKey && leavingIncognito === incognitoEnabled) {
+      // A private home can arrive after its shell and task snapshot. Apply its
+      // first-visit default once metadata resolves, without overriding a cached
+      // workbench or a panel explicitly opened by the user.
+      if (!activeWorkbenchKindResolvedRef.current && currentSessionKindResolved) {
+        activeWorkbenchKindResolvedRef.current = true
+        if (
+          isPersonalAssistant &&
+          !workbenchSessionCacheRef.current.has(nextKey) &&
+          !manualRightPanelExpandedOverrideRef.current
+        )
+          setRightPanelCollapsed(true)
+      }
+      return
+    }
     suppressWorkbenchOrderWriteRef.current = true
     const preserveWorkspace = preserveWorkspaceOnSessionSwitchRef.current
     if (!leavingIncognito) {
@@ -4386,6 +4402,7 @@ export default function ChatScreen({
     const restore = !incognitoEnabled ? workbenchSessionCacheRef.current.get(nextKey) : undefined
     activeWorkbenchSessionRef.current = nextKey
     activeWorkbenchIncognitoRef.current = incognitoEnabled
+    activeWorkbenchKindResolvedRef.current = currentSessionKindResolved
     workspacePanelDismissedRef.current = restore?.dismissed.workspace ?? false
     setShowWorkspacePanel(preserveWorkspace || (restore?.workspace ?? false))
     setShowPullRequestPanel(false)
@@ -4394,7 +4411,7 @@ export default function ChatScreen({
     setShowSubagentPanel(restore?.subagent ?? false)
     setSubagentPanelSelectRequest(null)
     setActiveExclusiveRightPanel(restore?.activePanel ?? null)
-    setRightPanelCollapsed(restore?.collapsed ?? false)
+    setRightPanelCollapsed(restore?.collapsed ?? isPersonalAssistant)
     setWorkbenchMaximized(false)
     const scopeSwitch = {
       restore: !incognitoEnabled,
@@ -4408,6 +4425,8 @@ export default function ChatScreen({
   }, [
     activeExclusiveRightPanel,
     incognitoEnabled,
+    currentSessionKindResolved,
+    isPersonalAssistant,
     rightPanelCollapsed,
     session.currentSessionId,
     showSubagentPanel,
@@ -4495,11 +4514,23 @@ export default function ChatScreen({
   // false→true 跳变，靠 session 变化触发本 effect 重跑(配合 session-reset 复位
   // dismissedRef)，否则旧会话切回来面板不会自动展开。
   useEffect(() => {
-    if (!hasWorkspaceContent || workspacePanelDismissedRef.current) return
+    if (
+      !currentSessionKindResolved ||
+      isPersonalAssistant ||
+      !hasWorkspaceContent ||
+      workspacePanelDismissedRef.current
+    )
+      return
     setShowWorkspacePanel((prev) => (prev ? prev : true))
-  }, [hasWorkspaceContent, session.currentSessionId])
+  }, [
+    hasWorkspaceContent,
+    currentSessionKindResolved,
+    isPersonalAssistant,
+    session.currentSessionId,
+  ])
 
   useEffect(() => {
+    if (!currentSessionKindResolved) return
     const previousRunningCount = previousBackgroundRunningCountRef.current
     const runningCount = backgroundJobs.runningCount
     previousBackgroundRunningCountRef.current = runningCount
@@ -4510,11 +4541,13 @@ export default function ChatScreen({
       activePanel: renderedExclusiveRightPanel,
     })
 
-    if (action === "activate") openBackgroundJobsPanel({ activate: true })
+    if (action === "activate") openBackgroundJobsPanel({ activate: !isPersonalAssistant })
     if (action === "open-in-background") openBackgroundJobsPanel({ activate: false })
   }, [
     activeConversationSurfaceSessionId,
     backgroundJobs.runningCount,
+    currentSessionKindResolved,
+    isPersonalAssistant,
     backgroundJobsPanelDismissedRef,
     openBackgroundJobsPanel,
     previousBackgroundRunningCountRef,
@@ -5636,6 +5669,7 @@ export default function ChatScreen({
                         </div>
                       )}
                       <ChatInput
+                        presentation={isPersonalAssistant ? "assistant" : "default"}
                         topAccessory={
                           canUseSideChat ? (
                             <SideChatTray
