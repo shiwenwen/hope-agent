@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Hope 个人助手**：默认聚焦简洁对话，将模型、权限、事项和工作台改为按需展开，并保留待处理事项、停止及工作台操作入口。 (#916)
+- **Hope 个人助手**：默认使用 Hope logo 作为头像并聚焦简洁对话，将模型、权限、事项和工作台改为按需展开，并保留待处理事项、停止及工作台操作入口。 (#916)
 
 ### Fixed
 
