@@ -397,3 +397,9 @@ jsdom 自有重定向、解压与 SRI 实现不因 Undici 补丁自动获得安�
 [0.3.0](https://github.com/jedisct1/rust-minisign-verify/blob/0.3.0/src/crypto/ed25519.rs) 的 Ed25519 实现相同，均检查 `S < L`。
 SDK-21 的版本差异只能作为维护线索，不能推导旧锁可接受非规范签名；专项原归档只读，纠偏证据留在行动卡与本轮受控记录。
 相同公开测试公钥及签名在升级前后覆盖合法/篡改/legacy/非规范全局签名，不读取任何发布私钥，不宣称真实更新安装、任意 payload 伪造或全图安全验收。
+
+## 2026-11-13 CI 依赖与 Node 安全补丁
+
+[#905](https://github.com/shiwenwen/hope-agent/pull/905) 将五处 `setup-node` 固定到 [Node 24.22.3 正式安全版](https://nodejs.org/en/blog/release/v24.22.3)，覆盖上游列出的 HTTP/2、TLS、代理错误脱敏等修复。工作流安装版本受影响，不据此断言产品入口可被利用；该维护只覆盖 CI 构建运行时，宿主与 Docker 镜像由各自主责维护。回滚应选已修补的兼容 Node 24 版本。
+
+同包更新完整 SHA 固定的 pnpm/action-setup 6.1.1、docker/login-action 4.8.0 与 setup-rust-toolchain 2.0.1。已审阅上游源码差异：pnpm 修复共享 store 引导及缺失缓存目录保存；Rust 更新内部缓存 Action，但本项目仍禁用其缓存；Docker 调整 Docker Hub OIDC 默认期限，本项目显式登录 GHCR，不进入该路径。保留 packageManager、Actions 输入、权限、job 名、matrix、merge_group 和受保护门禁。普通检查及精确 head CI 分别留证，不代表发布、生产登录或真实桌面验收。
