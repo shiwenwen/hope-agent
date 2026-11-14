@@ -46,7 +46,7 @@ zip = "7"
 # oxc：design 空间后端编译 Component 产物（JSX/TSX → JS，浏览器零编译红线）
 oxc_allocator = "0.138"
 oxc_parser = "0.138"
-oxc_span = "0.138"
+oxc_span = "0.157"
 oxc_semantic = "0.138"
 oxc_transformer = "0.138"
 oxc_codegen = "0.138"
