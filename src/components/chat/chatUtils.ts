@@ -844,13 +844,6 @@ export function mergeMessageFileAttachments(
   return [...merged.values()]
 }
 
-/** Extract file paths modified by tool calls (write/edit/apply_patch). */
-export function extractModifiedFiles(blocks: ContentBlock[]): string[] {
-  return extractMessageFileAttachments(blocks)
-    .filter((item): item is { kind: "path"; path: string } => item.kind === "path")
-    .map((item) => item.path)
-}
-
 /** Parse DB SessionMessage[] into display Message[] */
 export function parseSessionMessages(
   msgs: SessionMessage[],
