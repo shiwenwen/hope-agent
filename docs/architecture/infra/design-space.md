@@ -754,12 +754,21 @@ graph LR
 
 ### 12.7 确定性视觉回归与预览场景
 
-- 固定视口 runner 只支持一个 `default` 场景、根路由、空状态且无自定义视口。它不执行 `ds_scenario`，因此自定义路由、状态、场景身份、多场景或视口计划在打开浏览器和接受基线之前均返回 `visual_scenarios_incomplete`；GUI 明确显示视觉验证未完成，不能用默认页截图代替目标状态。预览场景编辑与手动切换仍可使用。捕获准备记录完整场景清单哈希，结果计算和基线写入前再次校验，期间任何清单变更都拒绝陈旧结果。完整场景×视口执行及可信状态到达证明仍待实现。
-- 固定视口为 `1440×900`、`768×1024`、`390×844`；真实浏览器逐视口截图，完成或失败都恢复原视口并关闭隔离页。`CdpBackend` 依赖全局活动目标，因此从读取原目标到关闭隔离页并恢复目标/视口的完整捕获流程必须持有浏览器进程级 CDP 操作锁，禁止与浏览器工具、实时帧或其他原生导出交错。
+- runner 执行根路由 `/` 上的场景状态投影；每个场景可选已命名视口，未选择时使用 `1440×900`、`768×1024`、`390×844`。每个场景×视口都重新创建 opaque iframe，加载完成后发送 `ds_scenario`，避免上一个状态污染下一个捕获。非根路由仍拒绝，不将消息投影当作真实 URL 导航。
+- 隔离父页先提交固定、无网络请求的惰性 `data:` 文档，再装载 srcdoc。对 Chrome 进程外 iframe，通过精确父 frame ID 绑定唯一目标，使用私有 loopback CDP 会话读取隔离世界，随后分离会话；不改全局页面注册表，不选择其他标签的同 URL frame，也不放宽模型侧 raw CDP 权限。
+- 可见性在隔离世界组合原生 `checkVisibility`（祖先 opacity、visibility、content-visibility）和 `IntersectionObserver` 的 `trackVisibility: true`、正面积交集与 `isVisible: true`，涵盖祖先裁剪和遮挡；CDP 等待 Promise。单次观察最多 300 ms，状态轮询受 3 秒绝对截止时间约束。浏览器缺少支持或对半透明、滤镜等效果无法确认时保守拒绝，不退化为只检查元素自身样式。API 边界见 [CSSOM View](https://drafts.csswg.org/cssom-view/#dom-element-checkvisibility) 和 [Chrome 可见性跟踪说明](https://web.dev/articles/intersectionobserver-v2)。
+- 自定义场景必须提供 `ready: {selector, text}`；CSS 选择器最多 256 字节、期望文本最多 512 字节。检查要求恰好一个匹配元素，文本 trim 后精确相等，且元素具有可见样式、非零尺寸并与视口相交。浏览器后端只选择当前隔离页中唯一的直接 `about:srcdoc` 子 frame，在独立执行世界读取 DOM，禁止 universal access，不受产物脚本覆写查询函数或伪造 ACK 影响。每次最多等待约 3 秒，并在截图前再次复核；未到达或配置不支持返回 `visual_scenarios_incomplete`。这是指定 DOM 条件的观察证据，不代表整个业务状态或业务正确性已经证明。旧的默认空状态保持兼容，不强制添加 ready。
+- 真实浏览器逐场景/视口截图，完成或失败都恢复原目标、视口并关闭隔离页。`CdpBackend` 依赖全局活动目标，因此从读取原目标到关闭隔离页并恢复目标/视口的完整捕获流程必须持有浏览器进程级 CDP 操作锁，禁止与浏览器工具、实时帧或其他原生导出交错。
 - 只有 CDP 网络与页面操作留在异步 worker；产物/清单读取、PNG 解码、像素比较和基线持久化统一经 `run_blocking`，大图或慢磁盘不得占住聊天、WebSocket 与 HTTP 共用的运行时线程。
-- 截图按 BLAKE3 内容寻址存到 `quality/screenshots/{hash}.png`，`quality/manifest.json` 保存基线引用和接受时的产物哈希。接受基线是显式 owner 操作，并在写前校验 `expectedArtifactHash`；从持产物生命周期锁后的最终数据库身份与哈希复核开始，跨浏览器捕获一直持锁到截图和清单全部落盘，产物或项目删除不能让基线写入重建孤儿目录。
+- 单张 PNG 最多 32 MiB，完整捕获集最多 128 MiB；解码前核对预期尺寸，缺失或重复场景视口身份均失败关闭。
+- 截图按 BLAKE3 内容寻址存到 `quality/screenshots/{hash}.png`。`quality/manifest.json` 作为单一原子发布点，同时保存当前基线、不可变审阅凭证和基线修订；旧版 v1 清单缺少这些字段时兼容读取，下一次成功发布升级为 v2；旧二进制拒绝 v2，避免旧写入静默丢失修订。回退先关闭新入口并保留本地质量文件，不自动降级清单。运行成功后保存完整审阅集合，绑定产物 ID/源码及已渲染 HTML 的组合哈希、场景清单哈希、场景配置键、视口、图片哈希、捕获时间和审查时基线修订。自定义基线键仍含场景 ID/配置摘要/尺寸，旧默认空状态仍用尺寸键。
+- 图片入口仅限 owner：请求使用产物 ID、审阅 ID、场景 ID、视口及 current/baseline，不接受路径、图片哈希或 URL。从本产物保存的凭证解析图片，拒绝未知/过期凭证、错身份、symlink、错哈希、错尺寸和过大文件。IPC/HTTP 都返回固定 PNG data URL，owner token 不进入图片 URL。界面每次只按需读取一组本轮图与审查时基线。
+- 接受基线须携带 `reviewId`、`expectedArtifactHash`、`expectedScenariosHash` 和审查时的 `expectedBaselineRevision`（首版为 null），直接晋升该凭证的完整截图集，**不重新截图**。缺凭证的旧客户端须重新审查；默认场景仅保留场景哈希字段的兼容省略，不绕过凭证要求。陈旧源码/场景/基线修订、缺图或不完整集合均拒绝。接受前将旧未版本化基线保留为首个修订，再记录新修订和父修订。恢复须选择本产物的保留修订并匹配 `expectedRevisionId`；恢复生成带 `restoredFrom` 的新修订，不修改源码、调用模型或浏览器，也不把旧场景配置键强配到新场景。
+- 运行、图片读取、接受、恢复和清理都在 blocking helper 内取得稳定产物生命周期 OS 锁，持锁后重读 DB 身份；捕获流程将锁一直持有到结果发布。删除先完成时不能重建孤儿目录。读取起始源码/HTML、最终发布和接受另持同进程产物写锁，避免与本进程编辑交错；前端按产物和连接挂载审查窗，关闭、重跑、A→B→A 或连接变化后丢弃旧结果/图片/通知；提交前再次复核传输实例。
+- 固定保留最近 4 次成功审阅、最近 4 个基线修订，清单最多 4 MiB，所有仍被当前基线、保留修订或审阅引用的去重 PNG 合计最多 768 MiB。超预算拒绝发布，不删仍引用图片；单次 staging 最多额外占 128 MiB。先安装 PNG，再原子发布清单，最后只清理无引用内容寻址 PNG；发布前失败不改变原基线。发布后的清理错误记 `design/quality_cleanup` 并下次重试，不把已生效接受报告为失败。旧审阅/修订过期须重新审查，父修订 ID 允许指向已淘汰历史。
 - 通过/失败只由像素差异（变化像素比、平均通道差）与静态 DOM/无障碍规则决定；视觉模型只能作为可选建议，不能覆盖确定性结果。
 - `scenarios.json` 最多 12 个场景、4 个视口，单场景状态最多 8 KiB，route 仅允许本地产物路径。读取返回内容哈希，整文保存必须携带 `expectedHash` 并在跨进程锁内复核，陈旧写入失败关闭。保存与产物或项目删除还须共用位于产物目录外的稳定生命周期锁，并在持锁后重新确认 DB 产物仍存在；删除先完成时禁止 `write_atomic` 重建孤儿目录。前端始终只挂一个活动 iframe，场景切换通过 `ds_scenario` 消息投影，缺文件时回退默认场景。
+- 场景编辑器按产物身份挂载；切换产物或传输实例时关闭未保存草稿、清空保存状态并重载目标清单。保存发起前复核清单所属传输实例与当前连接，旧上下文不得提交；保存请求仍绑定发起时的产物和清单哈希，组件离开或传输实例变化后，迟到的成功/失败不得更新当前预览、关闭新编辑器或显示旧通知；A→B→A 也不能恢复旧请求。
 
 ### 12.8 组件清单与固定版本评审
 
@@ -854,7 +863,7 @@ graph LR
 | 部署（CF/Vercel）+ 就绪探测 | `deploy_design_artifact[_vercel]_cmd` / `probe_design_deploy_cmd` | `POST …/artifacts/{aid}/deploy[/vercel]` · `POST /api/design/deploy/probe` |
 | 分享 | `design_share_*_cmd` | `POST …/artifacts/{aid}/share`（authed）· `GET /api/design/share/{token}`（公开） |
 | Figma MCP 往返 | `preview/commit/list_figma_roundtrip_*_cmd` | `POST …/figma-roundtrip/{preview,commit}` · `GET …/artifacts/{aid}/figma-roundtrip` |
-| 视觉回归 / 场景 | `run/accept_design_visual_*_cmd` · `get/save_design_scenarios_cmd` | `POST …/artifacts/{aid}/visual-regression` · `POST …/visual-baseline` · `GET/PUT …/artifacts/{aid}/scenarios` |
+| 视觉回归 / 场景 | `run/accept_design_visual_*_cmd` · `get/save_design_scenarios_cmd` · `get_design_quality_image_cmd` · `restore_design_visual_baseline_cmd` | `POST …/artifacts/{aid}/visual-regression` · `POST …/visual-baseline` · `GET/PUT …/artifacts/{aid}/scenarios` · `POST …/quality-image` · `POST …/visual-baseline/restore` |
 | 组件清单 | `get/save/publish/scan_design_components_*_cmd` | `GET …/projects/{pid}/components` · `PUT …/components/draft` · `POST …/components/{publish,scan}` |
 | 固定版本评审 | `create/list/revoke_design_review_space_cmd` | owner：`…/artifacts/{aid}/review-spaces`；评审者：`GET /api/design/review-space` · `POST …/comments`（review bearer） |
 | 质量门 | `design_critique_cmd` | `POST …/artifacts/{aid}/critique` |
@@ -878,7 +887,7 @@ graph LR
 | `crates/ha-design/src/design/{deploy,deploy_vercel}.rs` | Cloudflare Pages / Vercel 部署 |
 | `crates/ha-design/src/design/{code_sync,code_watcher,threads}.rs` | code→design 回灌 + 文件监听 + 设计对话线程锚定 |
 | `crates/ha-design/src/design/{design_md,brands,image,audio,selfcheck,render_native}.rs` | DESIGN.md 规范 / 品牌种子 / 图像 / 音频 / 反 slop 自查 / 原生导出 |
-| `crates/ha-design/src/design/{figma_roundtrip,quality,scenarios,components_manifest,review_space}.rs` | Figma MCP 往返 / 视觉基线 / 场景清单 / 组件清单 / 固定版本评审 |
+| `crates/ha-design/src/design/{figma_roundtrip,quality,quality_store,scenarios,components_manifest,review_space}.rs` | Figma MCP 往返 / 视觉基线 / 场景清单 / 组件清单 / 固定版本评审 |
 | `crates/ha-design/src/design/mcp_provider.rs` | design 的 MCP `ToolProvider`（平台 `hope-agent mcp` 首个 provider） |
 | `crates/ha-design/src/tool_design/mod.rs` | `design` agent 工具（多 action 路由） |
 | `crates/ha-design/src/ffmpeg.rs` | ffmpeg 按需就位 |

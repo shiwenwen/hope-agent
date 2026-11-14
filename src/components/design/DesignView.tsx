@@ -1,3 +1,4 @@
+import { DesignQualityReview } from "@/components/design/DesignQualityReview"
 /**
  * 设计空间独立视图（侧边栏入口）。
  *
@@ -38,7 +39,6 @@ import {
   Layers,
   ListChecks,
   Paintbrush,
-  CheckCircle2,
   Sparkles,
   StickyNote,
   MousePointerClick,
@@ -205,7 +205,6 @@ import type {
   CommentPlacement,
   CodeBindingInfo,
   ImplementToCodeResult,
-  DesignQualityRun,
 } from "@/types/design"
 import {
   ARTIFACT_KINDS,
@@ -3205,72 +3204,13 @@ export default function DesignView({
     }
   }, [t])
 
-  // 多镜头质量审查（确定性 a11y / 内容 / 语义）：owner 按需跑，弹结果列表。
-  const [reviewFindings, setReviewFindings] = useState<
-    { lens: string; severity: string; message: string }[] | null
-  >(null)
-  const [visualQuality, setVisualQuality] = useState<DesignQualityRun | null>(null)
-  const [reviewing, setReviewing] = useState(false)
-  const [acceptingBaseline, setAcceptingBaseline] = useState(false)
-  const runQualityReview = useCallback(async () => {
-    const aid = activeArtifactRef.current?.id
-    if (!aid || reviewing) return
-    setReviewing(true)
-    try {
-      const f = await tx.call<{ lens: string; severity: string; message: string }[]>(
-        "review_design_artifact_cmd",
-        { id: aid },
-      )
-      setReviewFindings(Array.isArray(f) ? f : [])
-      try {
-        const visual = await tx.call<DesignQualityRun>("run_design_visual_regression_cmd", {
-          artifactId: aid,
-        })
-        setVisualQuality(visual)
-      } catch (e) {
-        setVisualQuality(null)
-        logger.warn("design", "DesignView::visualRegression", "visual regression unavailable", e)
-        toast.warning(
-          String(e).includes("visual_scenarios_incomplete")
-            ? t("design.review.visualScenarioIncomplete")
-            : t("design.review.visualUnavailable", "视觉回归不可用，请检查浏览器渲染后端"),
-        )
-      }
-    } catch (e) {
-      logger.error("design", "DesignView::qualityReview", "review failed", e)
-      toast.error(t("design.err.load", "加载失败"))
-    } finally {
-      setReviewing(false)
-    }
-  }, [tx, reviewing, t])
-
-  const acceptVisualBaseline = useCallback(async () => {
-    if (!visualQuality || acceptingBaseline) return
-    setAcceptingBaseline(true)
-    try {
-      await tx.call("accept_design_visual_baseline_cmd", {
-        input: {
-          artifactId: visualQuality.artifactId,
-          expectedArtifactHash: visualQuality.artifactHash,
-        },
-      })
-      const rerun = await tx.call<DesignQualityRun>("run_design_visual_regression_cmd", {
-        artifactId: visualQuality.artifactId,
-      })
-      setVisualQuality(rerun)
-      toast.success(t("design.review.baselineAccepted", "已接受当前画面为视觉基线"))
-    } catch (e) {
-      logger.error("design", "DesignView::acceptBaseline", "accept baseline failed", e)
-      setVisualQuality(null)
-      toast.error(
-        String(e).includes("visual_scenarios_incomplete")
-          ? t("design.review.visualScenarioIncomplete")
-          : t("design.review.baselineFailed", "接受视觉基线失败"),
-      )
-    } finally {
-      setAcceptingBaseline(false)
-    }
-  }, [visualQuality, acceptingBaseline, tx, t])
+  const [qualityReviewTarget, setQualityReviewTarget] = useState<string | null>(null)
+  const qualityReviewKey = `${activeArtifact?.id}:${transportRevision}`
+  const qualityReviewOpen = qualityReviewTarget === qualityReviewKey
+  useEffect(() => {
+    setQualityReviewTarget(null)
+  }, [activeArtifact?.id, transportRevision])
+  const runQualityReview = () => setQualityReviewTarget(qualityReviewKey)
 
   // 页面级样式（body 背景/文字色/最大宽度）：与 oid 元素微调正交，落 CSS 标记块 + 重渲染。
   const [pageStyleOpen, setPageStyleOpen] = useState(false)
@@ -6138,10 +6078,10 @@ export default function DesignView({
                             variant="ghost"
                             size="icon"
                             className="h-6 w-6"
-                            disabled={reviewing}
+                            disabled={qualityReviewOpen}
                             onClick={() => void runQualityReview()}
                           >
-                            {reviewing ? (
+                            {qualityReviewOpen ? (
                               <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
                             ) : (
                               <ListChecks className="h-3.5 w-3.5" />
@@ -7410,108 +7350,13 @@ export default function DesignView({
         </DialogContent>
       </Dialog>
 
-      {/* 多镜头质量审查结果 */}
-      <Dialog
-        open={reviewFindings !== null}
-        onOpenChange={(o) => {
-          if (!o) {
-            setReviewFindings(null)
-            setVisualQuality(null)
-          }
-        }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ListChecks className="h-4 w-4" />
-              {t("design.review.qualityTitle", "质量审查")}
-            </DialogTitle>
-          </DialogHeader>
-          {visualQuality && (
-            <div className="space-y-2 rounded-lg border bg-muted/20 p-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-xs font-medium">
-                    {t("design.review.visualTitle", "确定性视觉回归")}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {visualQuality.deterministicPassed
-                      ? t("design.review.visualPassed", "固定视口与静态检查均通过")
-                      : t("design.review.visualNeedsBaseline", "存在差异或尚未建立基线")}
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs"
-                  disabled={acceptingBaseline}
-                  onClick={() => void acceptVisualBaseline()}
-                >
-                  {acceptingBaseline && <Loader2Icon className="mr-1 h-3.5 w-3.5 animate-spin" />}
-                  {t("design.review.acceptBaseline", "接受为基线")}
-                </Button>
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {visualQuality.diffs.map((diff) => (
-                  <div
-                    key={`${diff.viewport.width}x${diff.viewport.height}`}
-                    className={cn(
-                      "rounded border px-1.5 py-1 text-center text-[10px]",
-                      diff.passed
-                        ? "border-emerald-500/30 text-emerald-600"
-                        : "border-amber-500/30 text-amber-600",
-                    )}
-                  >
-                    {diff.viewport.width}×{diff.viewport.height}
-                    <br />
-                    {diff.changedRatio == null
-                      ? t("design.review.noBaseline", "无基线")
-                      : `${(diff.changedRatio * 100).toFixed(2)}%`}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {reviewFindings && reviewFindings.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
-              <CheckCircle2 className="h-7 w-7 text-emerald-500" />
-              {t("design.review.allClear", "未发现可访问性 / 内容 / 语义问题")}
-            </div>
-          ) : (
-            <ul className="max-h-[55vh] space-y-1.5 overflow-y-auto">
-              {reviewFindings?.map((f, i) => (
-                <li
-                  key={i}
-                  className="flex items-start gap-2 rounded-lg border bg-muted/30 px-2.5 py-2 text-xs"
-                >
-                  <span
-                    className={cn(
-                      "mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase",
-                      f.severity === "warn"
-                        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                        : "bg-sky-500/15 text-sky-600 dark:text-sky-400",
-                    )}
-                  >
-                    {t(`design.review.lens.${f.lens}`, f.lens)}
-                  </span>
-                  <span className="min-w-0 flex-1">{f.message}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setReviewFindings(null)
-                setVisualQuality(null)
-              }}
-            >
-              {t("common.close", "关闭")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {qualityReviewOpen && activeArtifact && (
+        <DesignQualityReview
+          key={`${activeArtifact.id}:${transportRevision}`}
+          artifactId={activeArtifact.id}
+          onClose={() => setQualityReviewTarget(null)}
+        />
+      )}
 
       {/* Reverse-extraction dialog (D2) */}
       <Dialog open={extractOpen} onOpenChange={setExtractOpen}>

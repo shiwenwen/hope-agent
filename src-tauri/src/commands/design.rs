@@ -374,6 +374,24 @@ pub async fn accept_design_visual_baseline_cmd(
 }
 
 #[tauri::command]
+pub async fn get_design_quality_image_cmd(
+    input: ha_design::design::quality_store::QualityImageInput,
+) -> Result<ha_design::design::quality_store::QualityImage, CmdError> {
+    ha_core::blocking::run_blocking(move || ha_design::design::quality_store::review_image(input))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn restore_design_visual_baseline_cmd(
+    input: ha_design::design::quality_store::RestoreBaselineInput,
+) -> Result<ha_design::design::quality::QualityManifest, CmdError> {
+    ha_core::blocking::run_blocking(move || ha_design::design::quality_store::restore(input))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_design_scenarios_cmd(
     artifact_id: String,
 ) -> Result<ha_design::design::scenarios::ScenariosEnvelope, CmdError> {

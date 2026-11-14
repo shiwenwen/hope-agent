@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use ha_browser::browser::backend::{BrowserBackend, ImageFormat, ScreenshotParams, SnapshotFormat};
 use ha_browser::browser::cdp_backend::CdpBackend;
+#[cfg(test)]
 use ha_core::platform::write_atomic;
 use image::{DynamicImage, GenericImageView};
 use serde::{Deserialize, Serialize};
@@ -13,8 +14,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-const MANIFEST_VERSION: u32 = 1;
-const MAX_PNG_BYTES: usize = 32 * 1024 * 1024;
+const MANIFEST_VERSION: u32 = 2;
+pub(super) const MAX_PNG_BYTES: usize = 32 * 1024 * 1024;
+const MAX_TOTAL_PNG_BYTES: usize = 128 * 1024 * 1024;
 const CAPTURE_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none'";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -42,6 +44,8 @@ pub const FIXED_VIEWPORTS: [QualityViewport; 3] = [
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BaselineEntry {
+    #[serde(default = "default_scenario_id")]
+    pub scenario_id: String,
     pub viewport: QualityViewport,
     pub image_hash: String,
     pub artifact_hash: String,
@@ -55,6 +59,12 @@ pub struct QualityManifest {
     pub artifact_id: String,
     #[serde(default)]
     pub baselines: BTreeMap<String, BaselineEntry>,
+    #[serde(default)]
+    pub revision_id: Option<String>,
+    #[serde(default)]
+    pub revisions: Vec<super::quality_store::BaselineRevision>,
+    #[serde(default)]
+    pub reviews: Vec<super::quality_store::QualityReceipt>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +78,8 @@ pub struct StaticFinding {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewportDiff {
+    pub scenario_id: String,
+    pub scenario_title: String,
     pub viewport: QualityViewport,
     pub current_hash: String,
     pub baseline_hash: Option<String>,
@@ -79,8 +91,12 @@ pub struct ViewportDiff {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QualityRun {
+    pub review_id: String,
+    pub baseline_revision: Option<String>,
+    pub baseline_revisions: Vec<super::quality_store::RevisionSummary>,
     pub artifact_id: String,
     pub artifact_hash: String,
+    pub scenarios_hash: String,
     pub diffs: Vec<ViewportDiff>,
     pub findings: Vec<StaticFinding>,
     pub deterministic_passed: bool,
@@ -91,6 +107,15 @@ pub struct QualityRun {
 pub struct AcceptBaselineInput {
     pub artifact_id: String,
     pub expected_artifact_hash: String,
+    pub review_id: String,
+    #[serde(default)]
+    pub expected_baseline_revision: Option<String>,
+    #[serde(default)]
+    pub expected_scenarios_hash: Option<String>,
+}
+
+fn default_scenario_id() -> String {
+    "default".into()
 }
 
 fn key(v: QualityViewport) -> String {
@@ -101,13 +126,15 @@ fn quality_dir(project_id: &str, artifact_id: &str) -> Result<PathBuf> {
     Ok(ha_core::paths::design_artifact_dir(project_id, artifact_id)?.join("quality"))
 }
 
-fn load_manifest(dir: &Path, artifact_id: &str) -> Result<QualityManifest> {
+pub(super) fn load_manifest(dir: &Path, artifact_id: &str) -> Result<QualityManifest> {
+    super::quality_store::storage_dirs(dir)?;
     let path = dir.join("manifest.json");
-    match std::fs::read(&path) {
+    match super::quality_store::read_bounded(&path, 4 * 1024 * 1024) {
         Ok(bytes) => {
             let parsed: QualityManifest = serde_json::from_slice(&bytes)
                 .with_context(|| format!("parse {}", path.display()))?;
-            if parsed.version != MANIFEST_VERSION || parsed.artifact_id != artifact_id {
+            if ![1, MANIFEST_VERSION].contains(&parsed.version) || parsed.artifact_id != artifact_id
+            {
                 anyhow::bail!("quality manifest identity/version mismatch");
             }
             Ok(parsed)
@@ -116,6 +143,9 @@ fn load_manifest(dir: &Path, artifact_id: &str) -> Result<QualityManifest> {
             version: MANIFEST_VERSION,
             artifact_id: artifact_id.to_string(),
             baselines: BTreeMap::new(),
+            revision_id: None,
+            revisions: Vec::new(),
+            reviews: Vec::new(),
         }),
         Err(e) => Err(e).context("read quality manifest"),
     }
@@ -130,6 +160,9 @@ fn artifact_hash(artifact_id: &str) -> Result<String> {
     hasher.update(source.css.as_bytes());
     hasher.update(&[0]);
     hasher.update(source.js.as_bytes());
+    let artifact = super::service::get_artifact(artifact_id)?.context("artifact not found")?;
+    hasher.update(&[0]);
+    hasher.update(artifact_capture_html(&artifact.project_id, artifact_id)?.as_bytes());
     Ok(hasher.finalize().to_hex().to_string())
 }
 
@@ -200,25 +233,81 @@ fn compare_images(current: &DynamicImage, baseline: &DynamicImage) -> (f64, f64)
     )
 }
 
-// The fixed-viewport runner cannot establish that an authored scenario was
-// reached inside the opaque iframe. Never label its default-page capture as
-// evidence for a configured route, state, scenario identity or viewport plan.
-fn ensure_default_scenario(manifest: &super::scenarios::ScenariosManifest) -> Result<()> {
-    let supported = manifest.viewports.is_empty()
-        && manifest.scenarios.len() == 1
-        && manifest.scenarios.first().is_some_and(|scenario| {
-            scenario.id == "default"
-                && scenario.route == "/"
-                && scenario.viewport_ids.is_empty()
-                && (scenario.state.is_null()
-                    || scenario
-                        .state
-                        .as_object()
-                        .is_some_and(|state| state.is_empty()))
-        });
+#[derive(Debug, Clone)]
+struct CaptureCase {
+    scenario: super::scenarios::DesignScenario,
+    viewport: QualityViewport,
+}
+
+fn is_default_scenario(scenario: &super::scenarios::DesignScenario) -> bool {
+    scenario.id == "default"
+        && scenario.route == "/"
+        && scenario.ready.is_none()
+        && (scenario.state.is_null() || scenario.state.as_object().is_some_and(|s| s.is_empty()))
+}
+
+fn capture_plan(manifest: &super::scenarios::ScenariosManifest) -> Result<Vec<CaptureCase>> {
+    super::scenarios::validate(manifest)?;
+    let mut plan = Vec::new();
+    for scenario in &manifest.scenarios {
+        anyhow::ensure!(
+            scenario.route == "/",
+            "visual_scenarios_incomplete: only root-route state projection is supported"
+        );
+        anyhow::ensure!(is_default_scenario(scenario) || scenario.ready.is_some(),
+            "visual_scenarios_incomplete: custom scenarios require a ready selector and expected text");
+        let viewports = if scenario.viewport_ids.is_empty() {
+            FIXED_VIEWPORTS.to_vec()
+        } else {
+            scenario
+                .viewport_ids
+                .iter()
+                .map(|id| {
+                    let v = &manifest.viewports[id];
+                    QualityViewport {
+                        width: v.width,
+                        height: v.height,
+                    }
+                })
+                .collect()
+        };
+        plan.extend(viewports.into_iter().map(|viewport| CaptureCase {
+            scenario: scenario.clone(),
+            viewport,
+        }));
+    }
+    let identities: std::collections::BTreeSet<_> = plan.iter().map(capture_key).collect();
     anyhow::ensure!(
-        supported,
-        "visual_scenarios_incomplete: configured scenarios are not executed by the fixed-viewport runner"
+        identities.len() == plan.len(),
+        "visual_scenarios_incomplete: duplicate scenario viewport dimensions"
+    );
+    Ok(plan)
+}
+
+fn capture_key(case: &CaptureCase) -> String {
+    if is_default_scenario(&case.scenario) {
+        return key(case.viewport);
+    }
+    let hash = blake3::hash(&serde_json::to_vec(&case.scenario).expect("serializable scenario"));
+    format!(
+        "{}@{}:{}",
+        case.scenario.id,
+        hash.to_hex(),
+        key(case.viewport)
+    )
+}
+
+fn ensure_capture_set(plan: &[CaptureCase], captures: &[(CaptureCase, Vec<u8>)]) -> Result<()> {
+    anyhow::ensure!(
+        plan.len() == captures.len() && !plan.is_empty(),
+        "visual_scenarios_incomplete: capture set is incomplete"
+    );
+    let expected: std::collections::BTreeSet<_> = plan.iter().map(capture_key).collect();
+    let actual: std::collections::BTreeSet<_> =
+        captures.iter().map(|(case, _)| capture_key(case)).collect();
+    anyhow::ensure!(
+        expected == actual && actual.len() == captures.len(),
+        "visual_scenarios_incomplete: capture identities do not match the plan"
     );
     Ok(())
 }
@@ -227,7 +316,7 @@ fn ensure_scenarios_unchanged(
     current: &super::scenarios::ScenariosEnvelope,
     expected_hash: &str,
 ) -> Result<()> {
-    ensure_default_scenario(&current.manifest)?;
+    capture_plan(&current.manifest)?;
     anyhow::ensure!(
         current.hash == expected_hash,
         "visual_scenarios_incomplete: scenarios changed during capture"
@@ -243,15 +332,7 @@ struct QualityRunPreparation {
     findings: Vec<StaticFinding>,
     capture_html: String,
     scenarios_hash: String,
-}
-
-struct BaselinePreparation {
-    artifact_id: String,
-    artifact_hash: String,
-    dir: PathBuf,
-    manifest: QualityManifest,
-    capture_html: String,
-    scenarios_hash: String,
+    plan: Vec<CaptureCase>,
     _artifact_lifecycle_guard: std::fs::File,
 }
 
@@ -336,11 +417,12 @@ fn capture_wrapper_script(html: &str) -> Result<String> {
 }
 
 fn prepare_quality_run(artifact_id: &str) -> Result<QualityRunPreparation> {
-    let artifact = super::service::get_artifact(artifact_id)?
-        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let (artifact, guard) = super::quality_store::locked_artifact(artifact_id)?;
+    let source_lock = super::service::artifact_lock(artifact_id);
+    let _source_guard = source_lock.lock().unwrap_or_else(|e| e.into_inner());
     let artifact_hash = artifact_hash(artifact_id)?;
     let scenarios = super::scenarios::get(artifact_id)?;
-    ensure_default_scenario(&scenarios.manifest)?;
+    let plan = capture_plan(&scenarios.manifest)?;
     let dir = quality_dir(&artifact.project_id, artifact_id)?;
     let manifest = load_manifest(&dir, artifact_id)?;
     let html = artifact_capture_html(&artifact.project_id, artifact_id)?;
@@ -352,13 +434,18 @@ fn prepare_quality_run(artifact_id: &str) -> Result<QualityRunPreparation> {
         findings: static_findings(&html),
         capture_html: html,
         scenarios_hash: scenarios.hash,
+        plan,
+        _artifact_lifecycle_guard: guard,
     })
 }
 
 fn finish_quality_run(
     prepared: QualityRunPreparation,
-    captures: Vec<(QualityViewport, Vec<u8>)>,
+    captures: Vec<(CaptureCase, Vec<u8>)>,
 ) -> Result<QualityRun> {
+    ensure_capture_set(&prepared.plan, &captures)?;
+    let source_lock = super::service::artifact_lock(&prepared.artifact_id);
+    let _source_guard = source_lock.lock().unwrap_or_else(|e| e.into_inner());
     if artifact_hash(&prepared.artifact_id)? != prepared.artifact_hash {
         anyhow::bail!("artifact changed during visual regression capture");
     }
@@ -367,16 +454,21 @@ fn finish_quality_run(
         &prepared.scenarios_hash,
     )?;
     let mut diffs = Vec::with_capacity(captures.len());
-    for (viewport, bytes) in captures {
+    let mut entries = BTreeMap::new();
+    let mut images = BTreeMap::new();
+    let now = chrono::Utc::now().to_rfc3339();
+    for (case, bytes) in captures {
+        let viewport = case.viewport;
         let current_hash = blake3::hash(&bytes).to_hex().to_string();
-        let current = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)?;
-        let baseline = prepared.manifest.baselines.get(&key(viewport));
+        let current = capture_image(&bytes, viewport)?;
+        let baseline = prepared
+            .manifest
+            .baselines
+            .get(&capture_key(&case))
+            .filter(|entry| entry.viewport == viewport && entry.scenario_id == case.scenario.id);
         let (changed_ratio, mean_delta, passed) = if let Some(entry) = baseline {
-            let path = prepared
-                .dir
-                .join("screenshots")
-                .join(format!("{}.png", entry.image_hash));
-            let previous = image::open(path)?;
+            let bytes = super::quality_store::screenshot(&prepared.dir, entry)?;
+            let previous = capture_image(&bytes, viewport)?;
             let (changed, delta) = compare_images(&current, &previous);
             (
                 Some(changed),
@@ -386,7 +478,20 @@ fn finish_quality_run(
         } else {
             (None, None, false)
         };
+        entries.insert(
+            capture_key(&case),
+            BaselineEntry {
+                scenario_id: case.scenario.id.clone(),
+                viewport,
+                image_hash: current_hash.clone(),
+                artifact_hash: prepared.artifact_hash.clone(),
+                accepted_at: now.clone(),
+            },
+        );
+        images.insert(current_hash.clone(), bytes);
         diffs.push(ViewportDiff {
+            scenario_id: case.scenario.id,
+            scenario_title: case.scenario.title,
             viewport,
             current_hash,
             baseline_hash: baseline.map(|b| b.image_hash.clone()),
@@ -397,85 +502,117 @@ fn finish_quality_run(
     }
     let deterministic_passed =
         diffs.iter().all(|d| d.passed) && !prepared.findings.iter().any(|f| f.severity == "error");
-    Ok(QualityRun {
+    let result = QualityRun {
+        review_id: uuid::Uuid::new_v4().to_string(),
+        baseline_revision: prepared.manifest.revision_id.clone(),
+        baseline_revisions: super::quality_store::revision_summaries(&prepared.manifest),
         artifact_id: prepared.artifact_id,
         artifact_hash: prepared.artifact_hash,
+        scenarios_hash: prepared.scenarios_hash,
         diffs,
         findings: prepared.findings,
         deterministic_passed,
-    })
+    };
+    let mut manifest = prepared.manifest;
+    manifest.reviews.push(super::quality_store::QualityReceipt {
+        created_at: now,
+        run: result.clone(),
+        entries,
+    });
+    super::quality_store::publish(&prepared.dir, &mut manifest, &images)?;
+    Ok(result)
 }
 
-fn prepare_baseline(input: AcceptBaselineInput) -> Result<BaselinePreparation> {
-    let candidate = super::service::get_artifact(&input.artifact_id)?
-        .with_context(|| format!("artifact not found: {}", input.artifact_id))?;
-    let artifact_lifecycle_guard =
-        super::service::acquire_artifact_lifecycle_lock(&candidate.project_id, &candidate.id)?;
-    // Deletion may have won before the lifecycle lock was acquired. Re-read
-    // the durable identity under the lock before creating any quality path.
-    let artifact = super::service::get_artifact(&input.artifact_id)?
-        .with_context(|| format!("artifact not found: {}", input.artifact_id))?;
-    if artifact.project_id != candidate.project_id {
-        anyhow::bail!("artifact identity changed while accepting baseline");
-    }
-    let actual = artifact_hash(&input.artifact_id)?;
-    if actual != input.expected_artifact_hash {
-        anyhow::bail!("stale baseline acceptance: artifact changed");
-    }
-    let scenarios = super::scenarios::get(&artifact.id)?;
-    ensure_default_scenario(&scenarios.manifest)?;
-    let dir = quality_dir(&artifact.project_id, &artifact.id)?;
-    std::fs::create_dir_all(dir.join("screenshots"))?;
-    let manifest = load_manifest(&dir, &artifact.id)?;
-    let capture_html = artifact_capture_html(&artifact.project_id, &artifact.id)?;
-    Ok(BaselinePreparation {
-        artifact_id: artifact.id.clone(),
-        artifact_hash: actual,
-        dir,
-        manifest,
-        capture_html,
-        scenarios_hash: scenarios.hash,
-        _artifact_lifecycle_guard: artifact_lifecycle_guard,
-    })
-}
-
-fn finish_baseline(
-    mut prepared: BaselinePreparation,
-    captures: Vec<(QualityViewport, Vec<u8>)>,
-) -> Result<QualityManifest> {
-    if artifact_hash(&prepared.artifact_id)? != prepared.artifact_hash {
-        anyhow::bail!("artifact changed during baseline capture");
-    }
-    ensure_scenarios_unchanged(
-        &super::scenarios::get(&prepared.artifact_id)?,
-        &prepared.scenarios_hash,
-    )?;
-    let now = chrono::Utc::now().to_rfc3339();
-    for (viewport, bytes) in captures {
-        let image_hash = blake3::hash(&bytes).to_hex().to_string();
-        write_atomic(
-            &prepared
-                .dir
-                .join("screenshots")
-                .join(format!("{image_hash}.png")),
-            &bytes,
-        )?;
-        prepared.manifest.baselines.insert(
-            key(viewport),
-            BaselineEntry {
-                viewport,
-                image_hash,
-                artifact_hash: prepared.artifact_hash.clone(),
-                accepted_at: now.clone(),
-            },
+fn ensure_acceptance_scenarios(
+    scenarios: &super::scenarios::ScenariosEnvelope,
+    expected: Option<&str>,
+) -> Result<()> {
+    if let Some(expected) = expected {
+        anyhow::ensure!(
+            expected == scenarios.hash,
+            "visual_scenarios_incomplete: reviewed scenarios changed before baseline acceptance"
         );
+    } else {
+        anyhow::ensure!(scenarios.manifest.viewports.is_empty()
+            && scenarios.manifest.scenarios.len() == 1
+            && is_default_scenario(&scenarios.manifest.scenarios[0])
+            && scenarios.manifest.scenarios[0].viewport_ids.is_empty(),
+            "visual_scenarios_incomplete: custom baseline acceptance requires expectedScenariosHash");
     }
-    let bytes = serde_json::to_vec_pretty(&prepared.manifest)?;
-    write_atomic(&prepared.dir.join("manifest.json"), &bytes)?;
-    Ok(prepared.manifest)
+    Ok(())
 }
 
-async fn capture_all(html: &str) -> Result<Vec<(QualityViewport, Vec<u8>)>> {
+pub(super) fn capture_image(bytes: &[u8], viewport: QualityViewport) -> Result<DynamicImage> {
+    anyhow::ensure!(bytes.len() <= MAX_PNG_BYTES, "captured PNG exceeds 32 MiB");
+    let dimensions =
+        image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Png)
+            .into_dimensions()?;
+    anyhow::ensure!(
+        dimensions == (viewport.width, viewport.height),
+        "captured PNG dimensions do not match the planned viewport"
+    );
+    let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)?;
+    anyhow::ensure!(
+        image.dimensions() == (viewport.width, viewport.height),
+        "captured PNG dimensions do not match the planned viewport"
+    );
+    Ok(image)
+}
+
+/// Promote only the saved captures the caller reviewed; never capture again here.
+fn accept_review(input: AcceptBaselineInput) -> Result<QualityManifest> {
+    let (artifact, _guard) = super::quality_store::locked_artifact(&input.artifact_id)?;
+    let source_lock = super::service::artifact_lock(&input.artifact_id);
+    let _source_guard = source_lock.lock().unwrap_or_else(|e| e.into_inner());
+    let actual_hash = artifact_hash(&artifact.id)?;
+    let scenarios = super::scenarios::get(&artifact.id)?;
+    ensure_acceptance_scenarios(&scenarios, input.expected_scenarios_hash.as_deref())?;
+    let plan_keys = capture_plan(&scenarios.manifest)?
+        .iter()
+        .map(capture_key)
+        .collect();
+    super::quality_store::accept_review_at(
+        &quality_dir(&artifact.project_id, &artifact.id)?,
+        &input,
+        &actual_hash,
+        &scenarios.hash,
+        &plan_keys,
+    )
+}
+
+fn readiness_script(ready: &super::scenarios::ScenarioReady) -> Result<String> {
+    let selector = serde_json::to_string(&ready.selector)?;
+    let text = serde_json::to_string(ready.text.trim())?;
+    Ok(format!(
+        r#"(() => {{
+        const matches = document.querySelectorAll({selector});
+        if (matches.length !== 1) return false;
+        const element = matches[0], rect = element.getBoundingClientRect();
+        const visible = () => element.isConnected && element.textContent.trim() === {text}
+          && typeof element.checkVisibility === 'function'
+          && element.checkVisibility({{opacityProperty:true,visibilityProperty:true,contentVisibilityAuto:true}});
+        if (!visible() || !('isVisible' in IntersectionObserverEntry.prototype)) return false;
+        if (!(rect.width > 0 && rect.height > 0
+          && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth
+        )) return false;
+        // Native visibility tracking includes ancestor clipping, opacity and
+        // occlusion. Unsupported/uncertain effects fail closed, never an ACK.
+        return new Promise(resolve => {{
+          let observer;
+          const finish = value => {{ clearTimeout(timer); observer?.disconnect(); resolve(value && visible()); }};
+          const timer = setTimeout(() => finish(false), 300);
+          observer = new IntersectionObserver(entries => {{
+            const entry = entries[0];
+            finish(entry?.isVisible === true && entry.isIntersecting
+              && entry.intersectionRect.width > 0 && entry.intersectionRect.height > 0);
+          }}, {{trackVisibility:true, delay:100}});
+          observer.observe(element);
+        }});
+    }})()"#
+    ))
+}
+
+async fn capture_all(html: &str, plan: &[CaptureCase]) -> Result<Vec<(CaptureCase, Vec<u8>)>> {
     // CdpBackend is stateless over one global active target. The guard must
     // cover original-target capture, disposable-tab work, close, and restore.
     let _cdp_operation = ha_browser::browser::acquire_cdp_operation_guard().await;
@@ -501,6 +638,14 @@ async fn capture_all(html: &str) -> Result<Vec<(QualityViewport, Vec<u8>)>> {
     let tab = backend.new_page(None).await?;
     let _ = backend.select_page(&tab.target_id).await;
     let result = async {
+        backend.prepare_capture_page().await?;
+        let mut captures = Vec::with_capacity(plan.len());
+        let mut total_bytes = 0usize;
+        for case in plan {
+        let viewport = case.viewport;
+        backend.resize(viewport.width, viewport.height).await?;
+        // Each case receives a fresh opaque iframe; state cannot bleed from
+        // an earlier scenario or viewport. CSP and the managed-tab lock remain.
         let wrapper = capture_wrapper_script(html)?;
         let sandbox = backend.evaluate(&wrapper).await?;
         if sandbox.as_str() != Some("allow-scripts") {
@@ -522,10 +667,30 @@ async fn capture_all(html: &str) -> Result<Vec<(QualityViewport, Vec<u8>)>> {
             anyhow::bail!("sandboxed artifact did not become ready for capture");
         }
         tokio::time::sleep(std::time::Duration::from_millis(350)).await;
-        let mut captures = Vec::with_capacity(FIXED_VIEWPORTS.len());
-        for viewport in FIXED_VIEWPORTS {
-            backend.resize(viewport.width, viewport.height).await?;
+            if let Some(assertion) = &case.scenario.ready {
+                let message = serde_json::to_string(&serde_json::json!({
+                    "type": "ds_scenario", "route": case.scenario.route,
+                    "state": case.scenario.state
+                }))?;
+                backend.evaluate(&format!("document.querySelector('iframe').contentWindow.postMessage({message}, '*'); true")).await?;
+                let check = readiness_script(assertion)?;
+                let mut reached = false;
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+                for _ in 0..60 {
+                    let Ok(inspected) = tokio::time::timeout_at(deadline, backend.evaluate_sandboxed_frame(&check)).await else { break; };
+                    if inspected?.as_bool() == Some(true) {
+                        reached = true;
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                anyhow::ensure!(reached, "visual_scenarios_incomplete: scenario {} did not reach its visible ready condition", case.scenario.id);
+            }
             tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            if let Some(assertion) = &case.scenario.ready {
+                anyhow::ensure!(backend.evaluate_sandboxed_frame(&readiness_script(assertion)?).await?.as_bool() == Some(true),
+                    "visual_scenarios_incomplete: scenario state changed before capture");
+            }
             let bytes = backend
                 .take_screenshot(ScreenshotParams {
                     format: ImageFormat::Png,
@@ -536,7 +701,9 @@ async fn capture_all(html: &str) -> Result<Vec<(QualityViewport, Vec<u8>)>> {
             if bytes.len() > MAX_PNG_BYTES {
                 anyhow::bail!("captured PNG exceeds 32 MiB");
             }
-            captures.push((viewport, bytes));
+            total_bytes += bytes.len();
+            anyhow::ensure!(total_bytes <= MAX_TOTAL_PNG_BYTES, "visual capture set exceeds 128 MiB");
+            captures.push((case.clone(), bytes));
         }
         Ok::<_, anyhow::Error>(captures)
     }
@@ -555,39 +722,388 @@ pub async fn run(artifact_id: &str) -> Result<QualityRun> {
     let artifact_id = artifact_id.to_string();
     let prepared =
         ha_core::blocking::run_blocking(move || prepare_quality_run(&artifact_id)).await?;
-    let captures = capture_all(&prepared.capture_html).await?;
+    let captures = capture_all(&prepared.capture_html, &prepared.plan).await?;
     ha_core::blocking::run_blocking(move || finish_quality_run(prepared, captures)).await
 }
 
 /// 显式 owner 操作：以期望源码哈希防止把陈旧画面接受为当前基线。
 pub async fn accept(input: AcceptBaselineInput) -> Result<QualityManifest> {
-    let prepared = ha_core::blocking::run_blocking(move || prepare_baseline(input)).await?;
-    let captures = capture_all(&prepared.capture_html).await?;
-    ha_core::blocking::run_blocking(move || finish_baseline(prepared, captures)).await
+    ha_core::blocking::run_blocking(move || accept_review(input)).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn two_states() -> super::super::scenarios::ScenariosManifest {
+        use super::super::scenarios::{ScenarioReady, ScenariosManifest};
+        let mut manifest = ScenariosManifest::default();
+        let mut empty = manifest.scenarios.remove(0);
+        empty.id = "empty".into();
+        empty.title = "Empty cart".into();
+        empty.state = serde_json::json!({"status":"empty"});
+        empty.ready = Some(ScenarioReady {
+            selector: "#status".into(),
+            text: "empty".into(),
+        });
+        let mut error = empty.clone();
+        error.id = "error".into();
+        error.title = "Error cart".into();
+        error.state = serde_json::json!({"status":"error"});
+        error.ready.as_mut().unwrap().text = "error".into();
+        manifest.scenarios = vec![empty, error];
+        manifest
+    }
+
+    #[test]
+    fn two_states_have_six_independent_capture_and_baseline_identities() {
+        let mut manifest = two_states();
+        let plan = capture_plan(&manifest).unwrap();
+        assert_eq!(plan.len(), 6);
+        let keys: std::collections::BTreeSet<_> = plan.iter().map(capture_key).collect();
+        assert_eq!(keys.len(), 6);
+        let captures: Vec<_> = plan.iter().cloned().map(|c| (c, Vec::new())).collect();
+        assert!(ensure_capture_set(&plan, &captures).is_ok());
+        assert!(ensure_capture_set(&plan, &captures[..5]).is_err());
+        let mut duplicate = captures.clone();
+        duplicate[3] = duplicate[0].clone();
+        assert!(ensure_capture_set(&plan, &duplicate).is_err());
+        manifest.scenarios[0].state = serde_json::json!({"status":"updated"});
+        let updated = capture_plan(&manifest).unwrap();
+        assert_ne!(capture_key(&plan[0]), capture_key(&updated[0]));
+        assert_eq!(capture_key(&plan[3]), capture_key(&updated[3]));
+    }
+
+    #[test]
+    fn baseline_acceptance_binds_the_reviewed_scenario_version() {
+        use super::super::scenarios::ScenariosEnvelope;
+        let custom = ScenariosEnvelope {
+            manifest: two_states(),
+            hash: "reviewed".into(),
+        };
+        assert!(ensure_acceptance_scenarios(&custom, None).is_err());
+        assert!(ensure_acceptance_scenarios(&custom, Some("stale")).is_err());
+        assert!(ensure_acceptance_scenarios(&custom, Some("reviewed")).is_ok());
+        let legacy = ScenariosEnvelope {
+            manifest: Default::default(),
+            hash: "legacy".into(),
+        };
+        assert!(ensure_acceptance_scenarios(&legacy, None).is_ok());
+        let plan = capture_plan(&legacy.manifest).unwrap();
+        assert_eq!(capture_key(&plan[0]), "1440x900");
+        let entry: BaselineEntry = serde_json::from_value(serde_json::json!({
+            "viewport":{"width":1440,"height":900}, "imageHash":"old", "artifactHash":"old", "acceptedAt":"old"
+        })).unwrap();
+        assert_eq!(entry.scenario_id, "default");
+    }
+
+    #[test]
+    fn ready_conditions_and_custom_viewports_are_bounded() {
+        let mut manifest = two_states();
+        manifest.scenarios[0].ready.as_mut().unwrap().selector = "[".into();
+        assert!(capture_plan(&manifest).is_err());
+        manifest = two_states();
+        manifest.scenarios[0].ready.as_mut().unwrap().text = " ".into();
+        assert!(capture_plan(&manifest).is_err());
+        manifest = two_states();
+        manifest.scenarios[0].route = "/checkout".into();
+        assert!(capture_plan(&manifest).is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "explicit isolated Chrome smoke test; requires HA_DATA_DIR fixture marker"]
+    async fn isolated_browser_captures_states_and_rejects_unreached_state() {
+        let root = std::path::PathBuf::from(
+            std::env::var_os("HA_DATA_DIR").expect("isolated HA_DATA_DIR"),
+        );
+        assert!(
+            root.join(".design-capture-test").is_file(),
+            "refuse a user data directory"
+        );
+        let chrome =
+            std::env::var("HA_DESIGN_TEST_CHROME").expect("explicit installed Chrome executable");
+        assert!(std::path::Path::new(&chrome).is_file());
+        let mut config = serde_json::to_value(ha_core::config::AppConfig::default()).unwrap();
+        config["browser"] = serde_json::json!({"profiles":{"managed":{
+            "executablePath":chrome,"userDataDir":root.join("browser-profile"),
+            "headless":true,"extraArgs":["--disable-background-networking","--disable-component-update"]
+        }}});
+        write_atomic(
+            &root.join("config.json"),
+            &serde_json::to_vec_pretty(&config).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            ha_browser::browser::profile::resolve_profile("managed")
+                .unwrap()
+                .user_data_dir
+                .starts_with(&root),
+            "refuse a non-isolated browser profile"
+        );
+        let manifest = two_states();
+        let plan = capture_plan(&manifest).unwrap();
+        let html = format!(
+            r#"<!doctype html><html><head><style>body{{margin:0}}main{{height:100vh;background:tomato;color:black;font:40px sans-serif}}</style></head><body><main id="status">initial</main><script>
+            window.addEventListener('ds_scenario', e => {{ const s=e.detail.state.status; document.querySelector('#status').textContent=s; document.querySelector('main').style.background=s==='empty'?'lightblue':'tomato'; }});
+            // Attempt to spoof a ready check in the authored realm: isolated inspection must ignore it.
+            document.querySelectorAll = () => [{{textContent:'missing',getBoundingClientRect:()=>({{width:1,height:1,bottom:1,right:1,top:0,left:0}})}}];
+        </script>{}</body></html>"#,
+            super::super::renderer::ZOOM_FORWARD_SCRIPT
+        );
+        let backend = CdpBackend::new();
+        let original = backend.new_page(None).await.unwrap();
+        backend.select_page(&original.target_id).await.unwrap();
+        backend.prepare_capture_page().await.unwrap();
+        backend
+            .evaluate(
+                &capture_wrapper_script("<html><body><p id='status'>missing</p></body></html>")
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+        backend.resize(800, 600).await.unwrap();
+        let original_tabs: std::collections::BTreeSet<_> = backend
+            .list_pages()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|tab| tab.target_id)
+            .collect();
+        let captures = capture_all(&html, &plan).await.unwrap();
+        ensure_capture_set(&plan, &captures).unwrap();
+        for (case, bytes) in &captures {
+            capture_image(bytes, case.viewport).unwrap();
+        }
+        for i in 0..3 {
+            let a = capture_image(&captures[i].1, captures[i].0.viewport).unwrap();
+            let b = capture_image(&captures[i + 3].1, captures[i + 3].0.viewport).unwrap();
+            assert!(
+                compare_images(&a, &b).0 > 0.5,
+                "states must actually render differently"
+            );
+        }
+        let out = root.join("capture-evidence");
+        std::fs::create_dir_all(&out).unwrap();
+        for (case, png) in &captures {
+            std::fs::write(
+                out.join(format!("{}-{}.png", case.scenario.id, key(case.viewport))),
+                png,
+            )
+            .unwrap();
+        }
+        let mut missing = plan[0].clone();
+        missing.scenario.ready.as_mut().unwrap().text = "missing".into();
+        assert!(capture_all(&html, &[missing])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("did not reach"));
+        for ancestor_style in [
+            "opacity:0",
+            "height:0;overflow:hidden",
+            "clip-path:inset(100%)",
+        ] {
+            let hidden = html
+                .replace(
+                    "<body>",
+                    &format!("<body><section style='{ancestor_style}'>"),
+                )
+                .replace("</body>", "</section></body>");
+            assert!(
+                capture_all(&hidden, &plan[..1])
+                    .await
+                    .unwrap_err()
+                    .to_string()
+                    .contains("did not reach"),
+                "hidden ancestor must not satisfy readiness: {ancestor_style}"
+            );
+        }
+        let covered = html.replace(
+            "</body>",
+            "<aside style='position:fixed;inset:0;background:white;z-index:9999'></aside></body>",
+        );
+        assert!(capture_all(&covered, &plan[..1])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("did not reach"));
+        let partly_clipped = html
+            .replace(
+                "<body>",
+                "<body><section style='height:100px;overflow:hidden'>",
+            )
+            .replace("</body>", "</section></body>");
+        assert!(
+            capture_all(&partly_clipped, &plan[..1]).await.is_ok(),
+            "a visibly intersecting portion must remain valid"
+        );
+        // Exercise the real local artifact/manifest/baseline pipeline as well,
+        // using only the explicit isolated data root and supplied HTML/JS.
+        let project = super::super::service::create_project(
+            serde_json::from_value(serde_json::json!({"title":"Scenario capture smoke"})).unwrap(),
+        )
+        .unwrap();
+        let artifact = super::super::service::create_artifact(serde_json::from_value(
+            serde_json::json!({"projectId":project.id,"title":"State fixture","kind":"web",
+                "bodyHtml":"<main id='status'>initial</main>",
+                "css":"html,body{margin:0}main{min-height:100vh;font:40px sans-serif;background:lightblue}",
+                "js":"window.addEventListener('ds_scenario',e=>{document.querySelector('#status').textContent=e.detail.state.status;document.querySelector('main').style.background=e.detail.state.status==='empty'?'lightblue':'tomato'})"})
+        ).unwrap()).unwrap();
+        let initial = super::super::scenarios::get(&artifact.id).unwrap();
+        let saved =
+            super::super::scenarios::save(&artifact.id, &initial.hash, manifest.clone()).unwrap();
+        let before = run(&artifact.id).await.unwrap();
+        assert_eq!(before.diffs.len(), 6);
+        assert!(before.diffs.iter().all(|diff| diff.baseline_hash.is_none()));
+        let rendered_path = ha_core::paths::design_artifact_dir(&artifact.project_id, &artifact.id)
+            .unwrap()
+            .join("index.html");
+        let rendered = std::fs::read(&rendered_path).unwrap();
+        let mut changed_render = rendered.clone();
+        changed_render.extend_from_slice(b"<!-- changed rendered version -->");
+        write_atomic(&rendered_path, &changed_render).unwrap();
+        assert!(accept(AcceptBaselineInput {
+            artifact_id: artifact.id.clone(),
+            review_id: before.review_id.clone(),
+            expected_baseline_revision: before.baseline_revision.clone(),
+            expected_artifact_hash: before.artifact_hash.clone(),
+            expected_scenarios_hash: Some(before.scenarios_hash.clone()),
+        })
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("artifact changed"));
+        write_atomic(&rendered_path, &rendered).unwrap();
+        let accepted = accept(AcceptBaselineInput {
+            artifact_id: artifact.id.clone(),
+            review_id: before.review_id.clone(),
+            expected_baseline_revision: before.baseline_revision.clone(),
+            expected_artifact_hash: before.artifact_hash.clone(),
+            expected_scenarios_hash: Some(before.scenarios_hash.clone()),
+        })
+        .await
+        .unwrap();
+        assert_eq!(accepted.baselines.len(), 6);
+        for diff in &before.diffs {
+            assert!(accepted
+                .baselines
+                .values()
+                .any(|entry| entry.scenario_id == diff.scenario_id
+                    && entry.viewport == diff.viewport
+                    && entry.image_hash == diff.current_hash));
+            let shown = super::super::quality_store::review_image(
+                super::super::quality_store::QualityImageInput {
+                    artifact_id: artifact.id.clone(),
+                    review_id: before.review_id.clone(),
+                    scenario_id: diff.scenario_id.clone(),
+                    viewport: diff.viewport,
+                    side: super::super::quality_store::ImageSide::Current,
+                },
+            )
+            .unwrap();
+            assert_eq!(shown.image_hash, diff.current_hash);
+        }
+        let repeated = run(&artifact.id).await.unwrap();
+        assert!(
+            repeated.deterministic_passed,
+            "same states must match their own baselines: {repeated:?}"
+        );
+        let second = accept(AcceptBaselineInput {
+            artifact_id: artifact.id.clone(),
+            review_id: repeated.review_id.clone(),
+            expected_artifact_hash: repeated.artifact_hash.clone(),
+            expected_scenarios_hash: Some(repeated.scenarios_hash.clone()),
+            expected_baseline_revision: repeated.baseline_revision.clone(),
+        })
+        .await
+        .unwrap();
+        let restore_input = super::super::quality_store::RestoreBaselineInput {
+            artifact_id: artifact.id.clone(),
+            revision_id: accepted.revision_id.clone().unwrap(),
+            expected_revision_id: second.revision_id.unwrap(),
+        };
+        let restored = super::super::quality_store::restore(restore_input).unwrap();
+        assert_eq!(
+            serde_json::to_value(&restored.baselines).unwrap(),
+            serde_json::to_value(&accepted.baselines).unwrap()
+        );
+        assert_eq!(
+            restored.revisions.last().unwrap().restored_from,
+            accepted.revision_id
+        );
+        let mut changed = manifest;
+        changed.scenarios[0].state = serde_json::json!({"status":"updated"});
+        changed.scenarios[0].ready.as_mut().unwrap().text = "updated".into();
+        super::super::scenarios::save(&artifact.id, &saved.hash, changed).unwrap();
+        assert!(accept(AcceptBaselineInput {
+            artifact_id: artifact.id.clone(),
+            review_id: before.review_id.clone(),
+            expected_baseline_revision: before.baseline_revision.clone(),
+            expected_artifact_hash: before.artifact_hash,
+            expected_scenarios_hash: Some(before.scenarios_hash)
+        })
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("reviewed scenarios changed"));
+        let updated = run(&artifact.id).await.unwrap();
+        assert!(updated
+            .diffs
+            .iter()
+            .filter(|d| d.scenario_id == "empty")
+            .all(|d| d.baseline_hash.is_none()));
+        assert!(updated
+            .diffs
+            .iter()
+            .filter(|d| d.scenario_id == "error")
+            .all(|d| d.passed));
+        std::fs::write(
+            out.join("quality-run.json"),
+            serde_json::to_vec_pretty(&repeated).unwrap(),
+        )
+        .unwrap();
+        let status = backend.status().await.unwrap();
+        assert_eq!(
+            status.active_target_id.as_deref(),
+            Some(original.target_id.as_str())
+        );
+        let remaining_tabs: std::collections::BTreeSet<_> =
+            status.tabs.into_iter().map(|tab| tab.target_id).collect();
+        assert_eq!(
+            remaining_tabs, original_tabs,
+            "capture must preserve exactly the pre-existing tabs on success and failure"
+        );
+        assert_eq!(
+            backend
+                .take_snapshot(SnapshotFormat::Role)
+                .await
+                .unwrap()
+                .viewport,
+            (800, 600)
+        );
+        backend.close_page(&original.target_id).await.unwrap();
+        ha_browser::browser_ui::disconnect().await.unwrap();
+    }
+
     #[test]
     fn custom_scenarios_never_reuse_default_page_evidence() {
         use super::super::scenarios::ScenariosManifest;
         let default = ScenariosManifest::default();
-        assert!(ensure_default_scenario(&default).is_ok());
+        assert!(capture_plan(&default).is_ok());
         let mut state = default.clone();
         state.scenarios[0].state = serde_json::json!({"checkout": "empty"});
-        assert!(ensure_default_scenario(&state).is_err());
+        assert!(capture_plan(&state).is_err());
         state.scenarios[0].state = serde_json::json!({"checkout": "error"});
-        assert!(ensure_default_scenario(&state).is_err());
+        assert!(capture_plan(&state).is_err());
         let mut route = default.clone();
         route.scenarios[0].route = "/checkout".into();
-        assert!(ensure_default_scenario(&route).is_err());
+        assert!(capture_plan(&route).is_err());
         let mut multiple = default.clone();
         let mut other = multiple.scenarios[0].clone();
         other.id = "empty".into();
         multiple.scenarios.push(other);
-        assert!(ensure_default_scenario(&multiple).is_err());
+        assert!(capture_plan(&multiple).is_err());
         let mut viewport = default.clone();
         viewport.viewports.insert(
             "phone".into(),
@@ -598,10 +1114,10 @@ mod tests {
             },
         );
         viewport.scenarios[0].viewport_ids = vec!["phone".into()];
-        assert!(ensure_default_scenario(&viewport).is_err());
+        assert_eq!(capture_plan(&viewport).unwrap().len(), 1);
         let mut renamed = default.clone();
         renamed.scenarios[0].id = "error".into();
-        assert!(ensure_default_scenario(&renamed).is_err());
+        assert!(capture_plan(&renamed).is_err());
     }
 
     #[test]
