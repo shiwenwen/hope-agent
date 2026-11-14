@@ -521,7 +521,7 @@ Unattended 时按 `unattended_approval_action` 处理：`Deny`（默认，fail-c
 每个后台 job 的 `async_jobs.approval_origin` 列记录授权方式（`ApprovalOrigin`：`user` / `timeout_proceed` / `unattended_proceed` / `yolo` / `auto_approve` / `external_pre_approved` / `policy_allow`）。审批闸单点算出后写入 spawn ctx。
 
 - **外部连接器写动作不被 auto-approve 静默绕过**：`auto_approve_tools`（IM auto-approve 账号 / skill 斜杠）和 trusted MCP `autoApprove` 对普通工具仍可跳过引擎，但 mutating connector tools 由 `needs_permission_engine` 强制进引擎、弹 strict `ExternalConnectorAction`；只有 `external_pre_approved`（async 重入已在外层审计）可跳过重复弹窗。
-- **`auto_approve_bypass` 探测**：`auto_approve_tools` 跳过普通门时，若被跳过的调用本会命中其它 strict 原因，跑一次 no-enforce 探测并 `app_warn('permission','auto_approve_bypass')`——纯审计不拦截（IM auto-approve 是 opt-in），显式排除 `external_pre_approved` 防重复告警。
+- **`auto_approve_bypass` 探测升级为强制门**：`auto_approve_tools` 跳过普通门时，若被跳过的调用本会命中 strict 原因，跑一次 no-enforce 探测，命中 `forbids_allow_always` 即 `app_warn('permission','auto_approve_bypass')` 并**把该调用强制送回正常审批闸逐次弹窗**——软审批类调用保持免确认的 opt-in 便利，strict 类（连 AllowAlways / 超时 proceed 都拿不到的授权）不再被 auto-approve 吞掉；显式排除 `external_pre_approved`（async 重入已在外层审计）防重复弹窗。
 
 ---
 
