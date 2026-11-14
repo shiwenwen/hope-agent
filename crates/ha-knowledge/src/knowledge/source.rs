@@ -1655,7 +1655,11 @@ struct OcrRoundGuard(String);
 impl Drop for OcrRoundGuard {
     fn drop(&mut self) {
         if let Some(set) = RUNNING_OCR_ROUNDS.get() {
-            set.lock().unwrap().remove(&self.0);
+            // A poisoned lock must not double-panic inside Drop during an
+            // unwind — recover the inner set and release the slot.
+            set.lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&self.0);
         }
     }
 }
