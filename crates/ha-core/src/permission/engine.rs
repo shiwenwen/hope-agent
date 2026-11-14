@@ -334,7 +334,10 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
             log_yolo_warn(ctx, &reason);
         }
         if let Some(reason) = check_browser_raw_cdp(ctx) {
-            log_yolo_warn(ctx, &reason);
+            // Raw CDP against the user's real Chrome is strict in every
+            // mode (`AskReason::forbids_allow_always`): even YOLO forces a
+            // fresh per-call prompt, mirroring the non-YOLO gate below.
+            return Decision::Ask { reason };
         }
         if let Some(reason) = check_browser_chrome_access(ctx) {
             log_yolo_warn(ctx, &reason);
@@ -1817,7 +1820,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_raw_cdp_yolo_allows_with_audit_layer() {
+    fn browser_raw_cdp_yolo_still_asks_strict() {
         let args = json!({
             "action": "control",
             "op": "raw_cdp",
@@ -1826,7 +1829,12 @@ mod tests {
         let plan: Vec<String> = vec![];
         let custom: Vec<String> = vec![];
         let c = ctx("browser", &args, SessionMode::Yolo, &plan, &custom);
-        assert_eq!(resolve(&c), Decision::Allow);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::BrowserRawCdp { .. }
+            }
+        ));
     }
 
     #[test]
