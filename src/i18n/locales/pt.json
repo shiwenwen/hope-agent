@@ -1339,7 +1339,8 @@
     "channelUnreadStatus": "Conversa de mensagem não lida",
     "generatedImageName": "Imagem gerada {{index}}",
     "noAgents": "Nenhum agente",
-    "sessionFailed": "Falha na conversa"
+    "sessionFailed": "Falha na conversa",
+    "composerOptions": "Opções de conversa"
   },
   "codexAuth": {
     "expiredDescription": "Seu token OAuth do Codex não é mais válido. Faça login novamente para continuar.",
@@ -13010,6 +13011,7 @@
       "botIdentityHint": "O Telegram gerencia o nome e o avatar do Bot separadamente. As alterações aqui não atualizam o perfil do Bot."
     },
     "welcomeTitle": "Sou {{name}}",
-    "welcomeBody": "Conte o que deseja fazer. Você pode voltar para continuar a conversa ou acompanhar o trabalho delegado."
+    "welcomeBody": "Conte o que deseja fazer. Você pode voltar para continuar a conversa ou acompanhar o trabalho delegado.",
+    "messagePlaceholder": "O que você gostaria de fazer?"
   }
 }

@@ -1339,7 +1339,8 @@
     "channelUnreadStatus": "Okunmamış IM sohbeti",
     "generatedImageName": "Oluşturulan görsel {{index}}",
     "noAgents": "Ajan yok",
-    "sessionFailed": "Konuşma başarısız oldu"
+    "sessionFailed": "Konuşma başarısız oldu",
+    "composerOptions": "Sohbet seçenekleri"
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth tokenınız artık geçerli değil. Devam etmek için tekrar oturum açın.",
@@ -13010,6 +13011,7 @@
       "botIdentityHint": "Telegram Bot adı ve avatarı Telegram üzerinden ayrı yönetilir. Buradaki değişiklikler Bot profilini güncellemez."
     },
     "welcomeTitle": "Ben {{name}}",
-    "welcomeBody": "Ne yapmak istediğinizi söyleyin. Konuşmayı sürdürmek veya devredilen işleri kontrol etmek için buraya dönebilirsiniz."
+    "welcomeBody": "Ne yapmak istediğinizi söyleyin. Konuşmayı sürdürmek veya devredilen işleri kontrol etmek için buraya dönebilirsiniz.",
+    "messagePlaceholder": "Ne yapmak istersiniz?"
   }
 }

@@ -1339,7 +1339,8 @@
     "channelUnreadStatus": "Unread IM conversation",
     "generatedImageName": "Generated image {{index}}",
     "noAgents": "No agents",
-    "sessionFailed": "Conversation failed"
+    "sessionFailed": "Conversation failed",
+    "composerOptions": "Chat options"
   },
   "codexAuth": {
     "expiredDescription": "Your Codex OAuth token is no longer valid. Please sign in again to continue.",
@@ -13010,6 +13011,7 @@
       "botIdentityHint": "Telegram manages the Bot name and avatar separately. Changes here do not update the Bot profile."
     },
     "welcomeTitle": "I’m {{name}}",
-    "welcomeBody": "Tell me what you’d like to work on. You can return here to continue the conversation or check delegated work."
+    "welcomeBody": "Tell me what you’d like to work on. You can return here to continue the conversation or check delegated work.",
+    "messagePlaceholder": "Tell me what you’d like to do…"
   }
 }

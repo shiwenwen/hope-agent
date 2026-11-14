@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { useState, type ComponentProps, type ReactNode } from "react"
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react"
 import { afterEach, expect, test, vi } from "vitest"
 import { FolderOpen, Globe } from "lucide-react"
 import en from "@/i18n/locales/en.json"
@@ -49,11 +49,15 @@ function HeaderHarness({
   docked = true,
   onFloat = vi.fn(),
   onMaximize = vi.fn(),
+  onSearch = vi.fn(),
+  attentionCount = 0,
 }: {
   layoutMode?: "docked" | "stage"
   docked?: boolean
   onFloat?: (id: string) => void
   onMaximize?: () => void
+  onSearch?: () => void
+  attentionCount?: number
 }) {
   const [openTabs, setTabs] = useState(tabs)
   const [activeId, setActive] = useState("browser")
@@ -78,10 +82,10 @@ function HeaderHarness({
   return (
     <PersonalAssistantHeader
       profile={{ name: "Hope", avatar: null }}
-      attentionCount={0}
+      attentionCount={attentionCount}
       itemsOpen={collapsed}
       onOpenSettings={vi.fn()}
-      onSearch={vi.fn()}
+      onSearch={onSearch}
       onToggleItems={() => setCollapsed(true)}
       workbench={workbench}
     />
@@ -107,7 +111,10 @@ test("assistant workbench can switch and close tabs, float the browser and maxim
 test("opening Items or collapsing the workbench keeps a working reopen entry", () => {
   render(<HeaderHarness />)
   for (const label of [en.personalAssistant.items, en.chat.rightPanel.collapse]) {
-    fireEvent.click(screen.getByRole("button", { name: label }))
+    if (label === en.personalAssistant.items) {
+      fireEvent.keyDown(screen.getByRole("button", { name: en.chat.moreActions }), { key: "Enter" })
+      fireEvent.click(screen.getByRole("menuitem", { name: label }))
+    } else fireEvent.click(screen.getByRole("button", { name: label }))
     expect(screen.queryByRole("tab", { name: /Browser/ })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: en.chat.rightPanel.expand }))
     expect(screen.getByRole("tab", { name: /Browser/ })).toBeTruthy()
@@ -127,4 +134,18 @@ test("floating-only panels keep a reopen entry without a docked tab strip", () =
   render(<HeaderHarness docked={false} />)
   expect(screen.queryByRole("tablist")).toBeNull()
   expect(screen.getByRole("button", { name: en.chat.rightPanel.expand })).toBeTruthy()
+})
+
+test("search and all Items are secondary actions while attention stays directly reachable", async () => {
+  const onSearch = vi.fn()
+  const { rerender } = render(<HeaderHarness onSearch={onSearch} />)
+  expect(screen.queryByRole("button", { name: en.common.search })).toBeNull()
+  expect(screen.queryByRole("button", { name: en.personalAssistant.items })).toBeNull()
+  fireEvent.keyDown(screen.getByRole("button", { name: en.chat.moreActions }), { key: "Enter" })
+  fireEvent.click(screen.getByRole("menuitem", { name: en.common.search }))
+  expect(onSearch).toHaveBeenCalledOnce()
+  rerender(<HeaderHarness attentionCount={2} />)
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: `${en.personalAssistant.items} 2` })).toBeTruthy(),
+  )
 })

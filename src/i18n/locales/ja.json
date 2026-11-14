@@ -1339,7 +1339,8 @@
     "channelUnreadStatus": "IMチャットが未読",
     "generatedImageName": "生成画像 {{index}}",
     "noAgents": "エージェントがいません",
-    "sessionFailed": "会話に失敗しました"
+    "sessionFailed": "会話に失敗しました",
+    "composerOptions": "チャットの設定"
   },
   "codexAuth": {
     "expiredDescription": "Codex の OAuth トークンが無効になりました。続行するには再度ログインしてください。",
@@ -13010,6 +13011,7 @@
       "botIdentityHint": "Telegram Bot の名前と画像は Telegram 側で管理します。ここで変更しても Bot には反映されません。"
     },
     "welcomeTitle": "{{name}}です",
-    "welcomeBody": "やりたいことを教えてください。いつでも戻って会話を続けたり、依頼した作業の進捗を確認したりできます。"
+    "welcomeBody": "やりたいことを教えてください。いつでも戻って会話を続けたり、依頼した作業の進捗を確認したりできます。",
+    "messagePlaceholder": "何をお手伝いしましょうか？"
   }
 }

@@ -1339,7 +1339,8 @@
     "channelUnreadStatus": "Conversación de mensajería sin leer",
     "generatedImageName": "Imagen generada {{index}}",
     "noAgents": "No hay agentes",
-    "sessionFailed": "La conversación falló"
+    "sessionFailed": "La conversación falló",
+    "composerOptions": "Opciones de conversación"
   },
   "codexAuth": {
     "expiredDescription": "Tu token OAuth de Codex ya no es válido. Inicia sesión de nuevo para continuar.",
@@ -13010,6 +13011,7 @@
       "botIdentityHint": "Telegram gestiona por separado el nombre y el avatar del Bot. Estos cambios no actualizan su perfil."
     },
     "welcomeTitle": "Soy {{name}}",
-    "welcomeBody": "Dime qué quieres hacer. Puedes volver para continuar la conversación o consultar el trabajo delegado."
+    "welcomeBody": "Dime qué quieres hacer. Puedes volver para continuar la conversación o consultar el trabajo delegado.",
+    "messagePlaceholder": "¿Qué te gustaría hacer?"
   }
 }

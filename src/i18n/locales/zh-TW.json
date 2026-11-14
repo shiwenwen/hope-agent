@@ -1339,7 +1339,8 @@
     "channelUnreadStatus": "IM 會話未讀",
     "generatedImageName": "生成的圖片 {{index}}",
     "noAgents": "暫無 Agent",
-    "sessionFailed": "對話失敗"
+    "sessionFailed": "對話失敗",
+    "composerOptions": "對話選項"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 認證令牌已失效，請重新登入以繼續使用。",
@@ -13010,6 +13011,7 @@
       "botIdentityHint": "Telegram Bot 的名字和頭像由平台單獨管理，這裡的修改不會同步到 Bot 資料。"
     },
     "welcomeTitle": "我是{{name}}",
-    "welcomeBody": "告訴我你想做什麼。你可以隨時回來繼續對話，或查看交辦工作的進度。"
+    "welcomeBody": "告訴我你想做什麼。你可以隨時回來繼續對話，或查看交辦工作的進度。",
+    "messagePlaceholder": "有什麼想交給我的嗎？"
   }
 }
