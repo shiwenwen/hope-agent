@@ -594,6 +594,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
     path: "/api/design/artifacts/{artifactId}/visual-regression",
   },
   accept_design_visual_baseline_cmd: { method: "POST", path: "/api/design/visual-baseline" },
+  get_design_quality_image_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/quality-image",
+  },
+  restore_design_visual_baseline_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/visual-baseline/restore",
+  },
   get_design_scenarios_cmd: { method: "GET", path: "/api/design/artifacts/{artifactId}/scenarios" },
   save_design_scenarios_cmd: {
     method: "PUT",

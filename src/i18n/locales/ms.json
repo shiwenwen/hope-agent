@@ -12351,7 +12351,17 @@
       "visualPassed": "Paparan senario dan semakan statik lulus",
       "visualNeedsBaseline": "Differences found or no baseline exists",
       "acceptBaseline": "Accept as baseline",
-      "noBaseline": "No baseline"
+      "noBaseline": "No baseline",
+      "captureHint": "Semak tangkapan tersimpan; penerimaan menggunakan imej yang sama.",
+      "captureVersion": "Versi tangkapan",
+      "rerun": "Semak semula",
+      "baselineChanged": "Garis dasar dikemas kini. Semak semula untuk membandingkan.",
+      "baselineHistory": "Garis dasar tersimpan",
+      "restoreBaseline": "Pulihkan garis dasar",
+      "currentCapture": "Tangkapan semasa",
+      "baselineCapture": "Garis dasar semasa semakan",
+      "captureFailed": "Tangkapan tidak tersedia. Semak semula.",
+      "baselineRestored": "Garis dasar terpilih dipulihkan"
     },
     "kit": {
       "title": "Kit sistem reka bentuk",

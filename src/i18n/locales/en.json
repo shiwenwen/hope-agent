@@ -12351,7 +12351,17 @@
       "visualPassed": "Scenario viewports and static checks passed",
       "visualNeedsBaseline": "Differences found or no baseline exists",
       "acceptBaseline": "Accept as baseline",
-      "noBaseline": "No baseline"
+      "noBaseline": "No baseline",
+      "captureHint": "Inspect the saved captures; accepting uses these exact images.",
+      "captureVersion": "Capture version",
+      "rerun": "Run again",
+      "baselineChanged": "Baseline updated. Run another review to compare it.",
+      "baselineHistory": "Retained baselines",
+      "restoreBaseline": "Restore baseline",
+      "currentCapture": "Current capture",
+      "baselineCapture": "Baseline at review",
+      "captureFailed": "Capture unavailable. Run another review.",
+      "baselineRestored": "Selected baseline restored"
     },
     "kit": {
       "title": "Design system kit",

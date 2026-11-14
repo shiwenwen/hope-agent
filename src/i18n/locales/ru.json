@@ -12351,7 +12351,17 @@
       "visualPassed": "Области просмотра сценариев и статические проверки пройдены",
       "visualNeedsBaseline": "Differences found or no baseline exists",
       "acceptBaseline": "Accept as baseline",
-      "noBaseline": "No baseline"
+      "noBaseline": "No baseline",
+      "captureHint": "Просмотрите сохранённые снимки: при принятии используются именно они.",
+      "captureVersion": "Версия снимка",
+      "rerun": "Проверить снова",
+      "baselineChanged": "Эталон обновлён. Запустите проверку для сравнения.",
+      "baselineHistory": "Сохранённые эталоны",
+      "restoreBaseline": "Восстановить эталон",
+      "currentCapture": "Текущий снимок",
+      "baselineCapture": "Эталон на момент проверки",
+      "captureFailed": "Снимок недоступен. Запустите проверку снова.",
+      "baselineRestored": "Выбранный эталон восстановлен"
     },
     "kit": {
       "title": "Кит дизайн-системы",

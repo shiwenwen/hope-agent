@@ -12351,7 +12351,17 @@
       "visualPassed": "Senaryo görünümleri ve statik kontroller geçti",
       "visualNeedsBaseline": "Differences found or no baseline exists",
       "acceptBaseline": "Accept as baseline",
-      "noBaseline": "No baseline"
+      "noBaseline": "No baseline",
+      "captureHint": "Kayıtlı görüntüleri inceleyin; kabul edildiğinde aynı görüntüler kullanılır.",
+      "captureVersion": "Görüntü sürümü",
+      "rerun": "Yeniden incele",
+      "baselineChanged": "Referans güncellendi. Karşılaştırmak için yeniden inceleyin.",
+      "baselineHistory": "Saklanan referanslar",
+      "restoreBaseline": "Referansı geri yükle",
+      "currentCapture": "Güncel görüntü",
+      "baselineCapture": "İnceleme anındaki referans",
+      "captureFailed": "Görüntü kullanılamıyor. Yeniden inceleyin.",
+      "baselineRestored": "Seçilen referans geri yüklendi"
     },
     "kit": {
       "title": "Tasarım sistemi kiti",

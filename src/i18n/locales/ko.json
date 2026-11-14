@@ -12351,7 +12351,17 @@
       "visualPassed": "시나리오 뷰포트 및 정적 검사 통과",
       "visualNeedsBaseline": "Differences found or no baseline exists",
       "acceptBaseline": "Accept as baseline",
-      "noBaseline": "No baseline"
+      "noBaseline": "No baseline",
+      "captureHint": "저장된 캡처를 확인하세요. 수락하면 이 이미지가 그대로 사용됩니다.",
+      "captureVersion": "캡처 버전",
+      "rerun": "다시 검사",
+      "baselineChanged": "기준 이미지가 업데이트되었습니다. 다시 검사하여 비교하세요.",
+      "baselineHistory": "보관된 기준 이미지",
+      "restoreBaseline": "기준 이미지 복원",
+      "currentCapture": "현재 캡처",
+      "baselineCapture": "검사 당시 기준 이미지",
+      "captureFailed": "캡처를 사용할 수 없습니다. 다시 검사하세요.",
+      "baselineRestored": "선택한 기준 이미지를 복원했습니다"
     },
     "kit": {
       "title": "디자인 시스템 키트",

@@ -12351,7 +12351,17 @@
       "visualPassed": "シナリオのビューポートと静的チェックに合格",
       "visualNeedsBaseline": "Differences found or no baseline exists",
       "acceptBaseline": "Accept as baseline",
-      "noBaseline": "No baseline"
+      "noBaseline": "No baseline",
+      "captureHint": "保存した画像を確認します。承認時には同じ画像を使用します。",
+      "captureVersion": "画像バージョン",
+      "rerun": "再チェック",
+      "baselineChanged": "ベースラインを更新しました。再チェックして比較できます。",
+      "baselineHistory": "保存済みベースライン",
+      "restoreBaseline": "ベースラインを復元",
+      "currentCapture": "今回の画像",
+      "baselineCapture": "チェック時のベースライン",
+      "captureFailed": "画像を取得できません。再チェックしてください。",
+      "baselineRestored": "選択したベースラインを復元しました"
     },
     "kit": {
       "title": "デザインシステムキット",

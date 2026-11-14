@@ -1535,3 +1535,23 @@ test("HttpTransport unwraps Tauri-style provider config bodies for HTTP routes",
     }),
   )
 })
+
+test("design review images and restores stay artifact-scoped with private owner headers", async () => {
+  fetchMock.mockImplementation(async () => new Response("null", { status: 200 }))
+  const transport = new HttpTransport("http://localhost:8420", "synthetic-owner")
+  for (const [command, suffix] of [
+    ["get_design_quality_image_cmd", "quality-image"],
+    ["restore_design_visual_baseline_cmd", "visual-baseline/restore"],
+  ]) {
+    const input = { artifactId: "A", reviewId: "saved-review", revisionId: "R1" }
+    await transport.call(command, { artifactId: "A", input })
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `http://localhost:8420/api/design/artifacts/A/${suffix}`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ input }),
+        headers: expect.objectContaining({ Authorization: "Bearer synthetic-owner" }),
+      }),
+    )
+  }
+})

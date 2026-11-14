@@ -12351,7 +12351,17 @@
       "visualPassed": "Các khung nhìn kịch bản và kiểm tra tĩnh đều đạt",
       "visualNeedsBaseline": "Differences found or no baseline exists",
       "acceptBaseline": "Accept as baseline",
-      "noBaseline": "No baseline"
+      "noBaseline": "No baseline",
+      "captureHint": "Xem ảnh đã lưu; khi chấp nhận sẽ dùng đúng những ảnh này.",
+      "captureVersion": "Phiên bản ảnh",
+      "rerun": "Kiểm tra lại",
+      "baselineChanged": "Ảnh chuẩn đã cập nhật. Kiểm tra lại để so sánh.",
+      "baselineHistory": "Ảnh chuẩn đã lưu",
+      "restoreBaseline": "Khôi phục ảnh chuẩn",
+      "currentCapture": "Ảnh hiện tại",
+      "baselineCapture": "Ảnh chuẩn lúc kiểm tra",
+      "captureFailed": "Không có ảnh. Hãy kiểm tra lại.",
+      "baselineRestored": "Đã khôi phục ảnh chuẩn đã chọn"
     },
     "kit": {
       "title": "Bộ công cụ hệ thống thiết kế",

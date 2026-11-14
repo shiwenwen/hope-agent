@@ -12351,7 +12351,17 @@
       "visualPassed": "نجحت نوافذ عرض السيناريوهات والفحوص الثابتة",
       "visualNeedsBaseline": "Differences found or no baseline exists",
       "acceptBaseline": "Accept as baseline",
-      "noBaseline": "No baseline"
+      "noBaseline": "No baseline",
+      "captureHint": "راجع اللقطات المحفوظة؛ سيستخدم القبول الصور نفسها.",
+      "captureVersion": "إصدار اللقطة",
+      "rerun": "مراجعة مجددًا",
+      "baselineChanged": "تم تحديث خط الأساس. أعد المراجعة للمقارنة.",
+      "baselineHistory": "خطوط الأساس المحفوظة",
+      "restoreBaseline": "استعادة خط الأساس",
+      "currentCapture": "اللقطة الحالية",
+      "baselineCapture": "خط الأساس وقت المراجعة",
+      "captureFailed": "اللقطة غير متاحة. أعد المراجعة.",
+      "baselineRestored": "تمت استعادة خط الأساس المحدد"
     },
     "kit": {
       "title": "مجموعة نظام التصميم",

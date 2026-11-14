@@ -12351,7 +12351,17 @@
       "visualPassed": "場景視口與靜態檢查皆通過",
       "visualNeedsBaseline": "存在差异或尚未建立基线",
       "acceptBaseline": "接受为基线",
-      "noBaseline": "无基线"
+      "noBaseline": "无基线",
+      "captureHint": "檢視本輪儲存的截圖；接受時使用同一批畫面。",
+      "captureVersion": "截圖版本",
+      "rerun": "重新審查",
+      "baselineChanged": "基線已更新；重新審查可比較新基線。",
+      "baselineHistory": "已保留的基線",
+      "restoreBaseline": "還原基線",
+      "currentCapture": "本輪截圖",
+      "baselineCapture": "審查時基線",
+      "captureFailed": "截圖無法使用，請重新審查。",
+      "baselineRestored": "已還原所選基線"
     },
     "kit": {
       "title": "設計系統套件",

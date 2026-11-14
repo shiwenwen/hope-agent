@@ -243,7 +243,17 @@ export interface CritiqueResult {
   fixes: string[]
 }
 
+export interface DesignBaselineRevision {
+  id: string
+  parentId: string | null
+  restoredFrom: string | null
+  createdAt: string
+}
+
 export interface DesignQualityRun {
+  reviewId: string
+  baselineRevision: string | null
+  baselineRevisions: DesignBaselineRevision[]
   artifactId: string
   artifactHash: string
   scenariosHash?: string

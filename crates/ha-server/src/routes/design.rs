@@ -1049,6 +1049,49 @@ pub async fn accept_visual_baseline_unscoped(
     ))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct QualityImageBody {
+    pub input: ha_design::design::quality_store::QualityImageInput,
+}
+#[derive(Debug, Deserialize)]
+pub struct QualityRestoreBody {
+    pub input: ha_design::design::quality_store::RestoreBaselineInput,
+}
+
+pub async fn quality_image(
+    Path(id): Path<String>,
+    Json(body): Json<QualityImageBody>,
+) -> Result<Json<ha_design::design::quality_store::QualityImage>, AppError> {
+    validate_id(&id)?;
+    if body.input.artifact_id != id {
+        return Err(AppError::bad_request("artifact id mismatch"));
+    }
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::quality_store::review_image(body.input)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn restore_visual_baseline(
+    Path(id): Path<String>,
+    Json(body): Json<QualityRestoreBody>,
+) -> Result<Json<ha_design::design::quality::QualityManifest>, AppError> {
+    validate_id(&id)?;
+    if body.input.artifact_id != id {
+        return Err(AppError::bad_request("artifact id mismatch"));
+    }
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::quality_store::restore(body.input)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
 pub async fn get_scenarios(
     Path(id): Path<String>,
 ) -> Result<Json<ha_design::design::scenarios::ScenariosEnvelope>, AppError> {

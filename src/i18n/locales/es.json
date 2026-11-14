@@ -12351,7 +12351,17 @@
       "visualPassed": "Vistas de escenarios y comprobaciones estáticas superadas",
       "visualNeedsBaseline": "Differences found or no baseline exists",
       "acceptBaseline": "Accept as baseline",
-      "noBaseline": "No baseline"
+      "noBaseline": "No baseline",
+      "captureHint": "Revisa las capturas guardadas; al aceptar se usan estas mismas imágenes.",
+      "captureVersion": "Versión de captura",
+      "rerun": "Revisar de nuevo",
+      "baselineChanged": "Referencia actualizada. Revisa de nuevo para compararla.",
+      "baselineHistory": "Referencias guardadas",
+      "restoreBaseline": "Restaurar referencia",
+      "currentCapture": "Captura actual",
+      "baselineCapture": "Referencia al revisar",
+      "captureFailed": "Captura no disponible. Revisa de nuevo.",
+      "baselineRestored": "Referencia seleccionada restaurada"
     },
     "kit": {
       "title": "Kit del sistema de diseño",
