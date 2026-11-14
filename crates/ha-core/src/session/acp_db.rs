@@ -151,6 +151,10 @@ impl SessionDB {
     }
 
     /// Update an ACP run's status, PID, and external session ID when it starts running.
+    ///
+    /// A run that already reached a terminal state is never reopened: this
+    /// can only lose a race against `finish_acp_run` (e.g. the run was killed
+    /// while the spawn task was still inside `create_session`).
     pub fn update_acp_run_status(
         &self,
         run_id: &str,
@@ -165,13 +169,19 @@ impl SessionDB {
         conn.execute(
             "UPDATE acp_runs SET status = ?1, pid = COALESCE(?2, pid),
                 external_session_id = COALESCE(?3, external_session_id)
-             WHERE run_id = ?4",
+             WHERE run_id = ?4
+                AND status NOT IN ('completed', 'error', 'timeout', 'killed')",
             params![status, pid.map(|p| p as i64), external_session_id, run_id],
         )?;
         Ok(())
     }
 
     /// Finalize an ACP run (completed/error/timeout/killed).
+    ///
+    /// Terminal rows are write-once: a second finalize (e.g. a kill racing a
+    /// turn completion) never overwrites the first terminal state. The
+    /// control plane claims the terminal transition in memory first; this
+    /// guard is the storage-layer backstop for that invariant.
     pub fn finish_acp_run(
         &self,
         run_id: &str,
@@ -211,7 +221,8 @@ impl SessionDB {
                 finished_at = ?4, duration_ms = ?5,
                 input_tokens = COALESCE(?6, input_tokens),
                 output_tokens = COALESCE(?7, output_tokens)
-             WHERE run_id = ?8",
+             WHERE run_id = ?8
+                AND status NOT IN ('completed', 'error', 'timeout', 'killed')",
             params![
                 status,
                 result,
@@ -319,3 +330,84 @@ fn row_to_acp_run(row: &rusqlite::Row) -> AcpRun {
 }
 
 use rusqlite::OptionalExtension;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_db_path(name: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "{}-{}-{}.sqlite3",
+            name,
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    fn open_db(name: &str) -> SessionDB {
+        let path = temp_db_path(name);
+        let db = SessionDB::open(&path).expect("open session db");
+        db.create_acp_runs_table().expect("create acp_runs table");
+        db
+    }
+
+    fn insert_run(db: &SessionDB, run_id: &str) {
+        db.insert_acp_run(run_id, "parent", "fake", "task", None)
+            .expect("insert acp run");
+    }
+
+    #[test]
+    fn finish_acp_run_is_terminal_write_once() {
+        let db = open_db("acp-finish-write-once");
+        insert_run(&db, "run-finish");
+
+        db.finish_acp_run(
+            "run-finish",
+            "completed",
+            Some("done"),
+            None,
+            Some(1),
+            Some(2),
+        )
+        .expect("first finalize");
+        let run = db.get_acp_run("run-finish").expect("read").expect("exists");
+        assert_eq!(run.status, AcpRunStatus::Completed);
+
+        // A later terminal writer (kill racing a completion) must not flip it.
+        db.finish_acp_run("run-finish", "killed", None, None, None, None)
+            .expect("second finalize is a guarded no-op");
+        let run = db.get_acp_run("run-finish").expect("read").expect("exists");
+        assert_eq!(run.status, AcpRunStatus::Completed);
+        assert_eq!(run.result.as_deref(), Some("done"));
+
+        drop(db);
+        let _ = std::fs::remove_file(temp_db_path("acp-finish-write-once"));
+    }
+
+    #[test]
+    fn update_acp_run_status_never_reopens_a_terminal_run() {
+        let db = open_db("acp-update-terminal-guard");
+        insert_run(&db, "run-update");
+
+        db.update_acp_run_status("run-update", "running", Some(42), Some("ext"))
+            .expect("mark running");
+        let run = db.get_acp_run("run-update").expect("read").expect("exists");
+        assert_eq!(run.status, AcpRunStatus::Running);
+
+        db.finish_acp_run("run-update", "killed", None, None, None, None)
+            .expect("finalize killed");
+
+        // The spawn task finishing create_session after a kill must not
+        // flip the terminal row back to running.
+        db.update_acp_run_status("run-update", "running", Some(43), Some("ext2"))
+            .expect("guarded update is a no-op");
+        let run = db.get_acp_run("run-update").expect("read").expect("exists");
+        assert_eq!(run.status, AcpRunStatus::Killed);
+        assert_eq!(run.pid, Some(42));
+        assert_eq!(run.external_session_id.as_deref(), Some("ext"));
+
+        drop(db);
+        let _ = std::fs::remove_file(temp_db_path("acp-update-terminal-guard"));
+    }
+}
