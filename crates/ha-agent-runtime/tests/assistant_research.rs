@@ -85,10 +85,9 @@ async fn shared_file_notice_and_mobile_reply_use_the_real_kernel_with_private_co
         // only remote services here are deterministic loopback Provider mocks.
         db.set_assistant_source_im_disclosure(&source.id,source.revision,true,0,&lease.connection_id,lease.generation,now()).unwrap();
         db.reconcile_assistant_attention(now()).unwrap();
-        // Advance only the test coalescing deadline. The fresh file read,
-        // immutable claim and all real authority checks remain unchanged.
-        db.with_conn_for_test(|conn|{conn.execute("UPDATE assistant_attention_candidates SET ready_at=0",[])?;Ok(())}).unwrap();
-        let notice=tokio::time::timeout(std::time::Duration::from_secs(5),async {
+        // Exercise the real coalescing delay through typed host methods;
+        // feature tests never acquire or mutate a kernel database connection.
+        let notice=tokio::time::timeout(std::time::Duration::from_secs(75),async {
             loop {db.reconcile_assistant_attention(now()).unwrap();if let Some(notice)=db.clone().prepare_assistant_attention_im().await.unwrap(){break notice;}tokio::time::sleep(std::time::Duration::from_millis(500)).await;}
         }).await.expect("one coalesced source notice becomes eligible");
         assert!(db.assistant_attention_im_send_current(&notice.id,now()).unwrap());
@@ -99,8 +98,7 @@ async fn shared_file_notice_and_mobile_reply_use_the_real_kernel_with_private_co
                 research::process_pending_research(db.clone()).await.unwrap();
                 let activity=db.list_assistant_research_activity().unwrap();
                 if activity.iter().any(|query|matches!(query.state.as_str(),"failed"|"cancelled")) {
-                    let errors=db.with_conn_for_test(|conn| {let mut statement=conn.prepare("SELECT status,error FROM chat_stream_runs")?;let rows=statement.query_map([],|row|Ok((row.get::<_,String>(0)?,row.get::<_,Option<String>>(1)?)))?.collect::<Result<Vec<_>,_>>()?;Ok(rows)}).unwrap();
-                    panic!("mobile query failed: {activity:?}; stream states: {errors:?}");
+                    panic!("mobile query failed: {activity:?}");
                 }
                 if activity.iter().any(|query|query.state=="finished"){break;}
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
