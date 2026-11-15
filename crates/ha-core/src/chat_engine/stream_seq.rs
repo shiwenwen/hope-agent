@@ -35,6 +35,9 @@ pub enum ChatSource {
     Subagent,
     /// Background parent response to an auto-delivered sub-agent result.
     ParentInjection,
+    /// Sealed private source research; no ordinary transcript or UI broadcast.
+    #[serde(rename = "assistant_research")]
+    AssistantResearch,
     /// A top-level regular-session turn initiated by the model through the
     /// cross-session coordination tools. It is durable and user-visible like
     /// Desktop/HTTP, but does not claim fresh foreground user intent.
@@ -111,7 +114,7 @@ pub const fn source_policy(source: ChatSource) -> TurnSourcePolicy {
             fires_user_lifecycle_hooks: true,
             holds_foreground_idle_guard: true,
         },
-        ChatSource::Eval => TurnSourcePolicy {
+        ChatSource::Eval | ChatSource::AssistantResearch => TurnSourcePolicy {
             carries_foreground_user_intent: false,
             broadcasts_to_user_ui: false,
             tracks_seq: true,
@@ -214,6 +217,7 @@ impl ChatSource {
             Self::Channel => "channel",
             Self::Subagent => "subagent",
             Self::ParentInjection => "parent_injection",
+            Self::AssistantResearch => "assistant_research",
             Self::SessionTool => "session_tool",
             Self::Cron => "cron",
             Self::Eval => "eval",
@@ -232,6 +236,7 @@ impl ChatSource {
             "channel" => Self::Channel,
             "subagent" => Self::Subagent,
             "parent_injection" => Self::ParentInjection,
+            "assistant_research" => Self::AssistantResearch,
             "session_tool" => Self::SessionTool,
             "cron" => Self::Cron,
             "eval" => Self::Eval,
@@ -249,6 +254,7 @@ impl fmt::Display for ChatSource {
             Self::Channel => "channel",
             Self::Subagent => "subagent",
             Self::ParentInjection => "parent_injection",
+            Self::AssistantResearch => "assistant_research",
             Self::SessionTool => "session_tool",
             Self::Cron => "cron",
             Self::Eval => "eval",
@@ -425,6 +431,7 @@ pub fn active_counts() -> ActiveChatCounts {
             | ChatSource::SessionTool
             | ChatSource::Cron
             | ChatSource::Eval
+            | ChatSource::AssistantResearch
             | ChatSource::Acp => {}
         }
     }

@@ -8817,7 +8817,9 @@
     "contextCompactSummaryReasoning": "Penaakulan khusus ringkasan",
     "contextCompactSummaryReasoningDefault": "Kekalkan dasar semasa",
     "contextCompactSummaryReasoningDesc": "Hanya mempengaruhi ringkasan konteks. Tahap yang tidak disokong memaparkan ralat dan mengekalkan sejarah. Kegagalan tidak menukar model atau menaikkan had output secara automatik. Lalai mengekalkan tingkah laku semasa.",
-    "toolAssistantReportDesc": "Rekod kemajuan disahkan, hasil atau soalan kekal untuk pemilik"
+    "toolAssistantReportDesc": "Rekod kemajuan disahkan, hasil atau soalan kekal untuk pemilik",
+    "toolAssistantResearchDesc": "Lihat rujukan atau tanya dalam kebenaran sumber semasa di Hope.",
+    "toolAssistantResearchReportDesc": "Lapor penemuan berasas bukti bagi penyelidikan peribadi semasa; paparkan selepas pengesahan."
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",
@@ -9294,7 +9296,9 @@
     "feishu_hire_list_talents": "Feishu Pengambilan: Senaraikan calon",
     "feishu_hire_get_talent": "Feishu Pengambilan: Dapatkan calon",
     "feishu_hire_list_applications": "Feishu Pengambilan: Senaraikan permohonan",
-    "assistant_report": "Laporkan kerja pembantu"
+    "assistant_report": "Laporkan kerja pembantu",
+    "assistant_research": "Semak bahan dikongsi",
+    "assistant_research_report": "Lapor penemuan"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -13048,6 +13052,46 @@
       "dispatch_failed": "Kerja tidak dapat dimulakan",
       "owner_stopped": "Anda menghentikan perkara ini",
       "scope_or_stop_changed": "Skop atau status henti berubah"
+    },
+    "research": {
+      "settingsTitle": "Bantuan proaktif",
+      "settingsHint": "Hope hanya memantau bahan yang anda kongsi secara jelas. Jeda menghentikan tugasan semasa; tugaskan semula selepas disambung.",
+      "enabled": "Cari perubahan dalam bahan",
+      "pause": "Jeda kerja latar Hope",
+      "pendingPolicy": "Menerapkan tetapan…",
+      "sources": "Bahan dikongsi",
+      "expires": "Dikongsi hingga {{time}}",
+      "observed": "Semakan terakhir: {{time}}",
+      "suspended": "Semakan automatik dijeda. Anda boleh menyemak sekarang jika perlu.",
+      "observationGap": "Tempoh ini tidak dapat diperhatikan. Perubahan mungkin terlepas.",
+      "refresh": "Semak sekarang",
+      "revoke": "Tarik balik perkongsian",
+      "noSources": "Belum ada bahan dikongsi",
+      "workspace": "Pilih sembang kerja yang mengandungi fail",
+      "path": "Laluan dalam ruang kerja, cth. notes/agenda.txt",
+      "focus": "Perkara untuk dipantau",
+      "focusPlaceholder": "Contohnya: kesan pertembungan mesyuarat dan sediakan dua pilihan sesuai",
+      "days": "Hari perkongsian",
+      "baselineHint": "Kongsi sehingga 4 fail teks UTF-8, setiap satu sehingga 64 KiB. Bacaan pertama membina garis dasar; semakan seterusnya melaporkan perubahan penting.",
+      "share": "Kongsi bahan",
+      "finding": "Penemuan baharu",
+      "inference": "Inferens",
+      "uncertainty": "Perlu disahkan",
+      "prepared": "Pilihan disediakan",
+      "lines": "Baris {{start}}–{{end}}",
+      "ask": "Tanya Hope lagi",
+      "askPlaceholder": "Tanya tentang bahan ini sahaja…",
+      "activity": {
+        "pending": "Dalam giliran",
+        "running": "Menyemak bahan…",
+        "finished": "Selesai; hasil muncul dalam sembang",
+        "failed": "Tidak dapat diselesaikan. Semak bahan dan cuba lagi.",
+        "cancelled": "Dibatalkan",
+        "expired": "Tamat tempoh. Sila hantar semula.",
+        "scopeChanged": "Bahan atau kebenaran berubah. Semak semula.",
+        "budget": "Had penyelidikan digunakan. Cuba kemudian.",
+        "unverified": "Tiada hasil disahkan diterima. Sila cuba lagi."
+      }
     }
   }
 }

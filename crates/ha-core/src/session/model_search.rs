@@ -113,6 +113,9 @@ impl ModelHistorySource {
         target: &str,
         global: bool,
     ) -> Result<bool> {
+        if crate::personal_assistant::research::is_research_context(conn, target)? {
+            return Ok(false);
+        }
         let private_filter = self.private_filter(conn, (!global).then_some(target))?;
         let current = self.session_id.as_deref() == Some(target);
         let sql = format!(

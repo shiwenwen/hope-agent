@@ -1263,3 +1263,105 @@ fn failed_owner_claims_over_one_batch_leave_a_schedulable_remainder() {
         }
     });
 }
+
+#[test]
+fn external_wait_survives_restart_and_runs_once_only_when_due() {
+    isolated_test(|db, path| {
+        let item = seed_execution(&db);
+        assert!(db
+            .report_assistant_item_with_delay(
+                "work",
+                "worker-stream",
+                "waiting",
+                "Waiting for CI",
+                Some("Check CI without repeating the publish"),
+                Some(30)
+            )
+            .is_err());
+        db.report_assistant_item_with_delay(
+            "work",
+            "worker-stream",
+            "waiting",
+            "Waiting for CI",
+            Some("Check CI without repeating the publish"),
+            Some(60),
+        )
+        .unwrap();
+        terminal(&db, "committed");
+        db.settle_assistant_execution("worker-stream").unwrap();
+        let reopened = SessionDB::open(&path.to_path_buf()).unwrap();
+        assert_eq!(reopened.queue_assistant_followups().unwrap(), 0);
+        assert_eq!(reopened.list_assistant_items().unwrap()[0].id, item);
+        reopened
+            .conn
+            .lock()
+            .unwrap()
+            .execute("UPDATE assistant_followups SET due_at=0", [])
+            .unwrap();
+        assert_eq!(reopened.queue_assistant_followups().unwrap(), 1);
+        assert_eq!(reopened.queue_assistant_followups().unwrap(), 0);
+    });
+}
+
+#[test]
+fn due_check_cannot_bypass_stop_expiry_question_or_verified_completion() {
+    for boundary in ["stop", "expiry", "question", "done"] {
+        isolated_test(|db, _| {
+            let item = seed_execution(&db);
+            db.report_assistant_item_with_delay(
+                "work",
+                "worker-stream",
+                "waiting",
+                "Waiting for CI",
+                Some("Read the new CI status"),
+                Some(60),
+            )
+            .unwrap();
+            terminal(&db, "committed");
+            db.settle_assistant_execution("worker-stream").unwrap();
+            db.conn
+                .lock()
+                .unwrap()
+                .execute("UPDATE assistant_followups SET due_at=0", [])
+                .unwrap();
+            match boundary {
+                "stop" => {
+                    db.stop_assistant_item(&item).unwrap();
+                }
+                "expiry" => {
+                    db.conn
+                        .lock()
+                        .unwrap()
+                        .execute("UPDATE assistant_items SET expires_at=0", [])
+                        .unwrap();
+                }
+                "question" => {
+                    db.conn.lock().unwrap().execute("UPDATE chat_stream_runs SET status='running' WHERE run_id='worker-stream'", []).unwrap();
+                    db.create_assistant_question(
+                        "worker-stream",
+                        "Choose the deployment target",
+                        vec![],
+                    )
+                    .unwrap();
+                    terminal(&db, "committed");
+                }
+                "done" => {
+                    db.conn.lock().unwrap().execute("UPDATE chat_stream_runs SET status='running' WHERE run_id='worker-stream'", []).unwrap();
+                    db.report_assistant_item(
+                        "work",
+                        "worker-stream",
+                        "done",
+                        "CI and artifact verified",
+                        None,
+                    )
+                    .unwrap();
+                    db.conn.lock().unwrap().execute("UPDATE assistant_execution_contexts SET settled=0 WHERE execution_id='worker-stream'", []).unwrap();
+                    terminal(&db, "committed");
+                    db.settle_assistant_execution("worker-stream").unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(db.queue_assistant_followups().unwrap(), 0, "{boundary}");
+        });
+    }
+}

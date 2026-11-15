@@ -1206,6 +1206,7 @@ async fn evaluate_round_capacity(
     cancel: &Arc<AtomicBool>,
     input_limit: u64,
     round: u32,
+    allow_provider_count: bool,
 ) -> RoundCapacityEvaluation {
     let accounting = adapter.token_count_input_for(req);
     let tools = adapter.token_count_tool_schemas(req);
@@ -1226,7 +1227,9 @@ async fn evaluate_round_capacity(
         input_limit,
     );
     let mut effective = local.clone();
-    if local.lower_bound <= input_limit
+    // Private research never sends evidence through a secondary counting API.
+    if allow_provider_count
+        && local.lower_bound <= input_limit
         && crate::token_accounting::service().should_refine(&local, &[input_limit])
     {
         match tokio::time::timeout(
@@ -1386,7 +1389,13 @@ async fn fire_post_tool_use_hook(
     elapsed_ms: u64,
 ) -> PostToolHookProjection {
     use crate::hooks::{HookDispatcher, HookEvent, HookInput};
-    if ctx.tool_scope == Some(crate::tool_defs::ToolScope::PersonalAssistantIm) {
+    if matches!(
+        ctx.tool_scope,
+        Some(
+            crate::tool_defs::ToolScope::PersonalAssistantIm
+                | crate::tool_defs::ToolScope::AssistantResearch
+        )
+    ) {
         return PostToolHookProjection::default();
     }
     let event = if is_error {
@@ -3400,6 +3409,7 @@ impl RuntimeAgentExt for AssistantAgent {
                             cancel,
                             capacity_limit,
                             round,
+                            !self.is_assistant_research(),
                         )
                         .await;
                         if evaluated.effective.upper_bound <= capacity_limit {
@@ -3644,6 +3654,7 @@ impl RuntimeAgentExt for AssistantAgent {
                     cancel,
                     max_input_tokens,
                     round,
+                    !self.is_assistant_research(),
                 )
                 .await;
                 if evaluated.effective.upper_bound > max_input_tokens {
@@ -3818,6 +3829,17 @@ impl RuntimeAgentExt for AssistantAgent {
                         )
                         .await?
                         .context("durable provider plan missing for durable turn")?;
+                        if self.is_assistant_research() {
+                            if let (Some(db), Some(sink)) =
+                                (self.runtime_session_db(), self.runtime_turn_durability())
+                            {
+                                ha_core::personal_assistant::research::reserve_model_attempt(
+                                    db.clone(),
+                                    sink.persistence_run_id().to_owned(),
+                                )
+                                .await?;
+                            }
+                        }
                         let result = adapter
                             .dispatch_prepared(&client, &prepared, cancel, on_delta_dyn, &observer)
                             .await;

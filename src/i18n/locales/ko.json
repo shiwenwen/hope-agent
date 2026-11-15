@@ -8817,7 +8817,9 @@
     "contextCompactSummaryReasoning": "요약 전용 추론 설정",
     "contextCompactSummaryReasoningDefault": "현재 요약 정책 유지",
     "contextCompactSummaryReasoningDesc": "컨텍스트 요약에만 적용됩니다. 지원하지 않는 단계는 기록을 보존하고 오류를 표시합니다. 실패해도 모델이나 출력 한도를 자동 변경하지 않으며 기본값은 현재 동작을 유지합니다.",
-    "toolAssistantReportDesc": "확인된 진행 상황, 결과 또는 저장되는 질문을 기록합니다"
+    "toolAssistantReportDesc": "확인된 진행 상황, 결과 또는 저장되는 질문을 기록합니다",
+    "toolAssistantResearchDesc": "Hope에서 발견 참조를 확인하거나 현재 자료 권한 내에서 질문합니다.",
+    "toolAssistantResearchReportDesc": "현재 비공개 조사에서 근거가 있는 발견을 보고하고 검증 후 표시합니다."
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",
@@ -9294,7 +9296,9 @@
     "feishu_hire_list_talents": "Feishu 채용: 인재 목록",
     "feishu_hire_get_talent": "Feishu 채용: 인재 조회",
     "feishu_hire_list_applications": "Feishu 채용: 지원 내역 목록",
-    "assistant_report": "도우미 작업 보고"
+    "assistant_report": "도우미 작업 보고",
+    "assistant_research": "공유 자료 확인",
+    "assistant_research_report": "자료 발견 보고"
   },
   "tz": {
     "amsterdam": "암스테르담 (UTC+1)",
@@ -13048,6 +13052,46 @@
       "dispatch_failed": "작업을 시작하지 못했습니다",
       "owner_stopped": "이 일을 중지했습니다",
       "scope_or_stop_changed": "범위 또는 중지 상태가 변경되었습니다"
+    },
+    "research": {
+      "settingsTitle": "능동적인 도움",
+      "settingsHint": "Hope는 명시적으로 공유한 자료만 확인합니다. 일시 중지하면 현재 위임 작업이 중단되며, 재개 후 다시 요청해야 합니다.",
+      "enabled": "공유 자료의 변화 찾기",
+      "pause": "Hope의 백그라운드 작업 일시 중지",
+      "pendingPolicy": "설정 적용 중…",
+      "sources": "공유한 자료",
+      "expires": "공유 기한: {{time}}",
+      "observed": "최근 확인: {{time}}",
+      "suspended": "자동 확인이 중지되었습니다. 필요할 때 직접 확인할 수 있습니다.",
+      "observationGap": "이 기간에는 읽지 못했으므로 변화를 놓쳤을 수 있습니다.",
+      "refresh": "지금 확인",
+      "revoke": "공유 취소",
+      "noSources": "아직 공유한 자료가 없습니다",
+      "workspace": "파일이 있는 작업 채팅 선택",
+      "path": "작업 폴더 내 파일 경로, 예: notes/agenda.txt",
+      "focus": "관심 사항",
+      "focusPlaceholder": "예: 회의 일정 충돌을 찾고 실행 가능한 대안 두 가지 준비",
+      "days": "공유 일수",
+      "baselineHint": "UTF-8 텍스트 파일 최대 4개, 각각 64 KiB까지 공유합니다. 처음에는 기준을 저장하고 이후 중요한 변화를 알립니다.",
+      "share": "자료 공유",
+      "finding": "새로운 발견",
+      "inference": "추론",
+      "uncertainty": "확인할 사항",
+      "prepared": "준비한 대안",
+      "lines": "{{start}}–{{end}}행",
+      "ask": "Hope에 더 질문하기",
+      "askPlaceholder": "이 자료에 대해서만 질문…",
+      "activity": {
+        "pending": "대기 중",
+        "running": "자료 확인 중…",
+        "finished": "완료했습니다. 결과가 채팅에 표시됩니다",
+        "failed": "완료하지 못했습니다. 자료를 확인하고 다시 시도하세요",
+        "cancelled": "취소됨",
+        "expired": "만료되었습니다. 다시 요청하세요",
+        "scopeChanged": "자료나 권한이 변경되었습니다. 다시 확인하세요",
+        "budget": "조사 한도를 사용했습니다. 나중에 다시 시도하세요",
+        "unverified": "검증된 결과를 받지 못했습니다. 다시 시도하세요"
+      }
     }
   }
 }

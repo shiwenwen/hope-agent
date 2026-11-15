@@ -1206,6 +1206,8 @@ impl FilesystemConfig {
 pub struct AppConfig {
     pub providers: Vec<ProviderConfig>,
     #[serde(default)]
+    pub assistant_policy: crate::personal_assistant::AssistantPolicyConfig,
+    #[serde(default)]
     pub active_model: Option<ActiveModel>,
     /// Global fallback model chain (ordered).
     /// When the primary model fails, these are tried in order.
@@ -1662,6 +1664,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             providers: Vec::new(),
+            assistant_policy: Default::default(),
             active_model: None,
             fallback_models: Vec::new(),
             default_agent_id: default_default_agent_id(),

@@ -51,6 +51,13 @@ pub(crate) async fn bounded_auxiliary_call<T, F: std::future::Future<Output = Re
 ) -> Result<T> {
     let owner = EXECUTION.try_with(|e| e.clone()).ok();
     let budget = if let Some((db, execution)) = owner {
+        let id = execution.clone();
+        if db
+            .run(move |db| db.assistant_research_execution(&id))
+            .await?
+        {
+            bail!("Private source research does not enable auxiliary model calls")
+        }
         begin_model_kind(db, execution, "aux_model").await?
     } else {
         None
@@ -109,6 +116,7 @@ pub async fn check_execution(ctx: &ToolExecContext) -> Result<()> {
     let parent = ctx.session_id.clone();
     db.run(move |db| {
         let conn = db.read_conn()?;
+        if super::super::research::guard_execution(&conn,execution.as_deref(),parent.as_deref())? {return Ok(())}
         let bound=execution.as_deref().map(|id|execution_item(&conn,id)).transpose()?.flatten();
         if let Some((item, _, revision)) = bound {
             let session:String=conn.query_row("SELECT session_id FROM chat_stream_runs WHERE run_id=?1",
@@ -159,6 +167,17 @@ pub async fn check_tool_capability(
     else {
         return Ok(());
     };
+    let research_id = execution.clone();
+    if db
+        .0
+        .run(move |db| db.assistant_research_execution(&research_id))
+        .await?
+    {
+        if name != crate::tool_defs::TOOL_ASSISTANT_RESEARCH_REPORT {
+            bail!("Private research can only submit its structured report")
+        }
+        return Ok(());
+    }
     if db
         .0
         .run(move |db| db.assistant_execution_role(&execution))
@@ -296,6 +315,27 @@ async fn begin(
     max_seconds: i64,
     replay_safe: bool,
 ) -> Result<Option<BudgetLease>> {
+    let research_execution = execution.clone();
+    let research_token = token.clone();
+    if let Some((token, seconds)) = db
+        .run(move |db| {
+            super::super::research::reserve_operation(
+                db,
+                &research_execution,
+                kind != "tool",
+                Some(&research_token),
+            )
+        })
+        .await?
+    {
+        return Ok(Some(BudgetLease {
+            db,
+            token,
+            started: Instant::now(),
+            timeout: Duration::from_secs(seconds),
+            parked_at_start: crate::async_jobs::approval_bridge::parked_budget_extension(),
+        }));
+    }
     let reservation = token.clone();
     let timeout = db
         .run(move |db| {
@@ -429,6 +469,10 @@ async fn begin(
 fn settle(db: &SessionDB, token: &str, elapsed: u64) -> Result<()> {
     let mut conn = db.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    if super::super::research::settle_operation(&tx, token, elapsed)? {
+        tx.commit()?;
+        return Ok(());
+    }
     let row: Option<(String, String, i64)> = tx
         .query_row(
             "SELECT item_id,root_turn_id,reserved_seconds FROM assistant_budget_reservations

@@ -1,6 +1,11 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
 import { AssistantUpdateEntry } from "@/components/personal-assistant/AssistantUpdateEntry"
+import { AssistantFindingEntry } from "@/components/personal-assistant/AssistantFindingEntry"
+import {
+  useAssistantResearch,
+  researchActivityKey,
+} from "@/components/personal-assistant/useAssistantResearch"
 import { PersonalAssistantPanel } from "@/components/personal-assistant/PersonalAssistantPanel"
 import { PersonalAssistantHeader } from "@/components/personal-assistant/PersonalAssistantHeader"
 import { PersonalAssistantSettings } from "@/components/personal-assistant/PersonalAssistantSettings"
@@ -963,6 +968,9 @@ export default function ChatScreen({
   )
   const isCodexImported = currentSessionMeta?.origin?.kind === "codex"
   const isPersonalAssistant = currentSessionMeta?.kind === "personal_assistant"
+  const research = useAssistantResearch(
+    assistant.authorized && isPersonalAssistant && isViewVisible,
+  )
   const currentSessionKindResolved = currentSessionMeta !== null
   useEffect(() => {
     onAssistantStateChange?.(isPersonalAssistant)
@@ -972,10 +980,17 @@ export default function ChatScreen({
   useEffect(() => {
     onAssistantAttentionChange?.(
       assistant.updates.filter((update) => !update.viewedAt).length +
+        research.findings.filter((finding) => !finding.viewedAt).length +
         assistant.watches.filter((watch) => watch.needsAttention).length +
         assistant.requests.filter(requestNeedsResponse).length,
     )
-  }, [assistant.watches, assistant.requests, assistant.updates, onAssistantAttentionChange])
+  }, [
+    assistant.watches,
+    assistant.requests,
+    assistant.updates,
+    research.findings,
+    onAssistantAttentionChange,
+  ])
   const [sideChats, setSideChats] = useState<SessionMeta[]>([])
   const [sideChatStateSourceId, setSideChatStateSourceId] = useState<string | null>(null)
   const [activeSideChatId, setActiveSideChatId] = useState<string | null>(null)
@@ -5068,7 +5083,10 @@ export default function ChatScreen({
 
   const emptySessionInputHero =
     session.messages.length === 0 &&
-    (!isPersonalAssistant || assistant.updates.length === 0) &&
+    (!isPersonalAssistant ||
+      (assistant.updates.length === 0 &&
+        research.findings.length === 0 &&
+        research.activity.length === 0)) &&
     !session.historyLoading &&
     !session.loading &&
     !planMode.pendingQuestionGroup &&
@@ -5424,6 +5442,7 @@ export default function ChatScreen({
               visible={isViewVisible && isPersonalAssistant}
               sessions={session.sessions}
               state={assistant}
+              research={research}
             />
           )}
           {isPersonalAssistant && assistantItemsMobileOpen && !assistantWide && isViewVisible && (
@@ -5512,18 +5531,49 @@ export default function ChatScreen({
                   anchorLatestTurn={!isPersonalAssistant}
                   timelineEntries={
                     isPersonalAssistant
-                      ? assistant.updates.map((update) => ({
-                          id: update.id,
-                          timestamp: update.createdAt,
-                          content: (
-                            <AssistantUpdateEntry
-                              key={update.id}
-                              update={update}
-                              name={assistant.profile?.name ?? "Hope"}
-                              onView={(id) => assistant.itemAction("view", id)}
-                            />
-                          ),
-                        }))
+                      ? [
+                          ...assistant.updates.map((update) => ({
+                            id: update.id,
+                            timestamp: update.createdAt,
+                            content: (
+                              <AssistantUpdateEntry
+                                key={update.id}
+                                update={update}
+                                name={assistant.profile?.name ?? "Hope"}
+                                onView={(id) => assistant.itemAction("view", id)}
+                              />
+                            ),
+                          })),
+                          ...research.findings.map((finding) => ({
+                            id: `finding:${finding.id}:${finding.revision}`,
+                            timestamp: finding.createdAt,
+                            content: (
+                              <AssistantFindingEntry
+                                key={`${finding.id}:${finding.revision}`}
+                                finding={finding}
+                                sources={research.sources}
+                                name={assistant.profile?.name ?? "Hope"}
+                                onView={research.viewFinding}
+                                onAsk={research.askFinding}
+                                activity={research.activity}
+                              />
+                            ),
+                          })),
+                          ...research.activity
+                            .filter((activity) => activity.state !== "finished")
+                            .map((activity) => ({
+                              id: `research:${activity.id}`,
+                              timestamp: new Date(activity.createdAt * 1000).toISOString(),
+                              content: (
+                                <p
+                                  role="status"
+                                  className="my-3 px-4 text-xs text-muted-foreground"
+                                >
+                                  {t(researchActivityKey(activity))}
+                                </p>
+                              ),
+                            })),
+                        ]
                       : undefined
                   }
                   heroComposer={heroComposerActive}

@@ -8817,7 +8817,9 @@
     "contextCompactSummaryReasoning": "Suy luận riêng cho tóm tắt",
     "contextCompactSummaryReasoningDefault": "Giữ chính sách hiện tại",
     "contextCompactSummaryReasoningDesc": "Chỉ áp dụng cho tóm tắt ngữ cảnh. Mức không được hỗ trợ sẽ báo lỗi và giữ lịch sử. Khi lỗi, không tự đổi mô hình hoặc tăng giới hạn đầu ra. Mặc định giữ hành vi hiện tại.",
-    "toolAssistantReportDesc": "Ghi lại tiến độ đã xác minh, kết quả hoặc câu hỏi được lưu cho chủ sở hữu"
+    "toolAssistantReportDesc": "Ghi lại tiến độ đã xác minh, kết quả hoặc câu hỏi được lưu cho chủ sở hữu",
+    "toolAssistantResearchDesc": "Xem tham chiếu hoặc hỏi trong phạm vi quyền tài liệu hiện tại của Hope.",
+    "toolAssistantResearchReportDesc": "Báo cáo phát hiện có bằng chứng cho nghiên cứu riêng hiện tại; chỉ hiển thị sau xác minh."
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",
@@ -9294,7 +9296,9 @@
     "feishu_hire_list_talents": "Feishu Tuyển dụng: Liệt kê ứng viên",
     "feishu_hire_get_talent": "Feishu Tuyển dụng: Xem ứng viên",
     "feishu_hire_list_applications": "Feishu Tuyển dụng: Liệt kê hồ sơ ứng tuyển",
-    "assistant_report": "Báo cáo việc trợ lý"
+    "assistant_report": "Báo cáo việc trợ lý",
+    "assistant_research": "Kiểm tra tài liệu chia sẻ",
+    "assistant_research_report": "Báo cáo phát hiện"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -13048,6 +13052,46 @@
       "dispatch_failed": "Không thể bắt đầu công việc",
       "owner_stopped": "Bạn đã dừng việc này",
       "scope_or_stop_changed": "Phạm vi hoặc trạng thái dừng đã thay đổi"
+    },
+    "research": {
+      "settingsTitle": "Hỗ trợ chủ động",
+      "settingsHint": "Hope chỉ theo dõi tài liệu bạn chia sẻ rõ ràng. Tạm dừng sẽ dừng việc đã giao hiện tại; hãy giao lại sau khi tiếp tục.",
+      "enabled": "Phát hiện thay đổi trong tài liệu",
+      "pause": "Tạm dừng công việc nền của Hope",
+      "pendingPolicy": "Đang áp dụng cài đặt…",
+      "sources": "Tài liệu đã chia sẻ",
+      "expires": "Chia sẻ đến {{time}}",
+      "observed": "Kiểm tra gần nhất: {{time}}",
+      "suspended": "Đã tạm dừng kiểm tra tự động. Bạn có thể kiểm tra ngay khi cần.",
+      "observationGap": "Không thể quan sát giai đoạn này. Có thể đã bỏ lỡ thay đổi.",
+      "refresh": "Kiểm tra ngay",
+      "revoke": "Thu hồi chia sẻ",
+      "noSources": "Chưa chia sẻ tài liệu nào",
+      "workspace": "Chọn cuộc trò chuyện công việc chứa tệp",
+      "path": "Đường dẫn trong thư mục làm việc, ví dụ notes/agenda.txt",
+      "focus": "Cần theo dõi điều gì",
+      "focusPlaceholder": "Ví dụ: phát hiện lịch họp trùng và chuẩn bị hai phương án phù hợp",
+      "days": "Số ngày chia sẻ",
+      "baselineHint": "Chia sẻ tối đa 4 tệp văn bản UTF-8, mỗi tệp tối đa 64 KiB. Lần đọc đầu tạo mốc; lần sau báo thay đổi quan trọng.",
+      "share": "Chia sẻ tài liệu",
+      "finding": "Phát hiện mới",
+      "inference": "Suy luận",
+      "uncertainty": "Cần xác nhận",
+      "prepared": "Phương án đã chuẩn bị",
+      "lines": "Dòng {{start}}–{{end}}",
+      "ask": "Hỏi Hope thêm",
+      "askPlaceholder": "Chỉ hỏi về tài liệu này…",
+      "activity": {
+        "pending": "Đang chờ",
+        "running": "Đang kiểm tra tài liệu…",
+        "finished": "Đã xong; kết quả xuất hiện trong cuộc trò chuyện",
+        "failed": "Không thể hoàn tất. Kiểm tra tài liệu rồi thử lại.",
+        "cancelled": "Đã hủy",
+        "expired": "Đã hết hạn. Vui lòng gửi lại.",
+        "scopeChanged": "Tài liệu hoặc quyền đã đổi. Hãy kiểm tra lại.",
+        "budget": "Đã hết hạn mức nghiên cứu. Thử lại sau.",
+        "unverified": "Chưa nhận được kết quả xác minh. Hãy thử lại."
+      }
     }
   }
 }

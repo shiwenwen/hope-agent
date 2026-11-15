@@ -472,7 +472,9 @@ impl ToolMetadata {
                 push_unique(&mut effects, ToolEffect::SessionWrite);
                 render.result_kind = ToolResultKind::Status;
             }
-            crate::tool_defs::TOOL_ASSISTANT_REPORT => {
+            crate::tool_defs::TOOL_ASSISTANT_RESEARCH
+            | crate::tool_defs::TOOL_ASSISTANT_RESEARCH_REPORT
+            | crate::tool_defs::TOOL_ASSISTANT_REPORT => {
                 push_unique(&mut effects, ToolEffect::SessionWrite);
                 render.result_kind = ToolResultKind::Status;
             }

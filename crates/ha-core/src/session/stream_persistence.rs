@@ -1117,6 +1117,7 @@ impl SessionDB {
             params![run_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
+        crate::personal_assistant::research::check_context_write(&tx, &session_id, Some(run_id))?;
         if through_seq > durable_seq.max(0) as u64 {
             anyhow::bail!("context checkpoint exceeds durable journal watermark");
         }
@@ -1216,6 +1217,11 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction()?;
         let now = chrono::Utc::now().to_rfc3339();
+        crate::personal_assistant::research::check_context_write(
+            &tx,
+            &input.session_id,
+            input.run_id.as_deref(),
+        )?;
 
         let persistent = if let Some(run_id) = input.run_id.as_deref() {
             let (session_id, durable_seq, status): (String, i64, String) = tx.query_row(
@@ -1465,6 +1471,11 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction()?;
         let now = chrono::Utc::now().to_rfc3339();
+        crate::personal_assistant::research::check_context_write(
+            &tx,
+            &input.session_id,
+            input.run_id.as_deref(),
+        )?;
         if let Some(run_id) = input.run_id.as_deref() {
             let (durable_seq, run_status): (i64, String) = tx.query_row(
                 "SELECT durable_seq, status FROM chat_stream_runs
@@ -1691,6 +1702,9 @@ impl SessionDB {
         session_id: &str,
     ) -> Result<Option<StreamRunSnapshot>> {
         let conn = self.read_conn()?;
+        if crate::personal_assistant::research::is_research_context(&conn, session_id)? {
+            return Ok(None);
+        }
         let run = conn
             .query_row(
                 "SELECT run_id, session_id, source, stream_id, turn_id, status,
@@ -1738,6 +1752,13 @@ impl SessionDB {
 
     pub fn stream_run_snapshot(&self, run_id: &str) -> Result<Option<StreamRunSnapshot>> {
         let conn = self.read_conn()?;
+        if conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM assistant_research_runs WHERE execution_id=?1)",
+            [run_id],
+            |r| r.get::<_, bool>(0),
+        )? {
+            return Ok(None);
+        }
         let run = conn
             .query_row(
                 "SELECT run_id, session_id, source, stream_id, turn_id, status,
@@ -1768,6 +1789,7 @@ impl SessionDB {
     /// replacement turn may already be active by the time recovery fires.
     pub fn stream_run_snapshot_for_turn(&self, turn_id: &str) -> Result<Option<StreamRunSnapshot>> {
         let conn = self.read_conn()?;
+        if conn.query_row("SELECT EXISTS(SELECT 1 FROM chat_turns t JOIN assistant_research_runs research ON research.session_id=t.session_id WHERE t.id=?1)",[turn_id],|r|r.get::<_,bool>(0))? {return Ok(None)}
         let run = conn
             .query_row(
                 "SELECT run_id, session_id, source, stream_id, turn_id, status,
@@ -1797,6 +1819,14 @@ impl SessionDB {
 
     pub fn load_context_with_revision(&self, session_id: &str) -> Result<(Option<String>, i64)> {
         let conn = self.read_conn()?;
+        if crate::personal_assistant::research::is_research_context(&conn, session_id)? {
+            let revision = conn.query_row(
+                "SELECT context_revision FROM sessions WHERE id=?1",
+                [session_id],
+                |r| r.get(0),
+            )?;
+            return Ok((None, revision));
+        }
         conn.query_row(
             "SELECT context_json, context_revision FROM sessions WHERE id = ?1",
             params![session_id],
@@ -1818,6 +1848,13 @@ impl SessionDB {
         through_seq: u64,
     ) -> Result<(Option<String>, u64, i64)> {
         let conn = self.read_conn()?;
+        if conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM assistant_research_runs WHERE execution_id=?1)",
+            [run_id],
+            |r| r.get::<_, bool>(0),
+        )? {
+            anyhow::bail!("Private research cannot replay old source context")
+        }
         let (current_context, context_revision): (Option<String>, i64) = conn.query_row(
             "SELECT s.context_json, s.context_revision
                  FROM chat_stream_runs r
@@ -1903,7 +1940,7 @@ impl SessionDB {
             "SELECT run_id, session_id, source, stream_id, turn_id, status,
                     accepted_seq, durable_seq, checkpoint_seq, committed_seq, provider_shape,
                     started_at, ended_at, error
-             FROM chat_stream_runs WHERE status = 'running' ORDER BY started_at ASC",
+             FROM chat_stream_runs WHERE status = 'running' AND source <> 'assistant_research' ORDER BY started_at ASC",
         )?;
         let rows = stmt.query_map([], row_to_run)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -2384,6 +2421,20 @@ fn validate_journal_batch(batch: &JournalBatch) -> Result<()> {
 }
 
 fn append_journal_batch_tx(tx: &Transaction<'_>, batch: &JournalBatch, now: &str) -> Result<()> {
+    if let Some(session) = tx
+        .query_row(
+            "SELECT session_id FROM assistant_research_runs WHERE execution_id=?1",
+            [&batch.run_id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?
+    {
+        crate::personal_assistant::research::check_context_write(
+            tx,
+            &session,
+            Some(&batch.run_id),
+        )?;
+    }
     let payload = serde_json::to_string(&batch.events)?;
     let checksum = blake3::hash(payload.as_bytes()).to_hex().to_string();
     let existing = tx

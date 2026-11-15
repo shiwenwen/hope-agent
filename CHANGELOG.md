@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Hope 可在明确共享的本地资料中发现变化、准备方案并在原资料范围内追问，等待外部条件的事项支持到期复查。
+
 - **Hope 持续跟进**：一句话交办可建立轻量事项，持续处理后台结果、部分进展和待回答问题，并将核实结果回到主对话；支持单项停止、恢复读回及明确追加执行额度。 (#919)
 
 ### Changed

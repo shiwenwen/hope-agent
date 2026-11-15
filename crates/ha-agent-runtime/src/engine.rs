@@ -708,7 +708,13 @@ pub async fn execute_admitted_params(
     // observability lives on `SubagentStart` / `SubagentStop` instead, also
     // gated against hook-spawned children in `subagent::spawn`.
     if source.fires_user_lifecycle_hooks()
-        && tool_scope != Some(ha_core::tool_defs::ToolScope::PersonalAssistantIm)
+        && !matches!(
+            tool_scope,
+            Some(
+                ha_core::tool_defs::ToolScope::PersonalAssistantIm
+                    | ha_core::tool_defs::ToolScope::AssistantResearch
+            )
+        )
     {
         if let Some(extra) = ha_core::hooks::fire_session_start_observation(
             &session_id,
@@ -766,7 +772,13 @@ pub async fn execute_admitted_params(
         .unwrap_or_else(|| canonical_user_message.clone());
     let legacy_note_slots = 5usize.saturating_sub(bound_notes.len().min(5));
     let legacy_notes = (legacy_note_slots > 0
-        && tool_scope != Some(ha_core::tool_defs::ToolScope::PersonalAssistantIm))
+        && !matches!(
+            tool_scope,
+            Some(
+                ha_core::tool_defs::ToolScope::PersonalAssistantIm
+                    | ha_core::tool_defs::ToolScope::AssistantResearch
+            )
+        ))
     .then(|| {
         ha_core::knowledge_hooks::resolve_inline_injections(
             &legacy_note_message,
@@ -884,7 +896,13 @@ pub async fn execute_admitted_params(
                 durability.persistence_run_id().to_string(),
             )
         });
-    let mut im_mirror = if tool_scope == Some(ha_core::tool_defs::ToolScope::PersonalAssistantIm) {
+    let mut im_mirror = if matches!(
+        tool_scope,
+        Some(
+            ha_core::tool_defs::ToolScope::PersonalAssistantIm
+                | ha_core::tool_defs::ToolScope::AssistantResearch
+        )
+    ) {
         None
     } else {
         ha_core::channel_hooks::attach_live_mirror(
@@ -1915,7 +1933,13 @@ pub async fn execute_admitted_params(
                     // (fire_stop guards on it), never on a user interrupt.
                     // `response` is the turn's final assistant text
                     // (`last_assistant_message`), so a Stop hook can inspect it.
-                    if tool_scope != Some(ha_core::tool_defs::ToolScope::PersonalAssistantIm) {
+                    if !matches!(
+                        tool_scope,
+                        Some(
+                            ha_core::tool_defs::ToolScope::PersonalAssistantIm
+                                | ha_core::tool_defs::ToolScope::AssistantResearch
+                        )
+                    ) {
                         ha_core::hooks::fire_stop(
                             &session_id,
                             Some(&agent_id),
@@ -1925,7 +1949,13 @@ pub async fn execute_admitted_params(
                     }
 
                     if terminal_status == session::ChatTurnStatus::Completed
-                        && tool_scope != Some(ha_core::tool_defs::ToolScope::PersonalAssistantIm)
+                        && !matches!(
+                            tool_scope,
+                            Some(
+                                ha_core::tool_defs::ToolScope::PersonalAssistantIm
+                                    | ha_core::tool_defs::ToolScope::AssistantResearch
+                            )
+                        )
                     {
                         let continuation = {
                             let session_id = session_id.clone();
