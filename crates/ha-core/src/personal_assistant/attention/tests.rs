@@ -128,6 +128,16 @@ fn configure(db: &SessionDB, route: super::super::policy::AssistantNoticeRoute) 
     db.request_assistant_policy(current.requested_revision, settings)
         .unwrap();
     db.conn.lock().unwrap().execute("UPDATE assistant_policy_gate SET applied_revision=requested_revision,applied_json=requested_json",[]).unwrap();
+    // This fixture activates policy in the preceding second. Boundary tests
+    // below install their own exact event and activation timestamps.
+    db.conn
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE assistant_attention_boundary SET eligible_after=?1,desktop_eligible_after=?1",
+            [now() - 1],
+        )
+        .unwrap();
 }
 fn connected(db: &SessionDB, now: i64) -> PollLease {
     db.save_assistant_im_connection(100, "private_bot", &uuid::Uuid::new_v4().to_string(), now)
@@ -158,6 +168,15 @@ fn connected(db: &SessionDB, now: i64) -> PollLease {
     db.receive_assistant_im_update(&lease, event(2, TelegramInputKind::Activate(token)), now)
         .unwrap();
     db.set_assistant_im_notifications_paused(false).unwrap();
+    // Pairing predates the test's newly produced events, without sleeping.
+    db.conn
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE assistant_attention_boundary SET im_eligible_after=?1",
+            [now - 1],
+        )
+        .unwrap();
     db.assistant_im_poll_lease(now).unwrap().unwrap()
 }
 fn consent(db: &SessionDB, source: &AssistantSource, enabled: bool, lease: &PollLease, now: i64) {
@@ -939,8 +958,20 @@ fn upgrade_seeds_a_stable_boundary_without_requiring_another_policy_save() {
         assert!(initial > 0 && initial <= now());
         seed_item(&db);
         verified(&db);
+        // The first eligible event is strictly after the upgrade's sealed second.
+        let created = chrono::DateTime::from_timestamp(initial + 1, 100_000_000)
+            .unwrap()
+            .to_rfc3339();
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE assistant_updates SET created_at=?1 WHERE kind='result'",
+                [created],
+            )
+            .unwrap();
         assert!(
-            claim_notice(&db, "desktop", now() + 61).is_some(),
+            claim_notice(&db, "desktop", initial + 61).is_some(),
             "an existing applied policy works without another save after upgrade"
         );
         db.conn
@@ -1034,4 +1065,82 @@ fn resuming_im_notices_discards_old_proactive_results_without_affecting_desktop_
             "a direct source question keeps its authority while proactive notices are muted"
         );
     });
+}
+
+#[test]
+fn each_notification_boundary_seals_the_same_second_and_accepts_the_next() {
+    for boundary in [
+        "eligible_after",
+        "desktop_eligible_after",
+        "im_eligible_after",
+    ] {
+        for offset in [0, 1] {
+            isolated(|db, root| {
+                let route = if boundary == "eligible_after" {
+                    "desktop"
+                } else {
+                    "im"
+                };
+                configure(
+                    &db,
+                    if route == "desktop" {
+                        super::super::policy::AssistantNoticeRoute::Desktop
+                    } else {
+                        super::super::policy::AssistantNoticeRoute::Im
+                    },
+                );
+                let lease = (route == "im").then(|| connected(&db, now()));
+                if boundary == "im_eligible_after" {
+                    let source = source_finding(db.clone(), root);
+                    consent(&db, &source, true, lease.as_ref().unwrap(), now());
+                } else {
+                    seed_item(&db);
+                    verified(&db);
+                    if route == "im" {
+                        db.set_assistant_im_grant(
+                            SessionGrant {
+                                session_id: "target".into(),
+                                revision: 0,
+                                query_status: true,
+                                delegate: true,
+                                stop: true,
+                                completion_notice: true,
+                                expires_at: now() + 3600,
+                            },
+                            now(),
+                        )
+                        .unwrap();
+                    }
+                }
+                let boundary_at = now();
+                let created = chrono::DateTime::from_timestamp(boundary_at + offset, 100_000_000)
+                    .unwrap()
+                    .to_rfc3339();
+                {
+                    let conn = db.conn.lock().unwrap();
+                    conn.execute("UPDATE assistant_attention_boundary SET eligible_after=0,desktop_eligible_after=0,im_eligible_after=0",[]).unwrap();
+                    conn.execute(
+                        &format!("UPDATE assistant_attention_boundary SET {boundary}=?1"),
+                        [boundary_at],
+                    )
+                    .unwrap();
+                    if boundary == "im_eligible_after" {
+                        conn.execute("UPDATE assistant_findings SET updated_at=?1", [&created])
+                            .unwrap();
+                    } else {
+                        conn.execute(
+                            "UPDATE assistant_updates SET created_at=?1 WHERE kind='result'",
+                            [&created],
+                        )
+                        .unwrap();
+                    }
+                }
+                assert_eq!(
+                    claim_notice(&db, route, boundary_at + 61).is_some(),
+                    offset == 1,
+                    "{boundary}: same-second events stay local; the next second is eligible"
+                );
+            });
+        }
+    }
 }

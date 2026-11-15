@@ -35,6 +35,12 @@ async fn shared_file_notice_and_mobile_reply_use_the_real_kernel_with_private_co
         db.receive_assistant_im_update(&lease,event(1,TelegramInputKind::PairCode(code.code)),now()).unwrap();let activation=db.confirm_assistant_im_pairing(lease.generation,42,42,now()).unwrap();
         db.receive_assistant_im_update(&lease,event(2,TelegramInputKind::Activate(activation.callback_data.strip_prefix(ACTIVATE_PREFIX).unwrap().into())),now()).unwrap();
         db.set_assistant_im_notifications_paused(false).unwrap();
+        // Activation seals its entire UTC second. Produce a genuinely newer
+        // event through real time, without acquiring a raw kernel connection.
+        let activation_finished_at=now();
+        tokio::time::timeout(std::time::Duration::from_secs(5),async {
+            while now()<=activation_finished_at {tokio::time::sleep(std::time::Duration::from_millis(20)).await;}
+        }).await.unwrap();
         let lease=db.assistant_im_poll_lease(now()).unwrap().unwrap();
 
         std::fs::write(workspace.join("agenda.txt"),"Planning 09:00\nReview 10:00\n").unwrap();

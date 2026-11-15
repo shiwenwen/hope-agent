@@ -393,7 +393,9 @@ pub(super) fn route_allowed(
         return Ok(false);
     }
     let boundary:i64=conn.query_row("SELECT COALESCE((SELECT eligible_after FROM assistant_attention_boundary WHERE singleton=1),?1)",[now],|row|row.get(0))?;
-    if candidate.created < boundary {
+    // Boundaries seal their entire UTC second. This conservatively keeps
+    // same-second updates in Hope instead of replaying a pre-enable result.
+    if candidate.created <= boundary {
         return Ok(false);
     }
     if route == "desktop" {
@@ -404,7 +406,7 @@ pub(super) fn route_allowed(
         [],
         |row| row.get(0),
     )?;
-    if candidate.created < im_boundary {
+    if candidate.created <= im_boundary {
         return Ok(false);
     }
     let Some(state) = disclosure::pairing(conn)? else {
@@ -438,7 +440,7 @@ pub(super) fn route_allowed(
             [],
             |row| row.get(0),
         )?;
-        if candidate.created < threshold {
+        if candidate.created <= threshold {
             return Ok(false);
         }
     }
