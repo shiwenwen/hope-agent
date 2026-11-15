@@ -9,6 +9,7 @@ mod budget;
 mod lifecycle;
 mod provenance;
 mod questions;
+mod receipts;
 pub use budget::{begin_model_budget, begin_tool_budget, check_execution, check_tool_capability};
 pub(crate) use budget::{bounded_auxiliary_call, custom_hooks_blocked, execution_scope};
 pub use lifecycle::{cancel_item_work, stop_item, AssistantPendingWork};
@@ -186,7 +187,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<()> {
             UNIQUE(execution_id)
          );",
     )?;
-    Ok(())
+    receipts::migrate(conn)
 }
 
 pub(super) fn create_for_request(conn: &Connection, request_id: &str) -> Result<()> {
@@ -366,9 +367,12 @@ pub(crate) fn bind_stream_with_conn(
 }
 
 fn execution_item(conn: &Connection, execution: &str) -> Result<Option<(String, String, i64)>> {
-    Ok(conn.query_row(
-        "SELECT item_id,root_turn_id,item_revision FROM assistant_execution_contexts WHERE execution_id=?1", [execution],
-        |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?)
+    let current=conn.query_row("SELECT item_id,root_turn_id,item_revision FROM assistant_execution_contexts WHERE execution_id=?1",[execution],
+        |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+    if current.is_none() {
+        receipts::deny_removed_execution(conn, execution)?;
+    }
+    Ok(current)
 }
 
 fn needs_owner_input(conn: &Connection, item: &str) -> Result<bool> {
@@ -998,15 +1002,8 @@ impl SessionDB {
     }
 
     pub fn assistant_execution_role(&self, execution: &str) -> Result<Option<bool>> {
-        Ok(self
-            .read_conn()?
-            .query_row(
-                "SELECT is_subtask FROM assistant_execution_contexts
-            WHERE execution_id=?1",
-                [execution],
-                |r| r.get(0),
-            )
-            .optional()?)
+        let conn = self.read_conn()?;
+        receipts::role(&conn, execution)
     }
 
     pub fn assistant_execution_waiting_for_owner(&self, execution: &str) -> Result<bool> {

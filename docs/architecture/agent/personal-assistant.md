@@ -22,6 +22,8 @@
 
 `assistant_execution_contexts` 绑定不可变 persistence run ID，`assistant_owned_sources` 绑定真实 job/subagent ID 与父执行角色。子代理及其嵌套结果注入始终是子任务，不能报告整项完成。内部子工作只有标准父注入一个后续拥有者；事项协调器等待它交还控制。快速 inline 工具的预分配来源明确结算为当前执行，不作为不存在的后台作业等待。已提交、运行中、可安全重试与未知副作用分别处理。
 
+不含提示词和结果的 `assistant_execution_receipts` / `assistant_source_receipts` 在同一事务保存确切执行、子任务与子会话身份，不随内容删除。归档、删除或撤销规范归属后，这些凭据只用于拒绝旧执行、拒收迟到结果及取消确切后台工作，不授予新的执行权；恢复会话不会恢复旧授权。级联删除归属前同时关闭对应持久问答。
+
 `assistant_item_questions` 与既有 `ask_user_questions` 共用展示与回答协议。创建问题、封闭原执行、事项 waiting 及 Home 更新同事务写入；正常结束本轮，释放模型槽。回答携 `assistant_item_answer` 的确切事项版本与执行 ID，事务中检查当前权限、pending、Stop 和答案后写唯一后续；重启不依赖 oneshot。超时、fallback、重复回答或旧按钮不触发动作。即刻回答也不能重新放开原执行。
 
 单项默认 8 个正式轮次、64 次工具、1800 秒累计活跃执行；主人滚动 24 小时默认 16 轮、128 次工具、3600 秒。主模型、辅助模型、核实、重试和子代理共享事项额度；实际用量仍走 `model_usage`。审批等待及等待子工作不计活跃时间。`assistant_owner_turns`、`assistant_budget_reservations` 和明确追加的 `assistant_budget_grants` 不随内容级联删除；未知预占保守保留。主人可显式追加一份有界额度，存在内部后续拥有者时只追加、不再派第二个消费者。

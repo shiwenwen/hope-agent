@@ -127,6 +127,7 @@ impl SessionDB {
                     });
                 }
             } else {
+                super::receipts::deny_removed_source(&conn, kind, id)?;
                 ordinary += 1;
             }
         }
@@ -166,8 +167,8 @@ impl SessionDB {
             }));
         }
         let inherited: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM assistant_execution_contexts c
-            JOIN chat_stream_runs s ON s.run_id=c.execution_id WHERE s.session_id=?1)",
+            "SELECT EXISTS(SELECT 1 FROM assistant_execution_receipts WHERE session_id=?1)
+                OR EXISTS(SELECT 1 FROM assistant_source_receipts WHERE child_session_id=?1)",
             [session],
             |r| r.get(0),
         )?;
@@ -178,15 +179,7 @@ impl SessionDB {
     }
 
     pub fn assistant_source_owner(&self, kind: &str, id: &str) -> Result<Option<String>> {
-        Ok(self
-            .read_conn()?
-            .query_row(
-                "SELECT item_id FROM assistant_owned_sources
-            WHERE source_kind=?1 AND source_id=?2",
-                params![kind, id],
-                |r| r.get(0),
-            )
-            .optional()?)
+        Ok(self.read_conn()?.query_row("SELECT item_id FROM assistant_source_receipts WHERE source_kind=?1 AND source_id=?2",params![kind,id],|r|r.get(0)).optional()?)
     }
 
     pub fn settle_assistant_inline_source(&self, id: &str, execution: &str) -> Result<()> {
@@ -437,7 +430,7 @@ pub(crate) fn bind_source_with_conn(
         // Missing provenance in an assistant worker is not ordinary work.
         // This is a deny predicate, never a way of guessing an item.
         let owned: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM assistant_execution_contexts c
+            "SELECT EXISTS(SELECT 1 FROM assistant_execution_receipts c
                 JOIN chat_stream_runs s ON s.run_id=c.execution_id
                 WHERE s.session_id=?1 AND s.status='running')",
             [parent_session],
@@ -465,6 +458,7 @@ pub(crate) fn consume_source_with_conn(
         )
         .optional()?;
     let Some((item, revision, parent, role)) = bound else {
+        super::receipts::deny_removed_source(conn, kind, id)?;
         return Ok(());
     };
     validate_item(conn, &item)?;

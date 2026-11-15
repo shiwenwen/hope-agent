@@ -131,9 +131,9 @@ impl SessionDB {
         };
         let streams = {
             let mut s = conn.prepare(
-                "SELECT s.run_id,s.session_id FROM chat_stream_runs s
-                JOIN assistant_execution_contexts c ON c.execution_id=s.run_id
-                WHERE c.item_id=?1 AND s.status='running'",
+                "SELECT c.execution_id,c.session_id FROM assistant_execution_receipts c
+                LEFT JOIN chat_stream_runs s ON c.execution_id=s.run_id
+                WHERE c.item_id=?1 AND (s.status='running' OR s.run_id IS NULL)",
             )?;
             let rows = s
                 .query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -143,7 +143,7 @@ impl SessionDB {
         let sources = {
             let mut s = conn.prepare(
                 "SELECT source_kind,source_id,parent_session_id
-                FROM assistant_owned_sources WHERE item_id=?1",
+                FROM assistant_source_receipts WHERE item_id=?1",
             )?;
             let rows = s
                 .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
@@ -181,7 +181,32 @@ impl SessionDB {
                 [id],
             )?;
         }
-        let items = items.into_iter().map(|(id, _)| id).collect();
+        let mut items: Vec<String> = items.into_iter().map(|(id, _)| id).collect();
+        let orphans = {
+            let conn = self.read_conn()?;
+            let mut statement=conn.prepare("SELECT DISTINCT receipt.item_id FROM assistant_execution_receipts receipt
+                WHERE NOT EXISTS(SELECT 1 FROM assistant_execution_contexts current WHERE current.execution_id=receipt.execution_id)
+                    OR NOT EXISTS(SELECT 1 FROM assistant_items item WHERE item.id=receipt.item_id)
+                UNION SELECT receipt.item_id FROM assistant_source_receipts receipt
+                WHERE NOT EXISTS(SELECT 1 FROM assistant_owned_sources current WHERE current.source_kind=receipt.source_kind AND current.source_id=receipt.source_id)")?;
+            let rows = statement
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        for id in orphans {
+            let exists: bool = self.read_conn()?.query_row(
+                "SELECT EXISTS(SELECT 1 FROM assistant_items WHERE id=?1)",
+                [&id],
+                |r| r.get(0),
+            )?;
+            if exists {
+                self.stop_assistant_item(&id)?;
+            }
+            if !items.contains(&id) {
+                items.push(id)
+            }
+        }
         Ok(items)
     }
 }

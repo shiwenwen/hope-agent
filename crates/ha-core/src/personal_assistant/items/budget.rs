@@ -133,7 +133,7 @@ pub async fn check_execution(ctx: &ToolExecContext) -> Result<()> {
                 bail!(AssistantError::Stopped)
             }
         }else{
-            let owned:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM assistant_execution_contexts c
+            let owned:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM assistant_execution_receipts c
                 JOIN chat_stream_runs s ON s.run_id=c.execution_id WHERE s.session_id=?1 AND s.status='running')",
                 [parent],|r|r.get(0))?;
             if owned{bail!("Assistant work requires its exact admitted persistence identity")}

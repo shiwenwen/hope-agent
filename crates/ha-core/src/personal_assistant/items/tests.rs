@@ -797,3 +797,156 @@ fn custom_hook_guard_is_scoped_to_the_exact_execution_and_survives_commit() {
         });
     });
 }
+
+#[test]
+fn archived_then_restored_target_never_declassifies_the_old_execution_or_sources() {
+    isolated_test(|db, _| {
+        let item = seed_execution(&db);
+        seed_child_result(&db, "late-owned-child", "parent");
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE sessions SET archived_at=?1 WHERE id='work'",
+                [chrono::Utc::now().to_rfc3339()],
+            )
+            .unwrap();
+        db.conn
+            .lock()
+            .unwrap()
+            .execute("UPDATE sessions SET archived_at=NULL WHERE id='work'", [])
+            .unwrap();
+        assert!(db.list_assistant_items().unwrap().is_empty());
+        assert_eq!(
+            db.assistant_execution_role("worker-stream").unwrap(),
+            Some(false)
+        );
+        assert_eq!(
+            db.assistant_source_owner("subagent", "late-owned-child")
+                .unwrap(),
+            Some(item.clone())
+        );
+        assert!(db
+            .assistant_injection_proof("work", &[("subagent".into(), "late-owned-child".into())])
+            .is_err());
+        assert!(db
+            .assistant_subagent_proof("session-late-owned-child")
+            .is_err());
+        assert!(db.assistant_stopped_work().unwrap().contains(&item));
+        let conn = db.read_conn().unwrap();
+        assert!(consume_source_with_conn(&conn, "subagent", "late-owned-child", None).is_err());
+        drop(conn);
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            assert!(begin_model_budget(db.clone(), "worker-stream".into())
+                .await
+                .is_err());
+            let ctx = crate::tool_defs::ToolExecContext {
+                session_id: Some("work".into()),
+                session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
+                persistence_run_id: Some("worker-stream".into()),
+                ..Default::default()
+            };
+            assert!(check_execution(&ctx).await.is_err());
+            assert!(
+                check_tool_capability(&ctx, "exec", &serde_json::json!({"command":"true"}))
+                    .await
+                    .is_err()
+            );
+            let missing = crate::tool_defs::ToolExecContext {
+                persistence_run_id: None,
+                ..ctx
+            };
+            assert!(
+                check_execution(&missing).await.is_err(),
+                "removing the exact identity cannot bypass an active owned receipt"
+            );
+        });
+    });
+}
+
+#[test]
+fn deleting_home_or_worker_content_keeps_exact_identity_denial() {
+    for delete_home in [true, false] {
+        isolated_test(|db, _| {
+            seed_execution(&db);
+            seed_child_result(&db, "deleted-owned-child", "parent");
+            let target = if delete_home {
+                db.read_conn()
+                    .unwrap()
+                    .query_row(
+                        "SELECT home_session_id FROM personal_assistant_requests LIMIT 1",
+                        [],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .unwrap()
+            } else {
+                "work".into()
+            };
+            db.delete_session(&target).unwrap();
+            assert_eq!(
+                db.assistant_execution_role("worker-stream").unwrap(),
+                Some(false)
+            );
+            assert!(db
+                .assistant_subagent_proof("session-deleted-owned-child")
+                .is_err());
+            let conn = db.read_conn().unwrap();
+            assert!(execution_item(&conn, "worker-stream").is_err());
+            assert!(
+                consume_source_with_conn(&conn, "subagent", "deleted-owned-child", None).is_err()
+            );
+        });
+    }
+}
+
+#[test]
+fn identity_receipts_cannot_be_recreated_after_their_canonical_scope_is_removed() {
+    isolated_test(|db, _| {
+        seed_execution(&db);
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "DELETE FROM assistant_execution_contexts WHERE execution_id='worker-stream'",
+                [],
+            )
+            .unwrap();
+        assert!(db.conn.lock().unwrap().execute("INSERT INTO assistant_execution_contexts(execution_id,root_turn_id,item_id,item_revision)
+            SELECT 'worker-stream','worker-turn',id,revision FROM assistant_items",[]).is_err());
+        assert!(execution_item(&db.read_conn().unwrap(), "worker-stream").is_err());
+    });
+}
+
+#[test]
+fn archived_scope_cancels_durable_questions_and_keeps_completed_parents_sources_owned() {
+    isolated_test(|db, _| {
+        let item = seed_execution(&db);
+        seed_child_result(&db, "orphan-child", "parent");
+        let question = db
+            .create_assistant_question("worker-stream", "Which result?", vec![])
+            .unwrap();
+        terminal(&db, "committed");
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE sessions SET archived_at=?1 WHERE id='work'",
+                [chrono::Utc::now().to_rfc3339()],
+            )
+            .unwrap();
+        let status: String = db
+            .read_conn()
+            .unwrap()
+            .query_row(
+                "SELECT status FROM ask_user_questions WHERE request_id=?1",
+                [&question.request_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "cancelled");
+        assert!(db.assistant_stopped_work().unwrap().contains(&item));
+        assert!(db
+            .assistant_injection_proof("work", &[("subagent".into(), "orphan-child".into())])
+            .is_err());
+    });
+}
