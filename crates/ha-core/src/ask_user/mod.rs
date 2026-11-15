@@ -14,6 +14,8 @@ pub use types::{
     AskUserQuestionOption, AskUserText, AskUserTimedOutPayload, CreateOwnerAskUserQuestionInput,
 };
 
+pub(crate) use questions::publish_committed_assistant_answer;
+
 pub use questions::{
     cancel_all_pending_ask_user_questions, cancel_owner_question_timeouts_for_session,
     cancel_pending_ask_user_question, cancel_pending_ask_user_question_with_source,
@@ -138,5 +140,3 @@ mod tests {
         assert!(!was_affirmative(raw, &["Run it"]));
     }
 }
-
-pub(crate) use questions::publish_committed_assistant_answer;

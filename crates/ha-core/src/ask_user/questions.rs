@@ -768,6 +768,22 @@ fn non_empty(value: &str) -> Option<&str> {
     }
 }
 
+/// Called only after a durable assistant answer and its continuation commit.
+/// Notification cleanup must not re-answer the question or run custom hooks.
+pub(crate) fn publish_committed_assistant_answer(request: &str, session: &str) {
+    cancel_owner_timeout_task(request);
+    forget_owner_terminal_gate(request);
+    emit_ask_user_resolved(request, session, "answered", "response");
+    crate::tools::approval::emit_pending_interactions_changed(Some(session));
+    crate::personal_assistant::emit_inbox_changed();
+    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        let request = request.to_owned();
+        runtime.spawn(async move {
+            crate::channel_hooks::drop_ask_user_by_request_id(&request).await;
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -792,21 +808,5 @@ mod tests {
 
         cancel_pending_ask_user_question_with_source(&request_b, "test_cleanup").await;
         assert!(receiver_b.await.is_err());
-    }
-}
-
-/// Called only after a durable assistant answer and its continuation commit.
-/// Notification cleanup must not re-answer the question or run custom hooks.
-pub(crate) fn publish_committed_assistant_answer(request: &str, session: &str) {
-    cancel_owner_timeout_task(request);
-    forget_owner_terminal_gate(request);
-    emit_ask_user_resolved(request, session, "answered", "response");
-    crate::tools::approval::emit_pending_interactions_changed(Some(session));
-    crate::personal_assistant::emit_inbox_changed();
-    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-        let request = request.to_owned();
-        runtime.spawn(async move {
-            crate::channel_hooks::drop_ask_user_by_request_id(&request).await;
-        });
     }
 }
