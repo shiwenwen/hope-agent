@@ -1008,6 +1008,17 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   ensure_personal_assistant_home: { method: "POST", path: "/api/personal-assistant/home" },
   get_personal_assistant_profile: { method: "GET", path: "/api/personal-assistant/profile" },
   update_personal_assistant_profile: { method: "PUT", path: "/api/personal-assistant/profile" },
+  list_personal_assistant_items: { method: "GET", path: "/api/personal-assistant/items" },
+  list_personal_assistant_updates: { method: "GET", path: "/api/personal-assistant/updates" },
+  view_personal_assistant_update: {
+    method: "POST",
+    path: "/api/personal-assistant/updates/{id}/view",
+  },
+  stop_personal_assistant_item: { method: "POST", path: "/api/personal-assistant/items/{id}/stop" },
+  continue_personal_assistant_item: {
+    method: "POST",
+    path: "/api/personal-assistant/items/{id}/continue",
+  },
   list_personal_assistant_requests: { method: "GET", path: "/api/personal-assistant/requests" },
   cancel_personal_assistant_request: {
     method: "POST",

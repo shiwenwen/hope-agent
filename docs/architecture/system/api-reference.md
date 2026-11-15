@@ -1916,6 +1916,11 @@ Team 生命周期 HTTP 响应保持原有 `status` 字段并追加可观测结�
 | `ensure_personal_assistant_home` | `POST /api/personal-assistant/home` | 原子取得或创建唯一私人主对话 |
 | `get_personal_assistant_profile` | `GET /api/personal-assistant/profile` | 主人读取独立名字与头像；缺省读取不创建主对话 |
 | `update_personal_assistant_profile` | `PUT /api/personal-assistant/profile` | 主人保存 `{profile:{name,avatar}}`，不修改 Agent、主对话或工作授权 |
+| `list_personal_assistant_items` | `GET /api/personal-assistant/items` | 主人读取轻量事项、等待原因、累计额度和到期时间 |
+| `list_personal_assistant_updates` | `GET /api/personal-assistant/updates` | 主人读取有界 Home 更新投影，独立于消息 |
+| `view_personal_assistant_update` | `POST /api/personal-assistant/updates/{id}/view` | 主动查看确切更新并幂等记已读 |
+| `stop_personal_assistant_item` | `POST /api/personal-assistant/items/{id}/stop` | 封存事项代际并取消确切关联工作，不取消整会话 |
+| `continue_personal_assistant_item` | `POST /api/personal-assistant/items/{id}/continue` | 主人显式追加 8 轮/64 工具/1800 活跃秒；有内部后续拥有者时不另派工 |
 | `list_personal_assistant_requests` | `GET /api/personal-assistant/requests` | 读取交办与实际目标轮次状态 |
 | `cancel_personal_assistant_request` | `POST /api/personal-assistant/requests/{id}/cancel` | 撤销排队项或取消实际绑定的轮次 |
 | `personal_assistant_inbox` | `GET /api/personal-assistant/watches` | 读取本地 Goal 关注和变化 |

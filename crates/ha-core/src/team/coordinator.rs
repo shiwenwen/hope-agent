@@ -234,6 +234,7 @@ async fn launch_member_attempt(
     };
 
     let params = SpawnParams {
+            parent_execution_id: None,
         task: task.to_string(),
         agent_id: member.agent_id.clone(),
         parent_session_id: team.lead_session_id.clone(),

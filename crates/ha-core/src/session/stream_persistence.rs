@@ -936,6 +936,7 @@ impl SessionDB {
                 now,
             ],
         )?;
+        crate::personal_assistant::items::bind_stream_with_conn(tx, input)?;
         Ok(StreamRunRegistration {
             run_id: input.run_id.clone(),
             context_revision,

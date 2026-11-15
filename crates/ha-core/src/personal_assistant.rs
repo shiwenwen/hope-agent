@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::session::{SessionDB, SessionMeta};
 
+pub mod items;
 mod profile;
 pub use ha_config_schema::personal_assistant::AssistantProfile;
 pub use profile::default_assistant_profile;
@@ -661,6 +662,7 @@ impl SessionDB {
             &input.target_session_id,
             &input.instruction,
         )?;
+        items::create_for_request(&tx, &id)?;
         let request = request_with_conn(&tx, &id)?.ok_or(AssistantError::Unavailable)?;
         tx.commit()?;
         drop(conn);
@@ -871,6 +873,7 @@ impl SessionDB {
         )?;
         if changed > 0 {
             tx.execute("DELETE FROM queued_turn_user_messages WHERE request_id = ?1 AND source = 'personal_assistant'",[request_id])?;
+            SessionDB::assistant_dispatch_failed_with_conn(&tx, request_id)?;
         }
         tx.commit()?;
         drop(conn);
@@ -959,6 +962,17 @@ impl SessionDB {
     /// untrusted data. No derived source text is copied into the home history.
     pub fn render_personal_assistant_receipts(&self) -> Result<String> {
         let requests = self.list_personal_assistant_requests()?;
+        let items = self
+            .list_assistant_items()?
+            .into_iter()
+            .take(32)
+            .collect::<Vec<_>>();
+        let updates = self
+            .list_assistant_updates()?
+            .into_iter()
+            .rev()
+            .take(16)
+            .collect::<Vec<_>>();
         let watches = self.personal_assistant_inbox()?;
         let requests:Vec<_> = requests.iter().take(32).map(|request| serde_json::json!({
             "id":request.id,"sourceMessageId":request.source_message_id,"targetSessionId":request.target_session_id,"targetTitle":request.target_title,
@@ -967,7 +981,7 @@ impl SessionDB {
             "updatedAt":request.updated_at,
         })).collect();
         Ok(serde_json::to_string(
-            &serde_json::json!({"requests":requests,"watchedGoals":watches}),
+            &serde_json::json!({"items":items,"updates":updates,"requests":requests,"watchedGoals":watches}),
         )?)
     }
 }
@@ -1091,6 +1105,7 @@ pub(crate) fn admit_request_with_conn(
         [target_session_id],
     )?;
     conn.execute("DELETE FROM queued_turn_user_messages WHERE request_id = ?1 AND source = 'personal_assistant'",[request_id])?;
+    items::admit_with_conn(conn, request_id, turn_id)?;
     Ok(())
 }
 

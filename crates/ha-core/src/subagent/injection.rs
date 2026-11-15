@@ -27,6 +27,7 @@ type InjectionReceiptStep = Arc<dyn Fn() -> anyhow::Result<()> + Send + Sync>;
 /// converge on the same source.
 #[derive(Clone)]
 pub struct OnInjected {
+    assistant_sources: Vec<(String, String)>,
     arm_no_replay: InjectionReceiptStep,
     settle: InjectionReceiptStep,
     release_unarmed: Option<InjectionReceiptStep>,
@@ -56,6 +57,7 @@ impl OnInjected {
         settle: impl Fn() -> anyhow::Result<()> + Send + Sync + 'static,
     ) -> Self {
         Self {
+            assistant_sources: Vec::new(),
             arm_no_replay: Arc::new(arm_no_replay),
             settle: Arc::new(settle),
             release_unarmed: None,
@@ -68,6 +70,11 @@ impl OnInjected {
             unarmed_released: Arc::new(AtomicBool::new(false)),
             process_dispatch_released: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    pub(crate) fn with_assistant_sources(mut self, sources: Vec<(String, String)>) -> Self {
+        self.assistant_sources = sources;
+        self
     }
 
     /// Add an idempotent rollback for a source claim that is abandoned before
@@ -127,6 +134,7 @@ impl OnInjected {
     ) -> Self {
         let step: InjectionReceiptStep = Arc::new(step);
         Self {
+            assistant_sources: Vec::new(),
             arm_no_replay: step.clone(),
             settle: step,
             release_unarmed: None,
@@ -2199,6 +2207,35 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
         )
         .with_reasoning_effort(resolved_reasoning_effort)
         .with_model_preference(preferred_model.clone(), false);
+        let assistant_sources = on_injected
+            .as_ref()
+            .map(|r| r.assistant_sources.clone())
+            .unwrap_or_default();
+        let proof_session = parent_session_id.clone();
+        let assistant_proof = match session_db
+            .run(move |db| db.assistant_injection_proof(&proof_session, &assistant_sources))
+            .await
+        {
+            Ok(proof) => proof,
+            Err(error) => {
+                crate::app_warn!(
+                    "chat",
+                    "personal_assistant",
+                    "Assistant follow-up admission refused: {}",
+                    crate::logging::redact_sensitive(&error.to_string())
+                );
+                release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+                return InjectionOutcome::Abandoned;
+            }
+        };
+        if assistant_proof.is_some() && !crate::runtime_lock::is_primary() {
+            release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Abandoned;
+        }
+        if assistant_proof.as_ref().is_some_and(|p| p.completed()) {
+            settle_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Injected;
+        }
         let engine_result = arm_source_persist_then(
             injection_has_delivery_surface,
             on_injected.as_ref(),
@@ -2243,9 +2280,14 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
                 )
             },
             |_armed| {
-                crate::turn_kernel::TurnKernel::submit(
-                    crate::turn_kernel::TurnSubmission::parent_injection(engine_params),
-                )
+                let submission = match assistant_proof {
+                    Some(proof) => crate::turn_kernel::TurnSubmission::assistant_parent_injection(
+                        engine_params,
+                        proof,
+                    ),
+                    None => crate::turn_kernel::TurnSubmission::parent_injection(engine_params),
+                };
+                crate::turn_kernel::TurnKernel::submit(submission)
             },
         );
         let engine = match engine_result {

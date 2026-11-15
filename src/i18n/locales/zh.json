@@ -8816,7 +8816,8 @@
     },
     "contextCompactSummaryReasoning": "摘要专用推理覆盖",
     "contextCompactSummaryReasoningDefault": "保持当前摘要策略",
-    "contextCompactSummaryReasoningDesc": "仅用于上下文摘要。档位不受支持时会报错并保留历史；失败后不自动换模型或增加输出上限。默认保持现状。"
+    "contextCompactSummaryReasoningDesc": "仅用于上下文摘要。档位不受支持时会报错并保留历史；失败后不自动换模型或增加输出上限。默认保持现状。",
+    "toolAssistantReportDesc": "记录已核实的事项进展、结果或需要主人回答的持久问题"
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",
@@ -9292,7 +9293,8 @@
     "feishu_hire_get_job": "飞书招聘：查询职位",
     "feishu_hire_list_talents": "飞书招聘：列出人才",
     "feishu_hire_get_talent": "飞书招聘：查询人才",
-    "feishu_hire_list_applications": "飞书招聘：列出投递"
+    "feishu_hire_list_applications": "飞书招聘：列出投递",
+    "assistant_report": "汇报助理事项"
   },
   "tz": {
     "amsterdam": "阿姆斯特丹 (UTC+1)",
@@ -13012,6 +13014,40 @@
     },
     "welcomeTitle": "我是{{name}}",
     "welcomeBody": "告诉我你想做什么。你可以随时回来继续对话，或查看交办工作的进展。",
-    "messagePlaceholder": "有什么想交给我的吗？"
+    "messagePlaceholder": "有什么想交给我的吗？",
+    "readUpdate": "查看更新",
+    "executionHistory": "执行历史",
+    "emptyItems": "把事情交给 Hope，它会持续跟进。",
+    "executionDetails": "执行详情",
+    "itemUsage": "{{turns}} 轮 · {{tools}} 次工具 · 活跃 {{seconds}} 秒",
+    "itemExpiry": "跟进有效期至：{{time}}",
+    "continueItem": "继续（追加 8 轮、64 次工具、30 分钟）",
+    "updates": {
+      "update": "更新",
+      "result": "结果",
+      "progress": "进展",
+      "waiting": "等待中",
+      "blocked": "遇到阻塞",
+      "needs_review": "待核实",
+      "question": "需要你回答"
+    },
+    "itemState": {
+      "open": "进行中",
+      "waiting": "等待中",
+      "done": "已交付",
+      "stopped": "已停止"
+    },
+    "itemReason": {
+      "needs_input": "等待你回答",
+      "background_work": "等待后台工作",
+      "work_state_unknown": "工作结果未知，重试前需要核实",
+      "awaiting_verification": "结果仍需核实",
+      "execution_failed": "执行结果未能核实",
+      "budget_exhausted": "额度已用完，需要你明确继续",
+      "no_progress": "没有新的进展，等待你的指示",
+      "dispatch_failed": "工作未能启动",
+      "owner_stopped": "你已停止此事项",
+      "scope_or_stop_changed": "范围或停止状态已改变"
+    }
   }
 }

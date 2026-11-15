@@ -191,6 +191,14 @@ pub(crate) fn spawn_explicit_job_with_id(
     job_id: String,
 ) -> Result<String> {
     crate::eval_context::ensure_background_work_budget(ctx.session_id.as_deref())?;
+    if let (Some(session_db), Some(parent)) = (&ctx.session_db, &ctx.session_id) {
+        session_db.0.bind_assistant_work_source(
+            "job",
+            &job_id,
+            parent,
+            ctx.persistence_run_id.as_deref().or(ctx.turn_id.as_deref()),
+        )?;
+    }
     let db = match super::get_async_jobs_db() {
         Some(db) => db.clone(),
         None => {
@@ -507,6 +515,20 @@ pub(crate) async fn run_scheduler() {
 /// constrain the underlying tool future to be `Send`. Coordination with the
 /// main thread uses an explicit phase machine to avoid the race window
 /// between "OS thread finished" and "main thread already gave up."
+async fn settle_inline_assistant_source(ctx: &ToolExecContext, id: &str) -> Result<()> {
+    if let (Some(db), Some(execution)) = (
+        &ctx.session_db,
+        ctx.persistence_run_id
+            .clone()
+            .or_else(|| ctx.turn_id.clone()),
+    ) {
+        let id = id.to_owned();
+        db.0.run(move |db| db.settle_assistant_inline_source(&id, &execution))
+            .await?;
+    }
+    Ok(())
+}
+
 pub(crate) async fn dispatch_with_auto_background(
     name: &str,
     args: &Value,
@@ -519,6 +541,18 @@ pub(crate) async fn dispatch_with_auto_background(
     // Pre-allocate a job id so that, if we end up detaching, the OS thread
     // can later finalize it through the same path used by explicit jobs.
     let job_id = new_job_id();
+    if let (Some(session_db), Some(parent)) = (&ctx.session_db, &ctx.session_id) {
+        let id = job_id.clone();
+        let parent = parent.clone();
+        let execution = ctx
+            .persistence_run_id
+            .clone()
+            .or_else(|| ctx.turn_id.clone());
+        session_db
+            .0
+            .run(move |db| db.bind_assistant_work_source("job", &id, &parent, execution.as_deref()))
+            .await?;
+    }
     let cancel_token = ctx
         .cancellation_token
         .as_ref()
@@ -677,13 +711,21 @@ pub(crate) async fn dispatch_with_auto_background(
 
     loop {
         // Cheap fast-path: if the worker already published a result, take it.
-        {
+        let inline = {
             let mut p = phase.lock().unwrap_or_else(|p| p.into_inner());
             if matches!(*p, Phase::ResultReady(_)) {
                 if let Phase::ResultReady(r) = std::mem::replace(&mut *p, Phase::Consumed) {
-                    return r.map_err(JobError::into_inline_error);
+                    Some(r)
+                } else {
+                    None
                 }
+            } else {
+                None
             }
+        };
+        if let Some(r) = inline {
+            settle_inline_assistant_source(ctx, &job_id).await?;
+            return r.map_err(JobError::into_inline_error);
         }
 
         tokio::select! {
@@ -697,8 +739,9 @@ pub(crate) async fn dispatch_with_auto_background(
                 let mut p = phase.lock().unwrap_or_else(|p| p.into_inner());
                 match std::mem::replace(&mut *p, Phase::Pending) {
                     Phase::ResultReady(r) => {
-                        *p = Phase::Consumed;
-                        return r.map_err(JobError::into_inline_error);
+                        *p = Phase::ResultReady(r);
+                        drop(p);
+                        continue;
                     }
                     Phase::Pending => {
                         // Persist the job row before returning a synthetic id.
@@ -928,7 +971,9 @@ async fn run_tool_with_retry(
     let retry_cfg = super::retry::RetryConfig::current();
     let mut attempt: u32 = 1;
     loop {
-        let err = match run_tool_once(tool_name, args, ctx, max_secs, cancel_token).await {
+        let mut attempt_ctx = ctx.clone();
+        attempt_ctx.assistant_retry_attempt = attempt - 1;
+        let err = match run_tool_once(tool_name, args, &attempt_ctx, max_secs, cancel_token).await {
             Ok(out) => return Ok(out),
             Err(e) => e,
         };

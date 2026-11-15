@@ -8816,7 +8816,8 @@
     },
     "contextCompactSummaryReasoning": "Raciocínio dos resumos",
     "contextCompactSummaryReasoningDefault": "Manter a política atual",
-    "contextCompactSummaryReasoningDesc": "Afeta apenas os resumos de contexto. Níveis incompatíveis geram erro e preservam o histórico. Falhas não trocam o modelo nem aumentam o limite de saída. O padrão mantém o comportamento atual."
+    "contextCompactSummaryReasoningDesc": "Afeta apenas os resumos de contexto. Níveis incompatíveis geram erro e preservam o histórico. Falhas não trocam o modelo nem aumentam o limite de saída. O padrão mantém o comportamento atual.",
+    "toolAssistantReportDesc": "Registrar progresso verificado, resultados ou uma pergunta persistente ao proprietário"
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",
@@ -9292,7 +9293,8 @@
     "feishu_hire_get_job": "Feishu Recrutamento: Consultar vaga",
     "feishu_hire_list_talents": "Feishu Recrutamento: Listar candidatos",
     "feishu_hire_get_talent": "Feishu Recrutamento: Consultar candidato",
-    "feishu_hire_list_applications": "Feishu Recrutamento: Listar candidaturas"
+    "feishu_hire_list_applications": "Feishu Recrutamento: Listar candidaturas",
+    "assistant_report": "Relatar trabalho do assistente"
   },
   "tz": {
     "amsterdam": "Amsterdã (UTC+1)",
@@ -13012,6 +13014,40 @@
     },
     "welcomeTitle": "Sou {{name}}",
     "welcomeBody": "Conte o que deseja fazer. Você pode voltar para continuar a conversa ou acompanhar o trabalho delegado.",
-    "messagePlaceholder": "O que você gostaria de fazer?"
+    "messagePlaceholder": "O que você gostaria de fazer?",
+    "readUpdate": "Ler atualização",
+    "executionHistory": "Histórico de execução",
+    "emptyItems": "Deixe o trabalho com Hope; ele fará o acompanhamento.",
+    "executionDetails": "Detalhes da execução",
+    "itemUsage": "{{turns}} turnos · {{tools}} ferramentas · {{seconds}} s ativos",
+    "itemExpiry": "Acompanhamento até: {{time}}",
+    "continueItem": "Continuar (+8 turnos, 64 ferramentas, 30 min)",
+    "updates": {
+      "update": "Novidade",
+      "result": "Resultado",
+      "progress": "Progresso",
+      "waiting": "Aguardando",
+      "blocked": "Bloqueado",
+      "needs_review": "Requer verificação",
+      "question": "Sua resposta é necessária"
+    },
+    "itemState": {
+      "open": "Em andamento",
+      "waiting": "Aguardando",
+      "done": "Entregue",
+      "stopped": "Interrompido"
+    },
+    "itemReason": {
+      "needs_input": "Aguardando sua resposta",
+      "background_work": "Aguardando trabalho em segundo plano",
+      "work_state_unknown": "Resultado desconhecido; verifique antes de tentar novamente",
+      "awaiting_verification": "O resultado precisa ser verificado",
+      "execution_failed": "Não foi possível verificar a execução",
+      "budget_exhausted": "Limite esgotado; é preciso autorizar a continuação",
+      "no_progress": "Sem novo progresso; aguardando suas instruções",
+      "dispatch_failed": "Não foi possível iniciar o trabalho",
+      "owner_stopped": "Você interrompeu este assunto",
+      "scope_or_stop_changed": "O escopo ou estado de parada mudou"
+    }
   }
 }

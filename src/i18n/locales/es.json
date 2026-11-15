@@ -8816,7 +8816,8 @@
     },
     "contextCompactSummaryReasoning": "Razonamiento para resúmenes",
     "contextCompactSummaryReasoningDefault": "Mantener la política actual",
-    "contextCompactSummaryReasoningDesc": "Solo afecta a los resúmenes de contexto. Los niveles no admitidos muestran un error y conservan el historial. Si falla, no cambia el modelo ni aumenta el límite de salida. El valor predeterminado mantiene el comportamiento actual."
+    "contextCompactSummaryReasoningDesc": "Solo afecta a los resúmenes de contexto. Los niveles no admitidos muestran un error y conservan el historial. Si falla, no cambia el modelo ni aumenta el límite de salida. El valor predeterminado mantiene el comportamiento actual.",
+    "toolAssistantReportDesc": "Registrar avances verificados, resultados o una pregunta persistente para el propietario"
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir ajustes",
@@ -9292,7 +9293,8 @@
     "feishu_hire_get_job": "Feishu Selección: Consultar puesto",
     "feishu_hire_list_talents": "Feishu Selección: Listar candidatos",
     "feishu_hire_get_talent": "Feishu Selección: Consultar candidato",
-    "feishu_hire_list_applications": "Feishu Selección: Listar candidaturas"
+    "feishu_hire_list_applications": "Feishu Selección: Listar candidaturas",
+    "assistant_report": "Informar del trabajo del asistente"
   },
   "tz": {
     "amsterdam": "Ámsterdam (UTC+1)",
@@ -13012,6 +13014,40 @@
     },
     "welcomeTitle": "Soy {{name}}",
     "welcomeBody": "Dime qué quieres hacer. Puedes volver para continuar la conversación o consultar el trabajo delegado.",
-    "messagePlaceholder": "¿Qué te gustaría hacer?"
+    "messagePlaceholder": "¿Qué te gustaría hacer?",
+    "readUpdate": "Leer actualización",
+    "executionHistory": "Historial de ejecución",
+    "emptyItems": "Encarga el trabajo a Hope; hará el seguimiento.",
+    "executionDetails": "Detalles de ejecución",
+    "itemUsage": "{{turns}} turnos · {{tools}} herramientas · {{seconds}} s activos",
+    "itemExpiry": "Seguimiento hasta: {{time}}",
+    "continueItem": "Continuar (+8 turnos, 64 herramientas, 30 min)",
+    "updates": {
+      "update": "Novedad",
+      "result": "Resultado",
+      "progress": "Avance",
+      "waiting": "En espera",
+      "blocked": "Bloqueado",
+      "needs_review": "Requiere verificación",
+      "question": "Necesita tu respuesta"
+    },
+    "itemState": {
+      "open": "En curso",
+      "waiting": "En espera",
+      "done": "Entregado",
+      "stopped": "Detenido"
+    },
+    "itemReason": {
+      "needs_input": "Esperando tu respuesta",
+      "background_work": "Esperando trabajo en segundo plano",
+      "work_state_unknown": "Resultado desconocido; verifica antes de reintentar",
+      "awaiting_verification": "El resultado necesita verificación",
+      "execution_failed": "No se pudo verificar la ejecución",
+      "budget_exhausted": "Límite agotado; debes indicar que continúe",
+      "no_progress": "Sin avances nuevos; esperando tus indicaciones",
+      "dispatch_failed": "No se pudo iniciar el trabajo",
+      "owner_stopped": "Has detenido este asunto",
+      "scope_or_stop_changed": "Cambió el alcance o la detención"
+    }
   }
 }

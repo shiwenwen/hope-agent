@@ -581,6 +581,13 @@ async fn submit_owner_question_response(
             bail!("No pending ask_user_question request: {request_id_owned}");
         };
         match owner.action.as_str() {
+            "assistant_item_answer" => {
+                let target = owner
+                    .assistant_item
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Missing assistant answer target"))?;
+                db.answer_assistant_question(&request_id_owned, target, &answers)?;
+            }
             "record_domain_evidence" => {
                 let Some(mut input) = owner.domain_evidence else {
                     bail!("owner ask_user response missing domain evidence target");
@@ -621,6 +628,9 @@ fn validate_owner_response_session(
     session_id: &str,
 ) -> Result<()> {
     match owner.action.as_str() {
+        "assistant_item_answer" => {
+            bail!("Assistant questions must be created by their atomic item service")
+        }
         "record_domain_evidence" => {
             let Some(input) = owner.domain_evidence.as_mut() else {
                 bail!("owner ask_user response missing domain evidence target");

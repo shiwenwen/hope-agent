@@ -2179,6 +2179,19 @@ pub(crate) fn active_foreground_stop_generations() -> Vec<(String, String, u64, 
     generations
 }
 
+/// Cancel only the immutable execution named by an internal owner ledger.
+pub(crate) fn request_stop_for_exact_run(run_id: &str, session_id: &str) -> bool {
+    let map = registry().lock().unwrap_or_else(|p| p.into_inner());
+    map.values().filter_map(Weak::upgrade).any(|c| {
+        if c.run_id == run_id && c.session_id == session_id && !c.closed.load(Ordering::SeqCst) {
+            c.cancel.store(true, Ordering::SeqCst);
+            true
+        } else {
+            false
+        }
+    })
+}
+
 pub(crate) fn request_foreground_stop_for_run(run_id: &str) -> bool {
     let map = registry()
         .lock()

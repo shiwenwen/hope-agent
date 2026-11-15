@@ -8816,7 +8816,8 @@
     },
     "contextCompactSummaryReasoning": "Suy luận riêng cho tóm tắt",
     "contextCompactSummaryReasoningDefault": "Giữ chính sách hiện tại",
-    "contextCompactSummaryReasoningDesc": "Chỉ áp dụng cho tóm tắt ngữ cảnh. Mức không được hỗ trợ sẽ báo lỗi và giữ lịch sử. Khi lỗi, không tự đổi mô hình hoặc tăng giới hạn đầu ra. Mặc định giữ hành vi hiện tại."
+    "contextCompactSummaryReasoningDesc": "Chỉ áp dụng cho tóm tắt ngữ cảnh. Mức không được hỗ trợ sẽ báo lỗi và giữ lịch sử. Khi lỗi, không tự đổi mô hình hoặc tăng giới hạn đầu ra. Mặc định giữ hành vi hiện tại.",
+    "toolAssistantReportDesc": "Ghi lại tiến độ đã xác minh, kết quả hoặc câu hỏi được lưu cho chủ sở hữu"
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",
@@ -9292,7 +9293,8 @@
     "feishu_hire_get_job": "Feishu Tuyển dụng: Xem vị trí tuyển dụng",
     "feishu_hire_list_talents": "Feishu Tuyển dụng: Liệt kê ứng viên",
     "feishu_hire_get_talent": "Feishu Tuyển dụng: Xem ứng viên",
-    "feishu_hire_list_applications": "Feishu Tuyển dụng: Liệt kê hồ sơ ứng tuyển"
+    "feishu_hire_list_applications": "Feishu Tuyển dụng: Liệt kê hồ sơ ứng tuyển",
+    "assistant_report": "Báo cáo việc trợ lý"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -13012,6 +13014,40 @@
     },
     "welcomeTitle": "Tôi là {{name}}",
     "welcomeBody": "Hãy cho tôi biết bạn muốn làm gì. Bạn có thể quay lại để tiếp tục trò chuyện hoặc xem tiến độ công việc đã giao.",
-    "messagePlaceholder": "Bạn muốn tôi giúp việc gì?"
+    "messagePlaceholder": "Bạn muốn tôi giúp việc gì?",
+    "readUpdate": "Đọc cập nhật",
+    "executionHistory": "Lịch sử thực thi",
+    "emptyItems": "Giao việc cho Hope để được theo dõi đến khi hoàn tất.",
+    "executionDetails": "Chi tiết thực thi",
+    "itemUsage": "{{turns}} lượt · {{tools}} công cụ · {{seconds}} giây hoạt động",
+    "itemExpiry": "Theo dõi đến: {{time}}",
+    "continueItem": "Tiếp tục (+8 lượt, 64 công cụ, 30 phút)",
+    "updates": {
+      "update": "Cập nhật",
+      "result": "Kết quả",
+      "progress": "Tiến độ",
+      "waiting": "Đang chờ",
+      "blocked": "Bị chặn",
+      "needs_review": "Cần xác minh",
+      "question": "Cần bạn trả lời"
+    },
+    "itemState": {
+      "open": "Đang làm",
+      "waiting": "Đang chờ",
+      "done": "Đã bàn giao",
+      "stopped": "Đã dừng"
+    },
+    "itemReason": {
+      "needs_input": "Đang chờ bạn trả lời",
+      "background_work": "Đang chờ công việc nền",
+      "work_state_unknown": "Chưa rõ kết quả; xác minh trước khi thử lại",
+      "awaiting_verification": "Kết quả cần xác minh",
+      "execution_failed": "Không thể xác minh việc thực thi",
+      "budget_exhausted": "Đã hết hạn mức; cần bạn cho phép tiếp tục",
+      "no_progress": "Chưa có tiến triển mới; đang chờ chỉ dẫn",
+      "dispatch_failed": "Không thể bắt đầu công việc",
+      "owner_stopped": "Bạn đã dừng việc này",
+      "scope_or_stop_changed": "Phạm vi hoặc trạng thái dừng đã thay đổi"
+    }
   }
 }

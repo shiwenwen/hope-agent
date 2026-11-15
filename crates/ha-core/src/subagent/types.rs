@@ -366,6 +366,8 @@ impl Default for SubagentRun {
 /// Parameters for spawning a sub-agent.
 #[derive(Debug, Clone)]
 pub struct SpawnParams {
+    /// Host-derived exact execution identity; never a model tool argument.
+    pub parent_execution_id: Option<String>,
     pub task: String,
     pub agent_id: String,
     pub parent_session_id: String,

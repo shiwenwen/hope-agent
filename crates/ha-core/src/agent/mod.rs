@@ -4795,6 +4795,11 @@ impl AssistantAgent {
             project_linked_dirs,
             session_id: self.session_id.clone(),
             turn_id: self.turn_id.clone(),
+            persistence_run_id: self
+                .turn_durability
+                .as_ref()
+                .map(|sink| sink.persistence_run_id().to_string()),
+            assistant_retry_attempt: 0,
             agent_binding_refs: self.agent_binding_refs.clone(),
             context_resource_refs: self.context_resource_refs.clone(),
             workflow_run_id: None,

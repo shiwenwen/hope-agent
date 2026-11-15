@@ -112,6 +112,51 @@ pub async fn unwatch_personal_goal(
     Ok(Json(()))
 }
 
+pub async fn list_personal_assistant_items(
+    Extension(auth): Extension<AuthState>,
+) -> Result<Json<Vec<ha_core::personal_assistant::items::AssistantItem>>, AppError> {
+    require_owner(&auth)?;
+    Ok(Json(
+        session_db()?.run(|db| db.list_assistant_items()).await?,
+    ))
+}
+pub async fn list_personal_assistant_updates(
+    Extension(auth): Extension<AuthState>,
+) -> Result<Json<Vec<ha_core::personal_assistant::items::AssistantUpdate>>, AppError> {
+    require_owner(&auth)?;
+    Ok(Json(
+        session_db()?.run(|db| db.list_assistant_updates()).await?,
+    ))
+}
+pub async fn view_personal_assistant_update(
+    Extension(auth): Extension<AuthState>,
+    Path(id): Path<String>,
+) -> Result<Json<()>, AppError> {
+    require_owner(&auth)?;
+    session_db()?
+        .run(move |db| db.view_assistant_update(&id))
+        .await?;
+    Ok(Json(()))
+}
+pub async fn stop_personal_assistant_item(
+    Extension(auth): Extension<AuthState>,
+    Path(id): Path<String>,
+) -> Result<Json<()>, AppError> {
+    require_owner(&auth)?;
+    ha_core::personal_assistant::items::stop_item(session_db()?.clone(), id).await?;
+    Ok(Json(()))
+}
+pub async fn continue_personal_assistant_item(
+    Extension(auth): Extension<AuthState>,
+    Path(id): Path<String>,
+) -> Result<Json<()>, AppError> {
+    require_owner(&auth)?;
+    session_db()?
+        .run(move |db| db.continue_assistant_item(&id))
+        .await?;
+    Ok(Json(()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

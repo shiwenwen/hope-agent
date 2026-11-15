@@ -1059,6 +1059,12 @@ pub async fn execute_tool_with_context(
     // The orchestrator still owns the submitted name in persisted history.
     let canonical_mcp_name = canonical_mcp_execution_name(name);
     let name = canonical_mcp_name.as_ref();
+    crate::personal_assistant::items::check_tool_capability(
+        ctx,
+        canonical_builtin_tool_name(name),
+        args,
+    )
+    .await?;
 
     // ── Tool visibility / policy gate ─────────────────────────────
     // Defense-in-depth: enforce the same effective visibility rules used for
@@ -1497,7 +1503,29 @@ pub async fn execute_tool_with_context(
         maybe_activate_conditional_skills(name, args, ctx);
     }
 
-    let hard_timeout = tool_timeout(ctx);
+    // Reserve only at the actual dispatch boundary: approval waits and
+    // synthetic background acknowledgements are not active execution.
+    crate::personal_assistant::items::check_tool_capability(
+        ctx,
+        canonical_builtin_tool_name(name),
+        args,
+    )
+    .await?;
+    let assistant_budget = crate::personal_assistant::items::begin_tool_budget(
+        ctx,
+        canonical_builtin_tool_name(name),
+        args,
+    )
+    .await?;
+    let hard_timeout = match (
+        tool_timeout(ctx),
+        assistant_budget.as_ref().map(|b| b.timeout),
+    ) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    };
     let timeout_ctx = hard_timeout.map(|_| {
         let mut timeout_ctx = ctx.clone();
         let token = ctx
@@ -1511,7 +1539,7 @@ pub async fn execute_tool_with_context(
     let dispatch_ctx = timeout_ctx.as_ref().unwrap_or(ctx);
     let timeout_cancel_token = dispatch_ctx.cancellation_token.clone();
 
-    let dispatch = async {
+    let raw_dispatch = async {
         // 阶段 2.5：静态 match 已反转为注册表查表（builtin_registry.rs 持有
         // 全部内置条目，特征 crate 经 registry::register_external_tools 在
         // 装配期追加）。MCP 逃逸口保持原位：`mcp__<server>__<tool>` 前缀走
@@ -1525,15 +1553,50 @@ pub async fn execute_tool_with_context(
         }
     };
 
+    let dispatch = async {
+        if let Some(db) = dispatch_ctx.session_db.as_ref() {
+            crate::personal_assistant::items::execution_scope(
+                db.0.clone(),
+                dispatch_ctx
+                    .persistence_run_id
+                    .clone()
+                    .or_else(|| dispatch_ctx.turn_id.clone()),
+                raw_dispatch,
+            )
+            .await
+        } else {
+            raw_dispatch.await
+        }
+    };
+    let mut dispatch_observed = true;
     let mut dispatch = Box::pin(dispatch);
     let result = if let Some(hard_timeout) = hard_timeout {
-        match timeout(hard_timeout, &mut dispatch).await {
+        let active_start = std::time::Instant::now();
+        let parked_start = crate::async_jobs::approval_bridge::parked_budget_extension();
+        let waited = loop {
+            let parked = crate::async_jobs::approval_bridge::parked_budget_extension()
+                .saturating_sub(parked_start);
+            let remaining = (hard_timeout + parked).saturating_sub(active_start.elapsed());
+            match timeout(remaining, &mut dispatch).await {
+                Ok(result) => break Ok(result),
+                Err(error) => {
+                    let parked = crate::async_jobs::approval_bridge::parked_budget_extension()
+                        .saturating_sub(parked_start);
+                    if active_start.elapsed() >= hard_timeout + parked {
+                        break Err(error);
+                    }
+                }
+            }
+        };
+        match waited {
             Ok(inner) => inner,
             Err(_elapsed) => {
                 if let Some(token) = &timeout_cancel_token {
                     token.cancel();
                 }
-                let _ = timeout(TOOL_TIMEOUT_CLEANUP_GRACE, &mut dispatch).await;
+                dispatch_observed = timeout(TOOL_TIMEOUT_CLEANUP_GRACE, &mut dispatch)
+                    .await
+                    .is_ok();
                 app_error!(
                     "tool",
                     "execution",
@@ -1556,6 +1619,9 @@ pub async fn execute_tool_with_context(
         dispatch.await
     };
 
+    if let Some(budget) = assistant_budget.filter(|_| dispatch_observed) {
+        budget.finish().await?;
+    }
     let duration_ms = start.elapsed().as_millis() as u64;
 
     // Log content-free execution diagnostics only. The hook-before body and

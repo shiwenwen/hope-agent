@@ -1731,6 +1731,29 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         // ── Sessions Send ───────────────────────────────────────
         ToolDefinition {
+            name: crate::tool_defs::TOOL_ASSISTANT_REPORT.into(),
+            description: "Report a verified result or next step for the assistant task bound to this worker turn. Use done only when the original request is satisfied and results are checked; waiting for a real dependency or decision; continue for another step inside the original request; failed for an unrecoverable blocker. This records a report, not fresh permission. Available only to an admitted assistant worker.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
+            internal: true,
+            concurrent_safe: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            parameters: json!({
+                "type":"object",
+                "properties":{
+                    "outcome":{"type":"string","enum":["done","waiting","continue","failed"]},
+                    "summary":{"type":"string","minLength":1,"maxLength":16384},
+                    "next_instruction":{"type":"string","maxLength":16384},
+                    "question":{"type":"string","maxLength":8192,"description":"For waiting on the owner, ask one concrete question. It persists across restarts; end this worker turn after recording it."},
+                    "options":{"type":"array","maxItems":6,"items":{"type":"object","properties":{
+                        "value":{"type":"string"},"label":{"type":"string"},
+                        "description":{"type":"string"},"recommended":{"type":"boolean"}
+                    },"required":["value","label"],"additionalProperties":false}}
+                },
+                "required":["outcome","summary"],
+                "additionalProperties":false
+            }),
+        },
+        ToolDefinition {
             name: TOOL_SESSIONS_SEND.into(),
             description: "Submit a durable agent turn to another regular session, optionally with inline file attachments. The target agent always runs in the background; wait only controls whether this call waits for its reply. Returns the durable turn ID. Incognito and non-regular targets are refused.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
@@ -1744,6 +1767,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "description": "Target session ID"
                     },
+                    "assistant_item_id": {"type":"string","description":"Hope Home only: exact existing open item ID when the owner provides additional information for that same request. Retains its original scope and cumulative allowance; a new request requires a new item."},
                     "message": {
                         "type": "string",
                         "description": "Message content. Optional when at least one attachment is supplied."
