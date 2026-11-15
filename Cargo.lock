@@ -3160,10 +3160,21 @@ dependencies = [
  "ha-eval-spec",
  "reqwest 0.13.5",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-util",
  "url",
  "uuid",
+ "wiremock",
+]
+
+[[package]]
+name = "ha-assistant"
+version = "0.75.0"
+dependencies = [
+ "anyhow",
+ "ha-core",
+ "tokio",
 ]
 
 [[package]]
@@ -3771,6 +3782,7 @@ dependencies = [
  "futures-util",
  "ha-acp",
  "ha-agent-runtime",
+ "ha-assistant",
  "ha-browser",
  "ha-channel",
  "ha-core",

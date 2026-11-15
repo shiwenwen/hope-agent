@@ -870,6 +870,24 @@ pub(crate) async fn tool_sessions_send(
                 .turn_admitted_global_stop_epoch
                 .ok_or_else(|| anyhow::anyhow!("A durable Stop admission is required"))?,
         };
+        if let Some(item) = args.get("assistant_item_id").and_then(Value::as_str) {
+            let item = item.to_owned();
+            let event = db
+                .run(move |db| {
+                    db.request_assistant_item_followup(
+                        &item,
+                        &input.source_turn_id,
+                        &input.item_key,
+                        &input.target_session_id,
+                        &input.instruction,
+                        input.global_stop_epoch,
+                    )
+                })
+                .await?;
+            return Ok(
+                serde_json::json!({"status":"followup_recorded","eventId":event}).to_string(),
+            );
+        }
         let result = db
             .run(move |db| db.enqueue_personal_assistant_request(input))
             .await?;
@@ -961,6 +979,26 @@ pub(crate) async fn tool_sessions_send(
 
 /// Cancellation is bound to one admitted request, never to the whole session.
 pub async fn cancel_personal_assistant_dispatch(
+    db: Arc<crate::session::SessionDB>,
+    request_id: String,
+) -> Result<crate::personal_assistant::AssistantRequest> {
+    let request = request_id.clone();
+    if let Some(item) = db
+        .run(move |db| db.assistant_item_for_request(&request))
+        .await?
+    {
+        crate::personal_assistant::items::stop_item(db.clone(), item).await?;
+        return db
+            .run(move |db| {
+                db.personal_assistant_request(&request_id)?
+                    .ok_or_else(|| anyhow::anyhow!("Assistant request unavailable"))
+            })
+            .await;
+    }
+    cancel_dispatch_request_only(db, request_id).await
+}
+
+pub(crate) async fn cancel_dispatch_request_only(
     db: Arc<crate::session::SessionDB>,
     request_id: String,
 ) -> Result<crate::personal_assistant::AssistantRequest> {
@@ -1363,6 +1401,21 @@ async fn start_proactive_turn(
         crate::permission::register_reattachable_ui_child_session(source_session_id, &session.id)
     });
 
+    if assistant_request.is_some() {
+        let id = session.id.clone();
+        let hooked = db
+            .run(move |_| {
+                let directory = crate::session::effective_session_working_dir(Some(&id));
+                !crate::hooks::scopes::resolve_for_cwd(
+                    directory.as_deref().map(std::path::Path::new),
+                )
+                .is_empty()
+            })
+            .await;
+        if hooked {
+            anyhow::bail!("Hope item work cannot run custom hooks without execution provenance; choose a work conversation without custom hooks")
+        }
+    }
     let preflight = crate::agent::preflight::user_prompt_preflight_cancellable(
         crate::agent::preflight::PreflightArgs {
             session_id: &session.id,

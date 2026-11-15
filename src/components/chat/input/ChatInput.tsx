@@ -1,4 +1,13 @@
-import { Fragment, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState } from "react"
+import {
+  Fragment,
+  useId,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useMemo,
+  useState,
+} from "react"
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -32,6 +41,7 @@ import {
   ChevronUp,
   X,
   Plus,
+  SlidersHorizontal,
   FolderPlus,
   Quote,
   Undo2,
@@ -392,6 +402,8 @@ interface ChatInputProps {
   workspacePanelVisible?: boolean
   /** Larger centered presentation for a brand-new empty conversation. */
   hero?: boolean
+  /** Assistant chat keeps advanced controls behind an explicit disclosure. */
+  presentation?: "default" | "assistant"
   /** Optional consumer-supplied items rendered at the **top of the "+" overflow
    *  menu** (before the built-in overflow actions). Off by default so every
    *  existing surface is unchanged; the design chat puts its next-step actions
@@ -601,11 +613,15 @@ export default function ChatInput({
   workflowProgressCount = 0,
   workspacePanelVisible = false,
   hero = false,
+  presentation = "default",
   topAccessory,
   contextUsage,
   overflowLeadingItems,
 }: ChatInputProps) {
   const { t } = useTranslation()
+  const assistantPresentation = presentation === "assistant"
+  const composerOptionsId = useId()
+  const [composerOptionsOpen, setComposerOptionsOpen] = useState(false)
   const enterToSend = useEnterToSendPreference()
   const maxAttachmentMb = Math.round(maxAttachmentBytes / MEBIBYTE_BYTES)
   const inputHandleRef = useRef<ComposerInputHandle>(null)
@@ -999,7 +1015,12 @@ export default function ChatInput({
   // very narrow inputs can visibly crop controls while the UI collapses one tier
   // at a time.
   useLayoutEffect(() => {
-    if (!normalToolbarOpen || typeof window === "undefined") return
+    if (
+      !normalToolbarOpen ||
+      (assistantPresentation && !composerOptionsOpen) ||
+      typeof window === "undefined"
+    )
+      return
 
     const left = toolbarLeftRef.current
     if (!left) return
@@ -1071,7 +1092,12 @@ export default function ChatInput({
       if (raf !== null) window.cancelAnimationFrame(raf)
       observer.disconnect()
     }
-  }, [normalToolbarOpen, toolbarCollapseLevel])
+  }, [normalToolbarOpen, toolbarCollapseLevel, assistantPresentation, composerOptionsOpen])
+
+  useEffect(() => {
+    setComposerOptionsOpen(false)
+    setShowOverflowMenu(false)
+  }, [currentSessionId, presentation])
 
   useEffect(() => {
     if (showOverflowMenu && !toolbarCompact) setShowOverflowMenu(false)
@@ -1092,7 +1118,7 @@ export default function ChatInput({
 
   useEffect(() => {
     setToolbarMinHeight(null)
-  }, [toolbarCollapseLevel])
+  }, [toolbarCollapseLevel, assistantPresentation, composerOptionsOpen])
 
   useEffect(() => {
     if (!normalToolbarOpen || typeof window === "undefined") {
@@ -1132,7 +1158,7 @@ export default function ChatInput({
       if (raf !== null) window.cancelAnimationFrame(raf)
       observer.disconnect()
     }
-  }, [normalToolbarOpen, toolbarCollapseLevel])
+  }, [normalToolbarOpen, toolbarCollapseLevel, assistantPresentation, composerOptionsOpen])
 
   const handlePaste = useCallback(
     (e: ComposerPasteEvent) => {
@@ -1299,9 +1325,7 @@ export default function ChatInput({
     // Normalize slash-form Goal drafts even when the Goal composer is already
     // active. Pasting a reusable `/goal ...` prompt after clicking the Goal
     // button must not persist the command prefix as part of the objective.
-    const directGoalObjective = enableGoalAndPlanModes
-      ? parseGoalUpsertSlashCommand(input)
-      : null
+    const directGoalObjective = enableGoalAndPlanModes ? parseGoalUpsertSlashCommand(input) : null
     const directLoopPrompt =
       goalComposerMode || !onLoopModeSubmit ? null : parseLoopCreateSlashCommand(input)
     if (goalComposerMode || directGoalObjective) {
@@ -1380,6 +1404,7 @@ export default function ChatInput({
     if (e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault()
       onPermissionModeChange(getNextPermissionMode(permissionMode))
+      if (assistantPresentation) setComposerOptionsOpen(true)
       return
     }
     const sendsWithEnter = enterToSend.ready && enterToSend.enabled && !e.shiftKey
@@ -1864,7 +1889,7 @@ export default function ChatInput({
           onChange={onWorkingDirChange}
         />
       )}
-      <AttachFilesButton onAttachFiles={attachPickedFiles} />
+      {!assistantPresentation && <AttachFilesButton onAttachFiles={attachPickedFiles} />}
       <IconTip label={t("slashCommands.buttonTip")}>
         <Button
           variant="ghost"
@@ -1929,9 +1954,11 @@ export default function ChatInput({
   // `toolbarTight` tier so semantic mode controls move as one group.
   const renderOverflowMenuItems = () => (
     <>
-      {getChatInputOverflowActionIds().map((actionId) => (
-        <Fragment key={actionId}>{renderOverflowMenuItem(actionId)}</Fragment>
-      ))}
+      {getChatInputOverflowActionIds()
+        .filter((actionId) => !assistantPresentation || actionId !== "attach-files")
+        .map((actionId) => (
+          <Fragment key={actionId}>{renderOverflowMenuItem(actionId)}</Fragment>
+        ))}
       {toolbarTight && (
         <>
           <KnowledgePicker
@@ -2139,6 +2166,7 @@ export default function ChatInput({
             className={topAccessory ? "rounded-t-none" : undefined}
             onOpenWorkspace={onOpenWorkspace}
             workspaceOpen={workspacePanelVisible}
+            defaultExpanded={!assistantPresentation}
           />
         )}
 
@@ -3044,7 +3072,11 @@ export default function ChatInput({
                     ? t("planMode.placeholder")
                     : hasPendingQueue
                       ? t("chat.pendingQueued")
-                      : t("chat.askAnything")
+                      : t(
+                          assistantPresentation
+                            ? "personalAssistant.messagePlaceholder"
+                            : "chat.askAnything",
+                        )
             }
             value={input}
             typedMentions={structuredMentions}
@@ -3121,202 +3153,241 @@ export default function ChatInput({
             >
               <div
                 ref={toolbarLeftRef}
-                className="flex min-w-0 flex-nowrap items-center gap-1 overflow-visible"
+                id={composerOptionsId}
+                hidden={assistantPresentation && !composerOptionsOpen}
+                className={cn(
+                  "flex min-w-0 flex-nowrap items-center gap-1 overflow-visible",
+                  assistantPresentation && "col-span-2",
+                )}
               >
-                <div
-                  ref={addActionsRef}
-                  className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}
-                >
-                  {renderInlineAddControls()}
-                </div>
+                {(!assistantPresentation || composerOptionsOpen) && (
+                  <>
+                    <div
+                      ref={addActionsRef}
+                      className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}
+                    >
+                      {renderInlineAddControls()}
+                    </div>
 
-                <div
-                  ref={overflowTriggerRef}
-                  className={
-                    // 消费方注入了前导项时，即便非 compact 也让「+」可见，让注入项在任意宽度可达。
-                    toolbarCompact || overflowLeadingItems
-                      ? "relative block shrink-0"
-                      : CHAT_INPUT_OVERFLOW_MENU_CLASS
-                  }
-                >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t("chat.moreActions")}
-                        aria-expanded={showOverflowMenu}
-                        aria-haspopup="menu"
-                        onClick={() => setShowOverflowMenu((open) => !open)}
-                        className="h-8 w-8 rounded-lg bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground"
+                    <div
+                      ref={overflowTriggerRef}
+                      className={
+                        // 消费方注入了前导项时，即便非 compact 也让「+」可见，让注入项在任意宽度可达。
+                        toolbarCompact || overflowLeadingItems
+                          ? "relative block shrink-0"
+                          : CHAT_INPUT_OVERFLOW_MENU_CLASS
+                      }
+                    >
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t("chat.moreActions")}
+                            aria-expanded={showOverflowMenu}
+                            aria-haspopup="menu"
+                            onClick={() => setShowOverflowMenu((open) => !open)}
+                            className="h-8 w-8 rounded-lg bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t("chat.moreActions")}</TooltipContent>
+                      </Tooltip>
+                      <FloatingMenu
+                        open={showOverflowMenu}
+                        className="min-w-[180px] overflow-hidden p-1.5"
+                        onEscapeKeyDown={() => setShowOverflowMenu(false)}
+                        role="menu"
                       >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t("chat.moreActions")}</TooltipContent>
-                  </Tooltip>
-                  <FloatingMenu
-                    open={showOverflowMenu}
-                    className="min-w-[180px] overflow-hidden p-1.5"
-                    onEscapeKeyDown={() => setShowOverflowMenu(false)}
-                    role="menu"
-                  >
-                    <div className="flex flex-col gap-0.5">
-                      {/* 消费方前导项（design next-step）：置顶；点任意子项冒泡到此处收起「+」菜单
+                        <div className="flex flex-col gap-0.5">
+                          {/* 消费方前导项（design next-step）：置顶；点任意子项冒泡到此处收起「+」菜单
                           （注入项无法访问内部 setShowOverflowMenu）。内置溢出项仅 compact 时渲染
                           （非 compact 时它们已内联，避免重复）。 */}
-                      {overflowLeadingItems && (
-                        <div onClick={() => setShowOverflowMenu(false)}>{overflowLeadingItems}</div>
-                      )}
-                      {overflowLeadingItems && toolbarCompact && (
-                        <div className="my-1 h-px bg-border-soft" />
-                      )}
-                      {toolbarCompact && renderOverflowMenuItems()}
+                          {overflowLeadingItems && (
+                            <div onClick={() => setShowOverflowMenu(false)}>
+                              {overflowLeadingItems}
+                            </div>
+                          )}
+                          {overflowLeadingItems && toolbarCompact && (
+                            <div className="my-1 h-px bg-border-soft" />
+                          )}
+                          {toolbarCompact && renderOverflowMenuItems()}
+                        </div>
+                      </FloatingMenu>
                     </div>
-                  </FloatingMenu>
-                </div>
 
-                {/* Model / Think / Temperature */}
-                <ModelPicker
-                  availableModels={availableModels}
-                  activeModel={activeModel}
-                  reasoningEffort={reasoningEffort}
-                  onModelChange={onModelChange}
-                  onEffortChange={onEffortChange}
-                  onEffortReset={onEffortReset}
-                  currentModelInfo={currentModelInfo}
-                  unavailablePreference={unavailableModelPreference}
-                  sessionTemperature={sessionTemperature}
-                  onSessionTemperatureChange={onSessionTemperatureChange}
-                />
-
-                <AwarenessToggle sessionId={currentSessionId ?? null} disabled={incognitoEnabled} />
-
-                {/* Knowledge + Goal + Loop + Workflow + Plan — semantic mode controls,
-                    kept inline until the measured toolbar would wrap. */}
-                {!toolbarTight && (
-                  <div ref={semanticModesRef} className="flex shrink-0 items-center gap-1">
-                    <KnowledgePicker
-                      sessionId={currentSessionId ?? null}
-                      projectId={projectId ?? null}
-                      disabled={incognitoEnabled}
-                      draftAttachments={draftKbAttachments}
-                      onDraftAttachChange={onDraftKbAttachChange}
+                    {/* Model / Think / Temperature */}
+                    <ModelPicker
+                      availableModels={availableModels}
+                      activeModel={activeModel}
+                      reasoningEffort={reasoningEffort}
+                      onModelChange={onModelChange}
+                      onEffortChange={onEffortChange}
+                      onEffortReset={onEffortReset}
+                      currentModelInfo={currentModelInfo}
+                      unavailablePreference={unavailableModelPreference}
+                      sessionTemperature={sessionTemperature}
+                      onSessionTemperatureChange={onSessionTemperatureChange}
                     />
 
-                    {enableGoalAndPlanModes && (
-                      <IconTip label={goalToggleTip}>
-                        <button
-                          aria-label={goalToggleTip}
-                          onClick={handleGoalModeToggle}
-                          disabled={incognitoEnabled}
-                          className={cn(
-                            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
-                            goalComposerMode
-                              ? "text-emerald-600 bg-emerald-500/10"
-                              : activeGoal
-                                ? "text-emerald-600/90 hover:text-emerald-700"
-                                : "text-muted-foreground hover:text-foreground",
-                          )}
-                        >
-                          <Target className="h-4 w-4 shrink-0" />
-                          <span>{goalToggleLabel}</span>
-                        </button>
-                      </IconTip>
-                    )}
+                    <AwarenessToggle
+                      sessionId={currentSessionId ?? null}
+                      disabled={incognitoEnabled}
+                    />
 
-                    {loopModeAvailable && (
-                      <IconTip label={loopToggleTip}>
-                        <button
-                          type="button"
-                          aria-label={loopToggleTip}
-                          onClick={handleLoopCreateOpen}
+                    {/* Knowledge + Goal + Loop + Workflow + Plan — semantic mode controls,
+                    kept inline until the measured toolbar would wrap. */}
+                    {!toolbarTight && (
+                      <div ref={semanticModesRef} className="flex shrink-0 items-center gap-1">
+                        <KnowledgePicker
+                          sessionId={currentSessionId ?? null}
+                          projectId={projectId ?? null}
                           disabled={incognitoEnabled}
-                          className={cn(
-                            "flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg bg-transparent px-2 py-1 text-xs font-medium transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50",
-                            loopComposerMode
-                              ? "bg-sky-500/10 text-sky-600"
-                              : "text-muted-foreground hover:text-foreground",
-                          )}
-                        >
-                          <Radio className="h-4 w-4 shrink-0" />
-                          <span>{loopToggleLabel}</span>
-                        </button>
-                      </IconTip>
-                    )}
+                          draftAttachments={draftKbAttachments}
+                          onDraftAttachChange={onDraftKbAttachChange}
+                        />
 
-                    {enableWorkflowMode && (
-                      <DropdownMenu open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
-                        <IconTip label={workflowMenuLabel}>
-                          <DropdownMenuTrigger asChild>
+                        {enableGoalAndPlanModes && (
+                          <IconTip label={goalToggleTip}>
                             <button
-                              type="button"
-                              aria-label={workflowMenuLabel}
-                              disabled={workflowMenuDisabled}
+                              aria-label={goalToggleTip}
+                              onClick={handleGoalModeToggle}
+                              disabled={incognitoEnabled}
                               className={cn(
-                                "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-secondary",
-                                workflowButtonTone,
+                                "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
+                                goalComposerMode
+                                  ? "text-emerald-600 bg-emerald-500/10"
+                                  : activeGoal
+                                    ? "text-emerald-600/90 hover:text-emerald-700"
+                                    : "text-muted-foreground hover:text-foreground",
                               )}
                             >
-                              {workflowModeSaving ? (
-                                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                              ) : (
-                                <WorkflowModeIcon className="h-4 w-4 shrink-0" />
-                              )}
-                              <span>{workflowButtonLabel}</span>
-                              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                              <Target className="h-4 w-4 shrink-0" />
+                              <span>{goalToggleLabel}</span>
                             </button>
-                          </DropdownMenuTrigger>
-                        </IconTip>
-                        <DropdownMenuContent
-                          variant="floating"
-                          className="min-w-[280px]"
-                          side="top"
-                          align="start"
-                          sideOffset={8}
-                        >
-                          {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
+                          </IconTip>
+                        )}
 
-                    {enableGoalAndPlanModes && (
-                      <IconTip label={planToggleTip}>
-                        <button
-                          aria-label={planToggleTip}
-                          onClick={handlePlanToggle}
-                          className={cn(
-                            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
-                            planState === "planning"
-                              ? "text-blue-600 bg-blue-500/10"
-                              : planState === "review"
-                                ? "text-purple-600 bg-purple-500/10"
-                                : planState === "executing"
-                                  ? "text-green-600 bg-green-500/10"
+                        {loopModeAvailable && (
+                          <IconTip label={loopToggleTip}>
+                            <button
+                              type="button"
+                              aria-label={loopToggleTip}
+                              onClick={handleLoopCreateOpen}
+                              disabled={incognitoEnabled}
+                              className={cn(
+                                "flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-lg bg-transparent px-2 py-1 text-xs font-medium transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50",
+                                loopComposerMode
+                                  ? "bg-sky-500/10 text-sky-600"
                                   : "text-muted-foreground hover:text-foreground",
-                          )}
-                        >
-                          <ClipboardList className="h-4 w-4 shrink-0" />
-                          <span>{planToggleLabel}</span>
-                        </button>
-                      </IconTip>
-                    )}
-                  </div>
-                )}
+                              )}
+                            >
+                              <Radio className="h-4 w-4 shrink-0" />
+                              <span>{loopToggleLabel}</span>
+                            </button>
+                          </IconTip>
+                        )}
 
-                {/* Permission and sandbox share one menu, which collapses into
+                        {enableWorkflowMode && (
+                          <DropdownMenu open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
+                            <IconTip label={workflowMenuLabel}>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  aria-label={workflowMenuLabel}
+                                  disabled={workflowMenuDisabled}
+                                  className={cn(
+                                    "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-secondary",
+                                    workflowButtonTone,
+                                  )}
+                                >
+                                  {workflowModeSaving ? (
+                                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                                  ) : (
+                                    <WorkflowModeIcon className="h-4 w-4 shrink-0" />
+                                  )}
+                                  <span>{workflowButtonLabel}</span>
+                                  <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                                </button>
+                              </DropdownMenuTrigger>
+                            </IconTip>
+                            <DropdownMenuContent
+                              variant="floating"
+                              className="min-w-[280px]"
+                              side="top"
+                              align="start"
+                              sideOffset={8}
+                            >
+                              {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+
+                        {enableGoalAndPlanModes && (
+                          <IconTip label={planToggleTip}>
+                            <button
+                              aria-label={planToggleTip}
+                              onClick={handlePlanToggle}
+                              className={cn(
+                                "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
+                                planState === "planning"
+                                  ? "text-blue-600 bg-blue-500/10"
+                                  : planState === "review"
+                                    ? "text-purple-600 bg-purple-500/10"
+                                    : planState === "executing"
+                                      ? "text-green-600 bg-green-500/10"
+                                      : "text-muted-foreground hover:text-foreground",
+                              )}
+                            >
+                              <ClipboardList className="h-4 w-4 shrink-0" />
+                              <span>{planToggleLabel}</span>
+                            </button>
+                          </IconTip>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Permission and sandbox share one menu, which collapses into
                     the "+" overflow only at the narrowest toolbar tier. */}
-                {!permissionCollapsed && (
-                  <div ref={permissionModeRef} className="shrink-0">
-                    <PermissionModeSwitcher
-                      permissionMode={permissionMode}
-                      onPermissionModeChange={handlePermissionModeChange}
-                      sandboxMode={sandboxMode}
-                      onSandboxModeChange={onSandboxModeChange}
-                    />
-                  </div>
+                    {!permissionCollapsed && (
+                      <div ref={permissionModeRef} className="shrink-0">
+                        <PermissionModeSwitcher
+                          permissionMode={permissionMode}
+                          onPermissionModeChange={handlePermissionModeChange}
+                          sandboxMode={sandboxMode}
+                          onSandboxModeChange={onSandboxModeChange}
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
+
+              {assistantPresentation && (
+                <div className="flex min-w-0 items-center gap-1">
+                  <AttachFilesButton onAttachFiles={attachPickedFiles} />
+                  <IconTip label={t("chat.composerOptions")}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground",
+                        composerOptionsOpen && "bg-secondary text-foreground",
+                      )}
+                      aria-label={t("chat.composerOptions")}
+                      aria-expanded={composerOptionsOpen}
+                      aria-controls={composerOptionsId}
+                      onClick={() => {
+                        setComposerOptionsOpen((open) => !open)
+                        setShowOverflowMenu(false)
+                      }}
+                    >
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </Button>
+                  </IconTip>
+                </div>
+              )}
 
               {/* Send & Stop — kept in its own column so toolbar wrapping never
               orphans the send button onto a half-empty row. */}

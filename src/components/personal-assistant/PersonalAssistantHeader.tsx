@@ -1,8 +1,14 @@
 import type { ComponentProps } from "react"
-import { ListTodo, Search, Settings } from "lucide-react"
+import { ListTodo, MoreHorizontal, Search, Settings } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { WorkbenchHeader, WorkbenchOpenButton } from "@/components/chat/workbench/WorkbenchHeader"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { PersonalAssistantAvatar } from "./PersonalAssistantAvatar"
@@ -50,28 +56,43 @@ export function PersonalAssistantHeader({
           aria-label={t("personalAssistant.settings.title")}
         >
           <PersonalAssistantAvatar avatar={profile?.avatar} />
-          <span className="min-w-0 text-left">
-            <span className="block truncate text-sm font-medium">{profile?.name || "Hope"}</span>
-            <span className="block text-xs font-normal text-muted-foreground">
-              {t("personalAssistant.title")}
-            </span>
-          </span>
+          <span className="truncate text-sm font-medium">{profile?.name || "Hope"}</span>
         </Button>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <IconTip label={t("common.search")}>
-            <Button variant="ghost" size="icon" aria-label={t("common.search")} onClick={onSearch}>
-              <Search className="h-4 w-4" />
-            </Button>
-          </IconTip>
-          <Button variant="ghost" size="sm" aria-expanded={itemsOpen} onClick={onToggleItems}>
-            <ListTodo className="mr-1.5 h-4 w-4" />
-            {t("personalAssistant.items")}
-            {attentionCount > 0 && (
+          {attentionCount > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`${t("personalAssistant.items")} ${attentionCount}`}
+              aria-expanded={itemsOpen}
+              onClick={onToggleItems}
+            >
+              <ListTodo className="mr-1.5 h-4 w-4" />
+              {t("personalAssistant.items")}
               <span className="ml-1.5 rounded-full bg-destructive px-1.5 text-xs text-white">
                 {attentionCount}
               </span>
-            )}
-          </Button>
+            </Button>
+          )}
+          <DropdownMenu>
+            <IconTip label={t("chat.moreActions")}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label={t("chat.moreActions")}>
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </IconTip>
+            <DropdownMenuContent variant="floating" align="end">
+              <DropdownMenuItem onSelect={onSearch}>
+                <Search className="mr-2 h-4 w-4" />
+                {t("common.search")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onToggleItems}>
+                <ListTodo className="mr-2 h-4 w-4" />
+                {t("personalAssistant.items")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <IconTip label={t("personalAssistant.settings.title")}>
             <Button
               variant="ghost"

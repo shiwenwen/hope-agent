@@ -1,5 +1,11 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
+import { AssistantUpdateEntry } from "@/components/personal-assistant/AssistantUpdateEntry"
+import { AssistantFindingEntry } from "@/components/personal-assistant/AssistantFindingEntry"
+import {
+  useAssistantResearch,
+  researchActivityKey,
+} from "@/components/personal-assistant/useAssistantResearch"
 import { PersonalAssistantPanel } from "@/components/personal-assistant/PersonalAssistantPanel"
 import { PersonalAssistantHeader } from "@/components/personal-assistant/PersonalAssistantHeader"
 import { PersonalAssistantSettings } from "@/components/personal-assistant/PersonalAssistantSettings"
@@ -685,7 +691,7 @@ export default function ChatScreen({
   const transport = useTransport()
   const assistant = usePersonalAssistant()
   const [assistantSettingsOpen, setAssistantSettingsOpen] = useState(false)
-  const [assistantItemsExpanded, setAssistantItemsExpanded] = useState(true)
+  const [assistantItemsExpanded, setAssistantItemsExpanded] = useState(false)
   const [assistantItemsMobileOpen, setAssistantItemsMobileOpen] = useState(false)
   const assistantWide = useViewportMediaQuery("(min-width: 1100px)")
   useEffect(() => {
@@ -962,6 +968,10 @@ export default function ChatScreen({
   )
   const isCodexImported = currentSessionMeta?.origin?.kind === "codex"
   const isPersonalAssistant = currentSessionMeta?.kind === "personal_assistant"
+  const research = useAssistantResearch(
+    assistant.authorized && isPersonalAssistant && isViewVisible,
+  )
+  const currentSessionKindResolved = currentSessionMeta !== null
   useEffect(() => {
     onAssistantStateChange?.(isPersonalAssistant)
     if (currentSessionMeta && !isPersonalAssistant)
@@ -969,10 +979,18 @@ export default function ChatScreen({
   }, [currentSessionMeta, isPersonalAssistant, onAssistantStateChange])
   useEffect(() => {
     onAssistantAttentionChange?.(
-      assistant.watches.filter((watch) => watch.needsAttention).length +
+      assistant.updates.filter((update) => !update.viewedAt).length +
+        research.findings.filter((finding) => !finding.viewedAt).length +
+        assistant.watches.filter((watch) => watch.needsAttention).length +
         assistant.requests.filter(requestNeedsResponse).length,
     )
-  }, [assistant.watches, assistant.requests, onAssistantAttentionChange])
+  }, [
+    assistant.watches,
+    assistant.requests,
+    assistant.updates,
+    research.findings,
+    onAssistantAttentionChange,
+  ])
   const [sideChats, setSideChats] = useState<SessionMeta[]>([])
   const [sideChatStateSourceId, setSideChatStateSourceId] = useState<string | null>(null)
   const [activeSideChatId, setActiveSideChatId] = useState<string | null>(null)
@@ -4187,10 +4205,10 @@ export default function ChatScreen({
   }, [])
 
   useEffect(() => {
-    if (!hasOpenExclusiveRightPanel && rightPanelCollapsed) {
+    if (!hasOpenExclusiveRightPanel && rightPanelCollapsed && !isPersonalAssistant) {
       setRightPanelCollapsed(false)
     }
-  }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
+  }, [hasOpenExclusiveRightPanel, rightPanelCollapsed, isPersonalAssistant])
 
   // Give-up order as the window narrows (steps 1-3 live in useWorkbenchSizing):
   //   1. conversation + workbench shrink together, down to their ideal minimums
@@ -4332,6 +4350,7 @@ export default function ChatScreen({
   const workbenchSessionCacheRef = useRef(new Map<string, RestorableWorkbenchSessionState>())
   const activeWorkbenchSessionRef = useRef(DRAFT_WORKBENCH_KEY)
   const activeWorkbenchIncognitoRef = useRef(false)
+  const activeWorkbenchKindResolvedRef = useRef(false)
   const suppressWorkbenchOrderWriteRef = useRef(false)
   const switchFilePreviewScope = filePreview.switchScope
   const switchFileTabsScope = fileTabs.switchScope
@@ -4368,7 +4387,21 @@ export default function ChatScreen({
     const nextKey = session.currentSessionId ?? DRAFT_WORKBENCH_KEY
     const previousKey = activeWorkbenchSessionRef.current
     const leavingIncognito = activeWorkbenchIncognitoRef.current
-    if (previousKey === nextKey && leavingIncognito === incognitoEnabled) return
+    if (previousKey === nextKey && leavingIncognito === incognitoEnabled) {
+      // A private home can arrive after its shell and task snapshot. Apply its
+      // first-visit default once metadata resolves, without overriding a cached
+      // workbench or a panel explicitly opened by the user.
+      if (!activeWorkbenchKindResolvedRef.current && currentSessionKindResolved) {
+        activeWorkbenchKindResolvedRef.current = true
+        if (
+          isPersonalAssistant &&
+          !workbenchSessionCacheRef.current.has(nextKey) &&
+          !manualRightPanelExpandedOverrideRef.current
+        )
+          setRightPanelCollapsed(true)
+      }
+      return
+    }
     suppressWorkbenchOrderWriteRef.current = true
     const preserveWorkspace = preserveWorkspaceOnSessionSwitchRef.current
     if (!leavingIncognito) {
@@ -4386,6 +4419,7 @@ export default function ChatScreen({
     const restore = !incognitoEnabled ? workbenchSessionCacheRef.current.get(nextKey) : undefined
     activeWorkbenchSessionRef.current = nextKey
     activeWorkbenchIncognitoRef.current = incognitoEnabled
+    activeWorkbenchKindResolvedRef.current = currentSessionKindResolved
     workspacePanelDismissedRef.current = restore?.dismissed.workspace ?? false
     setShowWorkspacePanel(preserveWorkspace || (restore?.workspace ?? false))
     setShowPullRequestPanel(false)
@@ -4394,7 +4428,7 @@ export default function ChatScreen({
     setShowSubagentPanel(restore?.subagent ?? false)
     setSubagentPanelSelectRequest(null)
     setActiveExclusiveRightPanel(restore?.activePanel ?? null)
-    setRightPanelCollapsed(restore?.collapsed ?? false)
+    setRightPanelCollapsed(restore?.collapsed ?? isPersonalAssistant)
     setWorkbenchMaximized(false)
     const scopeSwitch = {
       restore: !incognitoEnabled,
@@ -4408,6 +4442,8 @@ export default function ChatScreen({
   }, [
     activeExclusiveRightPanel,
     incognitoEnabled,
+    currentSessionKindResolved,
+    isPersonalAssistant,
     rightPanelCollapsed,
     session.currentSessionId,
     showSubagentPanel,
@@ -4495,11 +4531,23 @@ export default function ChatScreen({
   // false→true 跳变，靠 session 变化触发本 effect 重跑(配合 session-reset 复位
   // dismissedRef)，否则旧会话切回来面板不会自动展开。
   useEffect(() => {
-    if (!hasWorkspaceContent || workspacePanelDismissedRef.current) return
+    if (
+      !currentSessionKindResolved ||
+      isPersonalAssistant ||
+      !hasWorkspaceContent ||
+      workspacePanelDismissedRef.current
+    )
+      return
     setShowWorkspacePanel((prev) => (prev ? prev : true))
-  }, [hasWorkspaceContent, session.currentSessionId])
+  }, [
+    hasWorkspaceContent,
+    currentSessionKindResolved,
+    isPersonalAssistant,
+    session.currentSessionId,
+  ])
 
   useEffect(() => {
+    if (!currentSessionKindResolved) return
     const previousRunningCount = previousBackgroundRunningCountRef.current
     const runningCount = backgroundJobs.runningCount
     previousBackgroundRunningCountRef.current = runningCount
@@ -4510,11 +4558,13 @@ export default function ChatScreen({
       activePanel: renderedExclusiveRightPanel,
     })
 
-    if (action === "activate") openBackgroundJobsPanel({ activate: true })
+    if (action === "activate") openBackgroundJobsPanel({ activate: !isPersonalAssistant })
     if (action === "open-in-background") openBackgroundJobsPanel({ activate: false })
   }, [
     activeConversationSurfaceSessionId,
     backgroundJobs.runningCount,
+    currentSessionKindResolved,
+    isPersonalAssistant,
     backgroundJobsPanelDismissedRef,
     openBackgroundJobsPanel,
     previousBackgroundRunningCountRef,
@@ -5033,6 +5083,10 @@ export default function ChatScreen({
 
   const emptySessionInputHero =
     session.messages.length === 0 &&
+    (!isPersonalAssistant ||
+      (assistant.updates.length === 0 &&
+        research.findings.length === 0 &&
+        research.activity.length === 0)) &&
     !session.historyLoading &&
     !session.loading &&
     !planMode.pendingQuestionGroup &&
@@ -5388,6 +5442,7 @@ export default function ChatScreen({
               visible={isViewVisible && isPersonalAssistant}
               sessions={session.sessions}
               state={assistant}
+              research={research}
             />
           )}
           {isPersonalAssistant && assistantItemsMobileOpen && !assistantWide && isViewVisible && (
@@ -5473,7 +5528,54 @@ export default function ChatScreen({
                   onResetToLatest={session.resetToLatest}
                   sessionId={session.currentSessionId}
                   incognito={incognitoEnabled}
-                  anchorLatestTurn
+                  anchorLatestTurn={!isPersonalAssistant}
+                  timelineEntries={
+                    isPersonalAssistant
+                      ? [
+                          ...assistant.updates.map((update) => ({
+                            id: update.id,
+                            timestamp: update.createdAt,
+                            content: (
+                              <AssistantUpdateEntry
+                                key={update.id}
+                                update={update}
+                                name={assistant.profile?.name ?? "Hope"}
+                                onView={(id) => assistant.itemAction("view", id)}
+                              />
+                            ),
+                          })),
+                          ...research.findings.map((finding) => ({
+                            id: `finding:${finding.id}:${finding.revision}`,
+                            timestamp: finding.createdAt,
+                            content: (
+                              <AssistantFindingEntry
+                                key={`${finding.id}:${finding.revision}`}
+                                finding={finding}
+                                sources={research.sources}
+                                name={assistant.profile?.name ?? "Hope"}
+                                onView={research.viewFinding}
+                                onAsk={research.askFinding}
+                                activity={research.activity}
+                              />
+                            ),
+                          })),
+                          ...research.activity
+                            .filter((activity) => activity.state !== "finished")
+                            .map((activity) => ({
+                              id: `research:${activity.id}`,
+                              timestamp: new Date(activity.createdAt * 1000).toISOString(),
+                              content: (
+                                <p
+                                  role="status"
+                                  className="my-3 px-4 text-xs text-muted-foreground"
+                                >
+                                  {t(researchActivityKey(activity))}
+                                </p>
+                              ),
+                            })),
+                        ]
+                      : undefined
+                  }
                   heroComposer={heroComposerActive}
                   projectName={currentProject?.name ?? null}
                   onProjectSuggestion={currentProject ? handleProjectWelcomeSuggestion : undefined}
@@ -5636,6 +5738,7 @@ export default function ChatScreen({
                         </div>
                       )}
                       <ChatInput
+                        presentation={isPersonalAssistant ? "assistant" : "default"}
                         topAccessory={
                           canUseSideChat ? (
                             <SideChatTray

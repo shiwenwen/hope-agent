@@ -268,7 +268,7 @@ if (existsSync(loopManifest)) {
 }
 
 const coreManifest = readFileSync(path.join(repoRoot, "crates/ha-core/Cargo.toml"), "utf8")
-for (const feature of ["ha-agent-runtime", "ha-memory", "ha-goal", "ha-workflow"]) {
+for (const feature of ["ha-agent-runtime", "ha-memory", "ha-goal", "ha-assistant", "ha-workflow"]) {
   const dependency = new RegExp(`^${feature}\\s*=`, "m")
   if (dependency.test(coreManifest)) {
     violations.push(`crates/ha-core/Cargo.toml: ha-core must not depend on ${feature}`)
@@ -398,7 +398,7 @@ if (existsSync(acpAgentPath)) {
   }
 }
 
-for (const feature of ["ha-agent-runtime", "ha-memory", "ha-goal", "ha-workflow"]) {
+for (const feature of ["ha-agent-runtime", "ha-memory", "ha-goal", "ha-assistant", "ha-workflow"]) {
   const root = path.join(repoRoot, "crates", feature)
   for (const file of walkRust(root)) {
     const relative = path.relative(repoRoot, file).split(path.sep).join("/")

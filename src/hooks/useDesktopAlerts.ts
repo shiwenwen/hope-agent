@@ -77,10 +77,11 @@ export function useDesktopAlerts() {
       })
     }
 
-    const offApproval = bindAlert<{ command?: string }>(
+    const offApproval = bindAlert<{ command?: string; assistant_attention?: string }>(
       "approval_required",
       "useDesktopAlerts::approval",
       (req) => {
+        if (req.assistant_attention && req.assistant_attention !== "ordinary") return null
         const tx = tRef.current
         const body = truncate(req?.command ?? "")
         return {
@@ -93,28 +94,27 @@ export function useDesktopAlerts() {
     const offApprovalTimedOut = bindAlert<{
       timeout_secs?: number
       timeout_action?: "deny" | "proceed"
-    }>(
-      "approval_timed_out",
-      "useDesktopAlerts::approval_timeout",
-      (event) => {
-        const tx = tRef.current
-        const bodyKey =
-          event?.timeout_action === "proceed"
-            ? "notification.approvalTimedOut_proceeded"
-            : "notification.approvalTimedOut_denied"
-        return {
-          title: tx("notification.approvalTimedOut"),
-          body: tx(bodyKey, {
-            seconds: event?.timeout_secs ?? 0,
-          }),
-        }
-      },
-    )
+      assistant_attention?: string
+    }>("approval_timed_out", "useDesktopAlerts::approval_timeout", (event) => {
+      if (event.assistant_attention && event.assistant_attention !== "ordinary") return null
+      const tx = tRef.current
+      const bodyKey =
+        event?.timeout_action === "proceed"
+          ? "notification.approvalTimedOut_proceeded"
+          : "notification.approvalTimedOut_denied"
+      return {
+        title: tx("notification.approvalTimedOut"),
+        body: tx(bodyKey, {
+          seconds: event?.timeout_secs ?? 0,
+        }),
+      }
+    })
 
-    const offAskUser = bindAlert<{ questions?: Array<{ text?: unknown }> }>(
+    const offAskUser = bindAlert<{ questions?: Array<{ text?: unknown }>; source?: string }>(
       "ask_user_request",
       "useDesktopAlerts::ask_user",
       (group) => {
+        if (group.source === "personal_assistant") return null
         const tx = tRef.current
         const firstQ = truncate(textPreview(group?.questions?.[0]?.text))
         return {
@@ -128,24 +128,22 @@ export function useDesktopAlerts() {
       timeoutSecs?: number
       usedDefaultValues?: boolean
       questionPreview?: string
-    }>(
-      "ask_user_timed_out",
-      "useDesktopAlerts::ask_user_timeout",
-      (event) => {
-        const tx = tRef.current
-        const preview = truncate(event?.questionPreview ?? "")
-        const body = tx(
-          event?.usedDefaultValues
-            ? "notification.askUserTimedOutDefaults"
-            : "notification.askUserTimedOutNoDefaults",
-          { seconds: event?.timeoutSecs ?? 0 },
-        )
-        return {
-          title: tx("notification.askUserTimedOut"),
-          body: preview ? `${preview} — ${body}` : body,
-        }
-      },
-    )
+      assistantAttention?: string
+    }>("ask_user_timed_out", "useDesktopAlerts::ask_user_timeout", (event) => {
+      if (event.assistantAttention && event.assistantAttention !== "ordinary") return null
+      const tx = tRef.current
+      const preview = truncate(event?.questionPreview ?? "")
+      const body = tx(
+        event?.usedDefaultValues
+          ? "notification.askUserTimedOutDefaults"
+          : "notification.askUserTimedOutNoDefaults",
+        { seconds: event?.timeoutSecs ?? 0 },
+      )
+      return {
+        title: tx("notification.askUserTimedOut"),
+        body: preview ? `${preview} — ${body}` : body,
+      }
+    })
 
     const offMcpAuth = bindAlert<{ name?: string }>(
       MCP_EVENTS.AUTH_REQUIRED,
@@ -203,7 +201,9 @@ export function useDesktopAlerts() {
       imported_count?: number
       duplicate_count?: number
       failed_count?: number
+      assistantAttention?: string
     }>("job:completed", "useDesktopAlerts::job_completed", (ev) => {
+      if (ev.assistantAttention && ev.assistantAttention !== "ordinary") return null
       if (getCachedConfig()?.notifyOnBackgroundJobComplete === false) return null
       const status = ev?.status ?? ""
       if (!NOTIFIABLE_JOB_STATUSES.has(status)) return null

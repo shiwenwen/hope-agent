@@ -1916,11 +1916,36 @@ Team 生命周期 HTTP 响应保持原有 `status` 字段并追加可观测结�
 | `ensure_personal_assistant_home` | `POST /api/personal-assistant/home` | 原子取得或创建唯一私人主对话 |
 | `get_personal_assistant_profile` | `GET /api/personal-assistant/profile` | 主人读取独立名字与头像；缺省读取不创建主对话 |
 | `update_personal_assistant_profile` | `PUT /api/personal-assistant/profile` | 主人保存 `{profile:{name,avatar}}`，不修改 Agent、主对话或工作授权 |
+| `list_personal_assistant_items` | `GET /api/personal-assistant/items` | 主人读取轻量事项、等待原因、累计额度和到期时间 |
+| `list_personal_assistant_updates` | `GET /api/personal-assistant/updates` | 主人读取有界 Home 更新投影，独立于消息 |
+| `view_personal_assistant_update` | `POST /api/personal-assistant/updates/{id}/view` | 主动查看确切更新并幂等记已读 |
+| `stop_personal_assistant_item` | `POST /api/personal-assistant/items/{id}/stop` | 封存事项代际并取消确切关联工作，不取消整会话 |
+| `continue_personal_assistant_item` | `POST /api/personal-assistant/items/{id}/continue` | 主人显式追加 8 轮/64 工具/1800 活跃秒；有内部后续拥有者时不另派工 |
 | `list_personal_assistant_requests` | `GET /api/personal-assistant/requests` | 读取交办与实际目标轮次状态 |
 | `cancel_personal_assistant_request` | `POST /api/personal-assistant/requests/{id}/cancel` | 撤销排队项或取消实际绑定的轮次 |
 | `personal_assistant_inbox` | `GET /api/personal-assistant/watches` | 读取本地 Goal 关注和变化 |
 | `watch_personal_goal` | `POST /api/personal-assistant/watches/{sessionId}/{goalId}` | 授权关注一个具体 Goal |
 | `unwatch_personal_goal` | `DELETE /api/personal-assistant/watches/{sessionId}/{goalId}` | 取消该项关注 |
+| `get_execution_notification_ownership` | `POST /api/chat/notification-ownership` | `{executionId}` 返回 `ordinary/assistant/unknown`；只用确切流/轮次永久身份，不查会话最新轮；沿通用鉴权，保留无私人数据的 no-auth 普通通知 |
+| `get_personal_assistant_attention` | `GET /api/personal-assistant/attention` | 不含正文的配对 ID/代际、延后原因、下次可尝试时间和最近投递回执 |
+| `set_personal_assistant_presence` | `POST /api/personal-assistant/presence` | `{clientId,active}` 主人客户端 UUID，三十秒存在续约；不标记已读 |
+| `claim_personal_assistant_desktop_notice` | `POST /api/personal-assistant/attention/desktop/claim` | `{clientId,claimKey}` UUID；全来源/策略复核后原子认领一条有界通知并占额，重复键不重发 |
+| `finish_personal_assistant_desktop_notice` | `POST /api/personal-assistant/attention/desktop/{id}/finish` | `{clientId,claimKey,outcome}`；`accepted/unknown/not_submitted`，保留占额，不代表已读 |
+| `set_personal_assistant_source_im_disclosure` | `PUT /api/personal-assistant/sources/{id}/im-disclosure` | `{revision,enabled,expectedDisclosureRevision,expectedConnectionId,expectedGeneration}` 主人 CAS；只授权当前配对的该读取版本摘要，不授执行权 |
+| `get_personal_assistant_policy` | `GET /api/personal-assistant/policy` | 读取 requested/applied 版本、pending/failed 及主人设置 |
+| `set_personal_assistant_policy` | `PUT /api/personal-assistant/policy` | `{expectedRevision,settings}` 乐观并发保存；Primary 经标准配置写入后确认生效 |
+| `list_personal_assistant_sources` | `GET /api/personal-assistant/sources` | 共享资料元数据、期限、文件读取时间、暂停/缺口及 `imSummaryAllowed/imDisclosureRevision`，不返回文件正文 |
+| `add_personal_assistant_source` | `POST /api/personal-assistant/sources` | `{source:{requestKey,sessionId,relativePath,focus,durationDays}}`；明确共享工作目录内 UTF-8 文件，建立安静基线 |
+| `revoke_personal_assistant_source` | `DELETE /api/personal-assistant/sources/{id}` | 同事务撤回资料、研究上下文、查询与派生发现；旧回执不能恢复授权 |
+| `check_personal_assistant_source` | `POST /api/personal-assistant/sources/{id}/check` | `{requestKey}` 明确发起一次来源内研究，返回持久状态回执 |
+| `list_personal_assistant_findings` | `GET /api/personal-assistant/findings` | 复核资料后返回当前全输入来源均有效的私人发现；不写普通消息历史 |
+| `view_personal_assistant_finding` | `POST /api/personal-assistant/findings/{id}/view` | `{revision}` 主动查看确切版本，事务内复核全来源 |
+| `ask_personal_assistant_finding` | `POST /api/personal-assistant/findings/{id}/ask` | `{revision,question,requestKey}` 新建受封存来源约束的追问，不把旧发现放入普通 Home 上下文 |
+| `personal_assistant_research_activity` | `GET /api/personal-assistant/research-activity` | 不含正文的 pending/running/finished/failed/cancelled 回执及失败原因 |
+
+策略包含 `desktopToImNotices`（默认 false）、提醒选路、IANA 时区、0–23 点勿扰区间、研究开关和暂停。除仅返回确切执行分类的兼容接口外，以上注意力接口只开放给主人；无鉴权服务在读 DB 前拒绝。
+
+资料请求键使用主人生成的 UUID；响应丢失后同一请求重试返回原回执，不能借旧请求重授来源。只允许主人入口改变设置和共享范围。`assistant_research` 模型工具只在真实 Home 前台轮次可用，返回不含正文的引用或查询回执；`assistant_research_report` 仅在正式封存的研究执行中可用。
 
 跨会话派工由私人主对话中具有真实轮次和工具调用标识的 `sessions_send` 受理。普通客户端不能伪造来源消息或认领执行。主人获取的跨源事件和通用资源票据分别使用 `owner_events` 和 `owner_resources`，旧的普通 scope 不能在已启用私人助手的数据根读取私人数据。
 

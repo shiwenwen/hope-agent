@@ -308,6 +308,12 @@ impl WorkspaceScope {
         )
     }
 
+    /// Kernel-only construction after a caller has resolved and authorized a
+    /// live session/project root. Never pass a model-supplied absolute path.
+    pub(crate) fn from_resolved_root(dir: impl AsRef<Path>) -> Result<Self> {
+        Self::from_root_with(dir, None)
+    }
+
     fn from_root_with(
         dir: impl AsRef<Path>,
         read_only_reason: Option<WorkspaceWriteState>,

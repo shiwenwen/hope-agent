@@ -43,6 +43,8 @@ mod find;
 mod grep;
 pub(crate) mod image;
 // pub：ha-mac 的截图结果复用 image marker 构建（工具结果图片标记契约）。
+mod assistant_report;
+mod assistant_research;
 pub mod image_markers;
 mod issue_report;
 pub(crate) mod job_status;
@@ -62,6 +64,7 @@ mod schedule_wakeup;
 mod send_attachment;
 mod session_continue;
 mod sessions;
+pub(crate) use sessions::cancel_dispatch_request_only;
 pub use sessions::{cancel_personal_assistant_dispatch, spawn_personal_assistant_worker};
 mod settings;
 pub(crate) mod subagent;

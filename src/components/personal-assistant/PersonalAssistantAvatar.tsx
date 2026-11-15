@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Bot, Heart, Sparkles } from "lucide-react"
+import appLogoUrl from "@/assets/logo.png"
 import { useTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 
@@ -13,7 +14,8 @@ export function PersonalAssistantAvatar({
   const transport = useTransport()
   const [failedSource, setFailedSource] = useState<string | null>(null)
   const preset = avatar?.startsWith("preset:") ? avatar.slice(7) : null
-  const Icon = preset === "bot" ? Bot : preset === "heart" ? Heart : Sparkles
+  const Icon =
+    preset === "bot" ? Bot : preset === "heart" ? Heart : preset === "sparkles" ? Sparkles : null
   const source = avatar && !preset ? transport.resolveAssetUrl(avatar) : null
   return (
     <span
@@ -29,8 +31,10 @@ export function PersonalAssistantAvatar({
           className="h-full w-full object-cover"
           onError={() => setFailedSource(source)}
         />
-      ) : (
+      ) : Icon ? (
         <Icon className="h-1/2 w-1/2" aria-hidden="true" />
+      ) : (
+        <img src={appLogoUrl} alt="" className="h-full w-full object-cover" />
       )}
     </span>
   )

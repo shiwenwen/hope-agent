@@ -3532,7 +3532,18 @@ impl AssistantAgent {
     /// white-list; `None` (default) applies no extra narrowing.
     #[doc(hidden)]
     pub fn is_restricted_assistant_im(&self) -> bool {
-        self.tool_scope == Some(crate::tool_defs::ToolScope::PersonalAssistantIm)
+        matches!(
+            self.tool_scope,
+            Some(
+                crate::tool_defs::ToolScope::PersonalAssistantIm
+                    | crate::tool_defs::ToolScope::AssistantResearch
+            )
+        )
+    }
+
+    #[doc(hidden)]
+    pub fn is_assistant_research(&self) -> bool {
+        self.tool_scope == Some(crate::tool_defs::ToolScope::AssistantResearch)
     }
 
     pub fn set_tool_scope(&mut self, scope: Option<crate::tool_defs::ToolScope>) {
@@ -3931,6 +3942,21 @@ impl AssistantAgent {
             }
         }
 
+        if self.tool_scope == Some(crate::tool_defs::ToolScope::AssistantResearch)
+            && !schemas.iter().any(|schema| {
+                extract_tool_name(schema) == crate::tool_defs::TOOL_ASSISTANT_RESEARCH_REPORT
+            })
+        {
+            if let Some(definition) =
+                tools::dispatch::all_dispatchable_tools()
+                    .iter()
+                    .find(|definition| {
+                        definition.name == crate::tool_defs::TOOL_ASSISTANT_RESEARCH_REPORT
+                    })
+            {
+                schemas.push(definition.to_provider_schema(provider));
+            }
+        }
         self.finalize_tool_schemas(&mut schemas);
         schemas
     }
@@ -4243,6 +4269,15 @@ impl AssistantAgent {
             });
         }
 
+        schemas.retain(|schema| {
+            let name = tools::canonical_tool_schema_name(extract_tool_name(schema));
+            (name != crate::tool_defs::TOOL_ASSISTANT_RESEARCH_REPORT
+                || self.tool_scope == Some(crate::tool_defs::ToolScope::AssistantResearch))
+                && (name != crate::tool_defs::TOOL_ASSISTANT_RESEARCH
+                    || self.lookup_session_meta().is_some_and(|session| {
+                        session.kind == crate::session::SessionKind::PersonalAssistant
+                    }))
+        });
         // Knowledge-space sidebar chat: trim to the curated white-list so the
         // document-writing conversation isn't handed exec / browser / subagent /
         // etc. Pure visibility narrowing — KB access is still `effective_kb_access`.
@@ -4288,7 +4323,14 @@ impl AssistantAgent {
                 .unwrap_or_else(|e| e.into_inner()) = Some(types::TurnPromptCache {
                 model: model.to_owned(),
                 provider: provider.to_owned(),
-                base_prompt: Arc::new(crate::personal_assistant_im::SYSTEM_PROMPT.to_owned()),
+                base_prompt: Arc::new(
+                    if self.tool_scope == Some(crate::tool_defs::ToolScope::AssistantResearch) {
+                        crate::personal_assistant::research::SYSTEM_PROMPT
+                    } else {
+                        crate::personal_assistant_im::SYSTEM_PROMPT
+                    }
+                    .to_owned(),
+                ),
                 legacy_memory_selection: None,
             });
             return;
@@ -4795,6 +4837,11 @@ impl AssistantAgent {
             project_linked_dirs,
             session_id: self.session_id.clone(),
             turn_id: self.turn_id.clone(),
+            persistence_run_id: self
+                .turn_durability
+                .as_ref()
+                .map(|sink| sink.persistence_run_id().to_string()),
+            assistant_retry_attempt: 0,
             agent_binding_refs: self.agent_binding_refs.clone(),
             context_resource_refs: self.context_resource_refs.clone(),
             workflow_run_id: None,
@@ -4916,7 +4963,7 @@ impl AssistantAgent {
     /// they neither replace Active Memory nor rewrite the stable system prefix.
     #[doc(hidden)]
     pub async fn select_memories_if_needed(&self, user_message: &str) {
-        if self.session_is_incognito() {
+        if self.session_is_incognito() || self.is_restricted_assistant_im() {
             return;
         }
         // Memory UX v2 owns dynamic selection through MemoryRecallPlanner and

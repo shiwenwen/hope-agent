@@ -1128,6 +1128,18 @@ impl SessionDB {
         let body_bytes = unsigned_to_i64("prepared_body_bytes", body.bytes)?;
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // This is the final host claim before dispatch. Recheck the exact
+        // sealed research execution in this transaction; a reservation alone
+        // cannot survive a subsequent Stop, policy change or source expiry.
+        let execution: Option<String> = tx.query_row(
+            "SELECT run_id FROM request_projection_plans WHERE session_id=?1 AND request_plan_id=?2",
+            params![session_id, request_plan_id], |row| row.get(0),
+        ).optional()?.flatten();
+        crate::personal_assistant::research::check_context_write(
+            &tx,
+            session_id,
+            execution.as_deref(),
+        )?;
         let now = chrono::Utc::now().to_rfc3339();
         let changed = tx.execute(
             "UPDATE request_projection_plans

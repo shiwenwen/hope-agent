@@ -60,6 +60,8 @@ import type { KnowledgeFocusTarget } from "@/components/knowledge/knowledgeFocus
 
 interface MessageListProps {
   messages: Message[]
+  /** Durable non-message entries, ordered with the transcript without mutating it. */
+  timelineEntries?: Array<{ id: string; timestamp: string; content: ReactNode }>
   historyLoading?: boolean
   loading: boolean
   executionState?: ChatTurnStatus | null
@@ -744,6 +746,7 @@ function CompletedTurnCollapseSummary({
 
 export default function MessageList({
   messages,
+  timelineEntries,
   historyLoading = false,
   loading,
   executionState,
@@ -1865,7 +1868,7 @@ export default function MessageList({
   const planCardVisible = Boolean(
     planCardData && planState && planState !== "off" && planState !== "planning",
   )
-  const showEmpty = items.length === 0
+  const showEmpty = items.length === 0 && !timelineEntries?.length
   const showHistoryLoading = showEmpty && historyLoading
   const hasFooterContent = Boolean(
     pendingQuestionGroup ||
@@ -2070,6 +2073,32 @@ export default function MessageList({
     </>
   )
 
+  const renderTimeline = () => {
+    if (!timelineEntries?.length) return renderRows.map(renderMessageRow)
+    const entries = [...timelineEntries].sort(
+      (a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id),
+    )
+    const output: ReactNode[] = []
+    let index = 0
+    const appendEntry = () => {
+      const entry = entries[index++]!
+      output.push(<div key={`assistant:${entry.id}`}>{entry.content}</div>)
+    }
+    for (const row of renderRows) {
+      const first = row.kind === "message" ? row.item.msg : row.items[0]?.msg
+      const timestamp = first ? timestampMs(first) : null
+      while (
+        index < entries.length &&
+        timestamp !== null &&
+        Date.parse(entries[index]!.timestamp) <= timestamp
+      )
+        appendEntry()
+      output.push(renderMessageRow(row))
+    }
+    while (index < entries.length) appendEntry()
+    return output
+  }
+
   return (
     <SubagentRunsProvider
       sessionId={subagentRunsSnapshot || hasSubagentContent ? (sessionId ?? null) : null}
@@ -2142,7 +2171,7 @@ export default function MessageList({
               </>
             ) : (
               <>
-                {renderRows.map(renderMessageRow)}
+                {renderTimeline()}
                 {transcriptTail}
               </>
             )}

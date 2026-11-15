@@ -6,8 +6,14 @@ use serde_json::Value;
 /// consistent permission checks and global toggle enforcement.
 pub(crate) async fn tool_send_notification(
     args: &Value,
-    _ctx: &super::ToolExecContext,
+    ctx: &super::ToolExecContext,
 ) -> Result<String> {
+    if !crate::personal_assistant::attention::signals::classify_context(ctx)
+        .await
+        .is_ordinary()
+    {
+        return Ok("Notification folded into Hope. Report useful results or a pending decision through the current item; unified attention chooses whether and when to notify.".into());
+    }
     let title = args
         .get("title")
         .and_then(|v| v.as_str())

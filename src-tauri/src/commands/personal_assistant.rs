@@ -98,3 +98,55 @@ pub async fn unwatch_personal_goal(
         .await
         .map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn list_personal_assistant_items(
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<Vec<ha_core::personal_assistant::items::AssistantItem>, CmdError> {
+    state
+        .session_db
+        .run(|db| db.list_assistant_items())
+        .await
+        .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn list_personal_assistant_updates(
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<Vec<ha_core::personal_assistant::items::AssistantUpdate>, CmdError> {
+    state
+        .session_db
+        .run(|db| db.list_assistant_updates())
+        .await
+        .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn view_personal_assistant_update(
+    id: String,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<(), CmdError> {
+    state
+        .session_db
+        .run(move |db| db.view_assistant_update(&id))
+        .await
+        .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn stop_personal_assistant_item(
+    id: String,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<(), CmdError> {
+    ha_core::personal_assistant::items::stop_item(state.session_db.clone(), id)
+        .await
+        .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn continue_personal_assistant_item(
+    id: String,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<(), CmdError> {
+    state
+        .session_db
+        .run(move |db| db.continue_assistant_item(&id))
+        .await
+        .map_err(Into::into)
+}

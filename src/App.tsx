@@ -10,6 +10,7 @@ import { MAIN_WINDOW_MIN_HEIGHT, MAIN_WINDOW_MIN_WIDTH } from "@/lib/mainWindowS
 import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
 import { initThemeFromConfig, listenThemeConfigChange } from "@/hooks/useTheme"
 import { initFocusTracking, listenNotificationConfigChange, notify } from "@/lib/notifications"
+import { useAssistantAttention } from "@/components/personal-assistant/useAssistantAttention"
 import { useDesktopAlerts } from "@/hooks/useDesktopAlerts"
 import {
   autoCheckForUpdate,
@@ -868,6 +869,10 @@ export default function App() {
   // Subscribe to "user action required" events and pop OS notifications
   // when the app is in the background.
   useDesktopAlerts()
+  useAssistantAttention(assistantProfile !== null, view === "chat" && assistantActive, () => {
+    setAssistantNavigation({ mode: "assistant", nonce: Date.now() })
+    setView("chat")
+  })
 
   useEffect(() => {
     if (

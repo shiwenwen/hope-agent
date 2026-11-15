@@ -1339,7 +1339,8 @@
     "channelUnreadStatus": "IM 会话未读",
     "generatedImageName": "生成的图片 {{index}}",
     "noAgents": "暂无 Agent",
-    "sessionFailed": "对话失败"
+    "sessionFailed": "对话失败",
+    "composerOptions": "对话选项"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 认证令牌已失效，请重新登录以继续使用。",
@@ -8815,7 +8816,10 @@
     },
     "contextCompactSummaryReasoning": "摘要专用推理覆盖",
     "contextCompactSummaryReasoningDefault": "保持当前摘要策略",
-    "contextCompactSummaryReasoningDesc": "仅用于上下文摘要。档位不受支持时会报错并保留历史；失败后不自动换模型或增加输出上限。默认保持现状。"
+    "contextCompactSummaryReasoningDesc": "仅用于上下文摘要。档位不受支持时会报错并保留历史；失败后不自动换模型或增加输出上限。默认保持现状。",
+    "toolAssistantReportDesc": "记录已核实的事项进展、结果或需要主人回答的持久问题",
+    "toolAssistantResearchDesc": "只在 Hope 中读取发现引用或提交来源内追问，不扩大资料权限。",
+    "toolAssistantResearchReportDesc": "为当前私人研究提交有来源依据的发现，核实后显示在 Hope 中。"
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",
@@ -9291,7 +9295,10 @@
     "feishu_hire_get_job": "飞书招聘：查询职位",
     "feishu_hire_list_talents": "飞书招聘：列出人才",
     "feishu_hire_get_talent": "飞书招聘：查询人才",
-    "feishu_hire_list_applications": "飞书招聘：列出投递"
+    "feishu_hire_list_applications": "飞书招聘：列出投递",
+    "assistant_report": "汇报助理事项",
+    "assistant_research": "检查共享资料",
+    "assistant_research_report": "提交资料发现"
   },
   "tz": {
     "amsterdam": "阿姆斯特丹 (UTC+1)",
@@ -13010,6 +13017,118 @@
       "botIdentityHint": "Telegram Bot 的名字和头像由平台单独管理，这里的修改不会同步到 Bot 资料。"
     },
     "welcomeTitle": "我是{{name}}",
-    "welcomeBody": "告诉我你想做什么。你可以随时回来继续对话，或查看交办工作的进展。"
+    "welcomeBody": "告诉我你想做什么。你可以随时回来继续对话，或查看交办工作的进展。",
+    "messagePlaceholder": "有什么想交给我的吗？",
+    "readUpdate": "查看更新",
+    "executionHistory": "执行历史",
+    "emptyItems": "把事情交给 Hope，它会持续跟进。",
+    "executionDetails": "执行详情",
+    "itemUsage": "{{turns}} 轮 · {{tools}} 次工具 · 活跃 {{seconds}} 秒",
+    "itemExpiry": "跟进有效期至：{{time}}",
+    "continueItem": "继续（追加 8 轮、64 次工具、30 分钟）",
+    "updates": {
+      "update": "更新",
+      "result": "结果",
+      "progress": "进展",
+      "waiting": "等待中",
+      "blocked": "遇到阻塞",
+      "needs_review": "待核实",
+      "question": "需要你回答"
+    },
+    "itemState": {
+      "open": "进行中",
+      "waiting": "等待中",
+      "done": "已交付",
+      "stopped": "已停止"
+    },
+    "itemReason": {
+      "needs_input": "等待你回答",
+      "background_work": "等待后台工作",
+      "work_state_unknown": "工作结果未知，重试前需要核实",
+      "awaiting_verification": "结果仍需核实",
+      "execution_failed": "执行结果未能核实",
+      "budget_exhausted": "额度已用完，需要你明确继续",
+      "no_progress": "没有新的进展，等待你的指示",
+      "dispatch_failed": "工作未能启动",
+      "owner_stopped": "你已停止此事项",
+      "scope_or_stop_changed": "范围或停止状态已改变"
+    },
+    "research": {
+      "settingsTitle": "主动关注",
+      "settingsHint": "Hope 只关注你明确共享的资料。暂停会停止当前交办；恢复后需重新交办。",
+      "enabled": "主动发现资料中的变化",
+      "pause": "暂停 Hope 的后台工作",
+      "pendingPolicy": "正在应用设置…",
+      "sources": "共享的资料",
+      "expires": "有效至 {{time}}",
+      "observed": "最近读取文件：{{time}}",
+      "suspended": "已暂停自动关注；需要时可主动检查。",
+      "observationGap": "这段时间未能读取，无法确认是否发生过变化。",
+      "refresh": "现在检查",
+      "revoke": "撤销共享",
+      "noSources": "还没有共享资料",
+      "workspace": "选择资料所在的工作会话",
+      "path": "工作目录内的文件路径，例如 notes/agenda.txt",
+      "focus": "关注什么",
+      "focusPlaceholder": "例如：留意会议冲突，提前准备两个可行方案",
+      "days": "共享天数",
+      "baselineHint": "最多共享 4 个 UTF-8 文本文件，每个不超过 64 KiB。首次读取只建立基线；后续有重要变化才生成发现。",
+      "share": "共享资料",
+      "finding": "新发现",
+      "inference": "判断",
+      "uncertainty": "待确认",
+      "prepared": "准备好的方案",
+      "lines": "第 {{start}}–{{end}} 行",
+      "ask": "继续问 Hope",
+      "askPlaceholder": "只围绕这份资料追问…",
+      "activity": {
+        "pending": "已排队",
+        "running": "正在检查资料…",
+        "finished": "已完成，结果显示在对话中",
+        "failed": "未能完成，请检查资料后重试",
+        "cancelled": "已取消",
+        "expired": "已过期，请重新发起",
+        "scopeChanged": "资料或授权已变化，请重新检查",
+        "budget": "本轮研究额度已用完，稍后可重试",
+        "unverified": "没有获得可验证的结果，请重试"
+      }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope 有新进展，请打开 Hope 查看。",
+      "route": "通过哪里提醒我",
+      "routes": {
+        "none": "仅在 Hope 内",
+        "desktop": "桌面通知",
+        "im": "助手 IM"
+      },
+      "limitHint": "主动提醒每天最多两次，滚动 24 小时内也最多两次；相关更新合并发送。你在 IM 中主动提问仍可收到答复。",
+      "timezone": "主人时区（IANA）",
+      "quietStart": "免打扰开始",
+      "quietEnd": "结束",
+      "quietHint": "按主人时区计算；开始和结束相同表示全天免打扰。",
+      "desktopToIm": "把桌面交办的状态发到 IM",
+      "desktopToImHint": "还需对应工作对话的状态与完成通知授权。默认只发状态，结果留在 Hope。",
+      "pairRequired": "请先在助手 IM 设置中配对专属 Bot。",
+      "sourceDisclosure": "允许在助手 IM 中发送此资料摘要",
+      "sourceDisclosureHint": "默认关闭。仅对当前配对私聊开放简短摘要和限定资料的追问；撤销后旧消息上下文失效。",
+      "nextEligible": "最早可再次提醒：{{time}}（{{zone}}）",
+      "deferred": {
+        "timezone_required": "设置主人时区后才能接收提醒。",
+        "quiet_hours": "免打扰时段：有用的更新暂留在 Hope。",
+        "daily_limit": "已达到提醒上限，后续尝试会等待。",
+        "policy_pending": "正在等待助手设置生效。",
+        "paused": "个人助手已暂停。",
+        "disabled": "更新留在 Hope，外部提醒已关闭。",
+        "pairing_required": "助手 IM 尚未配对，或通知已暂停。",
+        "using_hope": "你正在使用 Hope，暂缓外部提醒。"
+      },
+      "receipts": {
+        "submitting": "{{time}} · 正在等待平台确认",
+        "accepted": "{{time}} · 平台已接收，未确认已读",
+        "unknown": "{{time}} · 送达未知，不自动重发",
+        "cancelled": "{{time}} · 未提交，本次尝试仍计入额度"
+      },
+      "homeHandoffHint": "助手主对话的直接问答和工具审批仅支持桌面提醒，请回到 Hope 处理。"
+    }
   }
 }

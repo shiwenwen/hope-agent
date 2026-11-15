@@ -60,6 +60,7 @@ export function PersonalAssistantPanel({
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <TabsList className="h-auto max-w-full flex-wrap justify-start">
             <TabsTrigger value="work">{t("personalAssistant.work")}</TabsTrigger>
+            <TabsTrigger value="history">{t("personalAssistant.executionHistory")}</TabsTrigger>
             <TabsTrigger value="goals">{t("personalAssistant.goals")}</TabsTrigger>
           </TabsList>
           <Button
@@ -78,6 +79,78 @@ export function PersonalAssistantPanel({
           </p>
         )}
         <TabsContent value="work" className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+          {!state.error && !state.loading && state.items.length === 0 && (
+            <p className="text-sm text-muted-foreground">{t("personalAssistant.emptyItems")}</p>
+          )}
+          {state.items.map((item) => (
+            <article key={item.id} className="rounded-md bg-muted/40 px-3 py-2 text-sm">
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 break-words">{item.instruction}</p>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {t(`personalAssistant.itemState.${item.state}`)}
+                </span>
+              </div>
+              {item.reason && (
+                <p role="status" className="mt-1 text-xs text-muted-foreground">
+                  {t(`personalAssistant.itemReason.${item.reason}`, {
+                    defaultValue: t("personalAssistant.updates.waiting"),
+                  })}
+                </p>
+              )}
+              <details className="mt-2 text-xs text-muted-foreground">
+                <summary className="cursor-pointer">
+                  {t("personalAssistant.executionDetails")}
+                </summary>
+                <p>
+                  {t("personalAssistant.itemUsage", {
+                    turns: item.turnsUsed,
+                    tools: item.toolsUsed,
+                    seconds: item.activeSeconds,
+                  })}
+                </p>
+                <p>
+                  {t("personalAssistant.itemExpiry", {
+                    time: new Date(item.expiresAt * 1000).toLocaleString(),
+                  })}
+                </p>
+              </details>
+              <div className="mt-1 flex gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={pending !== null}
+                  onClick={() => {
+                    const request = state.requests.find((request) => request.id === item.requestId)
+                    if (request) void act(item.id, () => onOpenRequest(request))
+                  }}
+                >
+                  {t("personalAssistant.source")}
+                </Button>
+                {item.state === "waiting" && item.reason !== "needs_input" && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={pending !== null}
+                    onClick={() => void act(item.id, () => state.itemAction("continue", item.id))}
+                  >
+                    {t("personalAssistant.continueItem")}
+                  </Button>
+                )}
+                {(item.state === "open" || item.state === "waiting") && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={pending !== null}
+                    onClick={() => void act(item.id, () => state.itemAction("stop", item.id))}
+                  >
+                    {t("personalAssistant.stop")}
+                  </Button>
+                )}
+              </div>
+            </article>
+          ))}
+        </TabsContent>
+        <TabsContent value="history" className="min-h-0 flex-1 space-y-2 overflow-y-auto">
           {!state.error && !state.loading && state.requests.length === 0 && (
             <p className="text-sm text-muted-foreground">{t("personalAssistant.emptyWork")}</p>
           )}

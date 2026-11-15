@@ -62,8 +62,7 @@ pub(crate) fn emit_completed(
     status: &str,
     session_id: Option<&str>,
 ) {
-    emit(
-        "job:completed",
+    crate::personal_assistant::attention::signals::emit_job_completed(
         json!({ "job_id": job_id, "kind": kind.as_str(), "tool": tool, "status": status, "session_id": session_id }),
     );
 }

@@ -73,6 +73,7 @@ impl HookHandler for AgentHandler {
             .unwrap_or_else(|| parent_agent_id.clone());
 
         let params = SpawnParams {
+            parent_execution_id: None,
             task: self.config.prompt.clone(),
             agent_id,
             parent_session_id: common.session_id.clone(),

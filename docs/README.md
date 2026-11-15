@@ -55,7 +55,7 @@
 
 ## Agent 能力
 
-[个人助手的运行与私密边界](architecture/agent/personal-assistant.md) 记录固定主对话、持久派工、本地 Goal 关注和访问隔离。[产品调研与设计提案](proposals/personal-assistant/README.md) 包含专属 IM 的后续接入和验收条件。
+[个人助手的运行与私密边界](architecture/agent/personal-assistant.md) 记录已实现的固定主对话、轻量事项、持久问答、共享资料发现、专属 Telegram、统一反馈、免打扰和访问隔离。[主动助理完整设计](proposals/personal-assistant/README.md) 记录本版本 A/B/C 的轻量发现、持续跟进、后台执行、IM 反馈与统一免打扰设计；配套[运行契约](proposals/personal-assistant/runtime-design.md)、[调研](proposals/personal-assistant/products.md)、[开源机制](proposals/personal-assistant/open-architectures.md)和[整体审阅](proposals/personal-assistant/review.md)。[首轮基线](proposals/personal-assistant/baseline-2026-11-06.md)、[旧 IM 提案](proposals/personal-assistant/im.md)、[交互样例](proposals/personal-assistant/walkthrough.html)及[旧图](proposals/personal-assistant/diagrams.html)仅保留历史。
 
 
 | 文档                                          | 说明                                | 关联源码                  |

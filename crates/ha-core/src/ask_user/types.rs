@@ -205,6 +205,8 @@ pub struct AskUserQuestionGroup {
 pub struct AskUserOwnerResponse {
     pub action: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_item: Option<crate::personal_assistant::items::AssistantAnswerTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain_evidence: Option<crate::domain_workflow::RecordDomainEvidenceInput>,
 }
 

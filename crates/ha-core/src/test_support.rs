@@ -140,6 +140,41 @@ pub fn replace_config_cache(config: crate::config::AppConfig) -> ConfigCacheRest
     }
 }
 
+/// Fixture a real user turn and durability admission for Home tool-level
+/// tests. This does not invoke a Provider or substitute for TurnKernel tests.
+pub fn home_tool_context(
+    db: &std::sync::Arc<crate::session::SessionDB>,
+) -> crate::tool_defs::ToolExecContext {
+    let home = db.ensure_personal_assistant_home().unwrap();
+    let message = db
+        .append_message(
+            &home.id,
+            &crate::session::NewMessage::user("Please handle this operation"),
+        )
+        .unwrap();
+    db.create_chat_turn_with_id("owner-turn", &home.id, "desktop", None, Some(message))
+        .unwrap();
+    let admitted = db
+        .create_stream_run(&crate::session::CreateStreamRun {
+            run_id: "home-stream".into(),
+            session_id: home.id.clone(),
+            source: "desktop".into(),
+            stream_id: None,
+            turn_id: Some("owner-turn".into()),
+            provider_shape: None,
+        })
+        .unwrap();
+    crate::tool_defs::ToolExecContext {
+        session_id: Some(home.id),
+        turn_id: Some("owner-turn".into()),
+        persistence_run_id: Some("home-stream".into()),
+        session_db: Some(crate::tool_defs::SessionDbHandle(db.clone())),
+        turn_admitted_stop_epoch: Some(admitted.admitted_stop_epoch),
+        turn_admitted_global_stop_epoch: Some(admitted.admitted_global_stop_epoch),
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
