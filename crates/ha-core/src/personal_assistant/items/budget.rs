@@ -19,23 +19,28 @@ pub(crate) fn custom_hooks_blocked() -> bool {
         .unwrap_or(false)
 }
 
-pub(crate) async fn execution_scope<F: std::future::Future>(
+pub(crate) fn execution_scope<F: std::future::Future>(
     db: Arc<SessionDB>,
     execution: Option<String>,
     future: F,
-) -> F::Output {
-    if let Some(execution) = execution {
-        let id = execution.clone();
-        let blocked = db
-            .run(move |db| db.assistant_execution_role(&id))
-            .await
-            .map(|role| role.is_some())
-            .unwrap_or(true);
-        BLOCK_CUSTOM_HOOKS
-            .scope(blocked, EXECUTION.scope((db, execution), future))
-            .await
-    } else {
-        future.await
+) -> impl std::future::Future<Output = F::Output> {
+    // Keep the caller's runtime state on the heap before adding task-local
+    // wrappers. Test/runtime adapters can have very large concrete futures.
+    let future = Box::pin(future);
+    async move {
+        if let Some(execution) = execution {
+            let id = execution.clone();
+            let blocked = db
+                .run(move |db| db.assistant_execution_role(&id))
+                .await
+                .map(|role| role.is_some())
+                .unwrap_or(true);
+            BLOCK_CUSTOM_HOOKS
+                .scope(blocked, EXECUTION.scope((db, execution), future))
+                .await
+        } else {
+            future.await
+        }
     }
 }
 

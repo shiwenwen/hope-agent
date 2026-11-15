@@ -1071,8 +1071,9 @@ impl TurnKernel {
             .pre_admitted_stream
             .as_ref()
             .map(|s| s.registration.run_id.clone());
+        let execution_future = Box::pin(execute(turn));
         crate::personal_assistant::items::execution_scope(db, execution, async move {
-            let result = execute(turn)
+            let result = execution_future
                 .await
                 .map_err(|failure| failure.with_route_all_codex(route_all_codex));
             if let Some(recovery) = drop_recovery.as_mut() {
