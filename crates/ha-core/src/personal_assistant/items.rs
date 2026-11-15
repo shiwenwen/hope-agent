@@ -363,6 +363,19 @@ pub(crate) fn bind_stream_with_conn(
         JOIN assistant_items i ON i.id=ar.item_id WHERE ar.turn_id=?2",
         params![input.run_id, turn],
     )?;
+    conn.execute("UPDATE assistant_followups SET state='claimed',consumer_execution_id=?1
+        WHERE state='queued' AND request_id IN(SELECT request_id FROM assistant_item_runs WHERE turn_id=?2)",
+        params![input.run_id,turn])?;
+    // Explicit Continue carries undelivered owner data to a verification turn;
+    // it does not certify the failed consumer's effects or repeat its writes.
+    conn.execute("UPDATE assistant_followups SET state='claimed',consumer_execution_id=?1 WHERE id IN(
+        SELECT f.id FROM assistant_followups f JOIN assistant_item_runs ar ON ar.item_id=f.item_id
+        JOIN assistant_followups resume ON resume.request_id=ar.request_id AND resume.id LIKE 'owner-continue:%'
+        LEFT JOIN chat_stream_runs old ON old.run_id=f.consumer_execution_id
+        WHERE ar.turn_id=?2 AND (f.id LIKE 'owner-followup:%' OR f.id LIKE 'answer:%')
+            AND (f.state='pending' OR (f.state='claimed' AND old.status IN('failed','interrupted','recovered')))
+        ORDER BY CASE WHEN f.id LIKE 'answer:%' THEN 0 ELSE 1 END,f.due_at,f.id LIMIT 8)",
+        params![input.run_id,turn])?;
     Ok(())
 }
 
@@ -566,8 +579,9 @@ impl SessionDB {
                 "The execution ended without a verified final report. Review the work before continuing.".to_owned(),None),
         };
         let owner_followup: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM assistant_followups
-            WHERE item_id=?1 AND state='pending' AND (id LIKE 'owner-followup:%' OR id LIKE 'answer:%'))",
+            "SELECT EXISTS(SELECT 1 FROM assistant_followups f LEFT JOIN chat_stream_runs s ON s.run_id=f.consumer_execution_id
+            WHERE f.item_id=?1 AND (f.id LIKE 'owner-followup:%' OR f.id LIKE 'answer:%')
+                AND (f.state IN('pending','queued') OR (f.state='claimed' AND COALESCE(s.status,'missing')<>'committed')))",
             [&item],
             |r| r.get(0),
         )?;
@@ -636,7 +650,7 @@ impl SessionDB {
         let due = {
             let mut stmt = tx.prepare(
                 "SELECT id,item_id,item_revision,instruction FROM assistant_followups
-                WHERE state='pending' AND due_at<=?1 ORDER BY due_at,id LIMIT 16",
+                WHERE state='pending' AND due_at<=?1 ORDER BY CASE WHEN id LIKE 'owner-continue:%' THEN 0 ELSE 1 END,due_at,id LIMIT 16",
             )?;
             let rows = stmt
                 .query_map([chrono::Utc::now().timestamp()], |r| {
@@ -655,6 +669,8 @@ impl SessionDB {
             let occupied=has_internal_continuation(&tx,&item)? || tx.query_row("SELECT
                 EXISTS(SELECT 1 FROM assistant_item_runs ar JOIN personal_assistant_requests r ON r.id=ar.request_id
                     WHERE ar.item_id=?1 AND r.status IN('running','cancellation_requested'))
+                OR EXISTS(SELECT 1 FROM assistant_items i JOIN personal_assistant_requests r ON r.id=i.request_id
+                    WHERE i.id=?1 AND r.status IN('queued','running','cancellation_requested'))
                 OR EXISTS(SELECT 1 FROM assistant_followups f JOIN personal_assistant_requests r ON r.id=f.request_id
                     WHERE f.item_id=?1 AND r.status='queued')",[&item],|r|r.get::<_,bool>(0))?;
             if occupied {
@@ -1069,7 +1085,8 @@ impl SessionDB {
             return Ok(());
         }
         tx.execute(
-            "UPDATE assistant_followups SET state='cancelled' WHERE item_id=?1 AND state='pending'",
+            "UPDATE assistant_followups SET state='cancelled' WHERE item_id=?1 AND state='pending'
+                AND id NOT LIKE 'owner-followup:%' AND id NOT LIKE 'answer:%'",
             [id],
         )?;
         tx.execute("INSERT INTO assistant_followups(id,item_id,item_revision,source_turn_id,instruction,due_at)

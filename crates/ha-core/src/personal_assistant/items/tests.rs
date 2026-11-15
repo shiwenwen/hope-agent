@@ -950,3 +950,211 @@ fn archived_scope_cancels_durable_questions_and_keeps_completed_parents_sources_
             .is_err());
     });
 }
+
+#[test]
+fn supplement_waits_for_queued_original_and_completes_only_after_its_own_delivery() {
+    isolated_test(|db, _| {
+        let home = seed_source(&db);
+        seed_target(&db, "work");
+        let original = db
+            .enqueue_personal_assistant_request(input("work"))
+            .unwrap();
+        db.request_assistant_item_followup(
+            &original.id,
+            "owner-turn",
+            "queued-extra",
+            "work",
+            "Include the updated outline",
+            0,
+        )
+        .unwrap();
+        assert_eq!(db.queue_assistant_followups().unwrap(), 0);
+        admit(&db, &home, &original, "worker-turn").unwrap();
+        db.create_assistant_work_stream(&CreateStreamRun {
+            run_id: "worker-stream".into(),
+            session_id: "work".into(),
+            source: "session_tool".into(),
+            stream_id: Some("original-stream".into()),
+            turn_id: Some("worker-turn".into()),
+            provider_shape: None,
+        })
+        .unwrap();
+        db.report_assistant_item("work", "worker-stream", "done", "Original verified", None)
+            .unwrap();
+        terminal(&db, "committed");
+        db.settle_assistant_execution("worker-stream").unwrap();
+        assert_eq!(db.queue_assistant_followups().unwrap(), 1);
+        // Reconciliation can revisit the original after the supplement queues.
+        db.settle_assistant_execution("worker-stream").unwrap();
+        assert!(matches!(
+            db.list_assistant_items().unwrap()[0].state,
+            ItemState::Open
+        ));
+        let next = db
+            .list_personal_assistant_requests()
+            .unwrap()
+            .into_iter()
+            .find(|r| r.id != original.id)
+            .unwrap();
+        admit(&db, &home, &next, "supplement-turn").unwrap();
+        db.create_assistant_work_stream(&CreateStreamRun {
+            run_id: "supplement-stream".into(),
+            session_id: "work".into(),
+            source: "session_tool".into(),
+            stream_id: Some("supplement".into()),
+            turn_id: Some("supplement-turn".into()),
+            provider_shape: None,
+        })
+        .unwrap();
+        db.report_assistant_item(
+            "work",
+            "supplement-stream",
+            "done",
+            "Updated outline verified",
+            None,
+        )
+        .unwrap();
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE chat_stream_runs SET status='committed' WHERE run_id='supplement-stream'",
+                [],
+            )
+            .unwrap();
+        db.settle_assistant_execution("supplement-stream").unwrap();
+        assert!(matches!(
+            db.list_assistant_items().unwrap()[0].state,
+            ItemState::Done
+        ));
+    });
+}
+
+#[test]
+fn terminal_model_allocations_keep_charges_without_blocking_explicit_continuation() {
+    isolated_test(|db, _| {
+        let item = seed_execution(&db);
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            for _ in 0..2 {
+                drop(begin_model_budget(db.clone(), "worker-stream".into()).await.unwrap().unwrap());
+            }
+            terminal(&db, "interrupted");
+            db.settle_assistant_execution("worker-stream").unwrap();
+            db.continue_assistant_item(&item).unwrap();
+            assert_eq!(db.queue_assistant_followups().unwrap(), 1);
+            let home = db.ensure_personal_assistant_home().unwrap();
+            let next = db.list_personal_assistant_requests().unwrap().into_iter().find(|r| r.id != item).unwrap();
+            admit(&db, &home, &next, "resumed-turn").unwrap();
+            db.create_assistant_work_stream(&CreateStreamRun {
+                run_id: "resumed-stream".into(), session_id: "work".into(), source: "session_tool".into(),
+                stream_id: Some("resumed".into()), turn_id: Some("resumed-turn".into()), provider_shape: None,
+            }).unwrap();
+            let resumed = tokio::time::timeout(std::time::Duration::from_secs(2), begin_model_budget(db.clone(), "resumed-stream".into())).await.unwrap().unwrap().unwrap();
+            resumed.finish().await.unwrap();
+            let conn = db.read_conn().unwrap();
+            let retained: i64 = conn.query_row("SELECT SUM(reserved_seconds) FROM assistant_budget_reservations WHERE execution_id='worker-stream' AND settled_at IS NULL", [], |r| r.get(0)).unwrap();
+            assert_eq!(retained, 180, "unknown charges must not be refunded");
+        });
+    });
+}
+
+#[test]
+fn explicit_continuation_hands_failed_supplement_to_the_verifying_consumer() {
+    isolated_test(|db, _| {
+        let item = seed_execution(&db);
+        db.request_assistant_item_followup(
+            &item,
+            "owner-turn",
+            "failed-extra",
+            "work",
+            "Verify the updated outline before writing",
+            0,
+        )
+        .unwrap();
+        db.report_assistant_item("work", "worker-stream", "done", "Original verified", None)
+            .unwrap();
+        terminal(&db, "committed");
+        db.settle_assistant_execution("worker-stream").unwrap();
+        assert_eq!(db.queue_assistant_followups().unwrap(), 1);
+        let home = db.ensure_personal_assistant_home().unwrap();
+        let next = db
+            .list_personal_assistant_requests()
+            .unwrap()
+            .into_iter()
+            .find(|r| r.status == "queued")
+            .unwrap();
+        admit(&db, &home, &next, "failed-extra-turn").unwrap();
+        db.create_assistant_work_stream(&CreateStreamRun {
+            run_id: "failed-extra-stream".into(),
+            session_id: "work".into(),
+            source: "session_tool".into(),
+            stream_id: Some("failed-extra".into()),
+            turn_id: Some("failed-extra-turn".into()),
+            provider_shape: None,
+        })
+        .unwrap();
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE chat_stream_runs SET status='failed' WHERE run_id='failed-extra-stream'",
+                [],
+            )
+            .unwrap();
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE chat_turns SET status='failed' WHERE id='failed-extra-turn'",
+                [],
+            )
+            .unwrap();
+        db.reconcile_personal_assistant_requests().unwrap();
+        db.settle_assistant_execution("failed-extra-stream")
+            .unwrap();
+        db.continue_assistant_item(&item).unwrap();
+        assert_eq!(db.queue_assistant_followups().unwrap(), 1);
+        let resume = db
+            .list_personal_assistant_requests()
+            .unwrap()
+            .into_iter()
+            .find(|r| r.status == "queued")
+            .unwrap();
+        assert!(resume.instruction.contains("Verify unknown prior outcomes"));
+        admit(&db, &home, &resume, "verify-turn").unwrap();
+        db.create_assistant_work_stream(&CreateStreamRun {
+            run_id: "verify-stream".into(),
+            session_id: "work".into(),
+            source: "session_tool".into(),
+            stream_id: Some("verify".into()),
+            turn_id: Some("verify-turn".into()),
+            provider_shape: None,
+        })
+        .unwrap();
+        assert!(db
+            .assistant_execution_owner_events("verify-stream")
+            .unwrap()
+            .contains("updated outline"));
+        db.report_assistant_item(
+            "work",
+            "verify-stream",
+            "done",
+            "Verified the prior outcome and updated outline",
+            None,
+        )
+        .unwrap();
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE chat_stream_runs SET status='committed' WHERE run_id='verify-stream'",
+                [],
+            )
+            .unwrap();
+        db.settle_assistant_execution("verify-stream").unwrap();
+        assert!(matches!(
+            db.list_assistant_items().unwrap()[0].state,
+            ItemState::Done
+        ));
+    });
+}

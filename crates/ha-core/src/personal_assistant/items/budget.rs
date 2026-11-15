@@ -51,7 +51,7 @@ pub(crate) async fn bounded_auxiliary_call<T, F: std::future::Future<Output = Re
 ) -> Result<T> {
     let owner = EXECUTION.try_with(|e| e.clone()).ok();
     let budget = if let Some((db, execution)) = owner {
-        begin_model_budget(db, execution).await?
+        begin_model_kind(db, execution, "aux_model").await?
     } else {
         None
     };
@@ -265,19 +265,18 @@ pub async fn begin_model_budget(
     db: Arc<SessionDB>,
     execution: String,
 ) -> Result<Option<BudgetLease>> {
+    begin_model_kind(db, execution, "model").await
+}
+
+async fn begin_model_kind(
+    db: Arc<SessionDB>,
+    execution: String,
+    kind: &'static str,
+) -> Result<Option<BudgetLease>> {
     let token = format!("model:{execution}:{}", uuid::Uuid::new_v4());
     let waiting = Instant::now();
     loop {
-        match begin(
-            db.clone(),
-            execution.clone(),
-            token.clone(),
-            "model",
-            90,
-            true,
-        )
-        .await
-        {
+        match begin(db.clone(), execution.clone(), token.clone(), kind, 90, true).await {
             Err(error)
                 if error.downcast_ref::<AssistantError>() == Some(&AssistantError::Busy)
                     && waiting.elapsed() < Duration::from_secs(30) =>
@@ -354,8 +353,10 @@ async fn begin(
                 bail!("Assistant operation already reserved; refusing duplicate execution")
             }
             let (reserved,parallel):(i64,i64)=tx.query_row(
-            "SELECT COALESCE(SUM(reserved_seconds),0),COUNT(*) FROM assistant_budget_reservations
-             WHERE item_id=?1 AND settled_at IS NULL",[&item],|r|Ok((r.get(0)?,r.get(1)?)))?;
+            "SELECT COALESCE(SUM(b.reserved_seconds),0),COALESCE(SUM(CASE
+                WHEN b.kind='model' AND b.replay_safe=1 AND s.status IN('committed','recovered','interrupted','failed') THEN 0 ELSE 1 END),0)
+             FROM assistant_budget_reservations b LEFT JOIN chat_stream_runs s ON s.run_id=b.execution_id
+             WHERE b.item_id=?1 AND b.settled_at IS NULL",[&item],|r|Ok((r.get(0)?,r.get(1)?)))?;
             let now = chrono::Utc::now().timestamp();
             let (_, owner_tool_limit, owner_seconds_limit) =
                 super::owner_limits_with_conn(&tx, now)?;
