@@ -39,6 +39,7 @@ pub fn emit_ask_user_timed_out(
     timeout_secs: u64,
     used_default_values: bool,
     question_preview: Option<String>,
+    ownership: crate::personal_assistant::attention::NotificationOwnership,
 ) {
     let Some(bus) = crate::globals::get_event_bus() else {
         return;
@@ -51,7 +52,11 @@ pub fn emit_ask_user_timed_out(
         question_preview,
     };
     match serde_json::to_value(payload) {
-        Ok(value) => bus.emit(EVENT_ASK_USER_TIMED_OUT, value),
+        Ok(mut value) => {
+            value["assistantAttention"] =
+                serde_json::to_value(ownership).unwrap_or(serde_json::json!("unknown"));
+            bus.emit(EVENT_ASK_USER_TIMED_OUT, value)
+        }
         Err(e) => app_warn!(
             "ask_user",
             "timeout",
@@ -400,6 +405,11 @@ pub fn schedule_owner_question_timeout(group: AskUserQuestionGroup) {
                 group.questions.first().map(|question| {
                     crate::truncate_utf8(question.text.fallback_text(), 160).to_string()
                 }),
+                if group.source.as_deref() == Some("personal_assistant") {
+                    crate::personal_assistant::attention::NotificationOwnership::Assistant
+                } else {
+                    crate::personal_assistant::attention::NotificationOwnership::Ordinary
+                },
             );
         }
         forget_owner_timeout_task(&task_request_id);
@@ -782,5 +792,21 @@ mod tests {
 
         cancel_pending_ask_user_question_with_source(&request_b, "test_cleanup").await;
         assert!(receiver_b.await.is_err());
+    }
+}
+
+/// Called only after a durable assistant answer and its continuation commit.
+/// Notification cleanup must not re-answer the question or run custom hooks.
+pub(crate) fn publish_committed_assistant_answer(request: &str, session: &str) {
+    cancel_owner_timeout_task(request);
+    forget_owner_terminal_gate(request);
+    emit_ask_user_resolved(request, session, "answered", "response");
+    crate::tools::approval::emit_pending_interactions_changed(Some(session));
+    crate::personal_assistant::emit_inbox_changed();
+    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        let request = request.to_owned();
+        runtime.spawn(async move {
+            crate::channel_hooks::drop_ask_user_by_request_id(&request).await;
+        });
     }
 }

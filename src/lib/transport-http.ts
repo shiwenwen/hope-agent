@@ -1008,6 +1008,24 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   ensure_personal_assistant_home: { method: "POST", path: "/api/personal-assistant/home" },
   get_personal_assistant_profile: { method: "GET", path: "/api/personal-assistant/profile" },
   update_personal_assistant_profile: { method: "PUT", path: "/api/personal-assistant/profile" },
+  get_execution_notification_ownership: {
+    method: "POST",
+    path: "/api/chat/notification-ownership",
+  },
+  get_personal_assistant_attention: { method: "GET", path: "/api/personal-assistant/attention" },
+  set_personal_assistant_presence: { method: "POST", path: "/api/personal-assistant/presence" },
+  claim_personal_assistant_desktop_notice: {
+    method: "POST",
+    path: "/api/personal-assistant/attention/desktop/claim",
+  },
+  finish_personal_assistant_desktop_notice: {
+    method: "POST",
+    path: "/api/personal-assistant/attention/desktop/{id}/finish",
+  },
+  set_personal_assistant_source_im_disclosure: {
+    method: "PUT",
+    path: "/api/personal-assistant/sources/{id}/im-disclosure",
+  },
   get_personal_assistant_policy: { method: "GET", path: "/api/personal-assistant/policy" },
   set_personal_assistant_policy: { method: "PUT", path: "/api/personal-assistant/policy" },
   list_personal_assistant_sources: { method: "GET", path: "/api/personal-assistant/sources" },

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::session::{SessionDB, SessionMeta};
 
+pub mod attention;
 pub mod items;
 pub mod policy;
 mod profile;
@@ -589,7 +590,10 @@ impl SessionDB {
                 OR EXISTS(SELECT 1 FROM personal_assistant_private_sessions)
                 OR EXISTS(SELECT 1 FROM personal_assistant_watches)
                 OR EXISTS(SELECT 1 FROM assistant_sources)
-                OR EXISTS(SELECT 1 FROM assistant_research_runs)",
+                OR EXISTS(SELECT 1 FROM assistant_research_runs)
+                OR EXISTS(SELECT 1 FROM assistant_attention_deliveries)
+                OR EXISTS(SELECT 1 FROM assistant_attention_inbounds)
+                OR EXISTS(SELECT 1 FROM assistant_source_im_disclosures)",
             [],
             |row| row.get(0),
         )?)

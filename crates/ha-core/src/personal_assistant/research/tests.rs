@@ -71,6 +71,7 @@ fn admit(db: &SessionDB, pending: &PendingResearch) -> String {
 }
 fn finding(source: &AssistantSource) -> ResearchFindingInput {
     ResearchFindingInput {
+        attention_until: None,
         topic_key: "meeting-conflict".into(),
         fact: "The supplied agenda has changed".into(),
         inference: "The meetings may overlap".into(),

@@ -6,6 +6,7 @@ pub(crate) enum ReadAuthority {
     Owner,
     Autonomous,
     ResearchRun(String),
+    Attention(String),
 }
 
 fn read_authorized(
@@ -23,6 +24,7 @@ fn read_authorized(
         ReadAuthority::Owner=>Ok(true),
         ReadAuthority::Autonomous=>source_autonomy_current(conn,source,now),
         ReadAuthority::ResearchRun(run)=>Ok(run_current(conn,run,now)? && conn.query_row("SELECT EXISTS(SELECT 1 FROM assistant_research_inputs WHERE run_id=?1 AND source_id=?2 AND revision=?3)",params![run,source,revision],|r|r.get::<_,bool>(0))?),
+        ReadAuthority::Attention(key)=>crate::personal_assistant::attention::read_scope_current(conn,key,source,revision,now),
     }
 }
 
@@ -42,6 +44,8 @@ fn row_source(r: &rusqlite::Row<'_>) -> rusqlite::Result<AssistantSource> {
         gap_since: r.get(9)?,
         error: r.get(10)?,
         suspended: false,
+        im_summary_allowed: false,
+        im_disclosure_revision: 0,
     })
 }
 
@@ -130,6 +134,13 @@ impl SessionDB {
             .query_map([chrono::Utc::now().timestamp()], row_source)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for source in &mut sources {
+            (source.im_summary_allowed, source.im_disclosure_revision) =
+                crate::personal_assistant::attention::source_disclosure_status(
+                    &conn,
+                    &source.id,
+                    source.revision,
+                    chrono::Utc::now().timestamp(),
+                )?;
             let paused:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM assistant_policy_gate WHERE singleton=1 AND json_extract(requested_json,'$.paused')=1)",[],|r|r.get(0))?;
             source.suspended = source.state == "active"
                 && (paused
@@ -560,6 +571,35 @@ pub(crate) async fn refresh_execution_sources(db: Arc<SessionDB>, execution: Str
         .await?;
     if let Some(run) = run {
         refresh_research_sources(db, run).await?;
+    }
+    Ok(())
+}
+
+/// A notification has its own sealed read context after research has finished.
+/// It cannot borrow the owner's UI permission or a completed research lease.
+pub(crate) async fn refresh_attention_sources(db: Arc<SessionDB>, candidate: String) -> Result<()> {
+    let receipt = candidate.clone();
+    let targets=db.run(move|db| ->Result<Vec<ReadTarget>> {
+        let conn=db.read_conn()?;
+        let set:Option<String>=conn.query_row("SELECT source_set_json FROM assistant_attention_candidates WHERE logical_key=?1",[&receipt],|row|row.get(0)).optional()?.flatten();
+        let Some(set)=set else {return Ok(Vec::new())};
+        let keys:Vec<super::queries::SourceKey>=serde_json::from_str(&set)?;
+        if keys.is_empty() || keys.len()>4 {bail!("A current source snapshot is required");}
+        let mut targets=Vec::new();
+        for key in keys {
+            if !crate::personal_assistant::attention::read_scope_current(&conn,&receipt,&key.source_id,key.revision,chrono::Utc::now().timestamp())? {return Ok(Vec::new());}
+            let target=conn.query_row(&format!("SELECT {COLUMNS},workspace_key FROM assistant_sources WHERE id=?1 AND revision=?2 AND version=?3"),params![key.source_id,key.revision,key.version],|row|Ok(ReadTarget{source:row_source(row)?,workspace_key:row.get(11)?})).optional()?;
+            let Some(target)=target else {return Ok(Vec::new())};targets.push(target);
+        }
+        Ok(targets)
+    }).await?;
+    for target in targets {
+        observe_target(
+            db.clone(),
+            target,
+            ReadAuthority::Attention(candidate.clone()),
+        )
+        .await?;
     }
     Ok(())
 }

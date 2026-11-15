@@ -138,3 +138,5 @@ mod tests {
         assert!(!was_affirmative(raw, &["Run it"]));
     }
 }
+
+pub(crate) use questions::publish_committed_assistant_answer;

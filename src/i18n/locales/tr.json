@@ -13061,7 +13061,7 @@
       "pendingPolicy": "Ayarlar uygulanıyor…",
       "sources": "Paylaşılan materyal",
       "expires": "Paylaşım sonu: {{time}}",
-      "observed": "Son kontrol: {{time}}",
+      "observed": "Son dosya okuması: {{time}}",
       "suspended": "Otomatik kontroller duraklatıldı. Gerektiğinde şimdi kontrol edebilirsiniz.",
       "observationGap": "Bu dönem gözlemlenemedi. Değişiklikler kaçırılmış olabilir.",
       "refresh": "Şimdi kontrol et",
@@ -13091,6 +13091,42 @@
         "scopeChanged": "Materyal veya izin değişti. Tekrar kontrol edin.",
         "budget": "Araştırma sınırı doldu. Daha sonra deneyin.",
         "unverified": "Doğrulanmış sonuç alınamadı. Yeniden deneyin."
+      }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope’ta bir gelişme var. Görmek için Hope’u açın.",
+      "route": "Bildirim kanalı",
+      "routes": {
+        "none": "Yalnızca Hope içinde",
+        "desktop": "Masaüstü",
+        "im": "Asistan IM"
+      },
+      "limitHint": "Yerel günde ve kayan 24 saatte en fazla iki proaktif bildirim. İlgili güncellemeler birleştirilir; IM üzerinden doğrudan sorularınız yanıtlanabilir.",
+      "timezone": "Saat diliminiz (IANA)",
+      "quietStart": "Sessizlik başlangıcı",
+      "quietEnd": "Bitişi",
+      "quietHint": "Saat diliminiz kullanılır. Aynı başlangıç ve bitiş, tüm gün sessizlik demektir.",
+      "desktopToIm": "Masaüstü iş durumunu IM’e gönder",
+      "desktopToImHint": "İlgili sohbetin durum ve tamamlanma izinleri de gerekir. Yalnızca durum gönderilir; sonuçlar Hope’ta kalır.",
+      "pairRequired": "Önce Asistan IM ayarlarında özel Bot’unuzu eşleştirin.",
+      "sourceDisclosure": "Bu kaynağın özetlerine IM’de izin ver",
+      "sourceDisclosureHint": "Varsayılan olarak kapalıdır. Eşleşmiş sohbette kısa özetlere ve kaynakla sınırlı sorulara izin verir. İptal edilince eski yanıt bağlamı geçersiz olur.",
+      "nextEligible": "Sonraki olası bildirim: {{time}} ({{zone}})",
+      "deferred": {
+        "timezone_required": "Bildirim almak için saat diliminizi seçin.",
+        "quiet_hours": "Sessiz saatler: güncellemeler şimdilik Hope’ta kalır.",
+        "daily_limit": "Bildirim sınırına ulaşıldı. Yeni denemeler bekler.",
+        "policy_pending": "Asistan ayarlarının uygulanması bekleniyor.",
+        "paused": "Asistan duraklatıldı.",
+        "disabled": "Güncellemeler Hope’ta kalır; dış bildirimler kapalıdır.",
+        "pairing_required": "IM eşleşmemiş veya bildirimler duraklatılmış.",
+        "using_hope": "Hope’u kullanıyorsunuz. Dış bildirimler ertelenir."
+      },
+      "receipts": {
+        "submitting": "{{time}} · Platform onayı bekleniyor",
+        "accepted": "{{time}} · Platform kabul etti; okunduğu bilinmiyor",
+        "unknown": "{{time}} · Teslim belirsiz; otomatik tekrar yok",
+        "cancelled": "{{time}} · Gönderilmedi; deneme yine de sayılır"
       }
     }
   }

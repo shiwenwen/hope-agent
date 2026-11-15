@@ -3,6 +3,7 @@ import { getTransportRevision, useTransport, useTransportRevision } from "@/lib/
 import { TRANSPORT_EVENT_RESYNC_REQUIRED } from "@/lib/transport"
 
 export interface AssistantPolicySettings {
+  desktopToImNotices: boolean
   researchEnabled: boolean
   paused: boolean
   timezone: string | null
@@ -16,6 +17,14 @@ export interface AssistantPolicyStatus {
   settings: AssistantPolicySettings
   pending: boolean
   failed: boolean
+}
+export interface AssistantAttentionStatus {
+  pairing: { connectionId: string; generation: number } | null
+  paired: boolean
+  deferredReason: string | null
+  nextEligibleAt: number | null
+  pendingCount: number
+  receipts: { id: string; route: string; state: string; submittedAt: number; itemCount: number }[]
 }
 export interface AssistantSourceInput {
   sessionId: string
@@ -36,6 +45,8 @@ export interface AssistantSource {
   gapSince: number | null
   error: boolean
   suspended: boolean
+  imSummaryAllowed: boolean
+  imDisclosureRevision: number
 }
 export interface SourceReference {
   sourceId: string
@@ -84,7 +95,7 @@ export function researchActivityKey(activity: ResearchQueryReceipt): string {
   return `personalAssistant.research.activity.${key}`
 }
 
-function ownerRequestId(): string {
+export function ownerRequestId(): string {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
   bytes[6] = (bytes[6] & 15) | 64
@@ -98,6 +109,7 @@ const empty = {
   findings: [] as AssistantFinding[],
   activity: [] as ResearchActivity[],
   policy: null as AssistantPolicyStatus | null,
+  attention: null as AssistantAttentionStatus | null,
 }
 
 export function useAssistantResearch(enabled: boolean) {
@@ -123,14 +135,15 @@ export function useAssistantResearch(enabled: boolean) {
       if (invalidate) setData((old) => ({ ...old, findings: [] }))
       setLoading(true)
       try {
-        const [sources, findings, policy, activity] = await Promise.all([
+        const [sources, findings, policy, activity, attention] = await Promise.all([
           transport.call<AssistantSource[]>("list_personal_assistant_sources"),
           transport.call<AssistantFinding[]>("list_personal_assistant_findings"),
           transport.call<AssistantPolicyStatus>("get_personal_assistant_policy"),
           transport.call<ResearchActivity[]>("personal_assistant_research_activity"),
+          transport.call<AssistantAttentionStatus>("get_personal_assistant_attention"),
         ])
         if (!current() || ticket !== requestVersion.current) return
-        setData({ sources, findings, policy, activity, revision })
+        setData({ sources, findings, policy, activity, attention, revision })
         setError(null)
       } catch (cause) {
         if (!current() || ticket !== requestVersion.current) return
@@ -260,6 +273,25 @@ export function useAssistantResearch(enabled: boolean) {
       ),
     [action],
   )
+  const setSourceDisclosure = useCallback(
+    (source: AssistantSource, enabled: boolean) => {
+      const pairing = data.attention?.pairing
+      if (!pairing) return Promise.reject(new Error("Pair your assistant IM first"))
+      return action<void>(
+        "set_personal_assistant_source_im_disclosure",
+        {
+          id: source.id,
+          revision: source.revision,
+          enabled,
+          expectedDisclosureRevision: source.imDisclosureRevision,
+          expectedConnectionId: pairing.connectionId,
+          expectedGeneration: pairing.generation,
+        },
+        true,
+      )
+    },
+    [data.attention, action],
+  )
   const visible = enabled && data.revision === revision ? data : { ...empty, revision }
   return {
     ...visible,
@@ -272,6 +304,7 @@ export function useAssistantResearch(enabled: boolean) {
     viewFinding,
     askFinding,
     savePolicy,
+    setSourceDisclosure,
   }
 }
 

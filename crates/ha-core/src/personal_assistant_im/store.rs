@@ -72,7 +72,7 @@ pub(crate) fn migrate(conn: &SqlConnection) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn load(conn: &SqlConnection) -> Result<Option<Connection>> {
+pub(crate) fn load(conn: &SqlConnection) -> Result<Option<Connection>> {
     let json: Option<String> = conn
         .query_row(
             "SELECT state_json FROM assistant_im_connection WHERE singleton = 1",
@@ -105,7 +105,7 @@ pub(super) fn check_lease(state: &Connection, lease: &PollLease) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn lease(state: &Connection) -> PollLease {
+pub(crate) fn lease(state: &Connection) -> PollLease {
     PollLease {
         connection_id: state.view.connection_id.clone(),
         bot_id: state.view.bot_id,
@@ -307,7 +307,7 @@ pub(super) fn eligible_session(conn: &SqlConnection, session_id: &str) -> Result
     }
 }
 
-pub(super) fn grant(
+pub(crate) fn grant(
     conn: &SqlConnection,
     connection_id: &str,
     session_id: &str,
@@ -856,7 +856,9 @@ impl SessionDB {
         if inserted == 0 {
             return Ok(IngressOutcome::Duplicate);
         }
+        let update_id = input.update_id;
         let outcome = consume_input(&tx, &mut state, input, now)?;
+        let answered:Option<(String,String)>=tx.query_row("SELECT question_id,home_session_id FROM assistant_attention_inbounds WHERE connection_id=?1 AND generation=?2 AND cursor_epoch=?3 AND update_id=?4 AND state='answered' AND question_id IS NOT NULL",params![expected.connection_id,expected.generation,expected.cursor_epoch,update_id],|row|Ok((row.get(0)?,row.get(1)?))).optional()?;
         state.last_update_at = now;
         state.last_poll_at = now;
         save(&tx, &state)?;
@@ -866,6 +868,9 @@ impl SessionDB {
         )?;
         tx.commit()?;
         drop(conn);
+        if let Some((request, session)) = answered {
+            crate::ask_user::publish_committed_assistant_answer(&request, &session);
+        }
         if outcome != IngressOutcome::Ignored {
             changed();
         }
@@ -1076,6 +1081,12 @@ impl SessionDB {
         if state.view.state != PairingState::Active {
             return Err(AssistantImError::Unavailable.into());
         }
+        if state.view.notifications_paused && !paused {
+            crate::personal_assistant::attention::note_im_notice_resume(
+                &tx,
+                chrono::Utc::now().timestamp(),
+            )?;
+        }
         state.view.notifications_paused = paused;
         save(&tx, &state)?;
         if paused {
@@ -1133,7 +1144,16 @@ fn consume_input(
             state.view.state = PairingState::Active;
             Ok(IngressOutcome::Activated)
         }
-        TelegramInputKind::Message(text) => {
+        kind @ (TelegramInputKind::Message(_) | TelegramInputKind::Reply { .. }) => {
+            let (text, parent) = match kind {
+                TelegramInputKind::Message(text) => (text, None),
+                TelegramInputKind::Reply {
+                    reply_to_message_id,
+                    text,
+                    ..
+                } => (text, Some(reply_to_message_id)),
+                _ => unreachable!(),
+            };
             if state.view.state != PairingState::Active
                 || state.view.user_id != Some(input.user_id)
                 || state.view.chat_id != Some(input.chat_id)
@@ -1158,6 +1178,20 @@ fn consume_input(
                     [&state.view.connection_id],
                 )?;
                 return Ok(IngressOutcome::Paused);
+            }
+            if let Some(parent) = parent {
+                if let Some(outcome) = crate::personal_assistant::attention::replies::consume_reply(
+                    tx,
+                    state,
+                    input.update_id,
+                    input.user_id,
+                    input.chat_id,
+                    parent,
+                    &text,
+                    now,
+                )? {
+                    return Ok(outcome);
+                }
             }
             let pending: i64 = tx.query_row(
                 "SELECT count(*) FROM assistant_im_commands WHERE state IN ('pending','running')",

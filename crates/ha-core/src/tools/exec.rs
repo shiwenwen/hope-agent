@@ -613,6 +613,7 @@ pub(crate) async fn resolve_exec_command_approval(
                 Some("exec"),
                 Some(args),
                 ctx.tool_call_id.as_deref(),
+                ctx,
             )
             .await
             {

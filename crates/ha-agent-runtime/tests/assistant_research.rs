@@ -1,6 +1,10 @@
 //! Deterministic loopback acceptance of the real source → kernel → Provider
 //! stream → report tool → committed private finding path. No real credentials.
+use chrono::Timelike;
 use ha_core::personal_assistant::{policy::AssistantPolicySettings, research};
+use ha_core::personal_assistant_im::{
+    IngressOutcome, TelegramInput, TelegramInputKind, ACTIVATE_PREFIX,
+};
 use ha_core::provider::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
 use ha_core::session::{NewMessage, SessionDB};
 use serde_json::json;
@@ -9,7 +13,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn shared_file_is_reviewed_through_the_real_kernel_and_private_report_tool() {
+async fn shared_file_notice_and_mobile_reply_use_the_real_kernel_with_private_context() {
     let dir = tempfile::tempdir().unwrap();
     ha_core::test_support::with_env_vars_async(&[("HA_DATA_DIR", dir.path())], || async {
         ha_core::config::replace_cache_for_test(Default::default());
@@ -22,8 +26,17 @@ async fn shared_file_is_reviewed_through_the_real_kernel_and_private_report_tool
         db.update_session_working_dir(&work.id,Some(workspace.to_str().unwrap().into())).unwrap();
         let home=db.ensure_personal_assistant_home().unwrap();
         db.append_message(&home.id,&NewMessage::user("PRIVATE_HOME_NOT_SHARED_SENTINEL")).unwrap();
-        db.request_assistant_policy(0,AssistantPolicySettings { research_enabled:true,..Default::default() }).unwrap();
+        db.request_assistant_policy(0,AssistantPolicySettings { research_enabled:true,notice_route:ha_core::personal_assistant::policy::AssistantNoticeRoute::Im,timezone:Some("UTC".into()),quiet_start_hour:(chrono::Utc::now().hour()+2)%24,quiet_end_hour:(chrono::Utc::now().hour()+3)%24,..Default::default() }).unwrap();
         ha_core::personal_assistant::policy::apply_policy(db.clone()).await.unwrap();
+        let now=||chrono::Utc::now().timestamp();
+        db.save_assistant_im_connection(100,"test_bot",&uuid::Uuid::new_v4().to_string(),now()).unwrap();
+        let code=db.begin_assistant_im_pairing(now()).unwrap();let lease=db.assistant_im_poll_lease(now()).unwrap().unwrap();
+        let event=|id,kind|TelegramInput{update_id:id,sent_at:Some(now()),user_id:42,chat_id:42,kind};
+        db.receive_assistant_im_update(&lease,event(1,TelegramInputKind::PairCode(code.code)),now()).unwrap();let activation=db.confirm_assistant_im_pairing(lease.generation,42,42,now()).unwrap();
+        db.receive_assistant_im_update(&lease,event(2,TelegramInputKind::Activate(activation.callback_data.strip_prefix(ACTIVATE_PREFIX).unwrap().into())),now()).unwrap();
+        db.set_assistant_im_notifications_paused(false).unwrap();
+        let lease=db.assistant_im_poll_lease(now()).unwrap().unwrap();
+
         std::fs::write(workspace.join("agenda.txt"),"Planning 09:00\nReview 10:00\n").unwrap();
         research::create_source(db.clone(),research::AssistantSourceInput{
             request_key:uuid::Uuid::new_v4().to_string(),session_id:work.id,relative_path:"agenda.txt".into(),
@@ -68,6 +81,38 @@ async fn shared_file_is_reviewed_through_the_real_kernel_and_private_report_tool
         assert!(body.contains("assistant_research_report"));
         assert!(db.load_session_messages(&home.id).unwrap().iter().all(|message| !message.content.contains("Both meetings are at 09:00")));
         assert!(db.list_assistant_items().unwrap().is_empty(),"discovery does not create a Goal or execution item");
+        // Continue the real committed result on its dedicated IM path. The
+        // only remote services here are deterministic loopback Provider mocks.
+        db.set_assistant_source_im_disclosure(&source.id,source.revision,true,0,&lease.connection_id,lease.generation,now()).unwrap();
+        db.reconcile_assistant_attention(now()).unwrap();
+        // Advance only the test coalescing deadline. The fresh file read,
+        // immutable claim and all real authority checks remain unchanged.
+        db.with_conn_for_test(|conn|{conn.execute("UPDATE assistant_attention_candidates SET ready_at=0",[])?;Ok(())}).unwrap();
+        let notice=tokio::time::timeout(std::time::Duration::from_secs(5),async {
+            loop {db.reconcile_assistant_attention(now()).unwrap();if let Some(notice)=db.clone().prepare_assistant_attention_im().await.unwrap(){break notice;}tokio::time::sleep(std::time::Duration::from_millis(500)).await;}
+        }).await.expect("one coalesced source notice becomes eligible");
+        assert!(db.assistant_attention_im_send_current(&notice.id,now()).unwrap());
+        let disclosed=notice.text.clone();db.finish_assistant_attention_im(&notice.id,Some(1000),now()).unwrap();
+        assert_eq!(db.receive_assistant_im_update(&lease,event(3,TelegramInputKind::Reply{message_id:1001,reply_to_message_id:1000,text:"PRIVATE_IM_QUESTION_SENTINEL: prepare another option".into()}),now()).unwrap(),IngressOutcome::Queued);
+        tokio::time::timeout(std::time::Duration::from_secs(25),async {
+            loop {
+                research::process_pending_research(db.clone()).await.unwrap();
+                let activity=db.list_assistant_research_activity().unwrap();
+                if activity.iter().any(|query|matches!(query.state.as_str(),"failed"|"cancelled")) {
+                    let errors=db.with_conn_for_test(|conn| {let mut statement=conn.prepare("SELECT status,error FROM chat_stream_runs")?;let rows=statement.query_map([],|row|Ok((row.get::<_,String>(0)?,row.get::<_,Option<String>>(1)?)))?.collect::<Result<Vec<_>,_>>()?;Ok(rows)}).unwrap();
+                    panic!("mobile query failed: {activity:?}; stream states: {errors:?}");
+                }
+                if activity.iter().any(|query|query.state=="finished"){break;}
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }).await.expect("the mobile follow-up commits through the real kernel");
+        let requests=server.received_requests().await.unwrap();assert_eq!(requests.len(),2);
+        let second=String::from_utf8(requests[1].body.clone()).unwrap();assert!(second.contains("PRIVATE_IM_QUESTION_SENTINEL"));assert!(second.contains("Option B"));assert!(!second.contains("PRIVATE_HOME_NOT_SHARED_SENTINEL"));
+        assert!(disclosed.contains("Option B"));
+        assert!(db.load_session_messages(&home.id).unwrap().iter().all(|message|!message.content.contains("PRIVATE_IM_QUESTION_SENTINEL")));
+        db.reconcile_assistant_attention(now()).unwrap();let answer=db.clone().prepare_assistant_attention_im().await.unwrap().expect("a requested reply needs no proactive coalescing delay");
+        db.finish_assistant_attention_im(&answer.id,Some(1002),now()).unwrap();assert!(db.clone().prepare_assistant_attention_im().await.unwrap().is_none(),"no second generic finding notification");
+        db.revoke_assistant_source(&source.id,now()).unwrap();assert!(!db.assistant_attention_im_send_current(&answer.id,now()).unwrap());
         ha_core::config::replace_cache_for_test(Default::default());
     }).await;
 }

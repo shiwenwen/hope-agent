@@ -13061,7 +13061,7 @@
       "pendingPolicy": "Aplicando configurações…",
       "sources": "Material compartilhado",
       "expires": "Compartilhado até {{time}}",
-      "observed": "Última verificação: {{time}}",
+      "observed": "Última leitura do arquivo: {{time}}",
       "suspended": "As verificações automáticas estão suspensas. Você pode verificar agora.",
       "observationGap": "Não foi possível observar este período. Mudanças podem ter passado despercebidas.",
       "refresh": "Verificar agora",
@@ -13091,6 +13091,42 @@
         "scopeChanged": "O material ou a permissão mudou. Verifique novamente.",
         "budget": "Limite de pesquisa atingido. Tente mais tarde.",
         "unverified": "Nenhum resultado verificado foi recebido. Tente novamente."
+      }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope tem novidades. Abra o Hope para ver.",
+      "route": "Receber avisos por",
+      "routes": {
+        "none": "Apenas no Hope",
+        "desktop": "Área de trabalho",
+        "im": "IM do assistente"
+      },
+      "limitHint": "No máximo dois avisos proativos por dia local e por 24 horas corridas. Atualizações relacionadas são agrupadas; perguntas diretas no IM podem receber resposta.",
+      "timezone": "Seu fuso horário (IANA)",
+      "quietStart": "Silêncio a partir de",
+      "quietEnd": "Até",
+      "quietHint": "Usa seu fuso horário. Horas iguais significam silêncio o dia inteiro.",
+      "desktopToIm": "Enviar estados do trabalho do desktop ao IM",
+      "desktopToImHint": "Exige também as permissões de estado e conclusão da conversa. Apenas o estado é enviado; os resultados ficam no Hope.",
+      "pairRequired": "Primeiro emparelhe seu Bot exclusivo nas configurações de IM do assistente.",
+      "sourceDisclosure": "Permitir resumos desta fonte no IM",
+      "sourceDisclosureHint": "Desativado por padrão. Permite resumos breves e perguntas restritas à fonte no chat atual. Revogar invalida o contexto das respostas antigas.",
+      "nextEligible": "Próximo aviso possível: {{time}} ({{zone}})",
+      "deferred": {
+        "timezone_required": "Escolha seu fuso horário para receber avisos.",
+        "quiet_hours": "Horário de silêncio: as novidades ficam no Hope.",
+        "daily_limit": "Limite de avisos atingido. Novas tentativas aguardam.",
+        "policy_pending": "Aguardando a aplicação das configurações.",
+        "paused": "O assistente está pausado.",
+        "disabled": "As novidades ficam no Hope; avisos externos desativados.",
+        "pairing_required": "O IM não está emparelhado ou os avisos estão pausados.",
+        "using_hope": "Você está usando o Hope. Avisos externos aguardam."
+      },
+      "receipts": {
+        "submitting": "{{time}} · Aguardando confirmação da plataforma",
+        "accepted": "{{time}} · Aceito pela plataforma; leitura desconhecida",
+        "unknown": "{{time}} · Entrega desconhecida; sem reenvio automático",
+        "cancelled": "{{time}} · Não enviado; a tentativa continua contando"
       }
     }
   }

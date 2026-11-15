@@ -39,10 +39,27 @@ pub(super) async fn execute_with_context(
             anyhow::bail!("Hope work requires assistant_report outcome=waiting with question/options; blocking questions cannot resume after restart")
         }
     }
-    Ok(execute(args, ctx.session_id.as_deref()).await)
+    Ok(execute_impl(
+        args,
+        ctx.session_id.as_deref(),
+        crate::personal_assistant::attention::signals::classify_context(ctx).await,
+    )
+    .await)
 }
 
 pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
+    execute_impl(
+        args,
+        session_id,
+        crate::personal_assistant::attention::signals::classify_private_session(session_id).await,
+    )
+    .await
+}
+async fn execute_impl(
+    args: &Value,
+    session_id: Option<&str>,
+    attention_ownership: crate::personal_assistant::attention::NotificationOwnership,
+) -> String {
     let sid = match session_id {
         Some(s) => s,
         None => return "Error: no session context available".to_string(),
@@ -217,7 +234,9 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
         }
     }
     let source = Some(
-        if plan_owner.is_some() {
+        if !attention_ownership.is_ordinary() {
+            "personal_assistant"
+        } else if plan_owner.is_some() {
             "plan"
         } else if subagent_owner.is_some() {
             "subagent"
@@ -358,6 +377,7 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 effective_timeout_secs,
                 questions.iter().any(|q| !q.default_values.is_empty()),
                 first_question_preview(&questions),
+                attention_ownership,
             );
         }
     }

@@ -86,7 +86,9 @@ impl SessionDB {
             let keys: Vec<SourceKey> = serde_json::from_str(&json)?;
             let reason = if created <= now - 86_400 {
                 Some("expired")
-            } else if !query_current(&tx, &home, global, epoch, &keys, now)? {
+            } else if !query_current(&tx, &home, global, epoch, &keys, now)?
+                || !super::super::attention::replies::query_scope_current(&tx, &id, now)?
+            {
                 Some("scope_changed")
             } else if used >= 8 {
                 Some("budget_exhausted")
@@ -251,7 +253,7 @@ impl SessionDB {
             snapshots.push(source);
         }
         let data =
-            serde_json::json!({"sources":snapshots,"ownerQuestion":question,"priorFinding":prior,"observedAtUtc":chrono::Utc::now().to_rfc3339()})
+            serde_json::json!({"sources":snapshots,"ownerQuestion":question,"priorFinding":prior,"observedAtUtc":chrono::Utc::now().to_rfc3339(),"ownerTimezone":policy.settings.timezone})
                 .to_string();
         tx.commit()?;
         Ok((registration, data))
@@ -279,6 +281,10 @@ impl SessionDB {
             bail!("An owner question requires an evidence-backed answer or a clear uncertainty finding")
         }
         for finding in &findings {
+            if let Some(until) = finding.attention_until.as_deref() {
+                chrono::DateTime::parse_from_rfc3339(until)
+                    .map_err(|_| anyhow!("attentionUntil must be an absolute RFC3339 timestamp"))?;
+            }
             if finding.topic_key.is_empty()
                 || finding.topic_key.len() > 64
                 || !finding

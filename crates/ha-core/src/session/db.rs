@@ -1837,6 +1837,7 @@ impl SessionDB {
         crate::personal_assistant::items::migrate(&conn)?;
         crate::personal_assistant::policy::migrate(&conn)?;
         crate::personal_assistant::research::migrate(&conn)?;
+        crate::personal_assistant::attention::migrate(&conn)?;
 
         // Read-only connection pool. WAL lets these run concurrently with the
         // writer; opened AFTER all migrations above so they observe the final

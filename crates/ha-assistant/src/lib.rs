@@ -93,7 +93,11 @@ async fn pump() -> Result<()> {
             failure = Some(error);
         }
     }
-    db.run(|db| db.queue_assistant_followups()).await?;
+    db.run(|db| {
+        db.queue_assistant_followups()?;
+        db.reconcile_assistant_attention(ha_core::personal_assistant::attention::now())
+    })
+    .await?;
     if let Some(error) = failure {
         Err(error)
     } else {

@@ -179,3 +179,208 @@ pub async fn personal_assistant_research_activity(
             .await?,
     ))
 }
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PresenceInput {
+    pub client_id: String,
+    pub active: bool,
+}
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NoticeClaimInput {
+    pub client_id: String,
+    pub claim_key: String,
+}
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NoticeFinishInput {
+    pub client_id: String,
+    pub claim_key: String,
+    pub outcome: ha_core::personal_assistant::attention::AttentionOutcome,
+}
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DisclosureInput {
+    pub revision: i64,
+    pub enabled: bool,
+    pub expected_disclosure_revision: i64,
+    pub expected_connection_id: String,
+    pub expected_generation: i64,
+}
+
+pub async fn get_personal_assistant_attention(
+    Extension(auth): Extension<AuthState>,
+) -> Result<Json<ha_core::personal_assistant::attention::AssistantAttentionStatus>, AppError> {
+    owner(&auth)?;
+    Ok(Json(
+        session_db()?
+            .run(|db| db.assistant_attention_status(chrono::Utc::now().timestamp()))
+            .await?,
+    ))
+}
+pub async fn set_personal_assistant_presence(
+    Extension(auth): Extension<AuthState>,
+    Json(input): Json<PresenceInput>,
+) -> Result<Json<()>, AppError> {
+    owner(&auth)?;
+    session_db()?
+        .run(move |db| {
+            db.update_assistant_presence(
+                &input.client_id,
+                input.active,
+                chrono::Utc::now().timestamp(),
+            )
+        })
+        .await?;
+    Ok(Json(()))
+}
+pub async fn claim_personal_assistant_desktop_notice(
+    Extension(auth): Extension<AuthState>,
+    Json(input): Json<NoticeClaimInput>,
+) -> Result<Json<Option<ha_core::personal_assistant::attention::AssistantDesktopNotice>>, AppError>
+{
+    owner(&auth)?;
+    Ok(Json(
+        session_db()?
+            .clone()
+            .claim_assistant_desktop_notice(input.client_id, input.claim_key)
+            .await?,
+    ))
+}
+pub async fn finish_personal_assistant_desktop_notice(
+    Extension(auth): Extension<AuthState>,
+    Path(id): Path<String>,
+    Json(input): Json<NoticeFinishInput>,
+) -> Result<Json<()>, AppError> {
+    owner(&auth)?;
+    session_db()?
+        .run(move |db| {
+            db.finish_assistant_desktop_notice(
+                &id,
+                &input.client_id,
+                &input.claim_key,
+                input.outcome,
+                chrono::Utc::now().timestamp(),
+            )
+        })
+        .await?;
+    Ok(Json(()))
+}
+pub async fn set_personal_assistant_source_im_disclosure(
+    Extension(auth): Extension<AuthState>,
+    Path(id): Path<String>,
+    Json(input): Json<DisclosureInput>,
+) -> Result<Json<()>, AppError> {
+    owner(&auth)?;
+    session_db()?
+        .run(move |db| {
+            db.set_assistant_source_im_disclosure(
+                &id,
+                input.revision,
+                input.enabled,
+                input.expected_disclosure_revision,
+                &input.expected_connection_id,
+                input.expected_generation,
+                chrono::Utc::now().timestamp(),
+            )
+        })
+        .await?;
+    Ok(Json(()))
+}
+
+#[cfg(test)]
+mod attention_owner_tests {
+    use super::*;
+    #[tokio::test]
+    async fn attention_operations_reject_no_auth_before_accessing_private_state() {
+        let auth = AuthState::new(None, None, false);
+        assert_eq!(
+            get_personal_assistant_attention(Extension(auth.clone()))
+                .await
+                .unwrap_err()
+                .status,
+            axum::http::StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            set_personal_assistant_presence(
+                Extension(auth.clone()),
+                Json(PresenceInput {
+                    client_id: uuid::Uuid::new_v4().to_string(),
+                    active: true
+                })
+            )
+            .await
+            .unwrap_err()
+            .status,
+            axum::http::StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            claim_personal_assistant_desktop_notice(
+                Extension(auth.clone()),
+                Json(NoticeClaimInput {
+                    client_id: uuid::Uuid::new_v4().to_string(),
+                    claim_key: uuid::Uuid::new_v4().to_string()
+                })
+            )
+            .await
+            .unwrap_err()
+            .status,
+            axum::http::StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            finish_personal_assistant_desktop_notice(
+                Extension(auth.clone()),
+                Path("notice".into()),
+                Json(NoticeFinishInput {
+                    client_id: uuid::Uuid::new_v4().to_string(),
+                    claim_key: uuid::Uuid::new_v4().to_string(),
+                    outcome: ha_core::personal_assistant::attention::AttentionOutcome::Accepted
+                })
+            )
+            .await
+            .unwrap_err()
+            .status,
+            axum::http::StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            set_personal_assistant_source_im_disclosure(
+                Extension(auth),
+                Path("source".into()),
+                Json(DisclosureInput {
+                    revision: 1,
+                    enabled: true,
+                    expected_disclosure_revision: 0,
+                    expected_connection_id: "connection".into(),
+                    expected_generation: 1
+                })
+            )
+            .await
+            .unwrap_err()
+            .status,
+            axum::http::StatusCode::FORBIDDEN
+        );
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExecutionNotificationInput {
+    pub execution_id: String,
+}
+/// Uses the enclosing ordinary authentication boundary. Returns only a host
+/// classification, so a no-auth server without private data keeps normal alerts.
+pub async fn get_execution_notification_ownership(
+    Json(input): Json<ExecutionNotificationInput>,
+) -> Result<Json<ha_core::personal_assistant::attention::NotificationOwnership>, AppError> {
+    if input.execution_id.is_empty() || input.execution_id.len() > 256 {
+        return Ok(Json(
+            ha_core::personal_assistant::attention::NotificationOwnership::Unknown,
+        ));
+    }
+    Ok(Json(
+        session_db()?
+            .run(move |db| db.assistant_notification_execution_ownership(&input.execution_id))
+            .await?,
+    ))
+}

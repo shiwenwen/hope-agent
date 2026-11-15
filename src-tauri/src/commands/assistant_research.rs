@@ -140,3 +140,103 @@ pub async fn personal_assistant_research_activity(
         .await
         .map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn get_personal_assistant_attention(
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<ha_core::personal_assistant::attention::AssistantAttentionStatus, CmdError> {
+    state
+        .session_db
+        .run(|db| db.assistant_attention_status(chrono::Utc::now().timestamp()))
+        .await
+        .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn set_personal_assistant_presence(
+    client_id: String,
+    active: bool,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<(), CmdError> {
+    state
+        .session_db
+        .run(move |db| {
+            db.update_assistant_presence(&client_id, active, chrono::Utc::now().timestamp())
+        })
+        .await
+        .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn claim_personal_assistant_desktop_notice(
+    client_id: String,
+    claim_key: String,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<Option<ha_core::personal_assistant::attention::AssistantDesktopNotice>, CmdError> {
+    state
+        .session_db
+        .clone()
+        .claim_assistant_desktop_notice(client_id, claim_key)
+        .await
+        .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn finish_personal_assistant_desktop_notice(
+    id: String,
+    client_id: String,
+    claim_key: String,
+    outcome: ha_core::personal_assistant::attention::AttentionOutcome,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<(), CmdError> {
+    state
+        .session_db
+        .run(move |db| {
+            db.finish_assistant_desktop_notice(
+                &id,
+                &client_id,
+                &claim_key,
+                outcome,
+                chrono::Utc::now().timestamp(),
+            )
+        })
+        .await
+        .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn set_personal_assistant_source_im_disclosure(
+    id: String,
+    revision: i64,
+    enabled: bool,
+    expected_disclosure_revision: i64,
+    expected_connection_id: String,
+    expected_generation: i64,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<(), CmdError> {
+    state
+        .session_db
+        .run(move |db| {
+            db.set_assistant_source_im_disclosure(
+                &id,
+                revision,
+                enabled,
+                expected_disclosure_revision,
+                &expected_connection_id,
+                expected_generation,
+                chrono::Utc::now().timestamp(),
+            )
+        })
+        .await
+        .map_err(Into::into)
+}
+
+/// Ordinary notification compatibility also works on a no-auth ordinary server;
+/// private data roots retain the server's global owner authentication boundary.
+#[tauri::command]
+pub async fn get_execution_notification_ownership(
+    execution_id: String,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<ha_core::personal_assistant::attention::NotificationOwnership, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.assistant_notification_execution_ownership(&execution_id))
+        .await
+        .map_err(Into::into)
+}
