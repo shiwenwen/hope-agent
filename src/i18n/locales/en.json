@@ -8817,7 +8817,9 @@
     "contextCompactSummaryReasoning": "Summary reasoning override",
     "contextCompactSummaryReasoningDefault": "Keep current summary policy",
     "contextCompactSummaryReasoningDesc": "Only affects context summaries. Unsupported levels show an error and preserve your history. Failed requests do not switch models or raise the output limit; the default keeps current behavior.",
-    "toolAssistantReportDesc": "Record verified item progress, a result, or a durable question for the owner"
+    "toolAssistantReportDesc": "Record verified item progress, a result, or a durable question for the owner",
+    "toolAssistantResearchDesc": "List finding references or ask within their current source permissions in Hope.",
+    "toolAssistantResearchReportDesc": "Report evidence-backed findings for the current private research; publish only after verification."
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",
@@ -9294,7 +9296,9 @@
     "feishu_hire_list_talents": "Feishu Hire: List Talents",
     "feishu_hire_get_talent": "Feishu Hire: Get Talent",
     "feishu_hire_list_applications": "Feishu Hire: List Applications",
-    "assistant_report": "Report assistant work"
+    "assistant_report": "Report assistant work",
+    "assistant_research": "Check shared material",
+    "assistant_research_report": "Report source findings"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -13048,6 +13052,46 @@
       "dispatch_failed": "Work could not start",
       "owner_stopped": "You stopped this item",
       "scope_or_stop_changed": "Scope or Stop changed"
+    },
+    "research": {
+      "settingsTitle": "Proactive help",
+      "settingsHint": "Hope watches only material you explicitly share. Pausing stops current delegated work; delegate again after resuming.",
+      "enabled": "Find changes in shared material",
+      "pause": "Pause Hope’s background work",
+      "pendingPolicy": "Applying settings…",
+      "sources": "Shared material",
+      "expires": "Shared until {{time}}",
+      "observed": "Last checked: {{time}}",
+      "suspended": "Automatic checks are suspended. You can check now when needed.",
+      "observationGap": "This period could not be observed. Changes may have been missed.",
+      "refresh": "Check now",
+      "revoke": "Revoke sharing",
+      "noSources": "No material shared yet",
+      "workspace": "Select the work chat containing the file",
+      "path": "File path within the workspace, e.g. notes/agenda.txt",
+      "focus": "What to watch for",
+      "focusPlaceholder": "For example: spot meeting conflicts and prepare two workable options",
+      "days": "Days to share",
+      "baselineHint": "Share up to 4 UTF-8 text files, each up to 64 KiB. The first read establishes a baseline. Later checks report meaningful changes.",
+      "share": "Share material",
+      "finding": "New finding",
+      "inference": "Inference",
+      "uncertainty": "To confirm",
+      "prepared": "Prepared options",
+      "lines": "Lines {{start}}–{{end}}",
+      "ask": "Ask Hope more",
+      "askPlaceholder": "Ask about this material only…",
+      "activity": {
+        "pending": "Queued",
+        "running": "Checking the material…",
+        "finished": "Finished; the result appears in the chat",
+        "failed": "Could not finish. Check the material and try again.",
+        "cancelled": "Cancelled",
+        "expired": "Expired. Please submit again.",
+        "scopeChanged": "Material or permission changed. Check again.",
+        "budget": "Research allowance used. Try again later.",
+        "unverified": "No verified result was received. Please retry."
+      }
     }
   }
 }

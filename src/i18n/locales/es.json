@@ -8817,7 +8817,9 @@
     "contextCompactSummaryReasoning": "Razonamiento para resúmenes",
     "contextCompactSummaryReasoningDefault": "Mantener la política actual",
     "contextCompactSummaryReasoningDesc": "Solo afecta a los resúmenes de contexto. Los niveles no admitidos muestran un error y conservan el historial. Si falla, no cambia el modelo ni aumenta el límite de salida. El valor predeterminado mantiene el comportamiento actual.",
-    "toolAssistantReportDesc": "Registrar avances verificados, resultados o una pregunta persistente para el propietario"
+    "toolAssistantReportDesc": "Registrar avances verificados, resultados o una pregunta persistente para el propietario",
+    "toolAssistantResearchDesc": "Consultar referencias o preguntar dentro de los permisos actuales en Hope.",
+    "toolAssistantResearchReportDesc": "Informar hallazgos con evidencia de la investigación privada actual; publicar tras verificarlos."
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir ajustes",
@@ -9294,7 +9296,9 @@
     "feishu_hire_list_talents": "Feishu Selección: Listar candidatos",
     "feishu_hire_get_talent": "Feishu Selección: Consultar candidato",
     "feishu_hire_list_applications": "Feishu Selección: Listar candidaturas",
-    "assistant_report": "Informar del trabajo del asistente"
+    "assistant_report": "Informar del trabajo del asistente",
+    "assistant_research": "Revisar material compartido",
+    "assistant_research_report": "Informar hallazgos"
   },
   "tz": {
     "amsterdam": "Ámsterdam (UTC+1)",
@@ -13048,6 +13052,46 @@
       "dispatch_failed": "No se pudo iniciar el trabajo",
       "owner_stopped": "Has detenido este asunto",
       "scope_or_stop_changed": "Cambió el alcance o la detención"
+    },
+    "research": {
+      "settingsTitle": "Ayuda proactiva",
+      "settingsHint": "Hope solo revisa el material que compartes explícitamente. La pausa detiene el trabajo delegado actual; vuelve a encargarlo al reanudar.",
+      "enabled": "Detectar cambios en el material",
+      "pause": "Pausar el trabajo en segundo plano de Hope",
+      "pendingPolicy": "Aplicando ajustes…",
+      "sources": "Material compartido",
+      "expires": "Compartido hasta {{time}}",
+      "observed": "Última revisión: {{time}}",
+      "suspended": "Las revisiones automáticas están suspendidas. Puedes revisar ahora.",
+      "observationGap": "No se pudo observar este período. Pueden haberse perdido cambios.",
+      "refresh": "Revisar ahora",
+      "revoke": "Revocar acceso",
+      "noSources": "Aún no has compartido material",
+      "workspace": "Selecciona el chat de trabajo del archivo",
+      "path": "Ruta dentro del espacio de trabajo, p. ej. notes/agenda.txt",
+      "focus": "Qué vigilar",
+      "focusPlaceholder": "Por ejemplo: detectar conflictos de reuniones y preparar dos alternativas",
+      "days": "Días de acceso",
+      "baselineHint": "Comparte hasta 4 archivos UTF-8 de 64 KiB cada uno. La primera lectura crea una referencia; las siguientes informan de cambios importantes.",
+      "share": "Compartir material",
+      "finding": "Nuevo hallazgo",
+      "inference": "Inferencia",
+      "uncertainty": "Por confirmar",
+      "prepared": "Opciones preparadas",
+      "lines": "Líneas {{start}}–{{end}}",
+      "ask": "Preguntar más a Hope",
+      "askPlaceholder": "Pregunta solo sobre este material…",
+      "activity": {
+        "pending": "En cola",
+        "running": "Revisando material…",
+        "finished": "Terminado; el resultado aparece en el chat",
+        "failed": "No se pudo terminar. Revisa el material e inténtalo de nuevo.",
+        "cancelled": "Cancelado",
+        "expired": "Caducado. Envía la solicitud de nuevo.",
+        "scopeChanged": "El material o el permiso cambió. Revisa de nuevo.",
+        "budget": "Límite de investigación agotado. Inténtalo más tarde.",
+        "unverified": "No se recibió un resultado verificado. Reintenta."
+      }
     }
   }
 }

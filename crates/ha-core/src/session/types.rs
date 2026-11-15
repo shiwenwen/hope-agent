@@ -177,6 +177,8 @@ pub enum SessionKind {
     PersonalAssistant,
     /// Restricted context owned by one paired IM authority generation.
     PersonalAssistantIm,
+    /// Single-run private source research; only source-checked projections are readable.
+    PersonalAssistantResearch,
     Side,
     Knowledge,
     /// A design-space per-project chat thread — persisted (history survives)
@@ -193,6 +195,7 @@ impl SessionKind {
             SessionKind::Regular => "regular",
             SessionKind::PersonalAssistant => "personal_assistant",
             SessionKind::PersonalAssistantIm => "personal_assistant_im",
+            SessionKind::PersonalAssistantResearch => "personal_assistant_research",
             SessionKind::Side => "side",
             SessionKind::Knowledge => "knowledge",
             SessionKind::Design => "design",
@@ -206,6 +209,7 @@ impl SessionKind {
         match s {
             "personal_assistant" => SessionKind::PersonalAssistant,
             "personal_assistant_im" => SessionKind::PersonalAssistantIm,
+            "personal_assistant_research" => SessionKind::PersonalAssistantResearch,
             "side" => SessionKind::Side,
             "knowledge" => SessionKind::Knowledge,
             "design" => SessionKind::Design,

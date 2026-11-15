@@ -3160,10 +3160,12 @@ dependencies = [
  "ha-eval-spec",
  "reqwest 0.13.5",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-util",
  "url",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]

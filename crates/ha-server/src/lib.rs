@@ -2372,6 +2372,40 @@ fn build_router_with_cors(
             post(routes::personal_assistant_im::personal_assistant_im_set_notifications_paused),
         )
         .route(
+            "/personal-assistant/policy",
+            get(routes::assistant_research::get_personal_assistant_policy)
+                .put(routes::assistant_research::set_personal_assistant_policy),
+        )
+        .route(
+            "/personal-assistant/sources",
+            get(routes::assistant_research::list_personal_assistant_sources)
+                .post(routes::assistant_research::add_personal_assistant_source),
+        )
+        .route(
+            "/personal-assistant/sources/{id}",
+            delete(routes::assistant_research::revoke_personal_assistant_source),
+        )
+        .route(
+            "/personal-assistant/sources/{id}/check",
+            post(routes::assistant_research::check_personal_assistant_source),
+        )
+        .route(
+            "/personal-assistant/findings",
+            get(routes::assistant_research::list_personal_assistant_findings),
+        )
+        .route(
+            "/personal-assistant/findings/{id}/view",
+            post(routes::assistant_research::view_personal_assistant_finding),
+        )
+        .route(
+            "/personal-assistant/findings/{id}/ask",
+            post(routes::assistant_research::ask_personal_assistant_finding),
+        )
+        .route(
+            "/personal-assistant/research-activity",
+            get(routes::assistant_research::personal_assistant_research_activity),
+        )
+        .route(
             "/personal-assistant/items",
             get(routes::personal_assistant::list_personal_assistant_items),
         )

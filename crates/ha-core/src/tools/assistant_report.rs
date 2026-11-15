@@ -36,8 +36,16 @@ pub(super) async fn execute(args: &Value, ctx: &ToolExecContext) -> Result<Strin
         .get("next_instruction")
         .and_then(Value::as_str)
         .map(str::to_owned);
+    let resume_after = args
+        .get("resume_after_seconds")
+        .map(|value| {
+            value
+                .as_i64()
+                .ok_or_else(|| anyhow!("A whole number of seconds is required"))
+        })
+        .transpose()?;
     if let Some(question) = args.get("question").and_then(Value::as_str) {
-        if outcome != "waiting" {
+        if outcome != "waiting" || resume_after.is_some() {
             anyhow::bail!("A question requires outcome=waiting")
         }
         let question = question.to_owned();
@@ -63,7 +71,14 @@ pub(super) async fn execute(args: &Value, ctx: &ToolExecContext) -> Result<Strin
         );
     }
     db.run(move |db| {
-        db.report_assistant_item(&session, &turn, &outcome, &summary, next.as_deref())
+        db.report_assistant_item_with_delay(
+            &session,
+            &turn,
+            &outcome,
+            &summary,
+            next.as_deref(),
+            resume_after,
+        )
     })
     .await?;
     Ok(

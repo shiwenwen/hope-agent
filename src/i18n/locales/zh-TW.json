@@ -8817,7 +8817,9 @@
     "contextCompactSummaryReasoning": "摘要專用推理覆寫",
     "contextCompactSummaryReasoningDefault": "保留目前摘要策略",
     "contextCompactSummaryReasoningDesc": "僅用於上下文摘要。不支援的等級會報錯並保留歷史；失敗後不會自動換模型或提高輸出上限。預設維持現況。",
-    "toolAssistantReportDesc": "記錄已核實的事項進展、結果或需要主人回答的持久問題"
+    "toolAssistantReportDesc": "記錄已核實的事項進展、結果或需要主人回答的持久問題",
+    "toolAssistantResearchDesc": "只在 Hope 中讀取發現引用或提交來源內追問，不擴大資料權限。",
+    "toolAssistantResearchReportDesc": "為目前私人研究提交有來源依據的發現，核實後顯示於 Hope。"
   },
   "shortcuts": {
     "actionOpenSettings": "開啟設定",
@@ -9294,7 +9296,9 @@
     "feishu_hire_list_talents": "飛書招聘：列出人才",
     "feishu_hire_get_talent": "飛書招聘：查詢人才",
     "feishu_hire_list_applications": "飛書招聘：列出投遞",
-    "assistant_report": "回報助理事項"
+    "assistant_report": "回報助理事項",
+    "assistant_research": "檢查共享資料",
+    "assistant_research_report": "提交資料發現"
   },
   "tz": {
     "amsterdam": "阿姆斯特丹 (UTC+1)",
@@ -13048,6 +13052,46 @@
       "dispatch_failed": "工作未能啟動",
       "owner_stopped": "你已停止此事項",
       "scope_or_stop_changed": "範圍或停止狀態已改變"
+    },
+    "research": {
+      "settingsTitle": "主動關注",
+      "settingsHint": "Hope 只關注你明確共享的資料。暫停會停止目前交辦；恢復後需重新交辦。",
+      "enabled": "主動發現資料中的變化",
+      "pause": "暫停 Hope 的背景工作",
+      "pendingPolicy": "正在套用設定…",
+      "sources": "共享的資料",
+      "expires": "有效至 {{time}}",
+      "observed": "最近核對：{{time}}",
+      "suspended": "已暫停自動關注；需要時可主動檢查。",
+      "observationGap": "這段時間無法讀取，無法確認是否曾有變化。",
+      "refresh": "現在檢查",
+      "revoke": "撤銷共享",
+      "noSources": "尚未共享資料",
+      "workspace": "選擇資料所在的工作對話",
+      "path": "工作目錄內的檔案路徑，例如 notes/agenda.txt",
+      "focus": "關注什麼",
+      "focusPlaceholder": "例如：留意會議衝突，提前準備兩個可行方案",
+      "days": "共享天數",
+      "baselineHint": "最多共享 4 個 UTF-8 文字檔，每個不超過 64 KiB。首次讀取只建立基準；之後有重要變化才產生發現。",
+      "share": "共享資料",
+      "finding": "新發現",
+      "inference": "判斷",
+      "uncertainty": "待確認",
+      "prepared": "準備好的方案",
+      "lines": "第 {{start}}–{{end}} 行",
+      "ask": "繼續問 Hope",
+      "askPlaceholder": "只針對這份資料追問…",
+      "activity": {
+        "pending": "已排隊",
+        "running": "正在檢查資料…",
+        "finished": "已完成，結果顯示在對話中",
+        "failed": "未能完成，請檢查資料後重試",
+        "cancelled": "已取消",
+        "expired": "已過期，請重新發起",
+        "scopeChanged": "資料或授權已變更，請重新檢查",
+        "budget": "研究額度已用完，稍後可重試",
+        "unverified": "沒有可驗證的結果，請重試"
+      }
     }
   }
 }

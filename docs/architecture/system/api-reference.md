@@ -1926,6 +1926,18 @@ Team 生命周期 HTTP 响应保持原有 `status` 字段并追加可观测结�
 | `personal_assistant_inbox` | `GET /api/personal-assistant/watches` | 读取本地 Goal 关注和变化 |
 | `watch_personal_goal` | `POST /api/personal-assistant/watches/{sessionId}/{goalId}` | 授权关注一个具体 Goal |
 | `unwatch_personal_goal` | `DELETE /api/personal-assistant/watches/{sessionId}/{goalId}` | 取消该项关注 |
+| `get_personal_assistant_policy` | `GET /api/personal-assistant/policy` | 读取 requested/applied 版本、pending/failed 及主人设置 |
+| `set_personal_assistant_policy` | `PUT /api/personal-assistant/policy` | `{expectedRevision,settings}` 乐观并发保存；Primary 经标准配置写入后确认生效 |
+| `list_personal_assistant_sources` | `GET /api/personal-assistant/sources` | 共享资料元数据、期限、观察时间及暂停/缺口，不返回文件正文 |
+| `add_personal_assistant_source` | `POST /api/personal-assistant/sources` | `{source:{requestKey,sessionId,relativePath,focus,durationDays}}`；明确共享工作目录内 UTF-8 文件，建立安静基线 |
+| `revoke_personal_assistant_source` | `DELETE /api/personal-assistant/sources/{id}` | 同事务撤回资料、研究上下文、查询与派生发现；旧回执不能恢复授权 |
+| `check_personal_assistant_source` | `POST /api/personal-assistant/sources/{id}/check` | `{requestKey}` 明确发起一次来源内研究，返回持久状态回执 |
+| `list_personal_assistant_findings` | `GET /api/personal-assistant/findings` | 复核资料后返回当前全输入来源均有效的私人发现；不写普通消息历史 |
+| `view_personal_assistant_finding` | `POST /api/personal-assistant/findings/{id}/view` | `{revision}` 主动查看确切版本，事务内复核全来源 |
+| `ask_personal_assistant_finding` | `POST /api/personal-assistant/findings/{id}/ask` | `{revision,question,requestKey}` 新建受封存来源约束的追问，不把旧发现放入普通 Home 上下文 |
+| `personal_assistant_research_activity` | `GET /api/personal-assistant/research-activity` | 不含正文的 pending/running/finished/failed/cancelled 回执及失败原因 |
+
+资料请求键使用主人生成的 UUID；响应丢失后同一请求重试返回原回执，不能借旧请求重授来源。只允许主人入口改变设置和共享范围。`assistant_research` 模型工具只在真实 Home 前台轮次可用，返回不含正文的引用或查询回执；`assistant_research_report` 仅在正式封存的研究执行中可用。
 
 跨会话派工由私人主对话中具有真实轮次和工具调用标识的 `sessions_send` 受理。普通客户端不能伪造来源消息或认领执行。主人获取的跨源事件和通用资源票据分别使用 `owner_events` 和 `owner_resources`，旧的普通 scope 不能在已启用私人助手的数据根读取私人数据。
 

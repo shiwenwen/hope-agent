@@ -3,6 +3,7 @@ pub use error::CmdError;
 
 pub mod acp_control;
 pub mod agent_mgmt;
+pub mod assistant_research;
 pub mod auth;
 pub mod background_jobs;
 pub mod browser;

@@ -5,6 +5,7 @@ pub mod acp;
 pub mod agents;
 pub mod app_update;
 pub mod artifacts;
+pub mod assistant_research;
 pub mod attachments;
 pub mod auth;
 pub mod avatars;

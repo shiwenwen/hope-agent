@@ -380,6 +380,16 @@ pub(crate) fn bind_source_with_conn(
     parent_session: &str,
     execution: Option<&str>,
 ) -> Result<()> {
+    if let Some(execution) = execution {
+        let research: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM assistant_research_runs WHERE execution_id=?1)",
+            [execution],
+            |r| r.get(0),
+        )?;
+        if research {
+            bail!("Private research does not delegate work")
+        }
+    }
     let binding = execution
         .map(|e| execution_item(conn, e))
         .transpose()?
