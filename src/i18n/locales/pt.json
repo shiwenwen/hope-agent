@@ -13127,7 +13127,8 @@
         "accepted": "{{time}} · Aceito pela plataforma; leitura desconhecida",
         "unknown": "{{time}} · Entrega desconhecida; sem reenvio automático",
         "cancelled": "{{time}} · Não enviado; a tentativa continua contando"
-      }
+      },
+      "homeHandoffHint": "Perguntas diretas e aprovações de ferramentas na página inicial do assistente só aceitam avisos na área de trabalho. Abra o Hope para responder."
     }
   }
 }

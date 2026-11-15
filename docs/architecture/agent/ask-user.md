@@ -76,7 +76,7 @@ flowchart TB
 - **Group**：一组一起呈现的问题，共享 `context`、`source`、`timeout_at` 和有效 `timeout_secs`。
 - **Question**：组内单题，有独立 `question_id`、选项列表、`multi_select`、`input_kind`、`timeout_secs`、`default_values`。
 - **Option**：单个选项，可挂 `description` / `recommended` / `preview`（富预览）/ `card`（设计方向卡）。
-- **Pending Oneshot**：工具侧的内存接收端 `{ sender, session_id }`，注册在 `PENDING_ASK_USER_QUESTIONS` map 里，键为 `request_id`。session 维度用于 Stop / 删会话时定向唤醒所有阻塞中的工具调用。
+- **Pending Oneshot**：工具侧的内存接收端 `{ sender, session_id, persistence }`，注册在 `PENDING_ASK_USER_QUESTIONS` map 里，键为 `request_id`。session 维度用于 Stop / 删会话时定向唤醒所有阻塞中的工具调用。
 - **Persisted Group**：同一个 group 同步写入 SQLite，status 为 `pending` / `answered`。内存 oneshot 与 DB 行**双轨存在**，是为了在崩溃 / 重启后识别「有 DB 记录但无内存接收端」的僵尸行。
 - **Owner Timeout Task**：owner 侧专属的可重建超时任务，不依赖 oneshot，进程重启后按剩余 deadline 重新武装。
 
@@ -236,9 +236,9 @@ flowchart TD
 
 **父 session 路由**。子 Agent 会话对主对话 UI 是隐藏的，问题若发到子 session 会没有卡片可答。`execute` 依次尝试：`plan::get_plan_owner_session_id`（Plan Mode 子 Agent）→ 会话的 `parent_session_id`（普通 subagent）→ 回落自身。命中哪一级决定 `source` 是 `plan` / `subagent` / `normal`，事件和 DB 行都记在**可见的父 session** 上。这是 ask_user 模块对 plan 模块的唯一依赖点。
 
-**持久化先于发射**。`persist_pending_group` 在 `bus.emit` 之前调用：即使 emit 失败或进程立刻崩溃，DB 也留有 pending 痕迹供下次启动识别清理。
+**持久化先于发射**。工具侧在第一次保存前建立确切数据库的生命周期守卫；保存事务在数据库锁内和提交前检查取消标记。保存、登记期间的错误或 Future Drop 都关闭原问题，不能在清理之后重新写出 pending。内存注册表随 sender 保存该持久化目标；回答和取消先捕获目标、唤醒接收端，再清理该数据库，不写入另一个可能有相同问题编号的全局数据库。无确切绑定的兼容入口继续使用全局数据库。owner 侧的 `persist_pending_group` 同样先于 `bus.emit`；进程重启时识别并关闭无法恢复 oneshot 的工具问题。
 
-**序列化失败的回滚**。若 `serde_json::to_value(&group)` 失败或 EventBus 不可用，会同步 `cancel_pending_ask_user_question_with_source(.., "error")` 撤销 oneshot 并 `mark_group_answered` 翻转 DB 行，避免留下永远没有接收端的 pending 记录。
+**序列化失败的回滚**。若 `serde_json::to_value(&group)` 失败或 EventBus 不可用，会通过 `cancel_pending_ask_user_question_with_source(.., "error")` 撤销 oneshot，并由同一持久化目标翻转原数据库行，避免留下没有接收端的 pending 记录。
 
 **Elicitation hook 埋点**。发问时 `fire_elicitation`、终态时 `fire_elicitation_result`（answered / cancelled / timeout）都会触发 hook（observation-only），供 Hooks 子系统观察问答生命周期，见 [hooks](hooks.md)。
 
@@ -315,7 +315,7 @@ static OWNER_ASK_USER_TERMINAL_GATES: OnceLock<Mutex<HashMap<String, Arc<TokioMu
 | `cancel_all_pending_ask_user_questions(source)` | 全局 Stop 时 drain 全部 live 工具请求 |
 | `is_ask_user_question_live(request_id)` | 过滤僵尸 DB 行时查是否仍有内存接收端 |
 
-每条终态路径都会：翻 DB 行 → 发 `ask_user:resolved` → `emit_pending_interactions_changed`（更新侧边栏待办计数）。注意 `cancel_pending_ask_user_questions_for_session` 刻意**只 drain 工具侧**——owner 侧是 durable workflow 状态，不该被一次前台 Stop 抹掉。
+工具侧终态先移出 live 注册表并释放接收端，按捕获的持久化目标清理原数据库，并发布 `ask_user:resolved` 与 `emit_pending_interactions_changed` 更新界面；Future Drop 也同步封闭 live，再异步完成原库清理。注意 `cancel_pending_ask_user_questions_for_session` 刻意**只 drain 工具侧**——owner 侧是 durable workflow 状态，不该被一次前台 Stop 抹掉。
 
 ### 僵尸行过滤
 

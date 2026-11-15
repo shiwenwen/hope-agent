@@ -105,6 +105,43 @@ pub(super) fn collect_candidates(conn: &Connection, now: i64) -> Result<()> {
             },
         )?;
     }
+    let home_handoffs = {
+        let mut statement=conn.prepare("SELECT id,kind,home_session_id,global_stop_epoch,home_stop_epoch,created_at,expires_at FROM assistant_attention_home_handoffs WHERE active=1 AND instance_id=?1 AND expires_at>?2 AND NOT EXISTS(SELECT 1 FROM assistant_attention_delivery_items sent WHERE sent.logical_key='home-handoff:' || assistant_attention_home_handoffs.id) ORDER BY created_at,id LIMIT 64")?;
+        let rows = statement
+            .query_map(params![instance_id(), now], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows
+    };
+    for (id, kind, home, global, epoch, created, expires) in home_handoffs {
+        save_candidate(
+            conn,
+            &Candidate {
+                key: format!("home-handoff:{id}"),
+                kind: format!("home_{kind}"),
+                subject: id,
+                revision: 0,
+                source_run: None,
+                source_set: None,
+                home,
+                global_epoch: global,
+                home_epoch: epoch,
+                created,
+                ready: created,
+                expires,
+                im_reply: None,
+            },
+        )?;
+    }
     let findings = {
         let mut statement=conn.prepare("SELECT f.id,f.revision,f.updated_at,f.run_id,r.home_session_id,r.global_stop_epoch,r.home_stop_epoch
             FROM assistant_findings f JOIN assistant_research_runs r ON r.id=f.run_id LEFT JOIN assistant_research_queries q ON q.id=r.query_id
@@ -296,6 +333,7 @@ pub(super) fn current(conn: &Connection, candidate: &Candidate, now: i64) -> Res
         return Ok(false);
     };
     match candidate.kind.as_str() {
+        "home_approval" | "home_question" => signals::home_handoff_current(conn, candidate, now),
         "item" | "question" | "approval" => {
             let Some((item, _, _)) = item_for_candidate(conn, candidate)? else {
                 return Ok(false);
@@ -383,6 +421,11 @@ pub(super) fn route_allowed(
     };
     if candidate.im_reply.is_some() {
         return Ok(route == "im");
+    }
+    // Home has no target-session IM grant. A live UI interaction may use
+    // only the owner's selected Desktop route, with no content disclosed.
+    if matches!(candidate.kind.as_str(), "home_approval" | "home_question") && route != "desktop" {
+        return Ok(false);
     }
     let selected = match policy.settings.notice_route {
         super::super::policy::AssistantNoticeRoute::None => "none",
@@ -602,6 +645,8 @@ fn render(conn: &Connection, candidate: &Candidate) -> Result<String> {
         "query_status" => {
             Ok("这次资料检查未能完成，资料或授权可能已变化。请在 Hope 核对后重新发起。".into())
         }
+        "home_approval" => Ok("有一项操作需要你批准或拒绝。请回到 Hope 的审批界面处理。".into()),
+        "home_question" => Ok("Hope 有一个问题等你回答。请回到助手对话查看和回答。".into()),
         "approval" => Ok(
             "有一项工作需要你批准或拒绝。请在 Hope 的审批界面处理；回复此消息不会批准工具。".into(),
         ),

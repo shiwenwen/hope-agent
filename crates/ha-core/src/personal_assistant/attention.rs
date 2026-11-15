@@ -99,6 +99,11 @@ pub(crate) fn migrate(conn: &Connection) -> Result<()> {
         state TEXT NOT NULL,query_id TEXT,question_id TEXT,
         UNIQUE(connection_id,generation,cursor_epoch,update_id)
     );
+    CREATE TABLE IF NOT EXISTS assistant_attention_home_handoffs(
+        id TEXT PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN('approval','question')),execution_id TEXT NOT NULL,
+        home_session_id TEXT NOT NULL,global_stop_epoch INTEGER NOT NULL,home_stop_epoch INTEGER NOT NULL,
+        active INTEGER NOT NULL,instance_id TEXT NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS assistant_attention_handoffs(
         id TEXT PRIMARY KEY,execution_id TEXT NOT NULL,item_id TEXT NOT NULL,item_revision INTEGER NOT NULL,
         active INTEGER NOT NULL,instance_id TEXT NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL

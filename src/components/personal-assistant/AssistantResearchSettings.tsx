@@ -202,6 +202,9 @@ export function AssistantResearchSettings({
             <p className="text-xs text-muted-foreground">
               {t("personalAssistant.noticePolicy.limitHint")}
             </p>
+            <p className="text-xs text-muted-foreground">
+              {t("personalAssistant.noticePolicy.homeHandoffHint")}
+            </p>
           </div>
           {draft.noticeRoute !== "none" && (
             <div className="space-y-3">

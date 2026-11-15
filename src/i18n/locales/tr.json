@@ -13127,7 +13127,8 @@
         "accepted": "{{time}} · Platform kabul etti; okunduğu bilinmiyor",
         "unknown": "{{time}} · Teslim belirsiz; otomatik tekrar yok",
         "cancelled": "{{time}} · Gönderilmedi; deneme yine de sayılır"
-      }
+      },
+      "homeHandoffHint": "Asistan ana sayfasındaki doğrudan sorular ve araç onayları yalnızca masaüstü bildirimlerini destekler. Yanıtlamak için Hope’u açın."
     }
   }
 }

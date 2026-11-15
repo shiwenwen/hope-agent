@@ -20,6 +20,7 @@ pub const EVENT_ASK_USER_TIMED_OUT: &str = "ask_user_timed_out";
 pub const EVENT_ASK_USER_RESOLVED: &str = "ask_user:resolved";
 
 pub fn emit_ask_user_resolved(request_id: &str, session_id: &str, status: &str, source: &str) {
+    crate::personal_assistant::attention::signals::close_handoff_later(request_id);
     if let Some(bus) = crate::globals::get_event_bus() {
         bus.emit(
             EVENT_ASK_USER_RESOLVED,
@@ -69,9 +70,111 @@ pub fn emit_ask_user_timed_out(
 
 // ── Pending Ask-User Questions Registry (oneshot pattern) ────────
 
+/// Persistence belongs to the live tool request, including its first save.
+/// The pending registry retains this target before waking a response receiver.
+pub(crate) struct ToolQuestionPersistenceTarget {
+    request_id: String,
+    session_id: String,
+    db: Option<Arc<crate::session::SessionDB>>,
+    cancelled: std::sync::atomic::AtomicBool,
+}
+impl ToolQuestionPersistenceTarget {
+    pub(crate) fn is_closed(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::Acquire)
+    }
+    pub(crate) fn is_for_request(&self, db: &Arc<crate::session::SessionDB>, id: &str) -> bool {
+        self.request_id == id && self.db.as_ref().is_some_and(|own| Arc::ptr_eq(own, db))
+    }
+    fn close_live(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::Release);
+        crate::personal_assistant::attention::signals::close_handoff_later(&self.request_id);
+    }
+    async fn finish(&self) -> Result<()> {
+        self.close_live();
+        if let Some(db) = &self.db {
+            let request = self.request_id.clone();
+            let session = self.session_id.clone();
+            db.run(move |db| db.close_live_ask_user_group(&request, &session))
+                .await?;
+        }
+        Ok(())
+    }
+}
+pub(crate) struct ToolQuestionPersistenceGuard {
+    target: Arc<ToolQuestionPersistenceTarget>,
+}
+impl ToolQuestionPersistenceGuard {
+    pub(crate) fn new(
+        request_id: String,
+        session_id: String,
+        db: Option<Arc<crate::session::SessionDB>>,
+    ) -> Self {
+        Self {
+            target: Arc::new(ToolQuestionPersistenceTarget {
+                request_id,
+                session_id,
+                db,
+                cancelled: std::sync::atomic::AtomicBool::new(false),
+            }),
+        }
+    }
+    pub(crate) fn target(&self) -> Arc<ToolQuestionPersistenceTarget> {
+        self.target.clone()
+    }
+    pub(crate) fn is_closed(&self) -> bool {
+        self.target.is_closed()
+    }
+    pub(crate) async fn persist(&self, group: &AskUserQuestionGroup) -> Result<()> {
+        if let Some(db) = &self.target.db {
+            let target = self.target.clone();
+            let group = group.clone();
+            db.run(move |db| db.save_live_ask_user_group(&group, &target.cancelled))
+                .await?;
+        }
+        Ok(())
+    }
+    pub(crate) async fn finish(&self) -> Result<()> {
+        self.target.finish().await
+    }
+}
+impl Drop for ToolQuestionPersistenceGuard {
+    fn drop(&mut self) {
+        self.target.close_live();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let target = self.target.clone();
+            runtime.spawn(async move {
+                let removed = {
+                    let mut pending = get_pending_questions().lock().await;
+                    if pending
+                        .get(&target.request_id)
+                        .and_then(|entry| entry.persistence.as_ref())
+                        .is_some_and(|existing| Arc::ptr_eq(existing, &target))
+                    {
+                        pending.remove(&target.request_id)
+                    } else {
+                        None
+                    }
+                };
+                if let Some(entry) = removed {
+                    drop(entry.sender);
+                    emit_ask_user_resolved(
+                        &target.request_id,
+                        &target.session_id,
+                        "cancelled",
+                        "execution_cancelled",
+                    );
+                }
+                let _ = target.finish().await;
+            });
+        }
+    }
+}
+
 struct PendingAskUserQuestion {
     sender: tokio::sync::oneshot::Sender<Vec<AskUserQuestionAnswer>>,
     session_id: String,
+    persistence: Option<Arc<ToolQuestionPersistenceTarget>>,
 }
 
 static PENDING_ASK_USER_QUESTIONS: OnceLock<TokioMutex<HashMap<String, PendingAskUserQuestion>>> =
@@ -102,29 +205,72 @@ pub async fn register_ask_user_question(
     sender: tokio::sync::oneshot::Sender<Vec<AskUserQuestionAnswer>>,
 ) {
     let mut pending = get_pending_questions().lock().await;
-    pending.insert(request_id, PendingAskUserQuestion { sender, session_id });
+    pending.insert(
+        request_id,
+        PendingAskUserQuestion {
+            sender,
+            session_id,
+            persistence: None,
+        },
+    );
 }
 
-async fn mark_ask_user_rows_answered(request_ids: Vec<String>) {
-    if request_ids.is_empty() {
-        return;
+pub(crate) async fn register_tool_ask_user_question(
+    request_id: String,
+    session_id: String,
+    sender: tokio::sync::oneshot::Sender<Vec<AskUserQuestionAnswer>>,
+    persistence: Arc<ToolQuestionPersistenceTarget>,
+) {
+    let mut pending = get_pending_questions().lock().await;
+    pending.insert(
+        request_id,
+        PendingAskUserQuestion {
+            sender,
+            session_id,
+            persistence: Some(persistence),
+        },
+    );
+}
+/// Serialize initial UI publication with removal of the live sender. A
+/// response that wins this mutex cannot be followed by a stale request event.
+pub(crate) async fn emit_live_tool_question(
+    request_id: &str,
+    target: &Arc<ToolQuestionPersistenceTarget>,
+    emit: impl FnOnce(),
+) -> bool {
+    let pending = get_pending_questions().lock().await;
+    let live = pending.get(request_id).is_some_and(|entry| {
+        !entry.sender.is_closed()
+            && entry
+                .persistence
+                .as_ref()
+                .is_some_and(|saved| Arc::ptr_eq(saved, target))
+    });
+    if !live || target.is_closed() {
+        return false;
     }
-    let result = crate::blocking::run_blocking(move || -> Result<()> {
-        let Some(db) = crate::get_session_db() else {
-            return Ok(());
-        };
-        for request_id in request_ids {
-            db.mark_ask_user_answered(&request_id)?;
-        }
+    emit();
+    true
+}
+async fn mark_live_question_answered(
+    request_id: String,
+    target: Option<Arc<ToolQuestionPersistenceTarget>>,
+    legacy_db: Option<Arc<crate::session::SessionDB>>,
+) {
+    let result = if let Some(target) = target {
+        target.finish().await
+    } else if let Some(db) = legacy_db {
+        db.run(move |db| db.mark_ask_user_answered(&request_id))
+            .await
+    } else {
         Ok(())
-    })
-    .await;
-    if let Err(e) = result {
+    };
+    if let Err(error) = result {
         app_warn!(
             "ask_user",
             "terminal_cleanup",
-            "Failed to persist ask_user terminal cleanup: {}",
-            e
+            "Failed to persist question terminal cleanup: {}",
+            error
         );
     }
 }
@@ -136,10 +282,20 @@ pub async fn submit_ask_user_question_response(
 ) -> Result<()> {
     let mut pending = get_pending_questions().lock().await;
     if let Some(entry) = pending.remove(request_id) {
+        crate::personal_assistant::attention::signals::close_handoff_later(request_id);
         let session_id = entry.session_id;
+        let persistence = entry.persistence;
+        if let Some(target) = &persistence {
+            target.close_live();
+        }
+        let legacy_db = if persistence.is_none() {
+            crate::get_session_db().cloned()
+        } else {
+            None
+        };
         let _ = entry.sender.send(answers);
         drop(pending);
-        mark_ask_user_rows_answered(vec![request_id.to_string()]).await;
+        mark_live_question_answered(request_id.to_owned(), persistence, legacy_db).await;
         emit_ask_user_resolved(request_id, &session_id, "answered", "response");
         crate::tools::approval::emit_pending_interactions_changed(Some(&session_id));
         Ok(())
@@ -158,10 +314,20 @@ pub async fn cancel_pending_ask_user_question_with_source(request_id: &str, sour
     let mut pending = get_pending_questions().lock().await;
     let removed = pending.remove(request_id);
     drop(pending);
+    crate::personal_assistant::attention::signals::close_handoff_later(request_id);
     if let Some(entry) = removed {
         let session_id = entry.session_id;
+        let persistence = entry.persistence;
+        if let Some(target) = &persistence {
+            target.close_live();
+        }
+        let legacy_db = if persistence.is_none() {
+            crate::get_session_db().cloned()
+        } else {
+            None
+        };
         drop(entry.sender);
-        mark_ask_user_rows_answered(vec![request_id.to_string()]).await;
+        mark_live_question_answered(request_id.to_owned(), persistence, legacy_db).await;
         let status = if source == "timeout" {
             "timed_out"
         } else {
@@ -193,13 +359,23 @@ pub async fn cancel_pending_ask_user_questions_for_session(
     let count = drained.len();
     let request_ids = drained
         .iter()
-        .map(|(request_id, _)| request_id.clone())
-        .collect();
+        .map(|(request_id, entry)| (request_id.clone(), entry.persistence.clone()))
+        .collect::<Vec<_>>();
     for (request_id, entry) in drained {
+        if let Some(target) = &entry.persistence {
+            target.close_live();
+        }
         drop(entry.sender);
         emit_ask_user_resolved(&request_id, &entry.session_id, "cancelled", source);
     }
-    mark_ask_user_rows_answered(request_ids).await;
+    for (request_id, target) in request_ids {
+        let legacy_db = if target.is_none() {
+            crate::get_session_db().cloned()
+        } else {
+            None
+        };
+        mark_live_question_answered(request_id, target, legacy_db).await;
+    }
     if count > 0 {
         crate::tools::approval::emit_pending_interactions_changed(Some(session_id));
     }
@@ -214,14 +390,24 @@ pub async fn cancel_all_pending_ask_user_questions(source: &str) -> usize {
     let count = drained.len();
     let request_ids = drained
         .iter()
-        .map(|(request_id, _)| request_id.clone())
-        .collect();
+        .map(|(request_id, entry)| (request_id.clone(), entry.persistence.clone()))
+        .collect::<Vec<_>>();
     for (request_id, entry) in drained {
+        if let Some(target) = &entry.persistence {
+            target.close_live();
+        }
         drop(entry.sender);
         emit_ask_user_resolved(&request_id, &entry.session_id, "cancelled", source);
         crate::tools::approval::emit_pending_interactions_changed(Some(&entry.session_id));
     }
-    mark_ask_user_rows_answered(request_ids).await;
+    for (request_id, target) in request_ids {
+        let legacy_db = if target.is_none() {
+            crate::get_session_db().cloned()
+        } else {
+            None
+        };
+        mark_live_question_answered(request_id, target, legacy_db).await;
+    }
     count
 }
 
@@ -808,5 +994,172 @@ mod tests {
 
         cancel_pending_ask_user_question_with_source(&request_b, "test_cleanup").await;
         assert!(receiver_b.await.is_err());
+    }
+
+    fn question_persistence_isolated(
+        test: impl FnOnce(Arc<crate::session::SessionDB>, &std::path::Path),
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", directory.path())], || {
+            let db = Arc::new(
+                crate::session::SessionDB::open(&directory.path().join("questions.db")).unwrap(),
+            );
+            test(db, directory.path());
+        });
+    }
+    fn question_persistence_group(request: &str, session: &str) -> AskUserQuestionGroup {
+        serde_json::from_value(json!({"requestId":request,"sessionId":session,"source":"normal","questions":[{"questionId":"decision","text":"Choose one","options":[]}]})).unwrap()
+    }
+    fn question_persistence_pending(db: &crate::session::SessionDB, id: &str) -> bool {
+        db.read_conn().unwrap().query_row("SELECT EXISTS(SELECT 1 FROM ask_user_questions WHERE request_id=?1 AND status='pending')",[id],|row|row.get(0)).unwrap()
+    }
+    fn question_persistence_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+    async fn question_persistence_wait_closed(db: &crate::session::SessionDB, id: &str) {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while question_persistence_pending(db, id) {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the exact question database reaches a terminal state");
+    }
+    #[test]
+    fn question_persistence_uses_one_exact_database_even_with_a_copied_request_id() {
+        question_persistence_isolated(|db, root| {
+            question_persistence_runtime().block_on(async {
+                let other =
+                    Arc::new(crate::session::SessionDB::open(&root.join("other-root.db")).unwrap());
+                let request = uuid::Uuid::new_v4().to_string();
+                let session = db.create_session("ha-main").unwrap();
+                let foreign_session = other.create_session("ha-main").unwrap();
+                let group = question_persistence_group(&request, &session.id);
+                other
+                    .save_ask_user_group(&question_persistence_group(&request, &foreign_session.id))
+                    .unwrap();
+                let guard = ToolQuestionPersistenceGuard::new(
+                    request.clone(),
+                    session.id,
+                    Some(db.clone()),
+                );
+                guard.persist(&group).await.unwrap();
+                mark_live_question_answered(
+                    request.clone(),
+                    Some(guard.target()),
+                    Some(other.clone()),
+                )
+                .await;
+                assert!(!question_persistence_pending(&db, &request));
+                assert!(
+                    question_persistence_pending(&other, &request),
+                    "an available legacy root with the same ID must remain untouched"
+                );
+            })
+        });
+    }
+    #[test]
+    fn question_persistence_cleans_a_saved_question_when_handoff_admission_fails() {
+        question_persistence_isolated(|db, _| {
+            question_persistence_runtime().block_on(async {
+                let ctx = crate::test_support::home_tool_context(&db);
+                let request = uuid::Uuid::new_v4().to_string();
+                let group = question_persistence_group(&request, ctx.session_id.as_ref().unwrap());
+                let guard = ToolQuestionPersistenceGuard::new(
+                    request.clone(),
+                    group.session_id.clone(),
+                    Some(db.clone()),
+                );
+                guard.persist(&group).await.unwrap();
+                db.conn
+                    .lock()
+                    .unwrap()
+                    .execute(
+                        "UPDATE runtime_control_epochs SET epoch=epoch+1 WHERE key='global_stop'",
+                        [],
+                    )
+                    .unwrap();
+                assert!(
+                    !crate::personal_assistant::attention::signals::register_question_handoff(
+                        &ctx,
+                        &request,
+                        None,
+                        guard.target()
+                    )
+                    .await
+                    .unwrap()
+                );
+                drop(guard);
+                question_persistence_wait_closed(&db, &request).await;
+                assert!(!crate::personal_assistant::attention::signals::handoff_pending(&request));
+            })
+        });
+    }
+    #[test]
+    fn question_persistence_drop_during_queued_save_cannot_recreate_pending_after_cleanup() {
+        question_persistence_isolated(|db, _| {
+            question_persistence_runtime().block_on(async {
+                let session = db.create_session("ha-main").unwrap();
+                let request = uuid::Uuid::new_v4().to_string();
+                let group = question_persistence_group(&request, &session.id);
+                let guard = ToolQuestionPersistenceGuard::new(
+                    request.clone(),
+                    session.id,
+                    Some(db.clone()),
+                );
+                let target = guard.target();
+                let writer = db.clone();
+                let held = db.conn.lock().unwrap();
+                let (started, waiting) = tokio::sync::oneshot::channel();
+                let save = tokio::task::spawn_blocking(move || {
+                    let _ = started.send(());
+                    writer.save_live_ask_user_group(&group, &target.cancelled)
+                });
+                waiting.await.unwrap();
+                drop(guard);
+                drop(held);
+                assert!(
+                    save.await.unwrap().is_err(),
+                    "cancel is checked under the same DB lock as save"
+                );
+                assert!(!question_persistence_pending(&db, &request));
+            })
+        });
+    }
+    #[test]
+    fn question_persistence_drop_while_registering_leaves_no_pending_or_late_notice() {
+        question_persistence_isolated(|db, _| {
+            question_persistence_runtime().block_on(async{
+            let ctx=crate::test_support::home_tool_context(&db);
+            let request=uuid::Uuid::new_v4().to_string();
+            let group=question_persistence_group(&request,ctx.session_id.as_ref().unwrap());
+            let (saved,ready)=tokio::sync::oneshot::channel();
+            let (proceed,go)=tokio::sync::oneshot::channel();
+            let (enter,entered)=tokio::sync::oneshot::channel();
+            let worker=db.clone();let id=request.clone();
+            let task=tokio::spawn(async move{
+                let guard=ToolQuestionPersistenceGuard::new(id.clone(),group.session_id.clone(),Some(worker));
+                guard.persist(&group).await.unwrap();
+                let (sender,_receiver)=tokio::sync::oneshot::channel();
+                register_tool_ask_user_question(id.clone(),group.session_id.clone(),sender,guard.target()).await;
+                let _=saved.send(());go.await.unwrap();let _=enter.send(());
+                let _=crate::personal_assistant::attention::signals::register_question_handoff(&ctx,&id,None,guard.target()).await;
+                std::future::pending::<()>().await;
+            });
+            ready.await.unwrap();
+            let held=db.conn.lock().unwrap();
+            let _=proceed.send(());entered.await.unwrap();
+            task.abort();assert!(task.await.unwrap_err().is_cancelled());
+            drop(held);
+            question_persistence_wait_closed(&db,&request).await;
+            assert!(!crate::personal_assistant::attention::signals::handoff_pending(&request));
+            let active=db.read_conn().unwrap().query_row("SELECT EXISTS(SELECT 1 FROM assistant_attention_home_handoffs WHERE id=?1 AND active=1)",[&request],|row|row.get::<_,bool>(0)).unwrap();
+            assert!(!active,"late admission cannot outlive the exact question cleanup");
+            assert!(!get_pending_questions().lock().await.contains_key(&request));
+        })
+        });
     }
 }

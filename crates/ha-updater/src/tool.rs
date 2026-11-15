@@ -87,7 +87,7 @@ async fn action_status(args: &Value) -> Result<String> {
 }
 
 async fn action_install(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    let session_id = ctx.session_id.as_deref().ok_or_else(|| {
+    ctx.session_id.as_deref().ok_or_else(|| {
         anyhow::anyhow!("install requires a session context (cannot run from cron / one-shot CLI)")
     })?;
 
@@ -140,7 +140,7 @@ async fn action_install(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         .unwrap_or_else(|| snapshot.latest_version.clone());
 
     if matches!(chosen_path, RecommendedPath::ManualPrompt) {
-        return prompt_manual_install(session_id, &snapshot, &to_version).await;
+        return prompt_manual_install(ctx, &snapshot, &to_version).await;
     }
     if matches!(chosen_path, RecommendedPath::Tauri) && updater::get_updater_bridge().is_none() {
         // Desktop classified by source_detector but no bridge registered
@@ -152,13 +152,9 @@ async fn action_install(args: &Value, ctx: &ToolExecContext) -> Result<String> {
             "install",
             "Tauri path recommended but no updater bridge registered — falling back to self_contained"
         );
-        let confirm = ask_install_confirmation(
-            session_id,
-            &snapshot,
-            &to_version,
-            RecommendedPath::SelfContained,
-        )
-        .await?;
+        let confirm =
+            ask_install_confirmation(ctx, &snapshot, &to_version, RecommendedPath::SelfContained)
+                .await?;
         if !confirm {
             return Ok(json!({
                 "status": "cancelled_by_user",
@@ -174,7 +170,7 @@ async fn action_install(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         );
     }
 
-    let confirm = ask_install_confirmation(session_id, &snapshot, &to_version, chosen_path).await?;
+    let confirm = ask_install_confirmation(ctx, &snapshot, &to_version, chosen_path).await?;
     if !confirm {
         return Ok(json!({
             "status": "cancelled_by_user",
@@ -230,8 +226,7 @@ fn spawn_and_synthetic(
 }
 
 async fn action_rollback(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    let session_id = ctx
-        .session_id
+    ctx.session_id
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("rollback requires a session context"))?;
     let _ = args; // no parameters beyond the action keyword today.
@@ -286,7 +281,8 @@ async fn action_rollback(args: &Value, ctx: &ToolExecContext) -> Result<String> 
             "default_values": ["cancel"]
         }]
     });
-    let raw_answer = ha_core::tools::ask_user_question::execute(&ask_args, Some(session_id)).await;
+    let raw_answer =
+        ha_core::tools::ask_user_question::execute_with_context(&ask_args, ctx).await?;
     if !is_confirm(&raw_answer) {
         return Ok(json!({
             "status": "cancelled_by_user",
@@ -325,7 +321,7 @@ fn ask_i18n(key: &str, params: Value, fallback: impl Into<String>) -> Value {
 }
 
 async fn ask_install_confirmation(
-    session_id: &str,
+    ctx: &ToolExecContext,
     snapshot: &updater::CheckOutcome,
     to_version: &str,
     path: RecommendedPath,
@@ -417,12 +413,12 @@ async fn ask_install_confirmation(
             "default_values": ["cancel"]
         }]
     });
-    let raw = ha_core::tools::ask_user_question::execute(&ask_args, Some(session_id)).await;
+    let raw = ha_core::tools::ask_user_question::execute_with_context(&ask_args, ctx).await?;
     Ok(is_confirm(&raw))
 }
 
 async fn prompt_manual_install(
-    session_id: &str,
+    ctx: &ToolExecContext,
     snapshot: &updater::CheckOutcome,
     to_version: &str,
 ) -> Result<String> {
@@ -543,7 +539,7 @@ async fn prompt_manual_install(
             }]
         })
     };
-    let raw = ha_core::tools::ask_user_question::execute(&ask_args, Some(session_id)).await;
+    let raw = ha_core::tools::ask_user_question::execute_with_context(&ask_args, ctx).await?;
     Ok(json!({
         "status": "manual_prompt_emitted",
         "user_response": raw,

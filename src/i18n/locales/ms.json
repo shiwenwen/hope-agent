@@ -13127,7 +13127,8 @@
         "accepted": "{{time}} · Diterima platform; bacaan tidak diketahui",
         "unknown": "{{time}} · Penghantaran tidak diketahui; tiada cuba semula automatik",
         "cancelled": "{{time}} · Tidak dihantar; percubaan masih dikira"
-      }
+      },
+      "homeHandoffHint": "Soalan langsung dan kelulusan alat di halaman utama pembantu hanya menyokong pemberitahuan desktop. Buka Hope untuk menjawab."
     }
   }
 }

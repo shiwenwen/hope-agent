@@ -13127,7 +13127,8 @@
         "accepted": "{{time}} · Platform accepted; read status is unknown",
         "unknown": "{{time}} · Delivery unknown; no automatic retry",
         "cancelled": "{{time}} · Not submitted; the attempt remains charged"
-      }
+      },
+      "homeHandoffHint": "Direct questions and tool approvals in the assistant Home support desktop notices only. Open Hope to respond."
     }
   }
 }

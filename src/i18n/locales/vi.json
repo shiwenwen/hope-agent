@@ -13127,7 +13127,8 @@
         "accepted": "{{time}} · Nền tảng đã nhận; chưa xác nhận đã đọc",
         "unknown": "{{time}} · Chưa rõ đã gửi; không tự động thử lại",
         "cancelled": "{{time}} · Chưa gửi; lần thử vẫn được tính"
-      }
+      },
+      "homeHandoffHint": "Câu hỏi trực tiếp và yêu cầu phê duyệt công cụ trên trang chủ trợ lý chỉ hỗ trợ thông báo trên máy tính. Mở Hope để trả lời."
     }
   }
 }

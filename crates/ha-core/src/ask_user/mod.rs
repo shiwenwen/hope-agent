@@ -14,7 +14,10 @@ pub use types::{
     AskUserQuestionOption, AskUserText, AskUserTimedOutPayload, CreateOwnerAskUserQuestionInput,
 };
 
-pub(crate) use questions::publish_committed_assistant_answer;
+pub(crate) use questions::{
+    emit_live_tool_question, publish_committed_assistant_answer, register_tool_ask_user_question,
+    ToolQuestionPersistenceGuard, ToolQuestionPersistenceTarget,
+};
 
 pub use questions::{
     cancel_all_pending_ask_user_questions, cancel_owner_question_timeouts_for_session,

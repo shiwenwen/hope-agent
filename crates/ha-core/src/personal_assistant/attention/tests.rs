@@ -1144,3 +1144,314 @@ fn each_notification_boundary_seals_the_same_second_and_accepts_the_next() {
         }
     }
 }
+
+fn direct_home_context_fixture(db: &Arc<SessionDB>) -> crate::tool_defs::ToolExecContext {
+    crate::test_support::home_tool_context(db)
+}
+
+fn home_gate_fixture(
+    db: &Arc<SessionDB>,
+    ctx: &crate::tool_defs::ToolExecContext,
+    question: bool,
+    deadline: i64,
+) -> (
+    String,
+    Option<crate::ask_user::ToolQuestionPersistenceGuard>,
+) {
+    let id = uuid::Uuid::new_v4().to_string();
+    let persistence = if question {
+        let group:crate::ask_user::AskUserQuestionGroup=serde_json::from_value(serde_json::json!({
+            "requestId":id,"sessionId":ctx.session_id,"source":"personal_assistant",
+            "questions":[{"questionId":"decision","text":"PRIVATE_HOME_QUESTION_SENTINEL","options":[]}]
+        })).unwrap();
+        let guard = crate::ask_user::ToolQuestionPersistenceGuard::new(
+            id.clone(),
+            group.session_id.clone(),
+            Some(db.clone()),
+        );
+        runtime().block_on(guard.persist(&group)).unwrap();
+        assert!(runtime()
+            .block_on(signals::register_question_handoff(
+                ctx,
+                &id,
+                Some(deadline),
+                guard.target()
+            ))
+            .unwrap());
+        Some(guard)
+    } else {
+        runtime()
+            .block_on(signals::register_handoff(ctx, &id, Some(deadline)))
+            .unwrap();
+        None
+    };
+    (id, persistence)
+}
+#[test]
+fn direct_home_approval_and_question_have_body_free_desktop_notices_without_items() {
+    for question in [false, true] {
+        isolated(|db, _| {
+            configure(&db, super::super::policy::AssistantNoticeRoute::Desktop);
+            let ctx = direct_home_context_fixture(&db);
+            let (id, _persistence) = home_gate_fixture(&db, &ctx, question, now() + 3600);
+            assert!(db.list_assistant_items().unwrap().is_empty());
+            let notice = claim_notice(&db, "desktop", now() + 1)
+                .expect("direct Home interaction is represented without a delegated item");
+            assert!(
+                notice.body.contains("Hope")
+                    && !notice.body.contains("PRIVATE_HOME_QUESTION_SENTINEL")
+            );
+            assert!(claim_notice(&db, "desktop", now() + 2).is_none());
+            signals::close_handoff_later(&id);
+            runtime().block_on(signals::close_handoff(&id));
+        });
+    }
+}
+#[test]
+fn direct_home_handoffs_never_borrow_an_im_target_grant_or_ignore_selected_route() {
+    for route in [
+        super::super::policy::AssistantNoticeRoute::None,
+        super::super::policy::AssistantNoticeRoute::Im,
+    ] {
+        for question in [false, true] {
+            isolated(|db, _| {
+                configure(&db, route);
+                connected(&db, now());
+                let ctx = direct_home_context_fixture(&db);
+                let (id, _persistence) = home_gate_fixture(&db, &ctx, question, now() + 3600);
+                assert!(claim_notice(&db, "desktop", now() + 1).is_none());
+                assert!(claim_notice(&db, "im", now() + 1).is_none());
+                assert_eq!(
+                    db.read_conn()
+                        .unwrap()
+                        .query_row(
+                            "SELECT COUNT(*) FROM assistant_im_notification_attempts",
+                            [],
+                            |row| row.get::<_, i64>(0)
+                        )
+                        .unwrap(),
+                    0
+                );
+                signals::close_handoff_later(&id);
+                runtime().block_on(signals::close_handoff(&id));
+            });
+        }
+    }
+}
+#[test]
+fn direct_home_handoffs_reject_closed_expired_restarted_stopped_or_noninteractive_sources() {
+    for terminal in [
+        "closed",
+        "expired",
+        "restart",
+        "stop",
+        "stream_end",
+        "source",
+        "delete",
+        "question_answered",
+    ] {
+        isolated(|db, _| {
+            configure(&db, super::super::policy::AssistantNoticeRoute::Desktop);
+            let ctx = direct_home_context_fixture(&db);
+            let deadline = now() + 30;
+            let (id, _persistence) = home_gate_fixture(&db, &ctx, true, deadline);
+            db.reconcile_assistant_attention(now()).unwrap();
+            assert!(
+                !claims::preflight_keys(&db.read_conn().unwrap(), "desktop", now())
+                    .unwrap()
+                    .is_empty()
+            );
+            let mut claim_at = now() + 1;
+            match terminal {
+                "closed" => {
+                    let held = db.conn.lock().unwrap();
+                    signals::close_handoff_later(&id);
+                    drop(held);
+                }
+                "expired" => claim_at = deadline + 1,
+                "restart" => {
+                    db.conn.lock().unwrap().execute("UPDATE assistant_attention_home_handoffs SET instance_id='previous-process'",[]).unwrap();
+                }
+                "stop" => {
+                    db.conn.lock().unwrap().execute("UPDATE runtime_control_epochs SET epoch=epoch+1 WHERE key='global_stop'",[]).unwrap();
+                }
+                "stream_end" => {
+                    db.conn.lock().unwrap().execute("UPDATE chat_stream_runs SET status='committed' WHERE run_id='home-stream'",[]).unwrap();
+                }
+                "source" => {
+                    db.conn
+                        .lock()
+                        .unwrap()
+                        .execute(
+                            "UPDATE chat_turns SET source='cron' WHERE id='owner-turn'",
+                            [],
+                        )
+                        .unwrap();
+                }
+                "delete" => db.delete_session(ctx.session_id.as_ref().unwrap()).unwrap(),
+                "question_answered" => {
+                    db.conn
+                        .lock()
+                        .unwrap()
+                        .execute(
+                            "UPDATE ask_user_questions SET status='answered' WHERE request_id=?1",
+                            [&id],
+                        )
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                claim_notice(&db, "desktop", claim_at).is_none(),
+                "{terminal} cannot leave a late Home reminder"
+            );
+            signals::close_handoff_later(&id);
+            runtime().block_on(signals::close_handoff(&id));
+        });
+    }
+}
+#[test]
+fn a_direct_home_answer_closes_live_notice_before_database_cleanup() {
+    isolated(|db, _| {
+        configure(&db, super::super::policy::AssistantNoticeRoute::Desktop);
+        let ctx = direct_home_context_fixture(&db);
+        let (id, persistence) = home_gate_fixture(&db, &ctx, true, now() + 3600);
+        runtime().block_on(async {
+            let persistence = persistence.unwrap();
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            crate::ask_user::register_tool_ask_user_question(
+                id.clone(),
+                ctx.session_id.clone().unwrap(),
+                sender,
+                persistence.target(),
+            )
+            .await;
+            let held = db.conn.lock().unwrap();
+            let request = id.clone();
+            let response = tokio::spawn(async move {
+                crate::ask_user::submit_ask_user_question_response(&request, vec![]).await
+            });
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_secs(3), receiver)
+                    .await
+                    .expect("the decision arrives before persistence cleanup can acquire the DB")
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(!signals::handoff_pending(&id));
+            drop(held);
+            response.await.unwrap().unwrap();
+            assert!(db
+                .read_conn()
+                .unwrap()
+                .query_row(
+                    "SELECT status='answered' FROM ask_user_questions WHERE request_id=?1",
+                    [&id],
+                    |row| row.get::<_, bool>(0)
+                )
+                .unwrap());
+        });
+        assert!(claim_notice(&db, "desktop", now() + 1).is_none());
+    });
+}
+
+#[test]
+fn an_old_home_context_cannot_register_after_stop_or_without_admission_generations() {
+    for kind in [
+        "global_stop",
+        "home_resume",
+        "missing_global",
+        "missing_home",
+    ] {
+        isolated(|db, _| {
+            configure(&db, super::super::policy::AssistantNoticeRoute::Desktop);
+            let mut ctx = direct_home_context_fixture(&db);
+            match kind {
+                "global_stop" => {
+                    db.conn.lock().unwrap().execute("UPDATE runtime_control_epochs SET epoch=epoch+1 WHERE key='global_stop'",[]).unwrap();
+                }
+                "home_resume" => {
+                    db.conn.lock().unwrap().execute("INSERT INTO session_autonomy_pauses(id,session_id,created_at,resumed_at) VALUES('new-stop',?1,'now','now')",[ctx.session_id.as_ref().unwrap()]).unwrap();
+                }
+                "missing_global" => ctx.turn_admitted_global_stop_epoch = None,
+                "missing_home" => ctx.turn_admitted_stop_epoch = None,
+                _ => unreachable!(),
+            }
+            let id = uuid::Uuid::new_v4().to_string();
+            assert!(
+                !db.register_assistant_approval_handoff(
+                    &id,
+                    "home-stream",
+                    Some(now() + 3600),
+                    now(),
+                    ctx.turn_admitted_global_stop_epoch
+                        .zip(ctx.turn_admitted_stop_epoch)
+                )
+                .unwrap(),
+                "{kind}: never rebind an old execution to a fresh Stop generation"
+            );
+            assert_eq!(
+                db.stream_run_status("home-stream").unwrap().as_deref(),
+                Some("running")
+            );
+            assert!(claim_notice(&db, "desktop", now() + 1).is_none());
+        });
+    }
+}
+
+#[test]
+fn a_question_resolved_before_registration_returns_cannot_reactivate_or_emit() {
+    for answered in [false, true] {
+        isolated(|db, _| {
+            configure(&db, super::super::policy::AssistantNoticeRoute::Desktop);
+            let ctx = direct_home_context_fixture(&db);
+            let id = uuid::Uuid::new_v4().to_string();
+            let group: crate::ask_user::AskUserQuestionGroup = serde_json::from_value(serde_json::json!({
+                "requestId":id,"sessionId":ctx.session_id,"source":"personal_assistant",
+                "questions":[{"questionId":"decision","text":"Should Hope continue?","options":[]}]
+            })).unwrap();
+            runtime().block_on(async {
+                let guard = crate::ask_user::ToolQuestionPersistenceGuard::new(
+                    id.clone(), group.session_id.clone(), Some(db.clone()),
+                );
+                guard.persist(&group).await.unwrap();
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                crate::ask_user::register_tool_ask_user_question(
+                    id.clone(), group.session_id.clone(), sender, guard.target(),
+                ).await;
+                // The DB part has committed, but the registration future has
+                // not resumed to install its live marker yet.
+                assert!(db.register_assistant_question_handoff(
+                    &id, ctx.persistence_run_id.as_ref().unwrap(), Some(now()+3600), now(),
+                    ctx.turn_admitted_global_stop_epoch.zip(ctx.turn_admitted_stop_epoch),
+                ).unwrap());
+                let held = db.conn.lock().unwrap();
+                let request = id.clone();
+                let terminal = tokio::spawn(async move {
+                    if answered {
+                        crate::ask_user::submit_ask_user_question_response(&request, vec![]).await.unwrap();
+                    } else {
+                        crate::ask_user::cancel_pending_ask_user_question(&request).await;
+                    }
+                });
+                let received = tokio::time::timeout(std::time::Duration::from_secs(3), receiver)
+                    .await.expect("the terminal decision must reach the receiver before DB cleanup");
+                if answered { assert!(received.unwrap().is_empty()); } else { assert!(received.is_err()); }
+                assert!(guard.is_closed());
+                assert!(db.read_conn().unwrap().query_row(
+                    "SELECT EXISTS(SELECT 1 FROM ask_user_questions WHERE request_id=?1 AND status='pending')",
+                    [&id], |row| row.get::<_,bool>(0),
+                ).unwrap(), "cleanup is still blocked, so only the live cancellation prevents a late claim");
+                assert!(!signals::activate_live_handoff(&db, &id, Some(&guard.target())).unwrap());
+                assert!(!signals::handoff_pending(&id));
+                let mut emitted = false;
+                assert!(!crate::ask_user::emit_live_tool_question(&id, &guard.target(), || emitted=true).await);
+                assert!(!emitted, "a resolved question must not reappear in the UI");
+                drop(held);
+                terminal.await.unwrap();
+                guard.finish().await.unwrap();
+            });
+            assert!(claim_notice(&db, "desktop", now() + 1).is_none());
+        });
+    }
+}

@@ -2045,6 +2045,12 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        Self::write_ask_user_group(&conn, group)
+    }
+    fn write_ask_user_group(
+        conn: &rusqlite::Connection,
+        group: &crate::ask_user::AskUserQuestionGroup,
+    ) -> anyhow::Result<()> {
         let payload = serde_json::to_string(group)?;
         conn.execute(
             "INSERT OR REPLACE INTO ask_user_questions
@@ -2059,6 +2065,46 @@ impl SessionDB {
                 group.timeout_at.map(|n| n.min(i64::MAX as u64) as i64),
             ],
         )?;
+        Ok(())
+    }
+    /// A dropped tool future cannot recreate a pending question after cleanup.
+    /// The cancellation checks share the same DB lock and transaction as save.
+    pub(crate) fn save_live_ask_user_group(
+        &self,
+        group: &crate::ask_user::AskUserQuestionGroup,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> anyhow::Result<()> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Question database unavailable"))?;
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            anyhow::bail!("Question cancelled before persistence")
+        }
+        let tx = conn.transaction()?;
+        Self::write_ask_user_group(&tx, group)?;
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            anyhow::bail!("Question cancelled during persistence")
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    pub(crate) fn close_live_ask_user_group(
+        &self,
+        request_id: &str,
+        session_id: &str,
+    ) -> anyhow::Result<()> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Question database unavailable"))?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "UPDATE ask_user_questions SET status='answered' WHERE request_id=?1 AND session_id=?2",
+            params![request_id, session_id],
+        )?;
+        tx.execute("UPDATE assistant_attention_home_handoffs SET active=0 WHERE id=?1 AND home_session_id=?2 AND kind='question'",params![request_id,session_id])?;
+        tx.commit()?;
         Ok(())
     }
 
