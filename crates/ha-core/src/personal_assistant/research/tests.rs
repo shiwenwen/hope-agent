@@ -554,3 +554,77 @@ fn public_live_snapshot_never_exposes_research_even_after_source_or_session_dele
         });
     });
 }
+
+#[test]
+fn returning_to_a_consumed_content_version_creates_a_new_research_event() {
+    isolated(|db, root| {
+        let source = share(db.clone(), root, "agenda.md");
+        let original = std::fs::read_to_string(root.join("agenda.md")).unwrap();
+        let changed = "Planning 09:00\nReview 09:00\n";
+        let mut runs = Vec::new();
+        for body in [changed, original.as_str(), changed] {
+            std::fs::write(root.join("agenda.md"), body).unwrap();
+            runtime()
+                .block_on(refresh_owner_sources(db.clone()))
+                .unwrap();
+            let pending = claim(&db);
+            runs.push(pending.run_id.clone());
+            let execution = admit(&db, &pending);
+            db.report_assistant_research(&execution, vec![]).unwrap();
+            db.conn
+                .lock()
+                .unwrap()
+                .execute(
+                    "UPDATE chat_stream_runs SET status='committed' WHERE run_id=?1",
+                    [execution],
+                )
+                .unwrap();
+            db.settle_assistant_research(chrono::Utc::now().timestamp())
+                .unwrap();
+        }
+        assert_eq!(
+            runs.into_iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            3
+        );
+        let count:i64=db.read_conn().unwrap().query_row("SELECT COUNT(*) FROM assistant_source_events WHERE source_id=?1 AND kind='change' AND run_id IS NOT NULL",[source.id],|row|row.get(0)).unwrap();
+        assert_eq!(
+            count, 3,
+            "A → B → A → B has three observations, including the second B"
+        );
+    });
+}
+
+#[test]
+fn active_sources_stay_visible_after_more_than_sixty_four_historical_grants() {
+    isolated(|db, root| {
+        let current = share(db.clone(), root, "agenda.md");
+        {
+            let conn = db.conn.lock().unwrap();
+            for index in 0..70 {
+                conn.execute("INSERT INTO assistant_sources(id,home_session_id,session_id,relative_path,workspace_key,focus,revision,state,expires_at,global_stop_epoch,home_stop_epoch,next_scan_at,next_review_at)
+                    SELECT ?1,home_session_id,session_id,?2,workspace_key,focus,1,'revoked',0,0,0,0,0 FROM assistant_sources WHERE id=?3",
+                    params![format!("!historical-{index:02}"),format!("revoked-{index}.txt"),current.id]).unwrap();
+            }
+        }
+        let listed = db.list_assistant_sources().unwrap();
+        assert!(listed
+            .iter()
+            .any(|source| source.id == current.id && source.state == "active"));
+        assert_eq!(
+            listed
+                .iter()
+                .filter(|source| source.state == "revoked")
+                .count(),
+            64
+        );
+        db.revoke_assistant_source(&current.id, chrono::Utc::now().timestamp())
+            .unwrap();
+        assert!(db
+            .list_assistant_sources()
+            .unwrap()
+            .iter()
+            .all(|source| source.state != "active"));
+    });
+}

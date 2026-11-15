@@ -121,10 +121,13 @@ impl SessionDB {
     pub fn list_assistant_sources(&self) -> Result<Vec<AssistantSource>> {
         let conn = self.read_conn()?;
         let mut stmt = conn.prepare(&format!(
-            "SELECT {COLUMNS} FROM assistant_sources ORDER BY id LIMIT 64"
+            "SELECT {COLUMNS} FROM assistant_sources WHERE state='active' AND expires_at>?1
+             UNION ALL SELECT {COLUMNS} FROM (SELECT {COLUMNS} FROM assistant_sources
+                WHERE state<>'active' OR expires_at<=?1 ORDER BY id LIMIT 64)
+             ORDER BY id"
         ))?;
         let mut sources = stmt
-            .query_map([], row_source)?
+            .query_map([chrono::Utc::now().timestamp()], row_source)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for source in &mut sources {
             let paused:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM assistant_policy_gate WHERE singleton=1 AND json_extract(requested_json,'$.paused')=1)",[],|r|r.get(0))?;
@@ -318,15 +321,10 @@ impl SessionDB {
                 )?;
             } else if material || review <= now {
                 let kind = if material { "change" } else { "review" };
-                let event = format!(
-                    "{}:{revision}:{kind}:{}",
-                    source.id,
-                    if material {
-                        version.clone()
-                    } else {
-                        review.to_string()
-                    }
-                );
+                // Each actual observation is a new event, even when its body
+                // returns to an earlier content hash. The transaction's version
+                // comparison already coalesces simultaneous identical reads.
+                let event = uuid::Uuid::new_v4().to_string();
                 tx.execute("INSERT OR IGNORE INTO assistant_source_events(id,source_id,revision,version,kind,created_at) VALUES(?1,?2,?3,?4,?5,?6)",
                     params![event,source.id,revision,version,kind,now])?;
                 tx.execute(
