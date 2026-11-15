@@ -72,6 +72,7 @@ pub const TOOL_SESSION_STATUS: &str = "session_status";
 pub const TOOL_SESSIONS_SEARCH: &str = "sessions_search";
 pub const TOOL_SESSIONS_HISTORY: &str = "sessions_history";
 pub const TOOL_SESSIONS_SEND: &str = "sessions_send";
+pub const TOOL_ASSISTANT_REPORT: &str = "assistant_report";
 pub const TOOL_IMAGE: &str = "image";
 pub const TOOL_IMAGE_GENERATE: &str = "image_generate";
 pub const TOOL_AUDIO_GENERATE: &str = "audio_generate";

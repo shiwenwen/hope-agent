@@ -8816,7 +8816,8 @@
     },
     "contextCompactSummaryReasoning": "Özete özel akıl yürütme",
     "contextCompactSummaryReasoningDefault": "Mevcut özet ilkesini koru",
-    "contextCompactSummaryReasoningDesc": "Yalnızca bağlam özetlerini etkiler. Desteklenmeyen düzeyler hata verir ve geçmişi korur. Hata durumunda model veya çıktı sınırı otomatik değişmez. Varsayılan, mevcut davranışı korur."
+    "contextCompactSummaryReasoningDesc": "Yalnızca bağlam özetlerini etkiler. Desteklenmeyen düzeyler hata verir ve geçmişi korur. Hata durumunda model veya çıktı sınırı otomatik değişmez. Varsayılan, mevcut davranışı korur.",
+    "toolAssistantReportDesc": "Doğrulanmış ilerlemeyi, sonucu veya sahibine kalıcı bir soruyu kaydet"
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",
@@ -9292,7 +9293,8 @@
     "feishu_hire_get_job": "Feishu İşe alım: Pozisyonu getir",
     "feishu_hire_list_talents": "Feishu İşe alım: Adayları listele",
     "feishu_hire_get_talent": "Feishu İşe alım: Adayı getir",
-    "feishu_hire_list_applications": "Feishu İşe alım: Başvuruları listele"
+    "feishu_hire_list_applications": "Feishu İşe alım: Başvuruları listele",
+    "assistant_report": "Asistan işini bildir"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -13012,6 +13014,40 @@
     },
     "welcomeTitle": "Ben {{name}}",
     "welcomeBody": "Ne yapmak istediğinizi söyleyin. Konuşmayı sürdürmek veya devredilen işleri kontrol etmek için buraya dönebilirsiniz.",
-    "messagePlaceholder": "Ne yapmak istersiniz?"
+    "messagePlaceholder": "Ne yapmak istersiniz?",
+    "readUpdate": "Güncellemeyi oku",
+    "executionHistory": "Çalıştırma geçmişi",
+    "emptyItems": "İşi Hope’a verin; tamamlanana kadar takip etsin.",
+    "executionDetails": "Çalıştırma ayrıntıları",
+    "itemUsage": "{{turns}} tur · {{tools}} araç · {{seconds}} etkin saniye",
+    "itemExpiry": "Takip bitişi: {{time}}",
+    "continueItem": "Devam et (+8 tur, 64 araç, 30 dk)",
+    "updates": {
+      "update": "Güncelleme",
+      "result": "Sonuç",
+      "progress": "İlerleme",
+      "waiting": "Bekliyor",
+      "blocked": "Engellendi",
+      "needs_review": "Doğrulama gerekiyor",
+      "question": "Yanıtınız gerekiyor"
+    },
+    "itemState": {
+      "open": "Sürüyor",
+      "waiting": "Bekliyor",
+      "done": "Teslim edildi",
+      "stopped": "Durduruldu"
+    },
+    "itemReason": {
+      "needs_input": "Yanıtınız bekleniyor",
+      "background_work": "Arka plan işi bekleniyor",
+      "work_state_unknown": "Sonuç bilinmiyor; yeniden denemeden önce doğrulayın",
+      "awaiting_verification": "Sonucun doğrulanması gerekiyor",
+      "execution_failed": "Çalıştırma doğrulanamadı",
+      "budget_exhausted": "Sınır doldu; devam talimatınız gerekiyor",
+      "no_progress": "Yeni ilerleme yok; talimatınız bekleniyor",
+      "dispatch_failed": "İş başlatılamadı",
+      "owner_stopped": "Bu işi durdurdunuz",
+      "scope_or_stop_changed": "Kapsam veya durdurma durumu değişti"
+    }
   }
 }

@@ -33,6 +33,35 @@ export interface AssistantRequest {
   updatedAt: string
 }
 
+export interface AssistantItem {
+  id: string
+  requestId: string
+  targetSessionId: string
+  instruction: string
+  state: "open" | "waiting" | "done" | "stopped"
+  reason: string | null
+  revision: number
+  turnsUsed: number
+  toolsUsed: number
+  activeSeconds: number
+  turnLimit: number
+  toolLimit: number
+  activeSecondsLimit: number
+  updatedAt: string
+  expiresAt: number
+}
+
+export interface AssistantUpdate {
+  id: string
+  itemId: string
+  kind: string
+  summary: string
+  summaryCode?: string | null
+  resultMessageId: number | null
+  createdAt: string
+  viewedAt: string | null
+}
+
 export interface AssistantWatch {
   sessionId: string
   goalId: string
@@ -53,6 +82,8 @@ export function requestNeedsResponse(request: AssistantRequest): boolean {
 const emptyData = {
   requests: [] as AssistantRequest[],
   watches: [] as AssistantWatch[],
+  items: [] as AssistantItem[],
+  updates: [] as AssistantUpdate[],
   profile: null as AssistantProfile | null,
 }
 
@@ -74,10 +105,12 @@ export function usePersonalAssistant() {
     setLoading(true)
     const current = () => version === requestVersion.current && revision === getTransportRevision()
     try {
-      const [requests, watches, profile] = await Promise.all([
+      const [requests, watches, profile, items, updates] = await Promise.all([
         transport.call<AssistantRequest[]>("list_personal_assistant_requests"),
         transport.call<AssistantWatch[]>("personal_assistant_inbox"),
         transport.call<AssistantProfile>("get_personal_assistant_profile"),
+        transport.call<AssistantItem[]>("list_personal_assistant_items"),
+        transport.call<AssistantUpdate[]>("list_personal_assistant_updates"),
       ])
       if (!current()) return
       failed.current = false
@@ -90,7 +123,7 @@ export function usePersonalAssistant() {
           .map((request) => request.targetSessionId),
       )
       watchedGoals.current = new Map(watches.map((watch) => [watch.goalId, watch.sessionId]))
-      setData({ requests, watches, profile, revision, authorized: true })
+      setData({ requests, watches, profile, items, updates, revision, authorized: true })
       setError(null)
     } catch (cause) {
       if (!current()) return
@@ -199,6 +232,21 @@ export function usePersonalAssistant() {
     [transport, revision, refresh],
   )
 
+  const itemAction = useCallback(
+    async (action: "stop" | "continue" | "view", id: string) => {
+      if (revision !== getTransportRevision()) throw new Error("Assistant connection changed")
+      const command =
+        action === "view"
+          ? "view_personal_assistant_update"
+          : action === "stop"
+            ? "stop_personal_assistant_item"
+            : "continue_personal_assistant_item"
+      await transport.call(command, { id })
+      if (revision === getTransportRevision()) await refresh()
+    },
+    [transport, revision, refresh],
+  )
+
   const saveProfile = useCallback(
     async (profile: AssistantProfile) => {
       if (revision !== getTransportRevision()) throw new Error("Assistant connection changed")
@@ -221,6 +269,7 @@ export function usePersonalAssistant() {
     watchGoal,
     cancel,
     saveProfile,
+    itemAction,
   }
 }
 

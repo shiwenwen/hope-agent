@@ -472,6 +472,10 @@ impl ToolMetadata {
                 push_unique(&mut effects, ToolEffect::SessionWrite);
                 render.result_kind = ToolResultKind::Status;
             }
+            crate::tool_defs::TOOL_ASSISTANT_REPORT => {
+                push_unique(&mut effects, ToolEffect::SessionWrite);
+                render.result_kind = ToolResultKind::Status;
+            }
             crate::tool_defs::TOOL_SESSIONS_CREATE | crate::tool_defs::TOOL_SESSIONS_SEND => {
                 push_all(
                     &mut aliases,

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react"
 import { toast } from "sonner"
+import { AssistantUpdateEntry } from "@/components/personal-assistant/AssistantUpdateEntry"
 import { PersonalAssistantPanel } from "@/components/personal-assistant/PersonalAssistantPanel"
 import { PersonalAssistantHeader } from "@/components/personal-assistant/PersonalAssistantHeader"
 import { PersonalAssistantSettings } from "@/components/personal-assistant/PersonalAssistantSettings"
@@ -970,10 +971,11 @@ export default function ChatScreen({
   }, [currentSessionMeta, isPersonalAssistant, onAssistantStateChange])
   useEffect(() => {
     onAssistantAttentionChange?.(
-      assistant.watches.filter((watch) => watch.needsAttention).length +
+      assistant.updates.filter((update) => !update.viewedAt).length +
+        assistant.watches.filter((watch) => watch.needsAttention).length +
         assistant.requests.filter(requestNeedsResponse).length,
     )
-  }, [assistant.watches, assistant.requests, onAssistantAttentionChange])
+  }, [assistant.watches, assistant.requests, assistant.updates, onAssistantAttentionChange])
   const [sideChats, setSideChats] = useState<SessionMeta[]>([])
   const [sideChatStateSourceId, setSideChatStateSourceId] = useState<string | null>(null)
   const [activeSideChatId, setActiveSideChatId] = useState<string | null>(null)
@@ -5066,6 +5068,7 @@ export default function ChatScreen({
 
   const emptySessionInputHero =
     session.messages.length === 0 &&
+    (!isPersonalAssistant || assistant.updates.length === 0) &&
     !session.historyLoading &&
     !session.loading &&
     !planMode.pendingQuestionGroup &&
@@ -5506,7 +5509,23 @@ export default function ChatScreen({
                   onResetToLatest={session.resetToLatest}
                   sessionId={session.currentSessionId}
                   incognito={incognitoEnabled}
-                  anchorLatestTurn
+                  anchorLatestTurn={!isPersonalAssistant}
+                  timelineEntries={
+                    isPersonalAssistant
+                      ? assistant.updates.map((update) => ({
+                          id: update.id,
+                          timestamp: update.createdAt,
+                          content: (
+                            <AssistantUpdateEntry
+                              key={update.id}
+                              update={update}
+                              name={assistant.profile?.name ?? "Hope"}
+                              onView={(id) => assistant.itemAction("view", id)}
+                            />
+                          ),
+                        }))
+                      : undefined
+                  }
                   heroComposer={heroComposerActive}
                   projectName={currentProject?.name ?? null}
                   onProjectSuggestion={currentProject ? handleProjectWelcomeSuggestion : undefined}

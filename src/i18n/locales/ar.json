@@ -8816,7 +8816,8 @@
     },
     "contextCompactSummaryReasoning": "استدلال خاص بالملخص",
     "contextCompactSummaryReasoningDefault": "الإبقاء على السياسة الحالية",
-    "contextCompactSummaryReasoningDesc": "يؤثر في ملخصات السياق فقط. تعرض المستويات غير المدعومة خطأ مع الاحتفاظ بالسجل. لا يؤدي الفشل إلى تبديل النموذج أو زيادة حد الإخراج تلقائيًا. يحافظ الافتراضي على السلوك الحالي."
+    "contextCompactSummaryReasoningDesc": "يؤثر في ملخصات السياق فقط. تعرض المستويات غير المدعومة خطأ مع الاحتفاظ بالسجل. لا يؤدي الفشل إلى تبديل النموذج أو زيادة حد الإخراج تلقائيًا. يحافظ الافتراضي على السلوك الحالي.",
+    "toolAssistantReportDesc": "تسجيل تقدم تم التحقق منه أو نتيجة أو سؤال محفوظ للمالك"
   },
   "shortcuts": {
     "actionOpenSettings": "فتح الإعدادات",
@@ -9292,7 +9293,8 @@
     "feishu_hire_get_job": "Feishu التوظيف: عرض وظيفة",
     "feishu_hire_list_talents": "Feishu التوظيف: عرض المرشحين",
     "feishu_hire_get_talent": "Feishu التوظيف: عرض مرشح",
-    "feishu_hire_list_applications": "Feishu التوظيف: عرض طلبات التوظيف"
+    "feishu_hire_list_applications": "Feishu التوظيف: عرض طلبات التوظيف",
+    "assistant_report": "تقرير عمل المساعد"
   },
   "tz": {
     "amsterdam": "أمستردام (UTC+1)",
@@ -13012,6 +13014,40 @@
     },
     "welcomeTitle": "أنا {{name}}",
     "welcomeBody": "أخبرني بما تريد إنجازه. يمكنك العودة لمتابعة المحادثة أو الاطلاع على تقدم المهام المفوّضة.",
-    "messagePlaceholder": "كيف يمكنني مساعدتك؟"
+    "messagePlaceholder": "كيف يمكنني مساعدتك؟",
+    "readUpdate": "قراءة التحديث",
+    "executionHistory": "سجل التنفيذ",
+    "emptyItems": "أوكل العمل إلى Hope ليتابعه حتى الإنجاز.",
+    "executionDetails": "تفاصيل التنفيذ",
+    "itemUsage": "{{turns}} جولات · {{tools}} أدوات · {{seconds}} ثانية نشطة",
+    "itemExpiry": "المتابعة حتى: {{time}}",
+    "continueItem": "متابعة (+8 جولات و64 أداة و30 دقيقة)",
+    "updates": {
+      "update": "تحديث",
+      "result": "النتيجة",
+      "progress": "التقدم",
+      "waiting": "قيد الانتظار",
+      "blocked": "متعثر",
+      "needs_review": "يلزم التحقق",
+      "question": "نحتاج إلى إجابتك"
+    },
+    "itemState": {
+      "open": "قيد العمل",
+      "waiting": "قيد الانتظار",
+      "done": "تم التسليم",
+      "stopped": "متوقف"
+    },
+    "itemReason": {
+      "needs_input": "بانتظار إجابتك",
+      "background_work": "بانتظار العمل في الخلفية",
+      "work_state_unknown": "النتيجة غير معروفة؛ تحقق قبل إعادة المحاولة",
+      "awaiting_verification": "تحتاج النتيجة إلى التحقق",
+      "execution_failed": "تعذر التحقق من التنفيذ",
+      "budget_exhausted": "نفدت الحصة؛ يلزم طلبك الصريح للمتابعة",
+      "no_progress": "لا تقدم جديد؛ بانتظار توجيهك",
+      "dispatch_failed": "تعذر بدء العمل",
+      "owner_stopped": "أوقفت هذا الأمر",
+      "scope_or_stop_changed": "تغير النطاق أو حالة الإيقاف"
+    }
   }
 }

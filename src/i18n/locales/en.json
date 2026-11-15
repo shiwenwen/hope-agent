@@ -8816,7 +8816,8 @@
     },
     "contextCompactSummaryReasoning": "Summary reasoning override",
     "contextCompactSummaryReasoningDefault": "Keep current summary policy",
-    "contextCompactSummaryReasoningDesc": "Only affects context summaries. Unsupported levels show an error and preserve your history. Failed requests do not switch models or raise the output limit; the default keeps current behavior."
+    "contextCompactSummaryReasoningDesc": "Only affects context summaries. Unsupported levels show an error and preserve your history. Failed requests do not switch models or raise the output limit; the default keeps current behavior.",
+    "toolAssistantReportDesc": "Record verified item progress, a result, or a durable question for the owner"
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",
@@ -9292,7 +9293,8 @@
     "feishu_hire_get_job": "Feishu Hire: Get Job",
     "feishu_hire_list_talents": "Feishu Hire: List Talents",
     "feishu_hire_get_talent": "Feishu Hire: Get Talent",
-    "feishu_hire_list_applications": "Feishu Hire: List Applications"
+    "feishu_hire_list_applications": "Feishu Hire: List Applications",
+    "assistant_report": "Report assistant work"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -13012,6 +13014,40 @@
     },
     "welcomeTitle": "I’m {{name}}",
     "welcomeBody": "Tell me what you’d like to work on. You can return here to continue the conversation or check delegated work.",
-    "messagePlaceholder": "Tell me what you’d like to do…"
+    "messagePlaceholder": "Tell me what you’d like to do…",
+    "readUpdate": "Read update",
+    "executionHistory": "Execution history",
+    "emptyItems": "Tell Hope what you need; it will follow the work through.",
+    "executionDetails": "Execution details",
+    "itemUsage": "{{turns}} turns · {{tools}} tools · {{seconds}} active seconds",
+    "itemExpiry": "Follow-up expires: {{time}}",
+    "continueItem": "Continue (+8 turns, 64 tools, 30 min)",
+    "updates": {
+      "update": "Update",
+      "result": "Result",
+      "progress": "Progress",
+      "waiting": "Waiting",
+      "blocked": "Blocked",
+      "needs_review": "Needs verification",
+      "question": "Your answer is needed"
+    },
+    "itemState": {
+      "open": "In progress",
+      "waiting": "Waiting",
+      "done": "Delivered",
+      "stopped": "Stopped"
+    },
+    "itemReason": {
+      "needs_input": "Waiting for your answer",
+      "background_work": "Waiting for background work",
+      "work_state_unknown": "Work outcome is unknown; verify before retrying",
+      "awaiting_verification": "The result needs verification",
+      "execution_failed": "Execution could not be verified",
+      "budget_exhausted": "Allowance exhausted; explicit continuation is needed",
+      "no_progress": "No new progress; waiting for your direction",
+      "dispatch_failed": "Work could not start",
+      "owner_stopped": "You stopped this item",
+      "scope_or_stop_changed": "Scope or Stop changed"
+    }
   }
 }

@@ -3167,6 +3167,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-assistant"
+version = "0.74.0"
+dependencies = [
+ "anyhow",
+ "ha-core",
+ "tokio",
+]
+
+[[package]]
 name = "ha-base"
 version = "0.74.0"
 dependencies = [
@@ -3771,6 +3780,7 @@ dependencies = [
  "futures-util",
  "ha-acp",
  "ha-agent-runtime",
+ "ha-assistant",
  "ha-browser",
  "ha-channel",
  "ha-core",
@@ -11967,4 +11977,3 @@ dependencies = [
  "syn 2.0.119",
  "winnow 1.0.4",
 ]
-

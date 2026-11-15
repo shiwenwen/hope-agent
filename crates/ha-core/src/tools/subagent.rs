@@ -209,6 +209,33 @@ pub(crate) async fn tool_subagent(args: &Value, ctx: &ToolExecContext) -> Result
         ));
     }
 
+    if let (Some(db), Some(execution)) = (
+        &ctx.session_db,
+        ctx.persistence_run_id
+            .clone()
+            .or_else(|| ctx.turn_id.clone()),
+    ) {
+        if db
+            .0
+            .run(move |db| db.assistant_execution_role(&execution))
+            .await?
+            .is_some()
+        {
+            if action == "spawn_and_wait" {
+                return action_spawn(args, ctx).await;
+            }
+            if action == "check" && args.get("wait").and_then(Value::as_bool) == Some(true) {
+                let mut snapshot = args.clone();
+                snapshot["wait"] = serde_json::json!(false);
+                return action_check(&snapshot, ctx).await;
+            }
+            if action == "wait_all" {
+                let mut snapshot = args.clone();
+                snapshot["wait_timeout"] = serde_json::json!(0);
+                return action_wait_all(&snapshot, ctx).await;
+            }
+        }
+    }
     match action {
         "spawn" => action_spawn(args, ctx).await,
         "send" => action_send(args, ctx).await,
@@ -410,10 +437,15 @@ async fn load_subagent_run(
 async fn consume_subagent_result(
     session_db: &Arc<crate::session::SessionDB>,
     run_id: &str,
+    ctx: &ToolExecContext,
 ) -> Result<()> {
     let db = session_db.clone();
     let run_id_owned = run_id.to_string();
-    db.run(move |db| db.suppress_subagent_result_delivery(&run_id_owned, "explicitly_consumed"))
+    let execution = ctx
+        .persistence_run_id
+        .clone()
+        .or_else(|| ctx.turn_id.clone());
+    db.run(move |db| db.consume_subagent_result_in_execution(&run_id_owned, execution.as_deref()))
         .await?;
     crate::subagent::mark_run_fetched_in_memory(run_id);
     Ok(())
@@ -567,6 +599,7 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<SpawnResolution
     let cancel_registry = get_cancel_registry()?;
 
     let params = SpawnParams {
+            parent_execution_id: ctx.persistence_run_id.clone().or_else(||ctx.turn_id.clone()),
         task: task.to_string(),
         agent_id,
         parent_session_id: parent_session_id.to_string(),
@@ -727,6 +760,10 @@ async fn action_resume(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         workflow_owner.and_then(|_| args.get(WORKFLOW_ISOLATION_ARG).and_then(Value::as_str));
     let shared_read_only = workflow_isolation == Some("shared_read_only");
     let params = SpawnParams {
+        parent_execution_id: ctx
+            .persistence_run_id
+            .clone()
+            .or_else(|| ctx.turn_id.clone()),
         task: task.to_string(),
         agent_id: source.child_agent_id.clone(),
         parent_session_id: parent_session_id.to_string(),
@@ -1058,7 +1095,7 @@ async fn action_check(args: &Value, ctx: &ToolExecContext) -> Result<String> {
             response["terminal_reason"] = serde_json::Value::String(reason.as_str().to_string());
         }
         // Mark as fetched so auto-injection is skipped
-        consume_subagent_result(&session_db, run_id).await?;
+        consume_subagent_result(&session_db, run_id, ctx).await?;
     }
 
     Ok(serde_json::to_string_pretty(&response)?)
@@ -1128,7 +1165,7 @@ async fn action_result(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     }
 
     // Mark as fetched so auto-injection is skipped
-    consume_subagent_result(&session_db, run_id).await?;
+    consume_subagent_result(&session_db, run_id, ctx).await?;
 
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "thread_id": run.thread_id,
@@ -1430,8 +1467,25 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
     };
 
     let mut results = Vec::new();
+    if let Some(group) = group_id.as_ref() {
+        let group = group.clone();
+        let parent = parent_session_id.to_owned();
+        let execution = ctx
+            .persistence_run_id
+            .clone()
+            .or_else(|| ctx.turn_id.clone());
+        session_db
+            .run(move |db| {
+                db.bind_assistant_work_source("job", &group, &parent, execution.as_deref())
+            })
+            .await?;
+    }
     for bt in parsed {
         let params = SpawnParams {
+            parent_execution_id: ctx
+                .persistence_run_id
+                .clone()
+                .or_else(|| ctx.turn_id.clone()),
             task: bt.task,
             agent_id: bt.agent_id,
             parent_session_id: parent_session_id.to_string(),
@@ -1619,19 +1673,8 @@ async fn action_wait_all(args: &Value, ctx: &ToolExecContext) -> Result<String> 
                 results.push(serde_json::json!({"run_id": id, "status": "not_found"}));
             }
         }
-        if !consumed_run_ids.is_empty() {
-            let db = session_db.clone();
-            let durable_ids = consumed_run_ids.clone();
-            db.run(move |db| {
-                for run_id in &durable_ids {
-                    db.suppress_subagent_result_delivery(run_id, "explicitly_consumed")?;
-                }
-                Result::<_, anyhow::Error>::Ok(())
-            })
-            .await?;
-            for run_id in consumed_run_ids {
-                crate::subagent::mark_run_fetched_in_memory(&run_id);
-            }
+        for run_id in consumed_run_ids {
+            consume_subagent_result(&session_db, &run_id, ctx).await?;
         }
 
         let timed_out = !all_terminal && std::time::Instant::now() >= deadline;
@@ -1702,7 +1745,7 @@ async fn action_spawn_and_wait(args: &Value, ctx: &ToolExecContext) -> Result<St
 
         if run.status.is_terminal() {
             // Completed within foreground timeout — return inline
-            consume_subagent_result(&session_db, &run_id).await?;
+            consume_subagent_result(&session_db, &run_id, ctx).await?;
             let mut response = subagent_dispatch_handle(&run, run.status.as_str());
             attach_agent_binding_receipt(&mut response, resolution.binding.as_ref(), &run_id);
             response["mode"] = Value::String("foreground".to_string());

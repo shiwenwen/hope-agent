@@ -16,7 +16,13 @@ vi.mock("@/lib/openExternalUrl", () => ({ openExternalUrl: mocks.openExternalUrl
 vi.mock("sonner", () => ({ toast: { success: mocks.success, error: mocks.error } }))
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 
-afterEach(() => { cleanup(); vi.resetAllMocks() })
+afterEach(async () => {
+  cleanup()
+  // Radix restores focus on the next timer tick. Drain that callback before
+  // Vitest replaces this jsdom realm with the next file's Event constructors.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  vi.resetAllMocks()
+})
 
 it.each(["chat", "embedding"] as const)("keeps the %s alert open after redirecting to install Ollama", async (kind) => {
   let onAlert: ((raw: unknown) => void) | undefined

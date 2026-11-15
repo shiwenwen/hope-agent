@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Hope 持续跟进**：一句话交办可建立轻量事项，持续处理后台结果、部分进展和待回答问题，并将核实结果回到主对话；支持单项停止、恢复读回及明确追加执行额度。 (#919)
+
 ### Changed
 
 - **Hope 个人助手**：默认使用 Hope logo 作为头像并聚焦简洁对话，将模型、权限、事项和工作台改为按需展开，并保留待处理事项、停止及工作台操作入口。 (#916)

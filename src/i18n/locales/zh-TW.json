@@ -8816,7 +8816,8 @@
     },
     "contextCompactSummaryReasoning": "摘要專用推理覆寫",
     "contextCompactSummaryReasoningDefault": "保留目前摘要策略",
-    "contextCompactSummaryReasoningDesc": "僅用於上下文摘要。不支援的等級會報錯並保留歷史；失敗後不會自動換模型或提高輸出上限。預設維持現況。"
+    "contextCompactSummaryReasoningDesc": "僅用於上下文摘要。不支援的等級會報錯並保留歷史；失敗後不會自動換模型或提高輸出上限。預設維持現況。",
+    "toolAssistantReportDesc": "記錄已核實的事項進展、結果或需要主人回答的持久問題"
   },
   "shortcuts": {
     "actionOpenSettings": "開啟設定",
@@ -9292,7 +9293,8 @@
     "feishu_hire_get_job": "飛書招聘：查詢職缺",
     "feishu_hire_list_talents": "飛書招聘：列出人才",
     "feishu_hire_get_talent": "飛書招聘：查詢人才",
-    "feishu_hire_list_applications": "飛書招聘：列出投遞"
+    "feishu_hire_list_applications": "飛書招聘：列出投遞",
+    "assistant_report": "回報助理事項"
   },
   "tz": {
     "amsterdam": "阿姆斯特丹 (UTC+1)",
@@ -13012,6 +13014,40 @@
     },
     "welcomeTitle": "我是{{name}}",
     "welcomeBody": "告訴我你想做什麼。你可以隨時回來繼續對話，或查看交辦工作的進度。",
-    "messagePlaceholder": "有什麼想交給我的嗎？"
+    "messagePlaceholder": "有什麼想交給我的嗎？",
+    "readUpdate": "查看更新",
+    "executionHistory": "執行歷史",
+    "emptyItems": "把事情交給 Hope，它會持續跟進。",
+    "executionDetails": "執行詳情",
+    "itemUsage": "{{turns}} 輪 · {{tools}} 次工具 · 活躍 {{seconds}} 秒",
+    "itemExpiry": "跟進有效期至：{{time}}",
+    "continueItem": "繼續（追加 8 輪、64 次工具、30 分鐘）",
+    "updates": {
+      "update": "更新",
+      "result": "結果",
+      "progress": "進展",
+      "waiting": "等待中",
+      "blocked": "遇到阻礙",
+      "needs_review": "待核實",
+      "question": "需要你回答"
+    },
+    "itemState": {
+      "open": "進行中",
+      "waiting": "等待中",
+      "done": "已交付",
+      "stopped": "已停止"
+    },
+    "itemReason": {
+      "needs_input": "等待你回答",
+      "background_work": "等待背景工作",
+      "work_state_unknown": "工作結果未知，重試前需要核實",
+      "awaiting_verification": "結果仍需核實",
+      "execution_failed": "執行結果未能核實",
+      "budget_exhausted": "額度已用完，需要你明確繼續",
+      "no_progress": "沒有新的進展，等待你的指示",
+      "dispatch_failed": "工作未能啟動",
+      "owner_stopped": "你已停止此事項",
+      "scope_or_stop_changed": "範圍或停止狀態已改變"
+    }
   }
 }

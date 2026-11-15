@@ -20,6 +20,28 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 ///
 /// pub：结构化问答唯一入口（AGENTS.md 红线）——特征 crate 的工具 adapter
 /// （ha-updater `app_update` install/rollback 确认）从 crate 外复用，不 fork。
+pub(super) async fn execute_with_context(
+    args: &Value,
+    ctx: &crate::tool_defs::ToolExecContext,
+) -> anyhow::Result<String> {
+    if let (Some(db), Some(execution)) = (
+        ctx.session_db.as_ref(),
+        ctx.persistence_run_id
+            .clone()
+            .or_else(|| ctx.turn_id.clone()),
+    ) {
+        if db
+            .0
+            .run(move |db| db.assistant_execution_role(&execution))
+            .await?
+            .is_some()
+        {
+            anyhow::bail!("Hope work requires assistant_report outcome=waiting with question/options; blocking questions cannot resume after restart")
+        }
+    }
+    Ok(execute(args, ctx.session_id.as_deref()).await)
+}
+
 pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
     let sid = match session_id {
         Some(s) => s,

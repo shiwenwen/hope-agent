@@ -8816,7 +8816,8 @@
     },
     "contextCompactSummaryReasoning": "要約専用の推論設定",
     "contextCompactSummaryReasoningDefault": "現在の要約方針を維持",
-    "contextCompactSummaryReasoningDesc": "コンテキスト要約だけに適用します。非対応のレベルは履歴を保持してエラーになります。失敗してもモデルや出力上限を自動変更しません。既定は現在の動作を維持します。"
+    "contextCompactSummaryReasoningDesc": "コンテキスト要約だけに適用します。非対応のレベルは履歴を保持してエラーになります。失敗してもモデルや出力上限を自動変更しません。既定は現在の動作を維持します。",
+    "toolAssistantReportDesc": "確認済みの進捗、結果、または保存される質問を記録します"
   },
   "shortcuts": {
     "actionOpenSettings": "設定を開く",
@@ -9292,7 +9293,8 @@
     "feishu_hire_get_job": "Feishu 採用：求人を取得",
     "feishu_hire_list_talents": "Feishu 採用：候補者一覧",
     "feishu_hire_get_talent": "Feishu 採用：候補者を取得",
-    "feishu_hire_list_applications": "Feishu 採用：応募一覧"
+    "feishu_hire_list_applications": "Feishu 採用：応募一覧",
+    "assistant_report": "アシスタント作業の報告"
   },
   "tz": {
     "amsterdam": "アムステルダム (UTC+1)",
@@ -13012,6 +13014,40 @@
     },
     "welcomeTitle": "{{name}}です",
     "welcomeBody": "やりたいことを教えてください。いつでも戻って会話を続けたり、依頼した作業の進捗を確認したりできます。",
-    "messagePlaceholder": "何をお手伝いしましょうか？"
+    "messagePlaceholder": "何をお手伝いしましょうか？",
+    "readUpdate": "更新を読む",
+    "executionHistory": "実行履歴",
+    "emptyItems": "Hope に依頼すると、完了までフォローします。",
+    "executionDetails": "実行の詳細",
+    "itemUsage": "{{turns}} ターン · {{tools}} ツール · 実行 {{seconds}} 秒",
+    "itemExpiry": "フォロー期限：{{time}}",
+    "continueItem": "続行（8 ターン・64 ツール・30 分追加）",
+    "updates": {
+      "update": "更新内容",
+      "result": "結果",
+      "progress": "進捗",
+      "waiting": "待機中",
+      "blocked": "問題あり",
+      "needs_review": "要確認",
+      "question": "回答が必要です"
+    },
+    "itemState": {
+      "open": "進行中",
+      "waiting": "待機中",
+      "done": "完了",
+      "stopped": "停止済み"
+    },
+    "itemReason": {
+      "needs_input": "回答を待っています",
+      "background_work": "バックグラウンド処理待ち",
+      "work_state_unknown": "結果が不明です。再試行前に確認してください",
+      "awaiting_verification": "結果の確認が必要です",
+      "execution_failed": "実行結果を確認できませんでした",
+      "budget_exhausted": "上限に達しました。続行の指示が必要です",
+      "no_progress": "進展がありません。指示を待っています",
+      "dispatch_failed": "処理を開始できませんでした",
+      "owner_stopped": "この件を停止しました",
+      "scope_or_stop_changed": "範囲または停止状態が変わりました"
+    }
   }
 }

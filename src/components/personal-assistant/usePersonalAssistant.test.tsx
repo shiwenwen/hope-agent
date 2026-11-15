@@ -45,6 +45,11 @@ beforeEach(() => {
   fixture.call.mockReset().mockImplementation(async (command: string) => {
     if (command === "list_personal_assistant_requests") return [request]
     if (command === "personal_assistant_inbox") return [watch]
+    if (
+      command === "list_personal_assistant_items" ||
+      command === "list_personal_assistant_updates"
+    )
+      return []
     if (command === "ensure_personal_assistant_home")
       return { id: "private-home", kind: "personal_assistant" }
   })
@@ -102,7 +107,7 @@ describe("personal assistant owner projection", () => {
       fixture.listeners.get("goal:updated")?.({ ...goal, state: "blocked" })
     })
     await act(async () => vi.advanceTimersByTimeAsync(200))
-    expect(fixture.call).toHaveBeenCalledTimes(before + 3)
+    expect(fixture.call).toHaveBeenCalledTimes(before + 5)
     expect(result.current.watches[0].reason).toBe("blocked")
     expect(result.current.watches.filter((goal) => goal.needsAttention)).toHaveLength(1)
 

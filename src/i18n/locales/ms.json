@@ -8816,7 +8816,8 @@
     },
     "contextCompactSummaryReasoning": "Penaakulan khusus ringkasan",
     "contextCompactSummaryReasoningDefault": "Kekalkan dasar semasa",
-    "contextCompactSummaryReasoningDesc": "Hanya mempengaruhi ringkasan konteks. Tahap yang tidak disokong memaparkan ralat dan mengekalkan sejarah. Kegagalan tidak menukar model atau menaikkan had output secara automatik. Lalai mengekalkan tingkah laku semasa."
+    "contextCompactSummaryReasoningDesc": "Hanya mempengaruhi ringkasan konteks. Tahap yang tidak disokong memaparkan ralat dan mengekalkan sejarah. Kegagalan tidak menukar model atau menaikkan had output secara automatik. Lalai mengekalkan tingkah laku semasa.",
+    "toolAssistantReportDesc": "Rekod kemajuan disahkan, hasil atau soalan kekal untuk pemilik"
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",
@@ -9292,7 +9293,8 @@
     "feishu_hire_get_job": "Feishu Pengambilan: Dapatkan jawatan",
     "feishu_hire_list_talents": "Feishu Pengambilan: Senaraikan calon",
     "feishu_hire_get_talent": "Feishu Pengambilan: Dapatkan calon",
-    "feishu_hire_list_applications": "Feishu Pengambilan: Senaraikan permohonan"
+    "feishu_hire_list_applications": "Feishu Pengambilan: Senaraikan permohonan",
+    "assistant_report": "Laporkan kerja pembantu"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -13012,6 +13014,40 @@
     },
     "welcomeTitle": "Saya {{name}}",
     "welcomeBody": "Beritahu saya perkara yang anda mahu lakukan. Anda boleh kembali untuk menyambung perbualan atau menyemak tugasan yang diberikan.",
-    "messagePlaceholder": "Apa yang boleh saya bantu?"
+    "messagePlaceholder": "Apa yang boleh saya bantu?",
+    "readUpdate": "Baca kemas kini",
+    "executionHistory": "Sejarah pelaksanaan",
+    "emptyItems": "Serahkan kerja kepada Hope untuk susulan hingga selesai.",
+    "executionDetails": "Butiran pelaksanaan",
+    "itemUsage": "{{turns}} giliran · {{tools}} alat · {{seconds}} saat aktif",
+    "itemExpiry": "Susulan sehingga: {{time}}",
+    "continueItem": "Teruskan (+8 giliran, 64 alat, 30 min)",
+    "updates": {
+      "update": "Kemas kini",
+      "result": "Hasil",
+      "progress": "Kemajuan",
+      "waiting": "Menunggu",
+      "blocked": "Disekat",
+      "needs_review": "Perlu pengesahan",
+      "question": "Jawapan anda diperlukan"
+    },
+    "itemState": {
+      "open": "Sedang berjalan",
+      "waiting": "Menunggu",
+      "done": "Diserahkan",
+      "stopped": "Dihentikan"
+    },
+    "itemReason": {
+      "needs_input": "Menunggu jawapan anda",
+      "background_work": "Menunggu kerja latar",
+      "work_state_unknown": "Hasil tidak diketahui; sahkan sebelum mencuba semula",
+      "awaiting_verification": "Hasil perlu disahkan",
+      "execution_failed": "Pelaksanaan tidak dapat disahkan",
+      "budget_exhausted": "Had habis; arahan teruskan diperlukan",
+      "no_progress": "Tiada kemajuan baharu; menunggu arahan anda",
+      "dispatch_failed": "Kerja tidak dapat dimulakan",
+      "owner_stopped": "Anda menghentikan perkara ini",
+      "scope_or_stop_changed": "Skop atau status henti berubah"
+    }
   }
 }

@@ -113,6 +113,7 @@ pub async fn spawn_plan_subagent(
         crate::agent::plan_agent_mode_for_state(crate::plan::PlanModeState::Planning);
 
     let params = crate::subagent::SpawnParams {
+        parent_execution_id: None,
         task,
         agent_id: parent_agent_id.to_string(),
         parent_session_id: parent_session_id.to_string(),

@@ -48,6 +48,7 @@ pub fn wire_features() {
     ha_agent_runtime::wire();
     ha_memory::wire();
     ha_goal::wire();
+    ha_assistant::wire();
     ha_workflow::wire();
     ha_weather::wire();
     ha_acp::wire();
@@ -2369,6 +2370,26 @@ fn build_router_with_cors(
         .route(
             "/personal-assistant/im/notifications",
             post(routes::personal_assistant_im::personal_assistant_im_set_notifications_paused),
+        )
+        .route(
+            "/personal-assistant/items",
+            get(routes::personal_assistant::list_personal_assistant_items),
+        )
+        .route(
+            "/personal-assistant/updates",
+            get(routes::personal_assistant::list_personal_assistant_updates),
+        )
+        .route(
+            "/personal-assistant/updates/{id}/view",
+            post(routes::personal_assistant::view_personal_assistant_update),
+        )
+        .route(
+            "/personal-assistant/items/{id}/stop",
+            post(routes::personal_assistant::stop_personal_assistant_item),
+        )
+        .route(
+            "/personal-assistant/items/{id}/continue",
+            post(routes::personal_assistant::continue_personal_assistant_item),
         )
         .route(
             "/personal-assistant/requests",
