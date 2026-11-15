@@ -13061,7 +13061,7 @@
       "pendingPolicy": "Menerapkan tetapan…",
       "sources": "Bahan dikongsi",
       "expires": "Dikongsi hingga {{time}}",
-      "observed": "Semakan terakhir: {{time}}",
+      "observed": "Bacaan fail terakhir: {{time}}",
       "suspended": "Semakan automatik dijeda. Anda boleh menyemak sekarang jika perlu.",
       "observationGap": "Tempoh ini tidak dapat diperhatikan. Perubahan mungkin terlepas.",
       "refresh": "Semak sekarang",
@@ -13092,6 +13092,43 @@
         "budget": "Had penyelidikan digunakan. Cuba kemudian.",
         "unverified": "Tiada hasil disahkan diterima. Sila cuba lagi."
       }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope ada perkembangan. Buka Hope untuk melihatnya.",
+      "route": "Terima notis melalui",
+      "routes": {
+        "none": "Dalam Hope sahaja",
+        "desktop": "Desktop",
+        "im": "IM pembantu"
+      },
+      "limitHint": "Maksimum dua notis proaktif setiap hari tempatan dan setiap 24 jam bergerak. Kemas kini berkaitan digabungkan; soalan langsung di IM boleh dijawab.",
+      "timezone": "Zon waktu anda (IANA)",
+      "quietStart": "Senyap mulai",
+      "quietEnd": "Hingga",
+      "quietHint": "Mengikut zon waktu anda. Waktu mula dan tamat yang sama bermaksud senyap sepanjang hari.",
+      "desktopToIm": "Hantar status kerja desktop ke IM",
+      "desktopToImHint": "Memerlukan juga kebenaran status dan penyiapan perbualan itu. Hanya status dihantar; hasil kekal di Hope.",
+      "pairRequired": "Pasangkan Bot khusus dahulu dalam tetapan IM pembantu.",
+      "sourceDisclosure": "Benarkan ringkasan sumber ini di IM",
+      "sourceDisclosureHint": "Dimatikan secara lalai. Membenarkan ringkasan pendek dan soalan terhad kepada sumber dalam sembang semasa. Pembatalan menyahaktifkan konteks balasan lama.",
+      "nextEligible": "Notis seterusnya mungkin: {{time}} ({{zone}})",
+      "deferred": {
+        "timezone_required": "Pilih zon waktu anda untuk menerima notis.",
+        "quiet_hours": "Waktu senyap: kemas kini kekal di Hope buat sementara.",
+        "daily_limit": "Had notis dicapai. Percubaan baharu menunggu.",
+        "policy_pending": "Menunggu tetapan pembantu digunakan.",
+        "paused": "Pembantu dijeda.",
+        "disabled": "Kemas kini kekal di Hope; notis luar dimatikan.",
+        "pairing_required": "IM belum dipasangkan atau notis dijeda.",
+        "using_hope": "Anda sedang menggunakan Hope. Notis luar ditangguhkan."
+      },
+      "receipts": {
+        "submitting": "{{time}} · Menunggu pengesahan platform",
+        "accepted": "{{time}} · Diterima platform; bacaan tidak diketahui",
+        "unknown": "{{time}} · Penghantaran tidak diketahui; tiada cuba semula automatik",
+        "cancelled": "{{time}} · Tidak dihantar; percubaan masih dikira"
+      },
+      "homeHandoffHint": "Soalan langsung dan kelulusan alat di halaman utama pembantu hanya menyokong pemberitahuan desktop. Buka Hope untuk menjawab."
     }
   }
 }

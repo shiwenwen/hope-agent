@@ -446,8 +446,10 @@ pub(crate) fn bind_source_with_conn(
             [parent_session],
             |r| r.get(0),
         )?;
-        if owned {
-            bail!("Assistant child work requires its exact admitted execution identity")
+        if owned
+            || super::super::attention::signals::private_source_with_conn(conn, parent_session)?
+        {
+            bail!("Hope background work requires an admitted lightweight item; delegate remaining work through sessions_create/send")
         }
     }
     Ok(())

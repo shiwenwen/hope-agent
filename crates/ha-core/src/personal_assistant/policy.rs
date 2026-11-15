@@ -137,6 +137,7 @@ impl SessionDB {
             )?;
         }
         super::research::changed(&tx)?;
+        super::attention::note_policy_boundary(&tx, &settings, chrono::Utc::now().timestamp())?;
         let json = serde_json::to_string(&settings)?;
         let defaults = serde_json::to_string(&AssistantPolicySettings::default())?;
         tx.execute("INSERT INTO assistant_policy_gate(singleton,requested_revision,applied_revision,requested_json,applied_json)

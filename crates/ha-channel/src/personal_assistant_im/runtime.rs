@@ -213,6 +213,32 @@ async fn deliver_once(db: &Arc<SessionDB>, cache: &mut Option<ClientCache>) -> R
             .await;
     }
     let Some(delivery) = db.run(|db| db.prepare_assistant_im_delivery(now())).await? else {
+        if let Some(delivery) = db.clone().prepare_assistant_attention_im().await? {
+            let current = db.run(|db| db.assistant_im_runtime_snapshot()).await?;
+            let check = delivery.id.clone();
+            let valid = db
+                .run(move |db| db.assistant_attention_im_send_current(&check, now()))
+                .await?;
+            if !valid
+                || !same_route(&delivery.lease, &lease)
+                || !current
+                    .as_ref()
+                    .is_some_and(|current| same_route(current, &delivery.lease))
+            {
+                return db
+                    .run(move |db| {
+                        db.cancel_unsubmitted_assistant_attention_im(&delivery.id, now())
+                    })
+                    .await;
+            }
+            let message = client
+                .send(delivery.chat_id, &delivery.text, None)
+                .await
+                .ok();
+            return db
+                .run(move |db| db.finish_assistant_attention_im(&delivery.id, message, now()))
+                .await;
+        }
         return Ok(());
     };
     if !same_route(&delivery.lease, &lease) {

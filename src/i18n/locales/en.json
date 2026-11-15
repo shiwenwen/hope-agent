@@ -13061,7 +13061,7 @@
       "pendingPolicy": "Applying settings…",
       "sources": "Shared material",
       "expires": "Shared until {{time}}",
-      "observed": "Last checked: {{time}}",
+      "observed": "Last file read: {{time}}",
       "suspended": "Automatic checks are suspended. You can check now when needed.",
       "observationGap": "This period could not be observed. Changes may have been missed.",
       "refresh": "Check now",
@@ -13092,6 +13092,43 @@
         "budget": "Research allowance used. Try again later.",
         "unverified": "No verified result was received. Please retry."
       }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope has an update. Open Hope to view it.",
+      "route": "Notify me through",
+      "routes": {
+        "none": "Only in Hope",
+        "desktop": "Desktop",
+        "im": "Assistant IM"
+      },
+      "limitHint": "At most two proactive notices per local day and per rolling 24 hours. Related updates are combined; your direct IM questions can receive replies.",
+      "timezone": "Your timezone (IANA)",
+      "quietStart": "Quiet from",
+      "quietEnd": "Until",
+      "quietHint": "Hours use your timezone. Equal start and end means quiet all day.",
+      "desktopToIm": "Send desktop work status to IM",
+      "desktopToImHint": "Requires the work conversation’s status and completion grants. Only status is sent; results stay in Hope.",
+      "pairRequired": "Pair your dedicated bot in Assistant IM settings first.",
+      "sourceDisclosure": "Allow this source’s summaries in assistant IM",
+      "sourceDisclosureHint": "Off by default. Allows bounded summaries and source-scoped replies in the current paired chat; revocation invalidates old reply context.",
+      "nextEligible": "Next possible notice: {{time}} ({{zone}})",
+      "deferred": {
+        "timezone_required": "Choose your timezone before receiving notices.",
+        "quiet_hours": "Quiet hours: useful updates stay in Hope for now.",
+        "daily_limit": "The notice limit is reached. New attempts wait.",
+        "policy_pending": "Waiting for assistant settings to take effect.",
+        "paused": "The assistant is paused.",
+        "disabled": "Updates stay in Hope; external notices are off.",
+        "pairing_required": "Assistant IM is unpaired or its notices are paused.",
+        "using_hope": "You are using Hope. External notices are held."
+      },
+      "receipts": {
+        "submitting": "{{time}} · Submission awaiting confirmation",
+        "accepted": "{{time}} · Platform accepted; read status is unknown",
+        "unknown": "{{time}} · Delivery unknown; no automatic retry",
+        "cancelled": "{{time}} · Not submitted; the attempt remains charged"
+      },
+      "homeHandoffHint": "Direct questions and tool approvals in the assistant Home support desktop notices only. Open Hope to respond."
     }
   }
 }

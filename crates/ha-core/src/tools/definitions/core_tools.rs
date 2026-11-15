@@ -1749,7 +1749,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
             parameters: json!({"type":"object","properties":{"findings":{"type":"array","maxItems":8,"items":{
                 "type":"object","properties":{
-                    "topicKey":{"type":"string","maxLength":64},"fact":{"type":"string","maxLength":2000},
+                    "attentionUntil":{"type":"string","format":"date-time","description":"Optional absolute RFC3339 deadline after which this finding should no longer interrupt the owner. Host caps eligibility to 24 hours; it never overrides quiet hours or quota."},"topicKey":{"type":"string","maxLength":64},"fact":{"type":"string","maxLength":2000},
                     "inference":{"type":"string","maxLength":4000},"uncertainty":{"type":"string","maxLength":2000},
                     "prepared":{"type":"string","maxLength":12000},"references":{"type":"array","minItems":1,"maxItems":8,"items":{
                         "type":"object","properties":{"sourceId":{"type":"string"},"revision":{"type":"integer"},"version":{"type":"string"},"startLine":{"type":"integer","minimum":1},"endLine":{"type":"integer","minimum":1}},

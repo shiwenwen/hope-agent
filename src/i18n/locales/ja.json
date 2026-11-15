@@ -13061,7 +13061,7 @@
       "pendingPolicy": "設定を適用中…",
       "sources": "共有した資料",
       "expires": "共有期限：{{time}}",
-      "observed": "最終確認：{{time}}",
+      "observed": "最終ファイル読み取り：{{time}}",
       "suspended": "自動確認は停止中です。必要なときに手動で確認できます。",
       "observationGap": "この期間は確認できず、変化を見逃した可能性があります。",
       "refresh": "今すぐ確認",
@@ -13092,6 +13092,43 @@
         "budget": "調査の上限に達しました。後で再試行してください",
         "unverified": "確認済みの結果を取得できませんでした。再試行してください"
       }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope に更新があります。Hope を開いて確認してください。",
+      "route": "通知先",
+      "routes": {
+        "none": "Hope 内のみ",
+        "desktop": "デスクトップ",
+        "im": "アシスタント IM"
+      },
+      "limitHint": "自発通知は現地日付と過去24時間の両方で最大2回。関連更新はまとめます。IMでの直接の質問には返信できます。",
+      "timezone": "所有者のタイムゾーン（IANA）",
+      "quietStart": "通知を控える開始時刻",
+      "quietEnd": "終了時刻",
+      "quietHint": "所有者のタイムゾーンを使用します。開始と終了が同じなら終日通知しません。",
+      "desktopToIm": "デスクトップで依頼した仕事の状態をIMへ送る",
+      "desktopToImHint": "対象会話の状態・完了通知の許可も必要です。状態のみ送り、結果はHopeに残します。",
+      "pairRequired": "先にアシスタントIM設定で専用Botをペアリングしてください。",
+      "sourceDisclosure": "この資料の要約をアシスタントIMに許可",
+      "sourceDisclosureHint": "初期設定はオフ。現在のペアリング先に短い要約と資料限定の質問を許可します。取り消すと古い返信文脈は無効です。",
+      "nextEligible": "次に通知可能：{{time}}（{{zone}}）",
+      "deferred": {
+        "timezone_required": "通知を受けるにはタイムゾーンを設定してください。",
+        "quiet_hours": "通知を控える時間帯です。更新はHopeに残ります。",
+        "daily_limit": "通知上限に達しました。次の試行は待機します。",
+        "policy_pending": "アシスタント設定の反映を待っています。",
+        "paused": "アシスタントは一時停止中です。",
+        "disabled": "更新はHope内に残り、外部通知はオフです。",
+        "pairing_required": "アシスタントIMが未接続、または通知が停止中です。",
+        "using_hope": "Hopeを使用中のため外部通知を控えます。"
+      },
+      "receipts": {
+        "submitting": "{{time}} · プラットフォームの確認待ち",
+        "accepted": "{{time}} · 受理済み、既読は未確認",
+        "unknown": "{{time}} · 配信不明、自動再送なし",
+        "cancelled": "{{time}} · 未送信、試行回数には計上"
+      },
+      "homeHandoffHint": "アシスタントのホームでの直接の質問とツールの承認は、デスクトップ通知のみ対応しています。Hope に戻って対応してください。"
     }
   }
 }

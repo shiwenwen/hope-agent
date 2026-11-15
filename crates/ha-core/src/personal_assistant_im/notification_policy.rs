@@ -1,10 +1,7 @@
 use anyhow::Result;
-use chrono::{DateTime, Timelike, Utc};
 use chrono_tz::Tz;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-
-use super::AssistantImError;
 
 pub const QUIET_START_HOUR: u32 = 22;
 pub const QUIET_END_HOUR: u32 = 8;
@@ -38,10 +35,6 @@ impl NotificationPolicy {
             daily_limit: DAILY_LIMIT,
         }
     }
-
-    pub(super) fn timezone(&self) -> Option<Tz> {
-        self.timezone.as_deref().and_then(|name| name.parse().ok())
-    }
 }
 
 /// The owner's explicit profile is the sole timezone source. A missing,
@@ -65,45 +58,6 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
          ON assistant_im_notification_attempts(attempted_at);",
     )?;
     Ok(())
-}
-
-pub(super) fn deferred_reason(
-    conn: &Connection,
-    timezone: Option<Tz>,
-    now: i64,
-) -> Result<Option<DeliveryDeferredReason>> {
-    let Some(timezone) = timezone else {
-        return Ok(Some(DeliveryDeferredReason::TimezoneRequired));
-    };
-    let now = DateTime::<Utc>::from_timestamp(now, 0).ok_or(AssistantImError::Unavailable)?;
-    let local = now.with_timezone(&timezone);
-    if local.hour() >= QUIET_START_HOUR || local.hour() < QUIET_END_HOUR {
-        return Ok(Some(DeliveryDeferredReason::QuietHours));
-    }
-    // Compare actual UTC instants projected into the current owner timezone.
-    // This handles short/long DST days and timezone edits without resetting a
-    // stored date bucket. The indexed four-day window includes every instant
-    // of the same local date, including historical date-line changes.
-    let mut statement = conn.prepare(
-        "SELECT attempted_at FROM assistant_im_notification_attempts
-         WHERE attempted_at BETWEEN ?1 AND ?2",
-    )?;
-    let mut attempts = statement.query(params![
-        now.timestamp() - 172_800,
-        now.timestamp() + 172_800
-    ])?;
-    let mut count = 0;
-    while let Some(row) = attempts.next()? {
-        let instant =
-            DateTime::<Utc>::from_timestamp(row.get(0)?, 0).ok_or(AssistantImError::Unavailable)?;
-        if instant.with_timezone(&timezone).date_naive() == local.date_naive() {
-            count += 1;
-            if count >= DAILY_LIMIT {
-                return Ok(Some(DeliveryDeferredReason::DailyLimit));
-            }
-        }
-    }
-    Ok(None)
 }
 
 /// Called only in the same IMMEDIATE transaction as pending -> submitting.

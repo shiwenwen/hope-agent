@@ -13061,7 +13061,7 @@
       "pendingPolicy": "Đang áp dụng cài đặt…",
       "sources": "Tài liệu đã chia sẻ",
       "expires": "Chia sẻ đến {{time}}",
-      "observed": "Kiểm tra gần nhất: {{time}}",
+      "observed": "Lần đọc tệp gần nhất: {{time}}",
       "suspended": "Đã tạm dừng kiểm tra tự động. Bạn có thể kiểm tra ngay khi cần.",
       "observationGap": "Không thể quan sát giai đoạn này. Có thể đã bỏ lỡ thay đổi.",
       "refresh": "Kiểm tra ngay",
@@ -13092,6 +13092,43 @@
         "budget": "Đã hết hạn mức nghiên cứu. Thử lại sau.",
         "unverified": "Chưa nhận được kết quả xác minh. Hãy thử lại."
       }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope có cập nhật. Mở Hope để xem.",
+      "route": "Nhận thông báo qua",
+      "routes": {
+        "none": "Chỉ trong Hope",
+        "desktop": "Máy tính",
+        "im": "IM trợ lý"
+      },
+      "limitHint": "Tối đa hai thông báo chủ động mỗi ngày địa phương và trong 24 giờ liên tục. Cập nhật liên quan được gộp; câu hỏi trực tiếp qua IM vẫn có thể được trả lời.",
+      "timezone": "Múi giờ của bạn (IANA)",
+      "quietStart": "Không làm phiền từ",
+      "quietEnd": "Đến",
+      "quietHint": "Dùng múi giờ của bạn. Giờ bắt đầu và kết thúc giống nhau nghĩa là im lặng cả ngày.",
+      "desktopToIm": "Gửi trạng thái việc giao trên máy tính qua IM",
+      "desktopToImHint": "Cũng cần quyền xem trạng thái và báo hoàn thành của cuộc trò chuyện đó. Chỉ gửi trạng thái; kết quả ở lại Hope.",
+      "pairRequired": "Trước tiên ghép Bot riêng trong cài đặt IM trợ lý.",
+      "sourceDisclosure": "Cho phép tóm tắt nguồn này qua IM",
+      "sourceDisclosureHint": "Mặc định tắt. Cho phép tóm tắt ngắn và câu hỏi giới hạn trong nguồn ở chat đang ghép. Thu hồi quyền làm mất hiệu lực ngữ cảnh trả lời cũ.",
+      "nextEligible": "Thông báo tiếp theo có thể gửi: {{time}} ({{zone}})",
+      "deferred": {
+        "timezone_required": "Chọn múi giờ để nhận thông báo.",
+        "quiet_hours": "Giờ không làm phiền: cập nhật tạm lưu trong Hope.",
+        "daily_limit": "Đã đạt giới hạn thông báo. Lần gửi mới sẽ chờ.",
+        "policy_pending": "Đang chờ áp dụng cài đặt trợ lý.",
+        "paused": "Trợ lý đang tạm dừng.",
+        "disabled": "Cập nhật ở lại Hope; thông báo bên ngoài đã tắt.",
+        "pairing_required": "IM chưa ghép hoặc thông báo đang tạm dừng.",
+        "using_hope": "Bạn đang dùng Hope. Hoãn thông báo bên ngoài."
+      },
+      "receipts": {
+        "submitting": "{{time}} · Đang chờ nền tảng xác nhận",
+        "accepted": "{{time}} · Nền tảng đã nhận; chưa xác nhận đã đọc",
+        "unknown": "{{time}} · Chưa rõ đã gửi; không tự động thử lại",
+        "cancelled": "{{time}} · Chưa gửi; lần thử vẫn được tính"
+      },
+      "homeHandoffHint": "Câu hỏi trực tiếp và yêu cầu phê duyệt công cụ trên trang chủ trợ lý chỉ hỗ trợ thông báo trên máy tính. Mở Hope để trả lời."
     }
   }
 }

@@ -16,6 +16,7 @@ pub use lifecycle::{cancel_item_work, stop_item, AssistantPendingWork};
 pub(crate) use provenance::{
     bind_source_with_conn, consume_source_with_conn, AssistantInjectionProof,
 };
+pub(super) use questions::answer_with_conn;
 pub use questions::AssistantAnswerTarget;
 
 pub const ITEM_TURNS: i64 = 8;
@@ -212,7 +213,7 @@ pub(super) fn create_for_request(conn: &Connection, request_id: &str) -> Result<
     Ok(())
 }
 
-fn validate_item(conn: &Connection, id: &str) -> Result<()> {
+pub(super) fn validate_item(conn: &Connection, id: &str) -> Result<()> {
     if super::policy::requested_paused(conn)? {
         bail!(AssistantError::Stopped)
     }

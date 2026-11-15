@@ -96,7 +96,13 @@ impl SessionDB {
                 && !state.view.notifications_paused
         });
         let permission = grant(&tx, &connection_id, &session_id)?;
-        let allowed = connection_allowed
+        let owned: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM assistant_attention_owned_requests WHERE request_id=?1)",
+            [request_id],
+            |row| row.get(0),
+        )?;
+        let allowed = !owned
+            && connection_allowed
             && permission.as_ref().is_some_and(|permission| {
                 permission.completion_notice
                     && permission.query_status
@@ -292,13 +298,33 @@ impl SessionDB {
     /// This commit is the non-replay boundary. The Primary calls it only when
     /// its destination queue is ready to issue a single HTTP mutation.
     pub fn prepare_assistant_im_delivery(&self, now: i64) -> Result<Option<PreparedDelivery>> {
-        self.prepare_assistant_im_delivery_with_policy(now, &notification_policy())
+        let current = crate::personal_assistant::policy::current(&*self.read_conn()?)?;
+        let policy = current
+            .as_ref()
+            .map(|value| NotificationPolicy {
+                timezone: value.settings.timezone.clone(),
+                quiet_start_hour: value.settings.quiet_start_hour,
+                quiet_end_hour: value.settings.quiet_end_hour,
+                daily_limit: 2,
+            })
+            .unwrap_or_else(notification_policy);
+        self.prepare_assistant_im_delivery_inner(now, &policy, true)
     }
 
+    #[cfg(test)]
     pub(super) fn prepare_assistant_im_delivery_with_policy(
         &self,
         now: i64,
         policy: &NotificationPolicy,
+    ) -> Result<Option<PreparedDelivery>> {
+        self.prepare_assistant_im_delivery_inner(now, policy, false)
+    }
+
+    fn prepare_assistant_im_delivery_inner(
+        &self,
+        now: i64,
+        policy: &NotificationPolicy,
+        require_applied: bool,
     ) -> Result<Option<PreparedDelivery>> {
         let mut conn = self
             .conn
@@ -316,8 +342,28 @@ impl SessionDB {
              WHERE state = 'pending' AND expires_at <= ?1",
             [now],
         )?;
-        let completion_ready =
-            super::notification_policy::deferred_reason(&tx, policy.timezone(), now)?.is_none();
+        // Older per-request completion rows cannot race the item's final
+        // verified result. Body-free identity survives item/content deletion.
+        tx.execute("UPDATE assistant_im_deliveries SET state='cancelled',text='' WHERE completion_notice=1 AND state='pending' AND (EXISTS(SELECT 1 FROM assistant_attention_owned_requests own WHERE assistant_im_deliveries.request_id=own.request_id || ':complete') OR (origin_command_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM personal_assistant_requests r WHERE assistant_im_deliveries.request_id=r.id || ':complete')))",[])?;
+        let applied = crate::personal_assistant::policy::current(&tx)?;
+        let policy_allowed = !require_applied
+            || applied.as_ref().is_some_and(|value| {
+                !value.settings.paused
+                    && value.settings.notice_route
+                        == crate::personal_assistant::policy::AssistantNoticeRoute::Im
+                    && value.settings.timezone == policy.timezone
+                    && value.settings.quiet_start_hour == policy.quiet_start_hour
+                    && value.settings.quiet_end_hour == policy.quiet_end_hour
+            });
+        let present: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM assistant_attention_presence WHERE expires_at>?1)",
+            [now],
+            |row| row.get(0),
+        )?;
+        let completion_ready = policy_allowed
+            && !present
+            && crate::personal_assistant::attention::quota::deferred_reason(&tx, policy, now)?
+                .is_none();
         type PendingRow = (
             String,
             Option<String>,
@@ -480,7 +526,16 @@ impl SessionDB {
     pub fn assistant_im_notification_status(
         &self,
     ) -> Result<(NotificationPolicy, Vec<DeliveryReceipt>)> {
-        let policy = notification_policy();
+        let current = crate::personal_assistant::policy::current(&*self.read_conn()?)?;
+        let policy = current
+            .as_ref()
+            .map(|value| NotificationPolicy {
+                timezone: value.settings.timezone.clone(),
+                quiet_start_hour: value.settings.quiet_start_hour,
+                quiet_end_hour: value.settings.quiet_end_hour,
+                daily_limit: 2,
+            })
+            .unwrap_or_else(notification_policy);
         let receipts = self
             .assistant_im_delivery_receipts_with_policy(chrono::Utc::now().timestamp(), &policy)?;
         Ok((policy, receipts))
@@ -493,7 +548,7 @@ impl SessionDB {
     ) -> Result<Vec<DeliveryReceipt>> {
         let conn = self.read_conn()?;
         let deferred_reason =
-            super::notification_policy::deferred_reason(&conn, policy.timezone(), now)?;
+            crate::personal_assistant::attention::quota::deferred_reason(&conn, policy, now)?;
         let mut stmt = conn.prepare(
             "SELECT id, request_id, state, message_id, created_at, completion_notice, expires_at
              FROM assistant_im_deliveries ORDER BY created_at DESC, rowid DESC LIMIT 100",
@@ -545,4 +600,17 @@ impl SessionDB {
         }
         Ok(rows)
     }
+}
+
+pub(crate) fn ordinary_reply_current(
+    conn: &rusqlite::Connection,
+    state: &super::Connection,
+    parent: i64,
+    now: i64,
+) -> Result<bool> {
+    let row:Option<(String,String)>=conn.query_row("SELECT request_id,grant_revisions FROM assistant_im_deliveries WHERE connection_id=?1 AND generation=?2 AND message_id=?3 AND state='accepted' AND completion_notice=0 AND expires_at>?4 AND grant_revisions IS NOT NULL ORDER BY created_at DESC LIMIT 1",params![state.view.connection_id,state.view.generation,parent,now],|row|Ok((row.get(0)?,row.get(1)?))).optional()?;
+    let Some((request, scope)) = row else {
+        return Ok(false);
+    };
+    scope_is_current(conn, &state.view.connection_id, &request, &scope, now)
 }

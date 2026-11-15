@@ -2372,6 +2372,30 @@ fn build_router_with_cors(
             post(routes::personal_assistant_im::personal_assistant_im_set_notifications_paused),
         )
         .route(
+            "/chat/notification-ownership",
+            post(routes::assistant_research::get_execution_notification_ownership),
+        )
+        .route(
+            "/personal-assistant/attention",
+            get(routes::assistant_research::get_personal_assistant_attention),
+        )
+        .route(
+            "/personal-assistant/presence",
+            post(routes::assistant_research::set_personal_assistant_presence),
+        )
+        .route(
+            "/personal-assistant/attention/desktop/claim",
+            post(routes::assistant_research::claim_personal_assistant_desktop_notice),
+        )
+        .route(
+            "/personal-assistant/attention/desktop/{id}/finish",
+            post(routes::assistant_research::finish_personal_assistant_desktop_notice),
+        )
+        .route(
+            "/personal-assistant/sources/{id}/im-disclosure",
+            put(routes::assistant_research::set_personal_assistant_source_im_disclosure),
+        )
+        .route(
             "/personal-assistant/policy",
             get(routes::assistant_research::get_personal_assistant_policy)
                 .put(routes::assistant_research::set_personal_assistant_policy),

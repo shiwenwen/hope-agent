@@ -23,6 +23,8 @@ pub enum AssistantNoticeRoute {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AssistantPolicySettings {
     pub research_enabled: bool,
+    #[serde(default)]
+    pub desktop_to_im_notices: bool,
     pub paused: bool,
     pub timezone: Option<String>,
     pub notice_route: AssistantNoticeRoute,
@@ -34,6 +36,7 @@ impl Default for AssistantPolicySettings {
     fn default() -> Self {
         Self {
             research_enabled: false,
+            desktop_to_im_notices: false,
             paused: false,
             timezone: None,
             notice_route: AssistantNoticeRoute::None,

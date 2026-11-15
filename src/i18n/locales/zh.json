@@ -13061,7 +13061,7 @@
       "pendingPolicy": "正在应用设置…",
       "sources": "共享的资料",
       "expires": "有效至 {{time}}",
-      "observed": "最近核对：{{time}}",
+      "observed": "最近读取文件：{{time}}",
       "suspended": "已暂停自动关注；需要时可主动检查。",
       "observationGap": "这段时间未能读取，无法确认是否发生过变化。",
       "refresh": "现在检查",
@@ -13092,6 +13092,43 @@
         "budget": "本轮研究额度已用完，稍后可重试",
         "unverified": "没有获得可验证的结果，请重试"
       }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope 有新进展，请打开 Hope 查看。",
+      "route": "通过哪里提醒我",
+      "routes": {
+        "none": "仅在 Hope 内",
+        "desktop": "桌面通知",
+        "im": "助手 IM"
+      },
+      "limitHint": "主动提醒每天最多两次，滚动 24 小时内也最多两次；相关更新合并发送。你在 IM 中主动提问仍可收到答复。",
+      "timezone": "主人时区（IANA）",
+      "quietStart": "免打扰开始",
+      "quietEnd": "结束",
+      "quietHint": "按主人时区计算；开始和结束相同表示全天免打扰。",
+      "desktopToIm": "把桌面交办的状态发到 IM",
+      "desktopToImHint": "还需对应工作对话的状态与完成通知授权。默认只发状态，结果留在 Hope。",
+      "pairRequired": "请先在助手 IM 设置中配对专属 Bot。",
+      "sourceDisclosure": "允许在助手 IM 中发送此资料摘要",
+      "sourceDisclosureHint": "默认关闭。仅对当前配对私聊开放简短摘要和限定资料的追问；撤销后旧消息上下文失效。",
+      "nextEligible": "最早可再次提醒：{{time}}（{{zone}}）",
+      "deferred": {
+        "timezone_required": "设置主人时区后才能接收提醒。",
+        "quiet_hours": "免打扰时段：有用的更新暂留在 Hope。",
+        "daily_limit": "已达到提醒上限，后续尝试会等待。",
+        "policy_pending": "正在等待助手设置生效。",
+        "paused": "个人助手已暂停。",
+        "disabled": "更新留在 Hope，外部提醒已关闭。",
+        "pairing_required": "助手 IM 尚未配对，或通知已暂停。",
+        "using_hope": "你正在使用 Hope，暂缓外部提醒。"
+      },
+      "receipts": {
+        "submitting": "{{time}} · 正在等待平台确认",
+        "accepted": "{{time}} · 平台已接收，未确认已读",
+        "unknown": "{{time}} · 送达未知，不自动重发",
+        "cancelled": "{{time}} · 未提交，本次尝试仍计入额度"
+      },
+      "homeHandoffHint": "助手主对话的直接问答和工具审批仅支持桌面提醒，请回到 Hope 处理。"
     }
   }
 }

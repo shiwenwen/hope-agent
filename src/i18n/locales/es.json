@@ -13061,7 +13061,7 @@
       "pendingPolicy": "Aplicando ajustes…",
       "sources": "Material compartido",
       "expires": "Compartido hasta {{time}}",
-      "observed": "Última revisión: {{time}}",
+      "observed": "Última lectura del archivo: {{time}}",
       "suspended": "Las revisiones automáticas están suspendidas. Puedes revisar ahora.",
       "observationGap": "No se pudo observar este período. Pueden haberse perdido cambios.",
       "refresh": "Revisar ahora",
@@ -13092,6 +13092,43 @@
         "budget": "Límite de investigación agotado. Inténtalo más tarde.",
         "unverified": "No se recibió un resultado verificado. Reintenta."
       }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope tiene novedades. Ábrelo para verlas.",
+      "route": "Avisarme por",
+      "routes": {
+        "none": "Solo en Hope",
+        "desktop": "Escritorio",
+        "im": "IM del asistente"
+      },
+      "limitHint": "Máximo dos avisos proactivos por día local y por cada 24 horas. Se agrupan novedades relacionadas; tus preguntas directas por IM pueden recibir respuesta.",
+      "timezone": "Tu zona horaria (IANA)",
+      "quietStart": "Silencio desde",
+      "quietEnd": "Hasta",
+      "quietHint": "Se usa tu zona horaria. Horas iguales significan silencio todo el día.",
+      "desktopToIm": "Enviar estados del trabajo de escritorio al IM",
+      "desktopToImHint": "También requiere permisos de estado y finalización de esa conversación. Solo se envía el estado; los resultados quedan en Hope.",
+      "pairRequired": "Primero vincula tu Bot exclusivo en los ajustes de IM del asistente.",
+      "sourceDisclosure": "Permitir resúmenes de esta fuente por IM",
+      "sourceDisclosureHint": "Desactivado por defecto. Permite resúmenes breves y preguntas limitadas a la fuente en el chat vinculado. Al revocar, el contexto anterior deja de ser válido.",
+      "nextEligible": "Próximo aviso posible: {{time}} ({{zone}})",
+      "deferred": {
+        "timezone_required": "Elige tu zona horaria para recibir avisos.",
+        "quiet_hours": "Horario de silencio: las novedades quedan en Hope.",
+        "daily_limit": "Se alcanzó el límite de avisos. Los nuevos intentos esperan.",
+        "policy_pending": "Esperando que se apliquen los ajustes.",
+        "paused": "El asistente está en pausa.",
+        "disabled": "Las novedades quedan en Hope; los avisos externos están desactivados.",
+        "pairing_required": "El IM no está vinculado o sus avisos están en pausa.",
+        "using_hope": "Estás usando Hope. Se aplazan los avisos externos."
+      },
+      "receipts": {
+        "submitting": "{{time}} · Esperando confirmación de la plataforma",
+        "accepted": "{{time}} · Aceptado por la plataforma; lectura desconocida",
+        "unknown": "{{time}} · Entrega desconocida; sin reintento automático",
+        "cancelled": "{{time}} · No enviado; el intento sigue contando"
+      },
+      "homeHandoffHint": "Las preguntas directas y las aprobaciones de herramientas en el inicio del asistente solo admiten avisos de escritorio. Abre Hope para responder."
     }
   }
 }

@@ -5,7 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
 mod budget;
-mod queries;
+pub(super) mod queries;
 mod revocation;
 mod runs;
 mod runtime;
@@ -17,8 +17,8 @@ pub use queries::{ResearchActivity, ResearchQueryReceipt};
 pub(crate) use revocation::ensure_channel_guards;
 pub(crate) use runtime::SYSTEM_PROMPT;
 pub use runtime::{coordinator_registered, process_pending_research, register_coordinator};
-pub(crate) use sources::refresh_execution_sources;
 pub use sources::{create_source, refresh_owner_sources, scan_sources};
+pub(crate) use sources::{refresh_attention_sources, refresh_execution_sources};
 
 pub const SOURCE_BYTES: usize = 65_536;
 pub const MAX_SOURCES: i64 = 4;
@@ -50,6 +50,8 @@ pub struct AssistantSource {
     pub gap_since: Option<i64>,
     pub error: bool,
     pub suspended: bool,
+    pub im_summary_allowed: bool,
+    pub im_disclosure_revision: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +67,8 @@ pub struct SourceReference {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResearchFindingInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attention_until: Option<String>,
     pub topic_key: String,
     pub fact: String,
     pub inference: String,
@@ -273,6 +277,16 @@ pub(crate) fn run_current(conn: &Connection, run: &str, now: i64) -> Result<bool
     if !live {
         return Ok(false);
     };
+    let query: Option<String> = conn.query_row(
+        "SELECT query_id FROM assistant_research_runs WHERE id=?1",
+        [run],
+        |row| row.get(0),
+    )?;
+    if let Some(query) = query {
+        if !super::attention::replies::query_scope_current(conn, &query, now)? {
+            return Ok(false);
+        }
+    }
     input_set_current(conn, run, now)
 }
 
@@ -326,7 +340,7 @@ fn scope_available(result: Result<()>) -> Result<bool> {
     }
 }
 
-fn source_autonomy_current(conn: &Connection, source: &str, now: i64) -> Result<bool> {
+pub(super) fn source_autonomy_current(conn: &Connection, source: &str, now: i64) -> Result<bool> {
     let session:Option<String>=conn.query_row("SELECT src.session_id FROM assistant_sources src JOIN sessions home
         ON home.id=src.home_session_id AND home.kind='personal_assistant' AND home.incognito=0
         WHERE src.id=?1 AND src.state='active' AND src.expires_at>?2

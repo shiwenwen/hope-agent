@@ -115,7 +115,7 @@ fn receipt(
     Ok(Some(ResearchQueryReceipt { id, state, reason }))
 }
 
-fn insert_question(
+pub(crate) fn insert_question(
     conn: &Connection,
     key: &str,
     home: &str,

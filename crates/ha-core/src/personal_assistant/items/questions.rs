@@ -118,86 +118,94 @@ impl SessionDB {
     ) -> Result<()> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let payload: Option<String> = tx
-            .query_row(
-                "SELECT payload FROM ask_user_questions
-            WHERE request_id=?1 AND status='pending' AND (timeout_at IS NULL OR timeout_at>?2)",
-                params![request_id, chrono::Utc::now().timestamp()],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let group: AskUserQuestionGroup =
-            serde_json::from_str(&payload.ok_or(AssistantError::Unavailable)?)?;
-        let stored = group
-            .owner_response
-            .as_ref()
-            .and_then(|r| r.assistant_item.as_ref())
-            .ok_or(AssistantError::Unavailable)?;
-        if stored != target {
-            bail!(AssistantError::Conflict)
-        }
-        let bound:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM assistant_item_questions
-            WHERE question_id=?1 AND item_id=?2 AND item_revision=?3 AND execution_id=?4 AND answer_json IS NULL)",
-            params![request_id,target.item_id,target.item_revision,target.execution_id],|r|r.get(0))?;
-        if !bound {
-            bail!(AssistantError::Conflict)
-        }
-        validate_item(&tx, &target.item_id)?;
-        let revision: i64 = tx.query_row(
-            "SELECT revision FROM assistant_items WHERE id=?1",
-            [&target.item_id],
-            |r| r.get(0),
-        )?;
-        if revision != target.item_revision {
-            bail!(AssistantError::Stopped)
-        }
-        if answers.len() != 1
-            || answers[0].question_id != "decision"
-            || !answers[0].files.is_empty()
-        {
-            bail!(AssistantError::InvalidInput)
-        }
-        let answer = &answers[0];
-        let options = &group.questions[0].options;
-        if answer.selected.len() > 1
-            || answer
-                .selected
-                .iter()
-                .any(|v| !options.iter().any(|o| o.value == *v))
-            || (answer.selected.is_empty()
-                && answer
-                    .custom_input
-                    .as_deref()
-                    .is_none_or(|s| s.trim().is_empty()))
-            || answer
-                .custom_input
-                .as_ref()
-                .is_some_and(|s| s.len() > 16_384)
-        {
-            bail!(AssistantError::InvalidInput)
-        }
-        let answer_json = serde_json::to_string(answers)?;
-        tx.execute("UPDATE assistant_item_questions SET answer_json=?2 WHERE question_id=?1 AND answer_json IS NULL",
-            params![request_id,answer_json])?;
-        let won = tx.execute(
-            "UPDATE ask_user_questions SET status='answered',answered_at=?2
-            WHERE request_id=?1 AND status='pending'",
-            params![request_id, chrono::Utc::now().to_rfc3339()],
-        )?;
-        if won != 1 {
-            bail!(AssistantError::Conflict)
-        }
-        let instruction=format!("The owner answered the pending question. Continue only within the existing request. Answer data: {answer_json}");
-        tx.execute("INSERT INTO assistant_followups(id,item_id,item_revision,source_turn_id,instruction,due_at)
-            VALUES(?1,?2,?3,?4,?5,?6)",params![format!("answer:{request_id}"),target.item_id,
-                revision,target.execution_id,instruction,chrono::Utc::now().timestamp()])?;
-        tx.execute(
-            "UPDATE assistant_items SET state='open',reason=NULL,updated_at=?2 WHERE id=?1",
-            params![target.item_id, chrono::Utc::now().to_rfc3339()],
-        )?;
+        answer_with_conn(&tx, request_id, target, answers)?;
         tx.commit()?;
         drop(conn);
         emit_inbox_changed();
         Ok(())
     }
+}
+
+pub(crate) fn answer_with_conn(
+    conn: &rusqlite::Connection,
+    request_id: &str,
+    target: &AssistantAnswerTarget,
+    answers: &[AskUserQuestionAnswer],
+) -> Result<()> {
+    let payload: Option<String> = conn
+        .query_row(
+            "SELECT payload FROM ask_user_questions
+            WHERE request_id=?1 AND status='pending' AND (timeout_at IS NULL OR timeout_at>?2)",
+            params![request_id, chrono::Utc::now().timestamp()],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let group: AskUserQuestionGroup =
+        serde_json::from_str(&payload.ok_or(AssistantError::Unavailable)?)?;
+    let stored = group
+        .owner_response
+        .as_ref()
+        .and_then(|r| r.assistant_item.as_ref())
+        .ok_or(AssistantError::Unavailable)?;
+    if stored != target {
+        bail!(AssistantError::Conflict)
+    }
+    let bound:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM assistant_item_questions
+            WHERE question_id=?1 AND item_id=?2 AND item_revision=?3 AND execution_id=?4 AND answer_json IS NULL)",
+            params![request_id,target.item_id,target.item_revision,target.execution_id],|r|r.get(0))?;
+    if !bound {
+        bail!(AssistantError::Conflict)
+    }
+    validate_item(conn, &target.item_id)?;
+    let revision: i64 = conn.query_row(
+        "SELECT revision FROM assistant_items WHERE id=?1",
+        [&target.item_id],
+        |r| r.get(0),
+    )?;
+    if revision != target.item_revision {
+        bail!(AssistantError::Stopped)
+    }
+    if answers.len() != 1 || answers[0].question_id != "decision" || !answers[0].files.is_empty() {
+        bail!(AssistantError::InvalidInput)
+    }
+    let answer = &answers[0];
+    let options = &group.questions[0].options;
+    if answer.selected.len() > 1
+        || answer
+            .selected
+            .iter()
+            .any(|v| !options.iter().any(|o| o.value == *v))
+        || (answer.selected.is_empty()
+            && answer
+                .custom_input
+                .as_deref()
+                .is_none_or(|s| s.trim().is_empty()))
+        || answer
+            .custom_input
+            .as_ref()
+            .is_some_and(|s| s.len() > 16_384)
+    {
+        bail!(AssistantError::InvalidInput)
+    }
+    let answer_json = serde_json::to_string(answers)?;
+    conn.execute("UPDATE assistant_item_questions SET answer_json=?2 WHERE question_id=?1 AND answer_json IS NULL",
+            params![request_id,answer_json])?;
+    let won = conn.execute(
+        "UPDATE ask_user_questions SET status='answered',answered_at=?2
+            WHERE request_id=?1 AND status='pending'",
+        params![request_id, chrono::Utc::now().to_rfc3339()],
+    )?;
+    if won != 1 {
+        bail!(AssistantError::Conflict)
+    }
+    let instruction=format!("The owner answered the pending question. Continue only within the existing request. Answer data: {answer_json}");
+    conn.execute("INSERT INTO assistant_followups(id,item_id,item_revision,source_turn_id,instruction,due_at)
+            VALUES(?1,?2,?3,?4,?5,?6)",params![format!("answer:{request_id}"),target.item_id,
+                revision,target.execution_id,instruction,chrono::Utc::now().timestamp()])?;
+    conn.execute(
+        "UPDATE assistant_items SET state='open',reason=NULL,updated_at=?2 WHERE id=?1",
+        params![target.item_id, chrono::Utc::now().to_rfc3339()],
+    )?;
+
+    Ok(())
 }

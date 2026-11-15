@@ -14,7 +14,11 @@ import {
 } from "@/components/ui/select"
 import type { SessionMeta } from "@/types/chat"
 import { researchActivityKey } from "./useAssistantResearch"
-import type { AssistantPolicySettings, AssistantResearchState } from "./useAssistantResearch"
+import type {
+  AssistantPolicySettings,
+  AssistantResearchState,
+  AssistantSource,
+} from "./useAssistantResearch"
 
 export function AssistantResearchSettings({
   state,
@@ -103,6 +107,27 @@ export function AssistantResearchSettings({
       setSourceBusy(null)
     }
   }
+  const disclosure = async (source: AssistantSource, enabled: boolean) => {
+    if (sourceBusy) return
+    setSourceBusy(source.id)
+    setError(null)
+    try {
+      await state.setSourceDisclosure(source, enabled)
+    } catch (cause) {
+      setError(String(cause))
+    } finally {
+      setSourceBusy(null)
+    }
+  }
+  const ownerTime = (seconds: number) => {
+    try {
+      return new Date(seconds * 1000).toLocaleString(undefined, {
+        timeZone: state.policy?.settings.timezone ?? "UTC",
+      })
+    } catch {
+      return new Date(seconds * 1000).toISOString()
+    }
+  }
   const candidates = sessions.filter(
     (session) =>
       (session.kind ?? "regular") === "regular" &&
@@ -152,6 +177,118 @@ export function AssistantResearchSettings({
               }}
             />
           </div>
+          <div className="space-y-2">
+            <label htmlFor="assistant-notice-route" className="text-sm">
+              {t("personalAssistant.noticePolicy.route")}
+            </label>
+            <Select
+              value={draft.noticeRoute}
+              onValueChange={(value) => {
+                setDraft({ ...draft, noticeRoute: value as AssistantPolicySettings["noticeRoute"] })
+                setDirty(true)
+              }}
+            >
+              <SelectTrigger id="assistant-notice-route">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(["none", "desktop", "im"] as const).map((route) => (
+                  <SelectItem key={route} value={route}>
+                    {t(`personalAssistant.noticePolicy.routes.${route}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t("personalAssistant.noticePolicy.limitHint")}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {t("personalAssistant.noticePolicy.homeHandoffHint")}
+            </p>
+          </div>
+          {draft.noticeRoute !== "none" && (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label htmlFor="assistant-owner-timezone" className="text-sm">
+                  {t("personalAssistant.noticePolicy.timezone")}
+                </label>
+                <Input
+                  id="assistant-owner-timezone"
+                  value={draft.timezone ?? ""}
+                  placeholder="Asia/Shanghai"
+                  maxLength={128}
+                  onChange={(event) => {
+                    setDraft({ ...draft, timezone: event.target.value.trim() || null })
+                    setDirty(true)
+                  }}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label htmlFor="assistant-quiet-start" className="text-sm">
+                  {t("personalAssistant.noticePolicy.quietStart")}
+                </label>
+                <NumberInput
+                  id="assistant-quiet-start"
+                  className="w-20"
+                  value={draft.quietStartHour}
+                  min={0}
+                  max={23}
+                  onChange={(event) => {
+                    setDraft({
+                      ...draft,
+                      quietStartHour: Math.max(0, Math.min(23, Number(event.target.value) || 0)),
+                    })
+                    setDirty(true)
+                  }}
+                />
+                <label htmlFor="assistant-quiet-end" className="text-sm">
+                  {t("personalAssistant.noticePolicy.quietEnd")}
+                </label>
+                <NumberInput
+                  id="assistant-quiet-end"
+                  className="w-20"
+                  value={draft.quietEndHour}
+                  min={0}
+                  max={23}
+                  onChange={(event) => {
+                    setDraft({
+                      ...draft,
+                      quietEndHour: Math.max(0, Math.min(23, Number(event.target.value) || 0)),
+                    })
+                    setDirty(true)
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("personalAssistant.noticePolicy.quietHint")}
+              </p>
+            </div>
+          )}
+          {draft.noticeRoute === "im" && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-4">
+                <label htmlFor="assistant-desktop-to-im" className="text-sm">
+                  {t("personalAssistant.noticePolicy.desktopToIm")}
+                </label>
+                <Switch
+                  id="assistant-desktop-to-im"
+                  checked={draft.desktopToImNotices ?? false}
+                  onCheckedChange={(checked) => {
+                    setDraft({ ...draft, desktopToImNotices: checked })
+                    setDirty(true)
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("personalAssistant.noticePolicy.desktopToImHint")}
+              </p>
+              {!state.attention?.paired && (
+                <p role="status" className="text-xs text-muted-foreground">
+                  {t("personalAssistant.noticePolicy.pairRequired")}
+                </p>
+              )}
+            </div>
+          )}
           <div className="flex items-center justify-end gap-3">
             {feedback === "pending" && (
               <p role="status" className="text-xs text-muted-foreground">
@@ -183,6 +320,30 @@ export function AssistantResearchSettings({
           </div>
         </form>
       )}
+      {state.attention && (
+        <div className="space-y-2 text-xs text-muted-foreground">
+          {state.attention.deferredReason && (
+            <p role="status">
+              {t(`personalAssistant.noticePolicy.deferred.${state.attention.deferredReason}`)}
+            </p>
+          )}
+          {state.attention.nextEligibleAt && state.policy?.settings.noticeRoute !== "none" && (
+            <p>
+              {t("personalAssistant.noticePolicy.nextEligible", {
+                time: ownerTime(state.attention.nextEligibleAt),
+                zone: state.policy?.settings.timezone ?? "UTC",
+              })}
+            </p>
+          )}
+          {state.attention.receipts.slice(0, 3).map((receipt) => (
+            <p key={receipt.id}>
+              {t(`personalAssistant.noticePolicy.receipts.${receipt.state}`, {
+                time: ownerTime(receipt.submittedAt),
+              })}
+            </p>
+          ))}
+        </div>
+      )}
       <div className="space-y-3">
         <p className="text-sm font-medium">{t("personalAssistant.research.sources")}</p>
         {state.sources
@@ -213,6 +374,20 @@ export function AssistantResearchSettings({
                   {t("personalAssistant.research.observationGap")}
                 </p>
               )}
+              <div className="flex items-center justify-between gap-4">
+                <label htmlFor={`assistant-source-im-${source.id}`} className="text-xs">
+                  {t("personalAssistant.noticePolicy.sourceDisclosure")}
+                </label>
+                <Switch
+                  id={`assistant-source-im-${source.id}`}
+                  disabled={!!sourceBusy || !state.attention?.pairing}
+                  checked={source.imSummaryAllowed ?? false}
+                  onCheckedChange={(checked) => void disclosure(source, checked)}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("personalAssistant.noticePolicy.sourceDisclosureHint")}
+              </p>
               <div className="flex gap-2">
                 <Button
                   type="button"

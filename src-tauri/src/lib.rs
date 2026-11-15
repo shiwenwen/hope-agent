@@ -1219,6 +1219,12 @@ pub fn run() {
             commands::execution_mode::get_workflow_mode,
             commands::execution_mode::set_workflow_mode,
             // Goals (top-level completion criteria and evidence)
+            commands::assistant_research::get_execution_notification_ownership,
+            commands::assistant_research::get_personal_assistant_attention,
+            commands::assistant_research::set_personal_assistant_presence,
+            commands::assistant_research::claim_personal_assistant_desktop_notice,
+            commands::assistant_research::finish_personal_assistant_desktop_notice,
+            commands::assistant_research::set_personal_assistant_source_im_disclosure,
             commands::assistant_research::get_personal_assistant_policy,
             commands::assistant_research::set_personal_assistant_policy,
             commands::assistant_research::list_personal_assistant_sources,

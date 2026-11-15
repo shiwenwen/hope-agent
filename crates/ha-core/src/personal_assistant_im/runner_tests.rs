@@ -451,7 +451,7 @@ fn personal_assistant_im_changed_scope_gets_empty_history_and_old_turn_loses_too
 }
 
 #[test]
-fn personal_assistant_im_completion_is_status_only_once_and_pause_cannot_replay() {
+fn personal_assistant_im_item_completion_folds_the_legacy_outlet_once() {
     isolated(|db, now| {
         let context = command(&db, now);
         admit(&db, &context);
@@ -498,7 +498,7 @@ fn personal_assistant_im_completion_is_status_only_once_and_pause_cannot_replay(
             Some(result),
         )
         .unwrap();
-        assert!(db
+        assert!(!db
             .enqueue_assistant_im_request_completion(&request.id, now)
             .unwrap());
         assert!(!db
@@ -511,7 +511,16 @@ fn personal_assistant_im_completion_is_status_only_once_and_pause_cannot_replay(
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )?;
             assert_eq!(count, 1);
-            assert!(body.contains("已完成"));
+            assert!(
+                body.is_empty(),
+                "item completion belongs to unified attention"
+            );
+            let state: String = conn.query_row(
+                "SELECT state FROM assistant_im_deliveries WHERE request_id=?1",
+                [format!("{}:complete", request.id)],
+                |row| row.get(0),
+            )?;
+            assert_eq!(state, "cancelled");
             assert!(!body.contains("PRIVATE_"));
             Ok(())
         })
