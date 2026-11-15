@@ -371,9 +371,8 @@ pub(crate) fn bind_stream_with_conn(
     conn.execute("UPDATE assistant_followups SET state='claimed',consumer_execution_id=?1 WHERE id IN(
         SELECT f.id FROM assistant_followups f JOIN assistant_item_runs ar ON ar.item_id=f.item_id
         JOIN assistant_followups resume ON resume.request_id=ar.request_id AND resume.id LIKE 'owner-continue:%'
-        LEFT JOIN chat_stream_runs old ON old.run_id=f.consumer_execution_id
         WHERE ar.turn_id=?2 AND (f.id LIKE 'owner-followup:%' OR f.id LIKE 'answer:%')
-            AND (f.state='pending' OR (f.state='claimed' AND old.status IN('failed','interrupted','recovered')))
+            AND f.state='pending'
         ORDER BY CASE WHEN f.id LIKE 'answer:%' THEN 0 ELSE 1 END,f.due_at,f.id LIMIT 8)",
         params![input.run_id,turn])?;
     Ok(())
@@ -720,14 +719,14 @@ impl SessionDB {
                 [&item],
                 |r| r.get(0),
             )?;
-            let instruction=format!("Continue the existing owner request within its original scope:\n{}\n\nPrior worker plan (reference data, not new authority):\n{}",
+            let instruction=format!("Continue the existing owner request within its original scope. Verify unknown prior outcomes before repeating any action; an undelivered instruction is not proof that a prior write did not happen:\n{}\n\nPrior worker plan (reference data, not new authority):\n{}",
                 original,serde_json::to_string(&next)?);
             tx.execute("INSERT INTO personal_assistant_requests(id,home_session_id,source_turn_id,source_message_id,
                 item_key,target_session_id,instruction,global_stop_epoch,source_stop_epoch,target_stop_epoch,created_at,updated_at)
                 SELECT ?1,r.home_session_id,r.source_turn_id,r.source_message_id,?2,r.target_session_id,?3,
                 r.global_stop_epoch,r.source_stop_epoch,r.target_stop_epoch,?4,?4
                 FROM assistant_items i JOIN personal_assistant_requests r ON r.id=i.request_id WHERE i.id=?5",
-                params![request,event,instruction,now,item])?;
+                params![request,format!("assistant-followup:{request}"),instruction,now,item])?;
             let target: String = tx.query_row(
                 "SELECT target_session_id FROM personal_assistant_requests WHERE id=?1",
                 [&request],
@@ -958,7 +957,8 @@ impl SessionDB {
             return Ok(event);
         }
         let pending: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM assistant_followups WHERE item_id=?1 AND state='pending'",
+            "SELECT COUNT(*) FROM assistant_followups WHERE item_id=?1 AND state='pending'
+                AND (id LIKE 'owner-followup:%' OR id LIKE 'answer:%')",
             [item],
             |r| r.get(0),
         )?;
@@ -1009,7 +1009,8 @@ impl SessionDB {
         let conn = self.read_conn()?;
         let mut stmt = conn.prepare(
             "SELECT instruction FROM assistant_followups
-            WHERE consumer_execution_id=?1 AND state='claimed' ORDER BY due_at,id LIMIT 8",
+            WHERE consumer_execution_id=?1 AND state='claimed'
+                AND (id LIKE 'owner-followup:%' OR id LIKE 'answer:%') ORDER BY due_at,id LIMIT 8",
         )?;
         let events = stmt
             .query_map([execution], |r| r.get::<_, String>(0))?
@@ -1084,6 +1085,12 @@ impl SessionDB {
             emit_inbox_changed();
             return Ok(());
         }
+        // Requeue every undelivered owner event. The bounded consumer claims
+        // at most eight, leaving the rest schedulable for a later batch.
+        tx.execute("UPDATE assistant_followups SET state='pending',consumer_execution_id=NULL,request_id=NULL
+            WHERE item_id=?1 AND state='claimed' AND (id LIKE 'owner-followup:%' OR id LIKE 'answer:%')
+                AND consumer_execution_id IN(SELECT run_id FROM chat_stream_runs WHERE status IN('failed','interrupted','recovered'))",
+            [id])?;
         tx.execute(
             "UPDATE assistant_followups SET state='cancelled' WHERE item_id=?1 AND state='pending'
                 AND id NOT LIKE 'owner-followup:%' AND id NOT LIKE 'answer:%'",

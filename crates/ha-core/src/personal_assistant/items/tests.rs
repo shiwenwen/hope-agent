@@ -1113,6 +1113,17 @@ fn explicit_continuation_hands_failed_supplement_to_the_verifying_consumer() {
         db.settle_assistant_execution("failed-extra-stream")
             .unwrap();
         db.continue_assistant_item(&item).unwrap();
+        for n in 0..7 {
+            db.request_assistant_item_followup(
+                &item,
+                "owner-turn",
+                &format!("extra-{n}"),
+                "work",
+                &format!("New owner detail {n}"),
+                0,
+            )
+            .unwrap();
+        }
         assert_eq!(db.queue_assistant_followups().unwrap(), 1);
         let resume = db
             .list_personal_assistant_requests()
@@ -1131,10 +1142,13 @@ fn explicit_continuation_hands_failed_supplement_to_the_verifying_consumer() {
             provider_shape: None,
         })
         .unwrap();
-        assert!(db
+        let delivered = db
             .assistant_execution_owner_events("verify-stream")
-            .unwrap()
-            .contains("updated outline"));
+            .unwrap();
+        assert!(delivered.contains("updated outline"));
+        for n in 0..7 {
+            assert!(delivered.contains(&format!("New owner detail {n}")));
+        }
         db.report_assistant_item(
             "work",
             "verify-stream",
@@ -1156,5 +1170,96 @@ fn explicit_continuation_hands_failed_supplement_to_the_verifying_consumer() {
             db.list_assistant_items().unwrap()[0].state,
             ItemState::Done
         ));
+    });
+}
+
+#[test]
+fn failed_owner_claims_over_one_batch_leave_a_schedulable_remainder() {
+    isolated_test(|db, _| {
+        let item = seed_execution(&db);
+        for n in 0..9 {
+            // Preserve the old attempts as a real failed-queue history would.
+            db.conn.lock().unwrap().execute("INSERT INTO personal_assistant_requests(id,home_session_id,source_turn_id,source_message_id,item_key,target_session_id,instruction,status,global_stop_epoch,source_stop_epoch,target_stop_epoch,created_at,updated_at)
+                SELECT ?1,home_session_id,source_turn_id,source_message_id,?2,target_session_id,?3,'failed',global_stop_epoch,source_stop_epoch,target_stop_epoch,created_at,updated_at FROM personal_assistant_requests WHERE id=?4",
+                params![format!("old-request-{n}"),format!("owner-followup:old:{n}"),format!("Old owner detail {n}"),item]).unwrap();
+            db.conn.lock().unwrap().execute("INSERT INTO assistant_followups(id,item_id,item_revision,source_turn_id,instruction,state,consumer_execution_id,due_at)
+                VALUES(?1,?2,1,'owner-turn',?3,'claimed','worker-stream',0)", params![format!("owner-followup:old:{n}"),item,format!("Old owner detail {n}")]).unwrap();
+            db.conn
+                .lock()
+                .unwrap()
+                .execute(
+                    "UPDATE assistant_followups SET request_id=?2 WHERE id=?1",
+                    params![
+                        format!("owner-followup:old:{n}"),
+                        format!("old-request-{n}")
+                    ],
+                )
+                .unwrap();
+        }
+        terminal(&db, "failed");
+        db.settle_assistant_execution("worker-stream").unwrap();
+        db.continue_assistant_item(&item).unwrap();
+        let home = db.ensure_personal_assistant_home().unwrap();
+        for batch in 0..2 {
+            assert_eq!(db.queue_assistant_followups().unwrap(), 1);
+            let request = db
+                .list_personal_assistant_requests()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.status == "queued")
+                .unwrap();
+            assert!(request
+                .instruction
+                .contains("Verify unknown prior outcomes"));
+            let turn = format!("batch-turn-{batch}");
+            let execution = format!("batch-stream-{batch}");
+            admit(&db, &home, &request, &turn).unwrap();
+            db.create_assistant_work_stream(&CreateStreamRun {
+                run_id: execution.clone(),
+                session_id: "work".into(),
+                source: "session_tool".into(),
+                stream_id: Some(format!("batch-{batch}")),
+                turn_id: Some(turn.clone()),
+                provider_shape: None,
+            })
+            .unwrap();
+            let delivered: serde_json::Value =
+                serde_json::from_str(&db.assistant_execution_owner_events(&execution).unwrap())
+                    .unwrap();
+            assert_eq!(
+                delivered["ownerFollowupData"].as_array().unwrap().len(),
+                if batch == 0 { 8 } else { 1 }
+            );
+            db.report_assistant_item(
+                "work",
+                &execution,
+                "done",
+                "Verified delivered owner details",
+                None,
+            )
+            .unwrap();
+            db.conn
+                .lock()
+                .unwrap()
+                .execute(
+                    "UPDATE chat_stream_runs SET status='committed' WHERE run_id=?1",
+                    [&execution],
+                )
+                .unwrap();
+            db.conn
+                .lock()
+                .unwrap()
+                .execute(
+                    "UPDATE chat_turns SET status='completed' WHERE id=?1",
+                    [&turn],
+                )
+                .unwrap();
+            db.reconcile_personal_assistant_requests().unwrap();
+            db.settle_assistant_execution(&execution).unwrap();
+            assert!(
+                matches!(db.list_assistant_items().unwrap()[0].state, ItemState::Done)
+                    == (batch == 1)
+            );
+        }
     });
 }
