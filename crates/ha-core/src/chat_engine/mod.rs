@@ -293,6 +293,16 @@ pub struct SessionStreamSnapshot {
 }
 
 pub fn session_stream_snapshot(session_id: &str) -> anyhow::Result<Option<SessionStreamSnapshot>> {
+    // Public HTTP/Tauri replay is never a private research projection. Check
+    // before the live coordinator path, including revoked/deleted sessions.
+    if durability::active_is_private_research(session_id)
+        || crate::get_session_db()
+            .map(|db| db.assistant_research_context(session_id))
+            .transpose()?
+            .unwrap_or(false)
+    {
+        return Ok(None);
+    }
     let (stream_id, turn_id, run_id, through_seq, durable_seq, committed_seq, status, events) =
         if let Some(snapshot) = durability::active_snapshot(session_id) {
             let through_seq = snapshot

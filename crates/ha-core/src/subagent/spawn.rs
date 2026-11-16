@@ -636,19 +636,23 @@ async fn materialize_prepared_run(
         let run = run.clone();
         let dispatch_id = resume_dispatch_id.map(str::to_string);
         let dispatch_message = run.task.clone();
+        let execution = params.parent_execution_id.clone();
         db.run(move |db| {
-            db.insert_resumed_subagent_run(
+            db.insert_resumed_subagent_run_with_execution(
                 &source_run_id,
                 &run,
                 dispatch_id.as_deref(),
                 dispatch_id.as_ref().map(|_| dispatch_message.as_str()),
+                execution.as_deref(),
             )
         })
         .await?;
     } else {
         let db = session_db.clone();
         let run = run.clone();
-        db.run(move |db| db.insert_subagent_run(&run)).await?;
+        let execution = params.parent_execution_id.clone();
+        db.run(move |db| db.insert_subagent_run_with_execution(&run, execution.as_deref()))
+            .await?;
     }
 
     // R6: project user-delegated background subagent runs into the unified
@@ -1467,6 +1471,7 @@ fn dispatch_parent_result_delivery_blocking(
             move || arm_db.arm_subagent_result_delivery_no_replay(&arm_run_id),
             move || delivery_db.mark_subagent_result_delivered(&delivery_run_id),
         )
+        .with_assistant_sources(vec![("subagent".to_owned(), run.run_id.clone())])
         .with_primary_handoff()
         .with_release_unarmed(move || {
             release_db.release_subagent_result_delivery_claim(
@@ -1982,6 +1987,7 @@ mod structural_limit_tests {
 
     fn params_at_depth(depth: u32) -> SpawnParams {
         SpawnParams {
+            parent_execution_id: None,
             task: "t".into(),
             // Nonexistent agent → `max_depth_for_agent` falls back to the
             // hardcoded DEFAULT_MAX_DEPTH (3), independent of on-disk config.
@@ -2129,6 +2135,7 @@ mod structural_limit_tests {
                 .unwrap();
 
             let params = SpawnParams {
+                parent_execution_id: None,
                 task: "queued task".into(),
                 agent_id: agent_id.into(),
                 parent_session_id: parent.id.clone(),
@@ -2208,6 +2215,7 @@ mod structural_limit_tests {
             db.insert_subagent_run(&active_run("active-blocker", &parent.id, agent_id))
                 .unwrap();
             let params = SpawnParams {
+                parent_execution_id: None,
                 task: "must never execute".into(),
                 agent_id: agent_id.into(),
                 parent_session_id: parent.id.clone(),

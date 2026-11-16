@@ -242,11 +242,43 @@ pub struct HookDispatcher;
 
 impl HookDispatcher {
     pub async fn dispatch(event: HookEvent, input: HookInput) -> HookOutcome {
+        if crate::personal_assistant::items::custom_hooks_blocked() {
+            return HookOutcome::noop();
+        }
         // The sealed IM execution paths skip hooks from their immutable
         // ToolScope. This live check also covers non-turn lifecycle callers,
         // while preserving ordinary preflight for not-yet-created sessions.
         if let Some(db) = crate::get_session_db().cloned() {
             let sid = input.common().session_id.clone();
+            let prompt = input.common().prompt_id.clone();
+            let source = match &input {
+                HookInput::PostToolUse {
+                    job_id: Some(id), ..
+                }
+                | HookInput::PostToolUseFailure {
+                    job_id: Some(id), ..
+                } => Some(("job", id.clone())),
+                HookInput::SubagentStart { run_id, .. }
+                | HookInput::SubagentStop { run_id, .. } => Some(("subagent", run_id.clone())),
+                _ => None,
+            };
+            let owned = db
+                .run(move |db| -> anyhow::Result<bool> {
+                    if let Some((kind, id)) = source {
+                        if db.assistant_source_owner(kind, &id)?.is_some() {
+                            return Ok(true);
+                        }
+                    }
+                    if let Some(prompt) = prompt {
+                        return Ok(db.assistant_item_for_turn(&prompt)?.is_some());
+                    }
+                    Ok(false)
+                })
+                .await
+                .unwrap_or(true);
+            if owned {
+                return HookOutcome::noop();
+            }
             if db
                 .run(move |db| db.get_session(&sid))
                 .await
@@ -560,6 +592,9 @@ pub(crate) fn fire_and_forget_runtime() -> Option<&'static tokio::runtime::Runti
 /// "nothing configured" case without touching the DB. Callers constructing an
 /// input by hand should do the same.
 pub fn fire_and_forget(event: HookEvent, input: HookInput) {
+    if crate::personal_assistant::items::custom_hooks_blocked() {
+        return;
+    }
     let wd = session_working_dir(&input);
     if !scopes::any_handlers_for(event, wd.as_deref().map(std::path::Path::new)) {
         return;
@@ -923,6 +958,9 @@ pub fn fire_stop(
     status: &str,
     last_message: Option<&str>,
 ) {
+    if crate::personal_assistant::items::custom_hooks_blocked() {
+        return;
+    }
     // Pre-gate before the input build costs a session lookup.
     if scopes::definitely_no_handlers_for(HookEvent::Stop) {
         return;

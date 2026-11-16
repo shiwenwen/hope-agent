@@ -96,6 +96,14 @@ impl SessionDB {
 
     /// Insert a new sub-agent run record.
     pub fn insert_subagent_run(&self, run: &crate::subagent::SubagentRun) -> Result<()> {
+        self.insert_subagent_run_with_execution(run, None)
+    }
+
+    pub(crate) fn insert_subagent_run_with_execution(
+        &self,
+        run: &crate::subagent::SubagentRun,
+        execution: Option<&str>,
+    ) -> Result<()> {
         if !run.thread_id.is_empty() && run.thread_id != run.child_session_id {
             return Err(anyhow::anyhow!(
                 "Sub-agent thread_id must equal child_session_id"
@@ -184,6 +192,13 @@ impl SessionDB {
                 ));
             }
         }
+        crate::personal_assistant::items::bind_source_with_conn(
+            &tx,
+            "subagent",
+            &run.run_id,
+            &run.parent_session_id,
+            execution,
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -202,6 +217,23 @@ impl SessionDB {
         run: &crate::subagent::SubagentRun,
         dispatch_id: Option<&str>,
         dispatch_message: Option<&str>,
+    ) -> Result<u64> {
+        self.insert_resumed_subagent_run_with_execution(
+            source_run_id,
+            run,
+            dispatch_id,
+            dispatch_message,
+            None,
+        )
+    }
+
+    pub(crate) fn insert_resumed_subagent_run_with_execution(
+        &self,
+        source_run_id: &str,
+        run: &crate::subagent::SubagentRun,
+        dispatch_id: Option<&str>,
+        dispatch_message: Option<&str>,
+        execution: Option<&str>,
     ) -> Result<u64> {
         if dispatch_id.is_some() != dispatch_message.is_some() {
             return Err(anyhow::anyhow!(
@@ -483,6 +515,13 @@ impl SessionDB {
                 ],
             )?;
         }
+        crate::personal_assistant::items::bind_source_with_conn(
+            &tx,
+            "subagent",
+            &run.run_id,
+            &run.parent_session_id,
+            execution,
+        )?;
         tx.commit()?;
         Ok(next_epoch)
     }
@@ -950,12 +989,36 @@ impl SessionDB {
     /// bit remains as a fast cancellation signal, but restart behavior reads
     /// this state.
     pub fn suppress_subagent_result_delivery(&self, run_id: &str, reason: &str) -> Result<()> {
+        self.suppress_subagent_result_delivery_inner(run_id, reason, None, false)
+    }
+
+    pub(crate) fn consume_subagent_result_in_execution(
+        &self,
+        run_id: &str,
+        execution: Option<&str>,
+    ) -> Result<()> {
+        self.suppress_subagent_result_delivery_inner(run_id, "explicitly_consumed", execution, true)
+    }
+
+    fn suppress_subagent_result_delivery_inner(
+        &self,
+        run_id: &str,
+        reason: &str,
+        execution: Option<&str>,
+        explicit_read: bool,
+    ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
+        let tx = conn.transaction()?;
+        if explicit_read {
+            crate::personal_assistant::items::consume_source_with_conn(
+                &tx, "subagent", run_id, execution,
+            )?;
+        }
+        tx.execute(
             "INSERT INTO subagent_result_deliveries (
                 run_id, parent_session_id, state, suppress_reason, attempt_count,
                 requested_at, delivered_at
@@ -987,6 +1050,7 @@ impl SessionDB {
               )",
             params![reason, now, run_id],
         )?;
+        tx.commit()?;
         Ok(())
     }
 

@@ -132,7 +132,14 @@ pub(super) fn decode(update: &Update, bot_id: i64) -> TelegramInput {
             result.kind = match text.strip_prefix(PAIR_COMMAND) {
                 Some(code) => TelegramInputKind::PairCode(code.trim().to_owned()),
                 None if text.starts_with("/ha_pair") => TelegramInputKind::Ignore,
-                None => TelegramInputKind::Message(text.to_owned()),
+                None => match message.reply_to_message() {
+                    Some(parent) => TelegramInputKind::Reply {
+                        message_id: i64::from(message.id.0),
+                        reply_to_message_id: i64::from(parent.id.0),
+                        text: text.to_owned(),
+                    },
+                    None => TelegramInputKind::Message(text.to_owned()),
+                },
             };
         }
         UpdateKind::CallbackQuery(callback) if !callback.from.is_bot => {
@@ -255,5 +262,50 @@ mod tests {
             decode(&activation, 100).kind,
             TelegramInputKind::Ignore
         ));
+    }
+}
+
+#[cfg(test)]
+mod attention_transport_tests {
+    use super::*;
+    use serde_json::json;
+    use wiremock::matchers::method;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn attention_sends_one_plain_bounded_message_without_preview_or_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        ha_core::test_support::with_env_vars_async(&[("HA_DATA_DIR",dir.path())],||async{
+            ha_core::config::replace_cache_for_test(Default::default());
+            let mut config=(*ha_core::config::cached_config()).clone();
+            config.ssrf.trusted_hosts=vec!["127.0.0.1".into()];
+            ha_core::config::replace_cache_for_test(config);
+            for accepted in [true,false] {
+                let server=MockServer::start().await;
+                let response=if accepted {ResponseTemplate::new(200).set_body_json(json!({"ok":true,"result":{"message_id":17,"date":1700000000,"chat":{"id":42,"type":"private","first_name":"Owner"},"text":"result"}}))}
+                    else{ResponseTemplate::new(429).set_body_json(json!({"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{"retry_after":1}}))};
+                Mock::given(method("POST")).respond_with(response).expect(1).mount(&server).await;
+                let api=TelegramBotApi::new("100:isolated-test-token",None,Some(&server.uri())).await.unwrap();
+                let client=TelegramClient{api,bot_id:100,username:"test_bot".into()};
+                let text="1. 已准备方案 A；详情留在 Hope。 https://example.invalid/source";
+                let result=client.send(42,text,None).await;
+                if accepted {assert_eq!(result.unwrap(),17);}else{assert!(result.is_err());}
+                let requests=server.received_requests().await.unwrap();assert_eq!(requests.len(),1);
+                let body:serde_json::Value=serde_json::from_slice(&requests[0].body).unwrap();
+                assert_eq!(body["text"],text);assert_eq!(body["chat_id"],42);
+                assert_eq!(body["link_preview_options"]["is_disabled"],true);
+                assert!(body.get("parse_mode").is_none());assert!(body.get("reply_markup").is_none());
+            }
+            ha_core::config::replace_cache_for_test(Default::default());
+        }).await;
+    }
+
+    #[test]
+    fn reply_decoder_carries_only_fresh_text_and_host_message_ids() {
+        let update:Update=serde_json::from_str(&json!({"update_id":4,"message":{"message_id":12,"date":1700000000,"chat":{"id":42,"type":"private","first_name":"Owner"},"from":{"id":42,"is_bot":false,"first_name":"Owner"},"text":"2: continue","reply_to_message":{"message_id":9,"date":1699999990,"chat":{"id":42,"type":"private","first_name":"Owner"},"from":{"id":100,"is_bot":true,"first_name":"Hope"},"text":"UNTRUSTED_QUOTED_BODY"}}}).to_string()).unwrap();
+        let input = decode(&update, 100);
+        assert!(
+            matches!(input.kind,TelegramInputKind::Reply{message_id:12,reply_to_message_id:9,text} if text=="2: continue")
+        );
     }
 }

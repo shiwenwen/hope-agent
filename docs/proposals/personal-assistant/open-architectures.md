@@ -1,6 +1,15 @@
 # 常驻个人助手调研：OpenClaw 与 DeepSeek Super-agent
 
-调研日期为 2026-11-06。OpenClaw 可用来考察已发布的个人助手机制。DeepSeek Harness 团队则公开了设计论述和一个范围明确的编码原型。两者分别回答了两个问题：助手平时怎样少打扰，在多件事同时发生时又怎样把工作交给正确的人和会话。
+首轮调研日期为 2026-11-06，2026-11-15 重新核对运行机制。OpenClaw 的版本内文档和滚动文档分别记录；DeepSeek 的公开代码属于研究原型。Hope 的当前设计见[完整方案](README.md)。
+
+## 2026-11-15：运行机制补充
+
+- **OpenClaw 当前滚动文档：** 心跳检查已收敛到普通自动化作业，支持各自的时段、空闲策略和私人 scratch；无可见更新可以 NO_REPLY，后台任务结束等即时后续另走正常会话执行。迁移文档同时明确旧的心跳专用重复抑制和无路由跳过被移除，不能把旧保证直接带到新版。Hope 因此借鉴调度复用、私人上下文和静默结果，自行实现业务去重、受众与统一提醒额度。[当前文档](https://docs.openclaw.ai/gateway/heartbeat)
+- **DeepSeek 公开原型：** 领域模型把 Trigger、判断、授权事项和执行分配分开；事项状态不跟随某个执行会话。普通进度留在事项，有结果、问题或无法完成再联系用户。Hope 采用事项与执行分离、结果与外发分离，不照搬其针对单 GitHub 仓库的整套对象体系。[领域模型](https://github.com/deepseek-ai/dsh-superagent-prototype/blob/main/docs/001-domain.md) · [架构](https://github.com/deepseek-ai/dsh-superagent-prototype/blob/main/docs/007-architecture.md) · [原则](https://github.com/deepseek-ai/dsh-superagent-prototype/blob/main/docs/000-philosophy.md)
+
+滚动网页不能证明某个稳定发布包已包含相同实现。DeepSeek README 明确公开原型、内部系统与文章未来方向并不相同；这里不将其表述为完整商用 personal agent。没有对这两个系统做真实账号长时运行测试。
+
+## 2026-11-06：版本与原型记录
 
 ## OpenClaw：把“随时可用”拆成不同的触发方式
 

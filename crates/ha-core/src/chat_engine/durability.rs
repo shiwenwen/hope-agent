@@ -2147,6 +2147,13 @@ pub(crate) fn active(session_id: &str) -> Option<Arc<StreamCoordinator>> {
     coordinator
 }
 
+// Read the host source before copying any private in-memory events. This also
+// covers teardown windows where the session row has already been deleted.
+pub(crate) fn active_is_private_research(session_id: &str) -> bool {
+    active(session_id)
+        .is_some_and(|coordinator| coordinator.source == ChatSource::AssistantResearch)
+}
+
 pub(crate) fn active_snapshot(session_id: &str) -> Option<StreamSnapshot> {
     active(session_id).map(|coordinator| coordinator.snapshot())
 }
@@ -2177,6 +2184,19 @@ pub(crate) fn active_foreground_stop_generations() -> Vec<(String, String, u64, 
         true
     });
     generations
+}
+
+/// Cancel only the immutable execution named by an internal owner ledger.
+pub(crate) fn request_stop_for_exact_run(run_id: &str, session_id: &str) -> bool {
+    let map = registry().lock().unwrap_or_else(|p| p.into_inner());
+    map.values().filter_map(Weak::upgrade).any(|c| {
+        if c.run_id == run_id && c.session_id == session_id && !c.closed.load(Ordering::SeqCst) {
+            c.cancel.store(true, Ordering::SeqCst);
+            true
+        } else {
+            false
+        }
+    })
 }
 
 pub(crate) fn request_foreground_stop_for_run(run_id: &str) -> bool {

@@ -3,7 +3,7 @@ use crate::chat_engine::ChatSource;
 use crate::session::{ChatTurnStatus, NewMessage, SessionKind};
 use std::sync::Arc;
 
-fn isolated_test(test: impl FnOnce(Arc<SessionDB>, &std::path::Path)) {
+pub(super) fn isolated_test(test: impl FnOnce(Arc<SessionDB>, &std::path::Path)) {
     let directory = tempfile::tempdir().unwrap();
     crate::test_support::with_env_vars(&[("HA_DATA_DIR", directory.path())], || {
         let path = directory.path().join("sessions.db");
@@ -15,7 +15,7 @@ fn isolated_test(test: impl FnOnce(Arc<SessionDB>, &std::path::Path)) {
     });
 }
 
-fn seed_target(db: &SessionDB, id: &str) {
+pub(super) fn seed_target(db: &SessionDB, id: &str) {
     let conn = db.conn.lock().unwrap();
     conn.execute(
         "INSERT INTO sessions(id,agent_id,created_at,updated_at) VALUES(?1,'ha-main',?2,?2)",
@@ -24,7 +24,7 @@ fn seed_target(db: &SessionDB, id: &str) {
     .unwrap();
 }
 
-fn seed_source(db: &SessionDB) -> SessionMeta {
+pub(super) fn seed_source(db: &SessionDB) -> SessionMeta {
     let home = db.ensure_personal_assistant_home().unwrap();
     let message_id = db
         .append_message(
@@ -37,7 +37,7 @@ fn seed_source(db: &SessionDB) -> SessionMeta {
     home
 }
 
-fn input(target: &str) -> AssistantDispatchInput {
+pub(super) fn input(target: &str) -> AssistantDispatchInput {
     AssistantDispatchInput {
         source_turn_id: "owner-turn".into(),
         item_key: format!("send-{target}"),
@@ -133,7 +133,7 @@ fn profile_accepts_only_uploaded_image_paths_and_makes_the_root_private() {
     });
 }
 
-fn admit(
+pub(super) fn admit(
     db: &SessionDB,
     home: &SessionMeta,
     request: &AssistantRequest,

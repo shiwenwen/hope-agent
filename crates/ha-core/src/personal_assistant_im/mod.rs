@@ -5,12 +5,12 @@
 //! workers consume platform identities and immutable generations, never model
 //! assertions about who sent a message.
 
-mod delivery;
+pub(crate) mod delivery;
 mod notification_policy;
 mod pairing_delivery;
 mod runner;
 pub(crate) mod scoped_tools;
-mod store;
+pub(crate) mod store;
 mod view;
 
 #[cfg(test)]
@@ -128,6 +128,11 @@ pub enum TelegramInputKind {
     PairCode(String),
     Activate(String),
     Message(String),
+    Reply {
+        message_id: i64,
+        reply_to_message_id: i64,
+        text: String,
+    },
     Ignore,
 }
 

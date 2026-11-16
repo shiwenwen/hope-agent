@@ -1,6 +1,6 @@
 [package]
 name = "ha-agent-runtime"
-version = "0.74.0"
+version = "0.75.0"
 description = "Hope Agent main-turn runtime adapter"
 license.workspace = true
 authors.workspace = true
@@ -24,3 +24,8 @@ uuid = { workspace = true }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+ha-core = { path = "../ha-core", features = ["test-support"] }
+tempfile = "3"
+wiremock = "0.6"

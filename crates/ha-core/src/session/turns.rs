@@ -818,6 +818,7 @@ impl SessionDB {
                 request_fingerprint,
             ],
         )?;
+        crate::personal_assistant::items::link_admitted_turn(&tx, id)?;
         if let Some(request_id) = message.queue_request_id.as_deref() {
             let consumed = tx.execute(
                 "DELETE FROM queued_turn_user_messages

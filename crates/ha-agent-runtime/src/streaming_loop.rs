@@ -1206,6 +1206,7 @@ async fn evaluate_round_capacity(
     cancel: &Arc<AtomicBool>,
     input_limit: u64,
     round: u32,
+    allow_provider_count: bool,
 ) -> RoundCapacityEvaluation {
     let accounting = adapter.token_count_input_for(req);
     let tools = adapter.token_count_tool_schemas(req);
@@ -1226,7 +1227,9 @@ async fn evaluate_round_capacity(
         input_limit,
     );
     let mut effective = local.clone();
-    if local.lower_bound <= input_limit
+    // Private research never sends evidence through a secondary counting API.
+    if allow_provider_count
+        && local.lower_bound <= input_limit
         && crate::token_accounting::service().should_refine(&local, &[input_limit])
     {
         match tokio::time::timeout(
@@ -1386,7 +1389,13 @@ async fn fire_post_tool_use_hook(
     elapsed_ms: u64,
 ) -> PostToolHookProjection {
     use crate::hooks::{HookDispatcher, HookEvent, HookInput};
-    if ctx.tool_scope == Some(crate::tool_defs::ToolScope::PersonalAssistantIm) {
+    if matches!(
+        ctx.tool_scope,
+        Some(
+            crate::tool_defs::ToolScope::PersonalAssistantIm
+                | crate::tool_defs::ToolScope::AssistantResearch
+        )
+    ) {
         return PostToolHookProjection::default();
     }
     let event = if is_error {
@@ -3400,6 +3409,7 @@ impl RuntimeAgentExt for AssistantAgent {
                             cancel,
                             capacity_limit,
                             round,
+                            !self.is_assistant_research(),
                         )
                         .await;
                         if evaluated.effective.upper_bound <= capacity_limit {
@@ -3644,6 +3654,7 @@ impl RuntimeAgentExt for AssistantAgent {
                     cancel,
                     max_input_tokens,
                     round,
+                    !self.is_assistant_research(),
                 )
                 .await;
                 if evaluated.effective.upper_bound > max_input_tokens {
@@ -3790,57 +3801,81 @@ impl RuntimeAgentExt for AssistantAgent {
                     return Err(error);
                 }
             }
-            let dispatch_result = if self.runtime_turn_durability().is_some() {
-                let mut prepared = adapter.prepare_round_request(&req)?;
-                let mut completed = None;
-                for _ in 0..=3 {
-                    let (request_plan_id, observer) = prepare_durable_provider_plan(
-                        self,
-                        adapter,
-                        &prepared,
-                        &round_prompt_cache_key,
-                        &effective_token_count,
-                        eval_max_tokens,
-                        &request_projection_manifest,
-                        capacity_projection_used,
+            let assistant_budget = match (self.runtime_session_db(), self.runtime_turn_durability())
+            {
+                (Some(db), Some(sink)) => {
+                    ha_core::personal_assistant::items::begin_model_budget(
+                        db.clone(),
+                        sink.persistence_run_id().to_owned(),
                     )
                     .await?
-                    .context("durable provider plan missing for durable turn")?;
-                    let result = adapter
-                        .dispatch_prepared(&client, &prepared, cancel, on_delta_dyn, &observer)
-                        .await;
-                    match result {
-                        Ok(outcome) => {
-                            if !observer.claimed() {
-                                observer
-                                    .sink
-                                    .supersede_request_plan(&request_plan_id)
-                                    .await?;
-                            } else if observer.response_started() {
-                                active_response_plan_id = Some(request_plan_id);
-                            } else {
-                                observer
-                                    .sink
-                                    .mark_request_send_unknown(
-                                        &request_plan_id,
-                                        Some("provider returned without response-start proof"),
-                                    )
-                                    .await
-                                    .map_err(|error| {
-                                        dispatch_wal_failure("recording send-unknown", &error)
-                                    })?;
-                                return Err(super::streaming_adapter::ProviderDispatchUnknown(
-                                    "provider returned without response-start proof".to_string(),
+                }
+                _ => None,
+            };
+            let dispatch_future = async {
+                if self.runtime_turn_durability().is_some() {
+                    let mut prepared = adapter.prepare_round_request(&req)?;
+                    let mut completed = None;
+                    for _ in 0..=3 {
+                        let (request_plan_id, observer) = prepare_durable_provider_plan(
+                            self,
+                            adapter,
+                            &prepared,
+                            &round_prompt_cache_key,
+                            &effective_token_count,
+                            eval_max_tokens,
+                            &request_projection_manifest,
+                            capacity_projection_used,
+                        )
+                        .await?
+                        .context("durable provider plan missing for durable turn")?;
+                        if self.is_assistant_research() {
+                            if let (Some(db), Some(sink)) =
+                                (self.runtime_session_db(), self.runtime_turn_durability())
+                            {
+                                ha_core::personal_assistant::research::reserve_model_attempt(
+                                    db.clone(),
+                                    sink.persistence_run_id().to_owned(),
                                 )
-                                .into());
+                                .await?;
                             }
-                            completed = Some(Ok(outcome));
-                            break;
                         }
-                        Err(error) => {
-                            if let Some(reprepare) = error.downcast_ref::<ReprepareRequired>() {
-                                if observer.response_started() {
+                        let result = adapter
+                            .dispatch_prepared(&client, &prepared, cancel, on_delta_dyn, &observer)
+                            .await;
+                        match result {
+                            Ok(outcome) => {
+                                if !observer.claimed() {
                                     observer
+                                        .sink
+                                        .supersede_request_plan(&request_plan_id)
+                                        .await?;
+                                } else if observer.response_started() {
+                                    active_response_plan_id = Some(request_plan_id);
+                                } else {
+                                    observer
+                                        .sink
+                                        .mark_request_send_unknown(
+                                            &request_plan_id,
+                                            Some("provider returned without response-start proof"),
+                                        )
+                                        .await
+                                        .map_err(|error| {
+                                            dispatch_wal_failure("recording send-unknown", &error)
+                                        })?;
+                                    return Err(super::streaming_adapter::ProviderDispatchUnknown(
+                                        "provider returned without response-start proof"
+                                            .to_string(),
+                                    )
+                                    .into());
+                                }
+                                completed = Some(Ok(outcome));
+                                break;
+                            }
+                            Err(error) => {
+                                if let Some(reprepare) = error.downcast_ref::<ReprepareRequired>() {
+                                    if observer.response_started() {
+                                        observer
                                         .sink
                                         .mark_request_terminal(
                                             &request_plan_id,
@@ -3853,8 +3888,8 @@ impl RuntimeAgentExt for AssistantAgent {
                                                 &error,
                                             )
                                         })?;
-                                } else if observer.claimed() {
-                                    observer
+                                    } else if observer.claimed() {
+                                        observer
                                         .sink
                                         .mark_request_send_unknown(
                                             &request_plan_id,
@@ -3864,27 +3899,27 @@ impl RuntimeAgentExt for AssistantAgent {
                                         .map_err(|error| {
                                             dispatch_wal_failure("recording send-unknown", &error)
                                         })?;
-                                    return Err(super::streaming_adapter::ProviderDispatchUnknown(
+                                        return Err(super::streaming_adapter::ProviderDispatchUnknown(
                                         "provider requested re-prepare without response-start proof"
                                             .to_string(),
                                     )
                                     .into());
-                                } else {
-                                    observer
-                                        .sink
-                                        .supersede_request_plan(&request_plan_id)
-                                        .await?;
+                                    } else {
+                                        observer
+                                            .sink
+                                            .supersede_request_plan(&request_plan_id)
+                                            .await?;
+                                    }
+                                    prepared = adapter.reprepare_round_request(
+                                        &req,
+                                        &prepared,
+                                        reprepare.reason,
+                                    )?;
+                                    continue;
                                 }
-                                prepared = adapter.reprepare_round_request(
-                                    &req,
-                                    &prepared,
-                                    reprepare.reason,
-                                )?;
-                                continue;
-                            }
 
-                            if observer.response_started() {
-                                let known_rejection = error
+                                if observer.response_started() {
+                                    let known_rejection = error
                                     .downcast_ref::<crate::failover::ProviderApiError>()
                                     .is_some_and(|error| error.is_explicit_rejection())
                                     || error
@@ -3892,13 +3927,13 @@ impl RuntimeAgentExt for AssistantAgent {
                                             super::streaming_adapter::VisionInputRejected,
                                         >()
                                         .is_some();
-                                if known_rejection {
-                                    // A complete HTTP rejection or decoded
-                                    // terminal SSE error is durable proof that
-                                    // this request will not produce another
-                                    // assistant round, so it may close before
-                                    // a freshly prepared fallback.
-                                    observer
+                                    if known_rejection {
+                                        // A complete HTTP rejection or decoded
+                                        // terminal SSE error is durable proof that
+                                        // this request will not produce another
+                                        // assistant round, so it may close before
+                                        // a freshly prepared fallback.
+                                        observer
                                         .sink
                                         .mark_request_terminal(
                                             &request_plan_id,
@@ -3911,56 +3946,77 @@ impl RuntimeAgentExt for AssistantAgent {
                                                 &error,
                                             )
                                         })?;
-                                    completed = Some(Err(error));
-                                } else {
-                                    // Response headers were observed but the
-                                    // round did not complete. Keep the plan in
-                                    // ResponseStarted: CommitInterruptedTurn
-                                    // must close it in the same transaction as
-                                    // assistant/context/run convergence.
-                                    completed = Some(Err(
+                                        completed = Some(Err(error));
+                                    } else {
+                                        // Response headers were observed but the
+                                        // round did not complete. Keep the plan in
+                                        // ResponseStarted: CommitInterruptedTurn
+                                        // must close it in the same transaction as
+                                        // assistant/context/run convergence.
+                                        completed = Some(Err(
                                         super::streaming_adapter::ProviderDispatchUnknown(
                                             "provider response ended before a complete round was durable"
                                                 .to_string(),
                                         )
                                         .into(),
                                     ));
+                                    }
+                                } else if observer.claimed() {
+                                    observer
+                                        .sink
+                                        .mark_request_send_unknown(
+                                            &request_plan_id,
+                                            Some("provider dispatch ended before response proof"),
+                                        )
+                                        .await
+                                        .map_err(|error| {
+                                            dispatch_wal_failure("recording send-unknown", &error)
+                                        })?;
+                                    completed = Some(Err(
+                                        super::streaming_adapter::ProviderDispatchUnknown(
+                                            "provider dispatch ended before response proof"
+                                                .to_string(),
+                                        )
+                                        .into(),
+                                    ));
+                                } else {
+                                    observer
+                                        .sink
+                                        .supersede_request_plan(&request_plan_id)
+                                        .await?;
+                                    completed = Some(Err(error));
                                 }
-                            } else if observer.claimed() {
-                                observer
-                                    .sink
-                                    .mark_request_send_unknown(
-                                        &request_plan_id,
-                                        Some("provider dispatch ended before response proof"),
-                                    )
-                                    .await
-                                    .map_err(|error| {
-                                        dispatch_wal_failure("recording send-unknown", &error)
-                                    })?;
-                                completed =
-                                    Some(Err(super::streaming_adapter::ProviderDispatchUnknown(
-                                        "provider dispatch ended before response proof".to_string(),
-                                    )
-                                    .into()));
-                            } else {
-                                observer
-                                    .sink
-                                    .supersede_request_plan(&request_plan_id)
-                                    .await?;
-                                completed = Some(Err(error));
+                                break;
                             }
-                            break;
                         }
                     }
+                    completed.unwrap_or_else(|| {
+                        Err(anyhow::anyhow!(
+                            "provider request exceeded bounded re-prepare transitions"
+                        ))
+                    })
+                } else {
+                    adapter.chat_round(&client, req, cancel, on_delta_dyn).await
                 }
-                completed.unwrap_or_else(|| {
-                    Err(anyhow::anyhow!(
-                        "provider request exceeded bounded re-prepare transitions"
-                    ))
-                })
-            } else {
-                adapter.chat_round(&client, req, cancel, on_delta_dyn).await
             };
+            let mut dispatch_observed = true;
+            let dispatch_result = if let Some(budget) = assistant_budget.as_ref() {
+                match tokio::time::timeout(budget.timeout, dispatch_future).await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        dispatch_observed = false;
+                        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                        Err(anyhow::anyhow!(
+                            "Assistant model execution time budget exhausted"
+                        ))
+                    }
+                }
+            } else {
+                dispatch_future.await
+            };
+            if let Some(budget) = assistant_budget.filter(|_| dispatch_observed) {
+                budget.finish().await?;
+            }
             let mut outcome = match dispatch_result {
                 Ok(outcome) => outcome,
                 Err(error) => {
@@ -4659,6 +4715,23 @@ impl RuntimeAgentExt for AssistantAgent {
             loop_machine
                 .commit_tool_batch(round_ticket)
                 .map_err(anyhow::Error::new)?;
+
+            let assistant_waiting =
+                match (self.runtime_session_db(), self.runtime_turn_durability()) {
+                    (Some(db), Some(sink)) => {
+                        let execution = sink.persistence_run_id().to_owned();
+                        db.run(move |db| db.assistant_execution_waiting_for_owner(&execution))
+                            .await?
+                    }
+                    _ => false,
+                };
+            if assistant_waiting {
+                post_batch_stopped = true;
+                loop_machine
+                    .complete_after_tool_batch(round_ticket)
+                    .map_err(anyhow::Error::new)?;
+                break;
+            }
 
             // A PostToolBatch stop is terminal by contract, so leave queued
             // insertions bound to this turn for `clear_turn` to move to

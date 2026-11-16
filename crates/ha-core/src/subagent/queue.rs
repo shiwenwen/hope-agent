@@ -261,6 +261,7 @@ mod tests {
 
     fn params(session: &str, agent: &str) -> SpawnParams {
         SpawnParams {
+            parent_execution_id: None,
             task: "t".into(),
             agent_id: "helper".into(),
             parent_session_id: session.into(),

@@ -26,9 +26,9 @@ graph TD
         TAURI["src-tauri<br/>桌面壳 · Tauri IPC"]
         SERVER["ha-server<br/>HTTP/WS · axum"]
     end
-    subgraph features["特征 crate（22 个 · 各子系统的执行机器）"]
+    subgraph features["特征 crate（23 个 · 各子系统的执行机器）"]
         RUNTIME["ha-agent-runtime"]
-        FEAT["ha-goal · ha-workflow · ha-memory<br/>ha-acp · ha-browser · ha-channel · ha-cron · ha-dash<br/>ha-design · ha-eval-runtime · ha-improve · ha-knowledge<br/>ha-local-llm · ha-mac · ha-mcp · ha-media · ha-pet<br/>ha-skills · ha-updater · ha-vcs · ha-weather"]
+        FEAT["ha-goal · ha-assistant · ha-workflow · ha-memory<br/>ha-acp · ha-browser · ha-channel · ha-cron · ha-dash<br/>ha-design · ha-eval-runtime · ha-improve · ha-knowledge<br/>ha-local-llm · ha-mac · ha-mcp · ha-media · ha-pet<br/>ha-skills · ha-updater · ha-vcs · ha-weather"]
     end
     KERNEL["ha-core（kernel）<br/>核心业务 + 各子系统的台账 / 契约 / 裁决点<br/>零 Tauri 依赖"]
     LOOP["ha-agent-loop<br/>零 Hope 依赖的确定性多轮状态机"]
@@ -51,11 +51,11 @@ graph TD
     SCHEMA --> BASE
 ```
 
-除两层壳、22 个特征 crate、kernel/schema/base 与 `ha-agent-loop` 外，workspace 里还有三个旁支：`ha-browser-host`（浏览器辅助进程）、`ha-eval-spec`（评测协议，刻意不依赖 ha-core）、`ha-eval`（评测 CLI）。合计 31 个 crate。
+除两层壳、23 个特征 crate、kernel/schema/base 与 `ha-agent-loop` 外，workspace 里还有三个旁支：`ha-browser-host`（浏览器辅助进程）、`ha-eval-spec`（评测协议，刻意不依赖 ha-core）、`ha-eval`（评测 CLI）。合计 32 个 crate。
 
 **三条铁律**（`node scripts/analyze-crate-deps.mjs` 与 CI 门禁强制）：
 
-1. **零 Tauri 依赖上溯到底层**：`ha-agent-loop` / `ha-core` / `ha-config-schema` / `ha-base` 与全部 22 个特征 crate 的 `Cargo.toml` 都不得出现 `tauri` 或 Tauri 插件依赖。只有两个壳（`src-tauri` / `ha-server`）碰框架。
+1. **零 Tauri 依赖上溯到底层**：`ha-agent-loop` / `ha-core` / `ha-config-schema` / `ha-base` 与全部 23 个特征 crate 的 `Cargo.toml` 都不得出现 `tauri` 或 Tauri 插件依赖。只有两个壳（`src-tauri` / `ha-server`）碰框架。
 2. **`ha-base` 不依赖任何 `ha-*` 业务 crate**：它是依赖图最底层。需要上层数据（如读 `AppConfig` 的某个字段）时，留一个**注册钩子**，由 `ha-core` 在启动早期注入，绝不反向 `use`（见 [ha-base 小节](#ha-base基础设施底层)）。
 3. **`ha-config-schema` 只放数据定义**：类型、`Default`、只碰自身字段的 impl、serde helper。任何需要子系统服务的行为（`cached_config` / `mutate_config` / 脱敏 / 校验 / SSRF）都留在 `ha-core`。
 
@@ -69,7 +69,7 @@ graph TD
 
 ## 贯穿全局的原则：台账留核，机器上浮
 
-把一个几十万行的 kernel 拆成 22 个特征 crate，靠的不是「按目录切」，而是一条能反复套用的分界线：
+把一个几十万行的 kernel 拆成 23 个特征 crate，靠的不是「按目录切」，而是一条能反复套用的分界线：
 
 > **每个子系统的「执行机器」上浮到特征 crate；对 `sessions.db` 的 SQL 台账、跨模块的 wire 类型、以及全局唯一的裁决点，恒留 kernel。**
 
@@ -209,7 +209,7 @@ kernel 新代码一律 `crate::tool_defs::…`；`crate::tools` 门面全量再�
 - **`cron_defs/` / `coding_eval_defs.rs`**：cron 行类型、评测报告 wire 类型——kernel 的持久化存的就是这些类型的 JSON，故类型不能跟机器走。
 - **`learning_events.rs`**：Learning 埋点的**发布面**留 kernel。生产者遍布 kernel、ha-skills、ha-knowledge、ha-mcp 四处；若发布面留在 dashboard，这些生产者全要反向依赖 ha-dash。发布与消费之间本无代码耦合，只共享表名与 kind 字符串，所以 `emit` 留 kernel，`dashboard::learning` 退化为纯订阅方。
 
-### 特征 crate（22 个）
+### 特征 crate（23 个）
 
 每个特征 crate 遵循同一份共同契约：**依赖方向恒为「特征 → ha-core」**（借用 kernel 的 tools registry / config / EventBus 等服务），**特征之间允许单向依赖**（无环即可），而 ha-core 不认识任何特征 crate。实时依赖以 `node scripts/analyze-crate-deps.mjs` 输出为准。
 

@@ -44,7 +44,7 @@ GitHub 的 `releases/latest` 只解析**已 published 且非 prerelease** 的 Re
 
 ### 0.4 版本号单一来源
 
-`package.json` 是版本号唯一真相源，[scripts/sync-version.mjs](../scripts/sync-version.mjs) 把它同步到 [src-tauri/Cargo.toml](../src-tauri/Cargo.toml)、[src-tauri/tauri.conf.json](../src-tauri/tauri.conf.json)、`ha-base`、`ha-config-schema`、`ha-core`、`ha-acp`、`ha-browser`、`ha-channel`、`ha-cron`、`ha-dash`、`ha-design`、`ha-eval-runtime`、`ha-improve`、`ha-knowledge`、`ha-local-llm`、`ha-mac`、`ha-mcp`、`ha-media`、`ha-pet`、`ha-skills`、`ha-updater`、`ha-vcs`、`ha-weather`、`ha-server`、`ha-browser-host`、`ha-eval` 及 `Cargo.lock`。**禁止手改任何一处**。CI 入口 [scripts/verify-release-version.mjs](../scripts/verify-release-version.mjs) 在 tag 触发后校验所有产品版本来源一致且与 tag 名匹配。
+`package.json` 是版本号唯一真相源，[scripts/sync-version.mjs](../scripts/sync-version.mjs) 将它同步到桌面配置、全部产品 crate 及 `Cargo.lock`，包括新增的 `ha-assistant`。具体清单由该脚本和 [scripts/verify-release-version.mjs](../scripts/verify-release-version.mjs) 共同维护，避免手工列举遗漏。**禁止手改任何一处版本号**；CI 在 tag 触发后校验所有产品版本来源一致且与 tag 名匹配。
 
 ### 0.5 macOS 代码签名
 

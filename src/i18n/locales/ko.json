@@ -8816,7 +8816,10 @@
     },
     "contextCompactSummaryReasoning": "요약 전용 추론 설정",
     "contextCompactSummaryReasoningDefault": "현재 요약 정책 유지",
-    "contextCompactSummaryReasoningDesc": "컨텍스트 요약에만 적용됩니다. 지원하지 않는 단계는 기록을 보존하고 오류를 표시합니다. 실패해도 모델이나 출력 한도를 자동 변경하지 않으며 기본값은 현재 동작을 유지합니다."
+    "contextCompactSummaryReasoningDesc": "컨텍스트 요약에만 적용됩니다. 지원하지 않는 단계는 기록을 보존하고 오류를 표시합니다. 실패해도 모델이나 출력 한도를 자동 변경하지 않으며 기본값은 현재 동작을 유지합니다.",
+    "toolAssistantReportDesc": "확인된 진행 상황, 결과 또는 저장되는 질문을 기록합니다",
+    "toolAssistantResearchDesc": "Hope에서 발견 참조를 확인하거나 현재 자료 권한 내에서 질문합니다.",
+    "toolAssistantResearchReportDesc": "현재 비공개 조사에서 근거가 있는 발견을 보고하고 검증 후 표시합니다."
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",
@@ -9292,7 +9295,10 @@
     "feishu_hire_get_job": "Feishu 채용: 채용 공고 조회",
     "feishu_hire_list_talents": "Feishu 채용: 인재 목록",
     "feishu_hire_get_talent": "Feishu 채용: 인재 조회",
-    "feishu_hire_list_applications": "Feishu 채용: 지원 내역 목록"
+    "feishu_hire_list_applications": "Feishu 채용: 지원 내역 목록",
+    "assistant_report": "도우미 작업 보고",
+    "assistant_research": "공유 자료 확인",
+    "assistant_research_report": "자료 발견 보고"
   },
   "tz": {
     "amsterdam": "암스테르담 (UTC+1)",
@@ -13022,6 +13028,117 @@
     },
     "welcomeTitle": "{{name}}입니다",
     "welcomeBody": "하고 싶은 일을 알려 주세요. 언제든 돌아와 대화를 이어 가거나 맡긴 작업의 진행 상황을 확인할 수 있습니다.",
-    "messagePlaceholder": "무엇을 도와드릴까요?"
+    "messagePlaceholder": "무엇을 도와드릴까요?",
+    "readUpdate": "업데이트 읽기",
+    "executionHistory": "실행 기록",
+    "emptyItems": "Hope에 일을 맡기면 끝까지 진행 상황을 챙깁니다.",
+    "executionDetails": "실행 세부 정보",
+    "itemUsage": "{{turns}}턴 · 도구 {{tools}}회 · 실행 {{seconds}}초",
+    "itemExpiry": "후속 처리 만료: {{time}}",
+    "continueItem": "계속 (+8턴, 도구 64회, 30분)",
+    "updates": {
+      "update": "업데이트 내용",
+      "result": "결과",
+      "progress": "진행 상황",
+      "waiting": "대기 중",
+      "blocked": "문제 발생",
+      "needs_review": "확인 필요",
+      "question": "답변이 필요합니다"
+    },
+    "itemState": {
+      "open": "진행 중",
+      "waiting": "대기 중",
+      "done": "완료됨",
+      "stopped": "중지됨"
+    },
+    "itemReason": {
+      "needs_input": "답변을 기다리는 중",
+      "background_work": "백그라운드 작업 대기 중",
+      "work_state_unknown": "결과를 알 수 없습니다. 재시도 전에 확인하세요",
+      "awaiting_verification": "결과 확인이 필요합니다",
+      "execution_failed": "실행 결과를 확인하지 못했습니다",
+      "budget_exhausted": "한도에 도달했습니다. 계속하도록 지시해 주세요",
+      "no_progress": "진전이 없어 지시를 기다립니다",
+      "dispatch_failed": "작업을 시작하지 못했습니다",
+      "owner_stopped": "이 일을 중지했습니다",
+      "scope_or_stop_changed": "범위 또는 중지 상태가 변경되었습니다"
+    },
+    "research": {
+      "settingsTitle": "능동적인 도움",
+      "settingsHint": "Hope는 명시적으로 공유한 자료만 확인합니다. 일시 중지하면 현재 위임 작업이 중단되며, 재개 후 다시 요청해야 합니다.",
+      "enabled": "공유 자료의 변화 찾기",
+      "pause": "Hope의 백그라운드 작업 일시 중지",
+      "pendingPolicy": "설정 적용 중…",
+      "sources": "공유한 자료",
+      "expires": "공유 기한: {{time}}",
+      "observed": "최근 파일 읽기: {{time}}",
+      "suspended": "자동 확인이 중지되었습니다. 필요할 때 직접 확인할 수 있습니다.",
+      "observationGap": "이 기간에는 읽지 못했으므로 변화를 놓쳤을 수 있습니다.",
+      "refresh": "지금 확인",
+      "revoke": "공유 취소",
+      "noSources": "아직 공유한 자료가 없습니다",
+      "workspace": "파일이 있는 작업 채팅 선택",
+      "path": "작업 폴더 내 파일 경로, 예: notes/agenda.txt",
+      "focus": "관심 사항",
+      "focusPlaceholder": "예: 회의 일정 충돌을 찾고 실행 가능한 대안 두 가지 준비",
+      "days": "공유 일수",
+      "baselineHint": "UTF-8 텍스트 파일 최대 4개, 각각 64 KiB까지 공유합니다. 처음에는 기준을 저장하고 이후 중요한 변화를 알립니다.",
+      "share": "자료 공유",
+      "finding": "새로운 발견",
+      "inference": "추론",
+      "uncertainty": "확인할 사항",
+      "prepared": "준비한 대안",
+      "lines": "{{start}}–{{end}}행",
+      "ask": "Hope에 더 질문하기",
+      "askPlaceholder": "이 자료에 대해서만 질문…",
+      "activity": {
+        "pending": "대기 중",
+        "running": "자료 확인 중…",
+        "finished": "완료했습니다. 결과가 채팅에 표시됩니다",
+        "failed": "완료하지 못했습니다. 자료를 확인하고 다시 시도하세요",
+        "cancelled": "취소됨",
+        "expired": "만료되었습니다. 다시 요청하세요",
+        "scopeChanged": "자료나 권한이 변경되었습니다. 다시 확인하세요",
+        "budget": "조사 한도를 사용했습니다. 나중에 다시 시도하세요",
+        "unverified": "검증된 결과를 받지 못했습니다. 다시 시도하세요"
+      }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope에 새 소식이 있습니다. Hope에서 확인하세요.",
+      "route": "알림 받을 곳",
+      "routes": {
+        "none": "Hope 안에서만",
+        "desktop": "데스크톱",
+        "im": "비서 IM"
+      },
+      "limitHint": "선제 알림은 현지 날짜별 및 최근 24시간 동안 각각 최대 두 번입니다. 관련 소식은 합치며 IM 직접 질문에는 답할 수 있습니다.",
+      "timezone": "사용자 시간대(IANA)",
+      "quietStart": "방해 금지 시작",
+      "quietEnd": "종료",
+      "quietHint": "사용자 시간대를 따릅니다. 시작과 종료가 같으면 하루 종일 방해 금지입니다.",
+      "desktopToIm": "데스크톱에서 맡긴 작업 상태를 IM으로 전송",
+      "desktopToImHint": "해당 작업 대화의 상태 및 완료 알림 권한도 필요합니다. 상태만 보내고 결과는 Hope에 남깁니다.",
+      "pairRequired": "먼저 비서 IM 설정에서 전용 Bot을 연결하세요.",
+      "sourceDisclosure": "이 자료 요약을 비서 IM에 허용",
+      "sourceDisclosureHint": "기본은 꺼짐입니다. 현재 연결한 채팅에 짧은 요약과 자료 범위 내 질문만 허용합니다. 철회하면 이전 답장 맥락은 무효가 됩니다.",
+      "nextEligible": "다음 알림 가능 시각: {{time}} ({{zone}})",
+      "deferred": {
+        "timezone_required": "알림을 받으려면 사용자 시간대를 설정하세요.",
+        "quiet_hours": "방해 금지 시간입니다. 소식은 Hope에 보관합니다.",
+        "daily_limit": "알림 한도에 도달했습니다. 다음 시도는 대기합니다.",
+        "policy_pending": "비서 설정 적용을 기다리는 중입니다.",
+        "paused": "개인 비서가 일시 정지되었습니다.",
+        "disabled": "소식은 Hope에 남으며 외부 알림은 꺼져 있습니다.",
+        "pairing_required": "비서 IM이 연결되지 않았거나 알림이 정지되었습니다.",
+        "using_hope": "Hope를 사용 중이므로 외부 알림을 보류합니다."
+      },
+      "receipts": {
+        "submitting": "{{time}} · 플랫폼 확인 대기",
+        "accepted": "{{time}} · 플랫폼 접수, 읽음 확인 없음",
+        "unknown": "{{time}} · 전달 여부 불명, 자동 재전송 없음",
+        "cancelled": "{{time}} · 미제출, 시도 횟수에는 포함"
+      },
+      "homeHandoffHint": "어시스턴트 홈의 직접 질문과 도구 승인은 데스크톱 알림만 지원합니다. Hope로 돌아가 응답하세요."
+    }
   }
 }

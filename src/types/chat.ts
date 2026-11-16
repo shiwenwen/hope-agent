@@ -781,6 +781,7 @@ export interface SessionMeta {
     | "regular"
     | "personal_assistant"
     | "personal_assistant_im"
+    | "personal_assistant_research"
     | "side"
     | "knowledge"
     | "design"
@@ -1047,8 +1048,8 @@ export function getEffortOptionsForModel(
     ]
   }
   if (
-    ["claude-fable-5", "claude-mythos-5", "claude-sonnet-5", "claude-opus-5"].some(
-      (prefix) => id.startsWith(prefix),
+    ["claude-fable-5", "claude-mythos-5", "claude-sonnet-5", "claude-opus-5"].some((prefix) =>
+      id.startsWith(prefix),
     )
   ) {
     return [

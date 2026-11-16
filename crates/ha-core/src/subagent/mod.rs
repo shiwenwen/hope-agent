@@ -139,6 +139,18 @@ pub(crate) static INJECTION_CANCELS: std::sync::LazyLock<Mutex<HashMap<String, A
 /// session pause receipt is written before callers invoke this, so the
 /// injection's normal cancellation/requeue path cannot immediately start a
 /// replacement generation behind the user's Stop.
+pub(crate) fn request_cancel_parent_injection(session_id: &str, source_run: &str) -> bool {
+    let active = INJECTION_CANCELS.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(injection) = active.get(session_id).filter(|i| i.run_id == source_run) {
+        injection
+            .cancel
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        true
+    } else {
+        false
+    }
+}
+
 pub(crate) fn request_pause_parent_injection(session_id: &str) -> bool {
     let cancel = INJECTION_CANCELS.lock().ok().and_then(|active| {
         active

@@ -187,6 +187,9 @@ impl TranscriptMirror {
     /// yet. Returns `true` when a file was written. Skips incognito sessions —
     /// they must leave no on-disk trace.
     pub fn backfill_session(db: &SessionDB, session_id: &str) -> anyhow::Result<bool> {
+        if db.assistant_research_context(session_id)? {
+            return Ok(false);
+        }
         let dir = crate::paths::session_dir(session_id)?;
         let path = dir.join("transcript.jsonl");
         if path.exists() {
@@ -215,6 +218,9 @@ impl TranscriptMirror {
     /// whole JSONL file so discarded assistant/tool rows cannot remain visible
     /// to later hook invocations. Incognito sessions are always skipped.
     pub fn rewrite_session(db: &SessionDB, session_id: &str, cwd: &str) -> anyhow::Result<bool> {
+        if db.assistant_research_context(session_id)? {
+            return Ok(false);
+        }
         if db
             .get_session(session_id)?
             .is_none_or(|session| session.incognito)

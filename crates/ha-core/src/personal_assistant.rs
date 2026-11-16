@@ -9,7 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::session::{SessionDB, SessionMeta};
 
+pub mod attention;
+pub mod items;
+pub mod policy;
 mod profile;
+pub mod research;
 pub use ha_config_schema::personal_assistant::AssistantProfile;
 pub use profile::default_assistant_profile;
 
@@ -229,14 +233,14 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             AFTER INSERT ON sessions
             WHEN EXISTS(SELECT 1 FROM sessions parent
                 WHERE parent.id IN (NEW.parent_session_id,NEW.forked_from_session_id)
-                  AND (parent.kind IN ('personal_assistant','personal_assistant_im') OR EXISTS(
+                  AND (parent.kind IN ('personal_assistant','personal_assistant_im','personal_assistant_research') OR EXISTS(
                     SELECT 1 FROM personal_assistant_private_sessions p WHERE p.session_id=parent.id)))
             BEGIN INSERT OR IGNORE INTO personal_assistant_private_sessions(session_id) VALUES(NEW.id); END;
          CREATE TRIGGER IF NOT EXISTS personal_assistant_inherit_update
             AFTER UPDATE OF parent_session_id,forked_from_session_id ON sessions
             WHEN EXISTS(SELECT 1 FROM sessions parent
                 WHERE parent.id IN (NEW.parent_session_id,NEW.forked_from_session_id)
-                  AND (parent.kind IN ('personal_assistant','personal_assistant_im') OR EXISTS(
+                  AND (parent.kind IN ('personal_assistant','personal_assistant_im','personal_assistant_research') OR EXISTS(
                     SELECT 1 FROM personal_assistant_private_sessions p WHERE p.session_id=parent.id)))
             BEGIN INSERT OR IGNORE INTO personal_assistant_private_sessions(session_id) VALUES(NEW.id); END;
          CREATE TRIGGER IF NOT EXISTS personal_assistant_inherit_descendants
@@ -307,13 +311,13 @@ pub(crate) fn ensure_channel_guards(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TRIGGER IF NOT EXISTS personal_assistant_channel_insert
          BEFORE INSERT ON channel_conversations BEGIN
-            SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions WHERE id = NEW.session_id AND kind IN ('personal_assistant','personal_assistant_im'))
+            SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions WHERE id = NEW.session_id AND kind IN ('personal_assistant','personal_assistant_im','personal_assistant_research'))
                 OR EXISTS(SELECT 1 FROM personal_assistant_private_sessions WHERE session_id = NEW.session_id)
                 THEN RAISE(ABORT, 'private assistant conversation cannot be attached to IM') END;
          END;
          CREATE TRIGGER IF NOT EXISTS personal_assistant_channel_update
          BEFORE UPDATE OF session_id ON channel_conversations BEGIN
-            SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions WHERE id = NEW.session_id AND kind IN ('personal_assistant','personal_assistant_im'))
+            SELECT CASE WHEN EXISTS(SELECT 1 FROM sessions WHERE id = NEW.session_id AND kind IN ('personal_assistant','personal_assistant_im','personal_assistant_research'))
                 OR EXISTS(SELECT 1 FROM personal_assistant_private_sessions WHERE session_id = NEW.session_id)
                 THEN RAISE(ABORT, 'private assistant conversation cannot be attached to IM') END;
          END;
@@ -328,7 +332,7 @@ pub(crate) fn ensure_channel_guards(conn: &Connection) -> Result<()> {
             DELETE FROM personal_assistant_requests WHERE target_session_id = NEW.session_id;
          END;",
     )?;
-    Ok(())
+    research::ensure_channel_guards(conn)
 }
 
 fn table_exists(conn: &Connection, name: &str) -> Result<bool> {
@@ -392,6 +396,9 @@ fn check_stop(conn: &Connection, session_id: &str, global_stop_epoch: u64) -> Re
 }
 
 pub(crate) fn source_turn(conn: &Connection, turn_id: &str, epoch: u64) -> Result<(String, i64)> {
+    if policy::requested_paused(conn)? {
+        return Err(AssistantError::Stopped.into());
+    }
     owner_source_turn(conn, turn_id, epoch)
 }
 
@@ -401,6 +408,9 @@ fn dispatch_source_turn(
     target: &str,
     epoch: u64,
 ) -> Result<(String, i64)> {
+    if policy::requested_paused(conn)? {
+        return Err(AssistantError::Stopped.into());
+    }
     let is_view: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM chat_turns t JOIN sessions s ON s.id=t.session_id WHERE t.id=?1 AND s.kind='personal_assistant_im')",
         [turn_id], |row| row.get(0),
@@ -429,6 +439,9 @@ fn dispatch_source_turn(
 }
 
 fn owner_source_turn(conn: &Connection, turn_id: &str, epoch: u64) -> Result<(String, i64)> {
+    if policy::requested_paused(conn)? {
+        return Err(AssistantError::Stopped.into());
+    }
     let source = conn.query_row(
         "SELECT s.id, t.user_message_id FROM chat_turns t JOIN sessions s ON s.id = t.session_id
          JOIN messages m ON m.id = t.user_message_id AND m.session_id = s.id
@@ -566,7 +579,7 @@ impl SessionDB {
     pub fn has_personal_assistant_private_data(&self) -> Result<bool> {
         let conn = self.read_conn()?;
         Ok(conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM sessions WHERE kind IN ('personal_assistant','personal_assistant_im'))
+            "SELECT EXISTS(SELECT 1 FROM sessions WHERE kind IN ('personal_assistant','personal_assistant_im','personal_assistant_research'))
                 OR EXISTS(SELECT 1 FROM personal_assistant_profile)
                 OR EXISTS(SELECT 1 FROM assistant_im_connection)
                 OR EXISTS(SELECT 1 FROM assistant_im_activations)
@@ -575,7 +588,12 @@ impl SessionDB {
                 OR EXISTS(SELECT 1 FROM assistant_im_notification_attempts)
                 OR EXISTS(SELECT 1 FROM assistant_im_received)
                 OR EXISTS(SELECT 1 FROM personal_assistant_private_sessions)
-                OR EXISTS(SELECT 1 FROM personal_assistant_watches)",
+                OR EXISTS(SELECT 1 FROM personal_assistant_watches)
+                OR EXISTS(SELECT 1 FROM assistant_sources)
+                OR EXISTS(SELECT 1 FROM assistant_research_runs)
+                OR EXISTS(SELECT 1 FROM assistant_attention_deliveries)
+                OR EXISTS(SELECT 1 FROM assistant_attention_inbounds)
+                OR EXISTS(SELECT 1 FROM assistant_source_im_disclosures)",
             [],
             |row| row.get(0),
         )?)
@@ -593,8 +611,9 @@ impl SessionDB {
                 SELECT s.forked_from_session_id FROM sessions s JOIN ancestors a ON s.id=a.id
                     WHERE s.forked_from_session_id IS NOT NULL
              ) SELECT EXISTS(SELECT 1 FROM sessions s JOIN ancestors a ON a.id=s.id
-                WHERE s.kind IN ('personal_assistant','personal_assistant_im') OR EXISTS(
-                    SELECT 1 FROM personal_assistant_private_sessions p WHERE p.session_id=s.id))",
+                WHERE s.kind IN ('personal_assistant','personal_assistant_im','personal_assistant_research') OR EXISTS(
+                    SELECT 1 FROM personal_assistant_private_sessions p WHERE p.session_id=s.id))
+                OR EXISTS(SELECT 1 FROM assistant_research_runs WHERE session_id=?1)",
             [session_id],
             |row| row.get(0),
         )?)
@@ -661,6 +680,7 @@ impl SessionDB {
             &input.target_session_id,
             &input.instruction,
         )?;
+        items::create_for_request(&tx, &id)?;
         let request = request_with_conn(&tx, &id)?.ok_or(AssistantError::Unavailable)?;
         tx.commit()?;
         drop(conn);
@@ -871,6 +891,7 @@ impl SessionDB {
         )?;
         if changed > 0 {
             tx.execute("DELETE FROM queued_turn_user_messages WHERE request_id = ?1 AND source = 'personal_assistant'",[request_id])?;
+            SessionDB::assistant_dispatch_failed_with_conn(&tx, request_id)?;
         }
         tx.commit()?;
         drop(conn);
@@ -959,6 +980,17 @@ impl SessionDB {
     /// untrusted data. No derived source text is copied into the home history.
     pub fn render_personal_assistant_receipts(&self) -> Result<String> {
         let requests = self.list_personal_assistant_requests()?;
+        let items = self
+            .list_assistant_items()?
+            .into_iter()
+            .take(32)
+            .collect::<Vec<_>>();
+        let updates = self
+            .list_assistant_updates()?
+            .into_iter()
+            .rev()
+            .take(16)
+            .collect::<Vec<_>>();
         let watches = self.personal_assistant_inbox()?;
         let requests:Vec<_> = requests.iter().take(32).map(|request| serde_json::json!({
             "id":request.id,"sourceMessageId":request.source_message_id,"targetSessionId":request.target_session_id,"targetTitle":request.target_title,
@@ -967,7 +999,7 @@ impl SessionDB {
             "updatedAt":request.updated_at,
         })).collect();
         Ok(serde_json::to_string(
-            &serde_json::json!({"requests":requests,"watchedGoals":watches}),
+            &serde_json::json!({"items":items,"updates":updates,"requests":requests,"watchedGoals":watches}),
         )?)
     }
 }
@@ -1091,6 +1123,7 @@ pub(crate) fn admit_request_with_conn(
         [target_session_id],
     )?;
     conn.execute("DELETE FROM queued_turn_user_messages WHERE request_id = ?1 AND source = 'personal_assistant'",[request_id])?;
+    items::admit_with_conn(conn, request_id, turn_id)?;
     Ok(())
 }
 

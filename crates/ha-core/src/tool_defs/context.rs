@@ -183,6 +183,11 @@ pub struct ToolExecContext {
     pub session_id: Option<String>,
     /// Durable chat-turn identity for turn-scoped opaque references.
     pub turn_id: Option<String>,
+    /// Kernel durability identity, including rowless parent/subagent runs.
+    pub persistence_run_id: Option<String>,
+    /// Runtime-issued idempotency token retained by async re-entry.
+    /// Actual retry attempts consume separate budget; dispatch re-entry does not.
+    pub assistant_retry_attempt: u32,
     /// Opaque Agent references resolved from typed composer gestures for this
     /// turn. These are selectors only, never authorization or spawn commands.
     pub agent_binding_refs: Vec<crate::prompt_context::AgentBindingRef>,

@@ -885,6 +885,11 @@ impl SessionDB {
         result_id: &str,
     ) -> Result<ModelResultReadAuthorization> {
         let conn = self.read_conn()?;
+        if crate::personal_assistant::research::is_research_context(&conn, session_id)? {
+            return Ok(ModelResultReadAuthorization::Denied(
+                ModelResultReadDenial::SessionNotFound,
+            ));
+        }
         let incognito = conn
             .query_row(
                 "SELECT incognito FROM sessions WHERE id = ?1",

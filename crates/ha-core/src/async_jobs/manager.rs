@@ -581,7 +581,7 @@ impl JobManager {
         // shared signature. Without these counts `useDesktopAlerts` has
         // nothing to build a real "imported N, failed M" notification from —
         // only the raw tool name.
-        if let Some(bus) = crate::get_event_bus() {
+        if crate::get_event_bus().is_some() {
             let mut payload = serde_json::json!({
                 "job_id": job_id,
                 "kind": JobKind::Tool.as_str(),
@@ -595,7 +595,7 @@ impl JobManager {
                 obj.insert("failed_count".into(), serde_json::json!(c.failed));
                 obj.insert("total_count".into(), serde_json::json!(c.total));
             }
-            bus.emit("job:completed", payload);
+            crate::personal_assistant::attention::signals::emit_job_completed(payload);
         }
     }
 
