@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.75.0] - 2026-11-16
+
 ### Added
 
 - Hope 将资料发现、待答问题和交办结果合并提醒，支持独立的资料摘要授权、手机追问和免打扰；桌面与专属 IM 共用频率上限，已查看或未知送达不重复推送。 (#921)
