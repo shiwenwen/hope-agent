@@ -1032,6 +1032,26 @@ mod tests {
             restored.revisions.last().unwrap().restored_from,
             accepted.revision_id
         );
+        let duplicate = super::super::service::duplicate_artifact(&artifact.id).unwrap();
+        let duplicate_dir =
+            ha_core::paths::design_artifact_dir(&duplicate.project_id, &duplicate.id).unwrap();
+        assert!(!duplicate_dir.join("quality").exists());
+        let duplicate_review = prepare_quality_run(&duplicate.id).unwrap();
+        assert!(
+            duplicate_review.manifest.reviews.is_empty()
+                && duplicate_review.manifest.baselines.is_empty()
+        );
+        drop(duplicate_review);
+        assert!(super::super::quality_store::review_image(
+            super::super::quality_store::QualityImageInput {
+                artifact_id: duplicate.id,
+                review_id: before.review_id.clone(),
+                scenario_id: before.diffs[0].scenario_id.clone(),
+                viewport: before.diffs[0].viewport,
+                side: super::super::quality_store::ImageSide::Current,
+            }
+        )
+        .is_err());
         let mut changed = manifest;
         changed.scenarios[0].state = serde_json::json!({"status":"updated"});
         changed.scenarios[0].ready.as_mut().unwrap().text = "updated".into();
