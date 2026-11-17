@@ -1099,7 +1099,7 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | `get_design_system_kit_cmd` | `GET /api/design/systems/{id}/kit`（设计系统套件视图自包含 HTML，返回 JSON 字符串） | ✅ |
 | `design_chat_thread_get_cmd` | `GET /api/design/projects/{projectId}/chat/thread`（设计对话默认加载目标：该项目最近一条对话线程的 SessionMeta，无则空） | ✅ |
 | `design_chat_threads_list_cmd` | `GET /api/design/projects/{projectId}/chat/threads`（设计对话历史选择器分页，`query` FTS 过滤） | ✅ |
-| （静态托管，iframe 直连） | `GET /api/design/projects/{pid}/artifacts/{aid}/{*rest}` | ✅ |
+| （静态托管，iframe 直连） | `GET /api/design/projects/{pid}/artifacts/{aid}/{*rest}`（HTML 使用 opaque `sandbox allow-scripts` CSP，允许内联脚本；禁止网络连接、子 frame 和表单提交；同一处理器服务只读资源票据路径） | ✅ |
 
 Figma 往返在 Tauri / HTTP 两端共用按制品串行化语义：同一制品仅最新预览可提交；`commit` 持锁覆盖回执检查、外部 MCP 调用与最终落盘，未解决的 `.indeterminate` 回执会阻断新预览和后续提交。用户核对 Figma 后须对精确回执选择“已发生”或“未发生”，后端以回执 ID + 本地哈希做 CAS 校验，先原子持久化 `reconciled/<receiptId>.json` 审计记录，再删除阻断标记；写入或删除失败继续 fail closed。
 

@@ -355,4 +355,6 @@ Goal 改约后 LSP 错误无法被后续 clean diagnostics 或 validation 清除
 
 ### Design 视觉场景验证未完成
 
+网页端选择器已切换但产物仍显示初始画面时，先检查产物 HTML 响应的 CSP 是否为专用 `sandbox allow-scripts` 策略；若误套主界面的 `script-src 'self'`，内联脚本和场景桥会被拦截。直接 owner 和短时只读票据路径都应保留 opaque sandbox、禁止 `connect-src`，不得通过放宽主界面 CSP 或添加 `allow-same-origin` 修复。
+
 `visual_scenarios_incomplete` 表示场景未达到指定可见 DOM 条件、路由暂不支持，或场景清单在审阅/捕获/接受基线之间变化；不是浏览器失效。当前支持根路由 `/` 的 `ds_scenario` 状态投影和场景×视口捕获，自定义场景须有 `ready.selector/text`，查询必须唯一、文本精确匹配且与视口相交。原生可见性跟踪同时核对祖先透明、裁剪和遮挡；半透明、滤镜或浏览器不支持跟踪时保守拒绝，等待稳定、无遮挡的元素。检查应用是否处理 `ds_scenario`，以及实际渲染文本、选择器、视口和清单哈希；桥接 ACK 不算状态到达。接受自定义基线必须传审阅结果的 `expectedScenariosHash`。保留用户清单与旧基线，不自动清空场景或接受默认页基线。该检查仅证明所写 DOM 条件，不能外推业务正确性或真实导航。

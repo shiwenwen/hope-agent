@@ -754,6 +754,7 @@ graph LR
 
 ### 12.7 确定性视觉回归与预览场景
 
+- HTTP 产物 HTML 使用专用 CSP：`sandbox allow-scripts` 强制 opaque origin，允许内联产物脚本和场景桥及同源静态资源，禁止网络连接、子 frame、表单提交和 base URL 覆盖，不授予 `allow-same-origin`。直接 owner 路径与短时只读票据路径调用同一文件服务，均保留三闸路径检查；主界面继续使用禁止内联脚本的应用 CSP。Tauri 本地预览继续由既有 `sandbox="allow-scripts"` iframe 隔离。非 HTML 资源不套用产物文档策略。
 - runner 执行根路由 `/` 上的场景状态投影；每个场景可选已命名视口，未选择时使用 `1440×900`、`768×1024`、`390×844`。每个场景×视口都重新创建 opaque iframe，加载完成后发送 `ds_scenario`，避免上一个状态污染下一个捕获。非根路由仍拒绝，不将消息投影当作真实 URL 导航。
 - 隔离父页先提交固定、无网络请求的惰性 `data:` 文档，再装载 srcdoc。对 Chrome 进程外 iframe，通过精确父 frame ID 绑定唯一目标，使用私有 loopback CDP 会话读取隔离世界，随后分离会话；不改全局页面注册表，不选择其他标签的同 URL frame，也不放宽模型侧 raw CDP 权限。
 - 可见性在隔离世界组合原生 `checkVisibility`（祖先 opacity、visibility、content-visibility）和 `IntersectionObserver` 的 `trackVisibility: true`、正面积交集与 `isVisible: true`，涵盖祖先裁剪和遮挡；CDP 等待 Promise。单次观察最多 300 ms，状态轮询受 3 秒绝对截止时间约束。浏览器缺少支持或对半透明、滤镜等效果无法确认时保守拒绝，不退化为只检查元素自身样式。API 边界见 [CSSOM View](https://drafts.csswg.org/cssom-view/#dom-element-checkvisibility) 和 [Chrome 可见性跟踪说明](https://web.dev/articles/intersectionobserver-v2)。
