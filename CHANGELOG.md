@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Standard Compute 服务商模板**：新增 Standard Compute 多模型路由网关预设（OpenAI Chat 兼容），默认路由模型按请求自动选择能胜任的最低成本模型并自动回退，同时提供常用固定模型。 (#902)
+
 ## [0.75.0] - 2026-11-16
 
 ### Added

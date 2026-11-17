@@ -531,4 +531,14 @@ describe("provider template lifecycle hygiene", () => {
     })
     expect(provider?.models.length).toBeGreaterThan(0)
   })
+
+  it("offers Standard Compute as an OpenAI Chat compatible gateway", () => {
+    const provider = PROVIDER_TEMPLATES.find((template) => template.key === "standardcompute")
+    expect(provider).toMatchObject({
+      apiType: "openai-chat",
+      baseUrl: "https://api.stdcmpt.com/v1",
+      requiresApiKey: true,
+    })
+    expect(provider?.models[0]?.id).toBe("StandardCompute")
+  })
 })
