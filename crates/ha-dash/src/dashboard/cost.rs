@@ -54,6 +54,23 @@ fn to_usd(currency: Option<ha_core::provider::Currency>, ci: f64, co: f64) -> (f
 }
 
 pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u64) -> f64 {
+    let (input_price, output_price) = match listed_price(model_id) {
+        Some(p) => p,
+        None => table_price(model_id),
+    };
+    (input_tokens as f64 * input_price + output_tokens as f64 * output_price) / 1_000_000.0
+}
+
+/// Anthropic / OpenAI / Gemini 官方标价（USD / 1M），来自 `llm-prices`：每行注明价格页与核对
+/// 日期，认得带日期后缀、`anthropic/` 前缀、Bedrock / Vertex 形式的 id。表外 id 返回 `None`，
+/// 交给下面的估算表（国产模型、第三方托管等）。
+fn listed_price(model_id: &str) -> Option<(f64, f64)> {
+    let p = llm_prices::lookup(model_id)
+        .filter(|p| matches!(p.provider, "anthropic" | "openai" | "google"))?;
+    Some((p.input?, p.output?))
+}
+
+fn table_price(model_id: &str) -> (f64, f64) {
     // Pricing per 1M tokens: (input_price, output_price)
     let (input_price, output_price) = match model_id {
         // 火山引擎 (豆包)。方舟按人民币计价（官方价目 doubao-seed-code ¥1.2/¥8、
@@ -280,7 +297,7 @@ pub(super) fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u6
         m if m.contains("mixtral") => (0.24, 0.24),
         _ => (3.0, 15.0), // default estimate
     };
-    (input_tokens as f64 * input_price + output_tokens as f64 * output_price) / 1_000_000.0
+    (input_price, output_price)
 }
 
 #[cfg(test)]
@@ -578,7 +595,7 @@ mod tests {
         assert_eq!(prices("gpt-5.4-mini"), (0.75, 4.50));
         assert_eq!(prices("gpt-5.4-nano"), (0.20, 1.25));
         assert_eq!(prices("gpt-5.5-pro"), (30.0, 180.0));
-        assert_eq!(prices("gemini-3.1-flash-lite"), (0.10, 0.40));
+        assert_eq!(prices("gemini-3.1-flash-lite"), (0.25, 1.50));
         assert_eq!(prices("gemini-2.5-flash-lite"), (0.10, 0.40));
         assert_eq!(prices("o1-pro"), (150.0, 600.0));
         assert_eq!(prices("o3-pro"), (20.0, 80.0));
@@ -609,7 +626,7 @@ mod tests {
             (6.0 / CNY_PER_USD, 30.0 / CNY_PER_USD)
         );
         // `gemini-3.5-flash` must not swallow its own lite variant.
-        assert_eq!(prices("gemini-3.5-flash-lite"), (0.10, 0.40));
+        assert_eq!(prices("gemini-3.5-flash-lite"), (0.30, 2.50));
         // 点版号不含 `qwen-max` / `qwen3-max` 子串，漏臂会掉进通用 qwen 臂。
         assert_eq!(
             prices("qwen3.8-max"),
@@ -730,5 +747,32 @@ mod tests {
         // claude-sonnet-5: $2/1M in, $10/1M out.
         assert!((estimate_cost("claude-sonnet-5", 500_000, 100_000) - (1.0 + 1.0)).abs() < 1e-9);
         assert_eq!(estimate_cost("claude-sonnet-5", 0, 0), 0.0);
+    }
+
+    #[test]
+    fn listed_models_use_the_official_list_price() {
+        // 估算表的 contains 链对这些 id 给出的价：gpt-4.1 落进 gpt-4 臂 ($30/$60)，
+        // gpt-5 / gpt-5.1 落到默认 $3/$15，gemini-3.5-flash-lite 按 $0.10/$0.40，
+        // claude-fable-5-2 按 Fable 5 的 $10/$50。官方价（USD / 1M）：
+        for (model, input, output) in [
+            ("gpt-4.1", 2.0, 8.0),
+            ("gpt-5", 1.25, 10.0),
+            ("gpt-5.1", 1.25, 10.0),
+            ("gemini-3.5-flash-lite", 0.30, 2.50),
+            ("gemini-2.5-flash", 0.30, 2.50),
+            ("claude-fable-5-2", 8.0, 40.0),
+            ("anthropic/claude-opus-5-5", 4.0, 20.0),
+        ] {
+            assert!(
+                (estimate_cost(model, 1_000_000, 0) - input).abs() < 1e-9,
+                "{model} input"
+            );
+            assert!(
+                (estimate_cost(model, 0, 1_000_000) - output).abs() < 1e-9,
+                "{model} output"
+            );
+        }
+        // 表外的国产模型仍走估算表。
+        assert!((estimate_cost("kimi-k2.6", 1_000_000, 0) - 0.95).abs() < 1e-9);
     }
 }
