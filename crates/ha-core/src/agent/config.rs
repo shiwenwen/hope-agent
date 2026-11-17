@@ -662,12 +662,22 @@ pub(crate) fn build_system_prompt_bundle_with_session_db(
         .map(|session| session.incognito)
         .unwrap_or(session_id.is_some() && session_db.is_some());
 
-    if session_meta
-        .as_ref()
-        .is_some_and(|session| session.kind == crate::session::SessionKind::PersonalAssistantIm)
-    {
+    if session_meta.as_ref().is_some_and(|session| {
+        matches!(
+            session.kind,
+            crate::session::SessionKind::PersonalAssistantIm
+                | crate::session::SessionKind::PersonalAssistantResearch
+        )
+    }) {
         return SystemPromptBuild {
-            prompt: crate::personal_assistant_im::SYSTEM_PROMPT.to_owned(),
+            prompt: if session_meta.as_ref().is_some_and(|session| {
+                session.kind == crate::session::SessionKind::PersonalAssistantResearch
+            }) {
+                crate::personal_assistant::research::SYSTEM_PROMPT
+            } else {
+                crate::personal_assistant_im::SYSTEM_PROMPT
+            }
+            .to_owned(),
             static_memory_refs: Vec::new(),
             static_memory_manifest: Default::default(),
             core_memory_snapshot: None,

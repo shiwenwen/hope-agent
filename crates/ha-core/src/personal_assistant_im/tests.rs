@@ -715,7 +715,7 @@ fn notification_concurrent_claims_and_unknown_sends_share_two_daily_slots() {
 }
 
 #[test]
-fn notification_daily_budget_uses_local_dates_across_midnight_and_dst() {
+fn notification_budget_does_not_reset_at_midnight_or_dst() {
     let policy = NotificationPolicy::from_timezone(Some("America/New_York"));
     for (previous, current) in [
         ("2026-03-07T21:00:00-05:00", "2026-03-08T08:00:00-04:00"),
@@ -741,8 +741,8 @@ fn notification_daily_budget_uses_local_dates_across_midnight_and_dst() {
         assert!(
             db.prepare_assistant_im_delivery_with_policy(now, &policy)
                 .unwrap()
-                .is_some(),
-            "{current}"
+                .is_none(),
+            "rolling budget must survive {current}"
         );
     }
 }

@@ -20,7 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 ///
 /// pub：结构化问答唯一入口（AGENTS.md 红线）——特征 crate 的工具 adapter
 /// （ha-updater `app_update` install/rollback 确认）从 crate 外复用，不 fork。
-pub(super) async fn execute_with_context(
+pub async fn execute_with_context(
     args: &Value,
     ctx: &crate::tool_defs::ToolExecContext,
 ) -> anyhow::Result<String> {
@@ -39,10 +39,35 @@ pub(super) async fn execute_with_context(
             anyhow::bail!("Hope work requires assistant_report outcome=waiting with question/options; blocking questions cannot resume after restart")
         }
     }
-    Ok(execute(args, ctx.session_id.as_deref()).await)
+    Ok(execute_impl(
+        args,
+        ctx.session_id.as_deref(),
+        crate::personal_assistant::attention::signals::classify_context(ctx).await,
+        Some(ctx),
+    )
+    .await)
 }
 
 pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
+    execute_impl(
+        args,
+        session_id,
+        crate::personal_assistant::attention::signals::classify_private_session(session_id).await,
+        None,
+    )
+    .await
+}
+async fn execute_impl(
+    args: &Value,
+    session_id: Option<&str>,
+    attention_ownership: crate::personal_assistant::attention::NotificationOwnership,
+    ctx: Option<&crate::tool_defs::ToolExecContext>,
+) -> String {
+    if attention_ownership == crate::personal_assistant::attention::NotificationOwnership::Assistant
+        && ctx.is_none()
+    {
+        return "Error: a direct Hope question requires its exact execution context".into();
+    }
     let sid = match session_id {
         Some(s) => s,
         None => return "Error: no session context available".to_string(),
@@ -217,7 +242,9 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
         }
     }
     let source = Some(
-        if plan_owner.is_some() {
+        if !attention_ownership.is_ordinary() {
+            "personal_assistant"
+        } else if plan_owner.is_some() {
             "plan"
         } else if subagent_owner.is_some() {
             "subagent"
@@ -259,8 +286,26 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
         owner_response: None,
     };
 
-    // Persist the pending group before emitting so restarts can resume it.
-    if let Err(e) = ask_user::persist_pending_group(&group) {
+    // Use the exact context's database for both the question and its handoff.
+    // Ordinary compatibility callers keep the existing global DB entry point.
+    let question_db = ctx
+        .and_then(|ctx| ctx.session_db.as_ref().map(|db| db.0.clone()))
+        .or_else(|| crate::get_session_db().cloned());
+    // Install before the first persistence await: cancellation owns exact DB
+    // cleanup even if save or handoff admission has not returned yet.
+    let persistence = ask_user::ToolQuestionPersistenceGuard::new(
+        request_id.clone(),
+        effective_sid.clone(),
+        question_db,
+    );
+    let persisted = persistence.persist(&group).await;
+    if let Err(e) = persisted {
+        if attention_ownership
+            == crate::personal_assistant::attention::NotificationOwnership::Assistant
+        {
+            return "Error: unable to persist the current Hope question".into();
+        }
+
         app_warn!(
             "ask_user",
             "persist",
@@ -272,34 +317,70 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     // Create oneshot channel + register pending.
     let (tx, rx) = tokio::sync::oneshot::channel();
-    ask_user::register_ask_user_question(request_id.clone(), effective_sid.clone(), tx).await;
+    ask_user::register_tool_ask_user_question(
+        request_id.clone(),
+        effective_sid.clone(),
+        tx,
+        persistence.target(),
+    )
+    .await;
+    let registered = if let Some(ctx) = ctx.filter(|_| !attention_ownership.is_ordinary()) {
+        crate::personal_assistant::attention::signals::register_question_handoff(
+            ctx,
+            &request_id,
+            timeout_at.and_then(|at| i64::try_from(at).ok()),
+            persistence.target(),
+        )
+        .await
+        .unwrap_or(false)
+    } else {
+        false
+    };
+    if !registered
+        && !persistence.is_closed()
+        && attention_ownership
+            == crate::personal_assistant::attention::NotificationOwnership::Assistant
+    {
+        ask_user::cancel_pending_ask_user_question_with_source(&request_id, "error").await;
+        return "Error: the current Hope question is no longer active".into();
+    }
 
     // Emit event.
-    if let Some(bus) = crate::globals::get_event_bus() {
-        match serde_json::to_value(&group) {
-            Ok(event_data) => {
-                bus.emit(ask_user::EVENT_ASK_USER_REQUEST, event_data);
-                // Elicitation hook (observation): a question prompt was raised.
-                crate::hooks::fire_elicitation(&effective_sid, &request_id, questions.len());
-                app_info!(
-                    "ask_user",
-                    "emit",
-                    "ask_user question emitted (id: {}, {} questions, timeout: {}s)",
-                    request_id,
-                    questions.len(),
-                    effective_timeout_secs
-                );
+    if !persistence.is_closed() {
+        if let Some(bus) = crate::globals::get_event_bus() {
+            match serde_json::to_value(&group) {
+                Ok(event_data) => {
+                    ask_user::emit_live_tool_question(&request_id, &persistence.target(), || {
+                        bus.emit(ask_user::EVENT_ASK_USER_REQUEST, event_data);
+                        // Elicitation hook (observation): a question prompt was raised.
+                        crate::hooks::fire_elicitation(
+                            &effective_sid,
+                            &request_id,
+                            questions.len(),
+                        );
+                        app_info!(
+                            "ask_user",
+                            "emit",
+                            "ask_user question emitted (id: {}, {} questions, timeout: {}s)",
+                            request_id,
+                            questions.len(),
+                            effective_timeout_secs
+                        );
+                    })
+                    .await;
+                }
+                Err(e) => {
+                    ask_user::cancel_pending_ask_user_question_with_source(&request_id, "error")
+                        .await;
+                    let _ = persistence.finish().await;
+                    return format!("Error: failed to serialize question: {}", e);
+                }
             }
-            Err(e) => {
-                ask_user::cancel_pending_ask_user_question_with_source(&request_id, "error").await;
-                let _ = ask_user::mark_group_answered(&request_id);
-                return format!("Error: failed to serialize question: {}", e);
-            }
+        } else {
+            ask_user::cancel_pending_ask_user_question_with_source(&request_id, "error").await;
+            let _ = persistence.finish().await;
+            return "Error: EventBus not available for ask_user events".to_string();
         }
-    } else {
-        ask_user::cancel_pending_ask_user_question_with_source(&request_id, "error").await;
-        let _ = ask_user::mark_group_answered(&request_id);
-        return "Error: EventBus not available for ask_user events".to_string();
     }
 
     // Wait for response with optional timeout.
@@ -320,9 +401,25 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
         }
     };
 
+    if matches!(&result, Outcome::Answered(_))
+        && attention_ownership
+            == crate::personal_assistant::attention::NotificationOwnership::Assistant
+    {
+        let current = if let Some(ctx) = ctx {
+            crate::personal_assistant::attention::signals::home_context_current(ctx)
+                .await
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        if !current {
+            return "Error: the Hope turn stopped before the answer could continue".into();
+        }
+    }
+
     // Final cleanup: mark persisted row answered and drop any IM-side pending
     // state so stale entries don't accumulate in the button/text maps.
-    let _ = ask_user::mark_group_answered(&request_id);
+    let _ = persistence.finish().await;
     crate::channel_hooks::drop_ask_user_by_request_id(&request_id).await;
 
     // ElicitationResult hook (observation): the question group reached a
@@ -358,6 +455,7 @@ pub async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 effective_timeout_secs,
                 questions.iter().any(|q| !q.default_values.is_empty()),
                 first_question_preview(&questions),
+                attention_ownership,
             );
         }
     }

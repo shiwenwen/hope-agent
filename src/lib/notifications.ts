@@ -4,8 +4,8 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { getTransport } from "@/lib/transport-provider"
-import { isTauriMode, parsePayload } from "@/lib/transport"
+import { getTransport, getTransportRevision } from "@/lib/transport-provider"
+import { type Transport, isTauriMode, parsePayload } from "@/lib/transport"
 
 export interface NotificationConfig {
   enabled: boolean
@@ -197,4 +197,67 @@ export async function notifyIfBackground(title: string, body: string): Promise<v
   }
   if (isWindowFocused) return
   await notify(title, body)
+}
+
+export type AssistantNoticeOutcome = "accepted" | "unknown" | "not_submitted"
+
+/** Background assistants never open a permission prompt. */
+export async function hasAssistantNotificationPermission(): Promise<boolean> {
+  if (typeof window === "undefined" || !("Notification" in window)) return false
+  try {
+    return isTauriMode() ? await isPermissionGranted() : Notification.permission === "granted"
+  } catch {
+    return false
+  }
+}
+
+/** Only a real platform show event acknowledges a notification. Tauri's
+ * Notification shim may return without one: that remains unknown, never read. */
+export function submitAssistantNotification(
+  title: string,
+  body: string,
+  onOpen: () => void,
+): Promise<AssistantNoticeOutcome> {
+  return new Promise((resolve) => {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (outcome: AssistantNoticeOutcome) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(outcome)
+    }
+    try {
+      const notification = new window.Notification(title, { body })
+      notification.onshow = () => finish("accepted")
+      notification.onerror = () => finish("unknown")
+      notification.onclick = () => onOpen()
+      timer = setTimeout(() => finish("unknown"), 2000)
+    } catch {
+      finish("not_submitted")
+    }
+  })
+}
+
+/** A session can mix assistant work and ordinary owner turns. Only the exact
+ * submitted execution's host identity decides whether the old alert applies. */
+export async function ordinaryExecutionMayNotify(
+  transport: Transport,
+  revision: number,
+  executionId: string | null,
+): Promise<boolean> {
+  if (!executionId) return false
+  try {
+    const ownership = await transport.call<"ordinary" | "assistant" | "unknown">(
+      "get_execution_notification_ownership",
+      { executionId },
+    )
+    return (
+      ownership === "ordinary" &&
+      revision === getTransportRevision() &&
+      transport === getTransport()
+    )
+  } catch {
+    return false
+  }
 }

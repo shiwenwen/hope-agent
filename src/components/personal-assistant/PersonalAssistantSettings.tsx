@@ -17,6 +17,8 @@ import { getTransportRevision, useTransportRevision } from "@/lib/transport-prov
 import type { SessionMeta } from "@/types/chat"
 import { PersonalAssistantAvatar } from "./PersonalAssistantAvatar"
 import { PersonalAssistantImPanel } from "./PersonalAssistantImPanel"
+import { AssistantResearchSettings } from "./AssistantResearchSettings"
+import type { AssistantResearchState } from "./useAssistantResearch"
 import type { AssistantProfile, PersonalAssistantState } from "./usePersonalAssistant"
 
 const ASSISTANT_AVATAR_PRESETS = ["sparkles", "bot", "heart"] as const
@@ -199,12 +201,14 @@ function AssistantProfileForm({
 
 export function PersonalAssistantSettings({
   state,
+  research,
   sessions,
   open,
   visible = true,
   onOpenChange,
 }: {
   state: PersonalAssistantState
+  research?: AssistantResearchState
   sessions: SessionMeta[]
   open: boolean
   visible?: boolean
@@ -223,6 +227,11 @@ export function PersonalAssistantSettings({
         <Tabs defaultValue="profile" className="flex min-h-0 flex-1 flex-col">
           <TabsList className="shrink-0 self-start">
             <TabsTrigger value="profile">{t("personalAssistant.settings.profile")}</TabsTrigger>
+            {research && (
+              <TabsTrigger value="research">
+                {t("personalAssistant.research.settingsTitle")}
+              </TabsTrigger>
+            )}
             <TabsTrigger value="im">{t("personalAssistant.settings.im")}</TabsTrigger>
           </TabsList>
           <TabsContent
@@ -236,6 +245,11 @@ export function PersonalAssistantSettings({
               onSave={state.saveProfile}
             />
           </TabsContent>
+          {research && (
+            <TabsContent value="research" className="min-h-0 overflow-y-auto py-3">
+              <AssistantResearchSettings key={revision} state={research} sessions={sessions} />
+            </TabsContent>
+          )}
           <TabsContent value="im" className="min-h-0 overflow-y-auto py-3">
             <p className="mb-3 text-sm text-muted-foreground">
               {t("personalAssistant.settings.botIdentityHint")}

@@ -16,6 +16,7 @@ pub use lifecycle::{cancel_item_work, stop_item, AssistantPendingWork};
 pub(crate) use provenance::{
     bind_source_with_conn, consume_source_with_conn, AssistantInjectionProof,
 };
+pub(super) use questions::answer_with_conn;
 pub use questions::AssistantAnswerTarget;
 
 pub const ITEM_TURNS: i64 = 8;
@@ -187,6 +188,18 @@ pub(crate) fn migrate(conn: &Connection) -> Result<()> {
             UNIQUE(execution_id)
          );",
     )?;
+    let has_resume_after = conn
+        .prepare("PRAGMA table_info(assistant_item_reports)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .iter()
+        .any(|name| name == "resume_after_seconds");
+    if !has_resume_after {
+        conn.execute(
+            "ALTER TABLE assistant_item_reports ADD COLUMN resume_after_seconds INTEGER",
+            [],
+        )?;
+    }
     receipts::migrate(conn)
 }
 
@@ -200,7 +213,10 @@ pub(super) fn create_for_request(conn: &Connection, request_id: &str) -> Result<
     Ok(())
 }
 
-fn validate_item(conn: &Connection, id: &str) -> Result<()> {
+pub(super) fn validate_item(conn: &Connection, id: &str) -> Result<()> {
+    if super::policy::requested_paused(conn)? {
+        bail!(AssistantError::Stopped)
+    }
     let (home, target, epoch, source_stop, target_stop, state): (
         String,
         String,
@@ -546,12 +562,12 @@ impl SessionDB {
             tx.commit()?;
             return Ok(());
         }
-        let report: Option<(String, String, Option<String>, i64)> = tx
+        let report: Option<(String, String, Option<String>, i64, Option<i64>)> = tx
             .query_row(
-                "SELECT outcome,summary,next_instruction,item_revision FROM assistant_item_reports
+                "SELECT outcome,summary,next_instruction,item_revision,resume_after_seconds FROM assistant_item_reports
              WHERE execution_id=?1",
                 [execution],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .optional()?;
         let report = if budget_waiting {
@@ -560,17 +576,19 @@ impl SessionDB {
                 "Execution allowance exhausted; your explicit continuation is required.".to_owned(),
                 None,
                 revision,
+                None,
             ))
         } else {
             report
         };
+        let resume_after = report.as_ref().and_then(|row| row.4);
         let (item_state,reason,kind,summary,next)=match report{
-            Some((outcome,summary,next,reported_revision)) if reported_revision==revision && (state=="committed" || outcome=="budget")=>{
+            Some((outcome,summary,next,reported_revision,_)) if reported_revision==revision && (state=="committed" || outcome=="budget")=>{
                 match outcome.as_str(){
                     "budget"=>("waiting",Some("budget_exhausted"),"blocked",summary,None),
                     "done"=>("done",None,"result",summary,None),
                     "continue"=>("open",None,"progress",summary,next),
-                    "waiting"=>("waiting",Some("external_dependency"),"waiting",summary,None),
+                    "waiting"=>("waiting",Some("external_dependency"),"waiting",summary,next.filter(|_| resume_after.is_some())),
                     _=>("waiting",Some("execution_failed"),"blocked",summary,None),
                 }
             }
@@ -617,9 +635,12 @@ impl SessionDB {
                 }
             ],
         )?;
+        if item_state == "done" {
+            tx.execute("UPDATE assistant_followups SET state='cancelled' WHERE item_id=?1 AND state='pending' AND id LIKE 'next:%'",[&item])?;
+        }
         let repeated:bool=tx.query_row("SELECT COUNT(*)>=2 FROM (SELECT summary,next_instruction
             FROM assistant_item_reports p JOIN assistant_execution_contexts c ON c.execution_id=p.execution_id
-            WHERE c.item_id=?1 AND p.outcome='continue' ORDER BY p.rowid DESC LIMIT 2)
+            WHERE c.item_id=?1 AND p.outcome IN('continue','waiting') ORDER BY p.rowid DESC LIMIT 2)
             WHERE summary=?2 AND next_instruction IS ?3",params![item,summary,next],|r|r.get(0))?;
         if repeated {
             tx.execute(
@@ -631,7 +652,7 @@ impl SessionDB {
             tx.execute("INSERT INTO assistant_followups(id,item_id,item_revision,source_turn_id,instruction,due_at)
                 VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO NOTHING",
                 params![format!("next:{execution}"),item,revision,execution,next,
-                    chrono::Utc::now().timestamp()+2])?;
+                    chrono::Utc::now().timestamp()+resume_after.unwrap_or(2)])?;
         }
         tx.execute(
             "UPDATE assistant_execution_contexts SET settled=1 WHERE execution_id=?1",
@@ -672,7 +693,7 @@ impl SessionDB {
                     WHERE i.id=?1 AND r.status IN('queued','running','cancellation_requested'))
                 OR EXISTS(SELECT 1 FROM assistant_followups f JOIN personal_assistant_requests r ON r.id=f.request_id
                     WHERE f.item_id=?1 AND r.status='queued')",[&item],|r|r.get::<_,bool>(0))?;
-            if occupied {
+            if occupied || needs_owner_input(&tx, &item)? {
                 continue;
             }
             let source_running:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM assistant_followups f
@@ -863,6 +884,31 @@ impl SessionDB {
         summary: &str,
         next_instruction: Option<&str>,
     ) -> Result<()> {
+        self.report_assistant_item_with_delay(
+            session,
+            turn,
+            outcome,
+            summary,
+            next_instruction,
+            None,
+        )
+    }
+
+    pub fn report_assistant_item_with_delay(
+        &self,
+        session: &str,
+        turn: &str,
+        outcome: &str,
+        summary: &str,
+        next_instruction: Option<&str>,
+        resume_after_seconds: Option<i64>,
+    ) -> Result<()> {
+        if resume_after_seconds.is_some_and(|delay| !(60..=86_400).contains(&delay))
+            || (resume_after_seconds.is_some()
+                && (outcome != "waiting" || next_instruction.is_none_or(|s| s.trim().is_empty())))
+        {
+            bail!(AssistantError::InvalidInput);
+        }
         if !matches!(outcome, "done" | "waiting" | "continue" | "failed")
             || summary.trim().is_empty()
             || summary.len() > 16_384
@@ -881,11 +927,11 @@ impl SessionDB {
             params![turn,session],|r|Ok((r.get(0)?,r.get(1)?)))
             .optional()?.ok_or(AssistantError::Unavailable)?;
         validate_item(&tx, &item)?;
-        tx.execute("INSERT INTO assistant_item_reports(execution_id,item_revision,outcome,summary,next_instruction,created_at)
-            VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(execution_id) DO UPDATE SET
-            outcome=excluded.outcome,summary=excluded.summary,next_instruction=excluded.next_instruction
+        tx.execute("INSERT INTO assistant_item_reports(execution_id,item_revision,outcome,summary,next_instruction,created_at,resume_after_seconds)
+            VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(execution_id) DO UPDATE SET
+            outcome=excluded.outcome,summary=excluded.summary,next_instruction=excluded.next_instruction,resume_after_seconds=excluded.resume_after_seconds
             WHERE assistant_item_reports.item_revision=excluded.item_revision",
-            params![turn,revision,outcome,summary,next_instruction,chrono::Utc::now().to_rfc3339()])?;
+            params![turn,revision,outcome,summary,next_instruction,chrono::Utc::now().to_rfc3339(),resume_after_seconds])?;
         tx.commit()?;
         Ok(())
     }
@@ -1020,13 +1066,22 @@ impl SessionDB {
 
     pub fn assistant_execution_role(&self, execution: &str) -> Result<Option<bool>> {
         let conn = self.read_conn()?;
-        receipts::role(&conn, execution)
+        if let Some(role) = receipts::role(&conn, execution)? {
+            return Ok(Some(role));
+        }
+        Ok(conn
+            .query_row(
+                "SELECT 1 FROM assistant_research_runs WHERE execution_id=?1",
+                [execution],
+                |_| Ok(true),
+            )
+            .optional()?)
     }
 
     pub fn assistant_execution_waiting_for_owner(&self, execution: &str) -> Result<bool> {
         Ok(self.read_conn()?.query_row(
             "SELECT EXISTS(SELECT 1 FROM assistant_execution_contexts
-            WHERE execution_id=?1 AND closed_for_question=1)",
+            WHERE execution_id=?1 AND closed_for_question=1) OR EXISTS(SELECT 1 FROM assistant_research_runs WHERE execution_id=?1 AND state<>'running')",
             [execution],
             |r| r.get(0),
         )?)

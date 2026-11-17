@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
-import { getTransport } from "@/lib/transport-provider"
+import { getTransport, getTransportRevision } from "@/lib/transport-provider"
 import {
   type ChatAttachment,
   type ProjectSessionBootstrapInput,
@@ -21,6 +21,7 @@ import {
   isAgentNotifyEnabled,
   notify,
   notifyIfBackground,
+  ordinaryExecutionMayNotify,
 } from "@/lib/notifications"
 import type {
   Message,
@@ -2099,6 +2100,7 @@ export function useChatStream({
       setCurrentSessionId(options.sessionIdOverride)
     }
     const sendTransport = getTransport()
+    const sendTransportRevision = getTransportRevision()
     let attachments: ChatAttachment[]
     let incomingTurn: Awaited<ReturnType<typeof buildIncomingTurnWire>> | undefined
     const sendingDraftIds = new Set(filesToSend.map((draft) => draft.id))
@@ -2335,6 +2337,13 @@ export function useChatStream({
     })
 
     let targetSessionId = sendSessionId ?? currentSessionId
+    let notificationExecutionId: string | null = null
+    const canNotifyOrdinaryExecution = async (sid: string) =>
+      (await ordinaryExecutionMayNotify(
+        sendTransport,
+        sendTransportRevision,
+        notificationExecutionId,
+      )) && chatRequestOwnerBySessionRef.current.get(sid) === chatRequestOwnerId
     let chatResolved = false
     let backendQueued = false
     let keepExistingStreamLoading = false
@@ -2394,6 +2403,7 @@ export function useChatStream({
         ) {
           return false
         }
+        notificationExecutionId = event.turn_id
         handleTurnStarted(event.session_id, event.turn_id)
         if (options?.editMessageId != null) markDispatchAccepted()
         return true
@@ -2720,7 +2730,10 @@ export function useChatStream({
         currentSessionIdRef.current !== targetSessionId
       ) {
         const agent = agents.find((a) => a.id === currentAgentId)
-        if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
+        if (
+          isAgentNotifyEnabled(agent?.notifyOnComplete) &&
+          (await canNotifyOrdinaryExecution(targetSessionId))
+        ) {
           const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title
           // Only fall back to the latest user message when reply previews are
           // enabled; otherwise honor the privacy setting and never leak
@@ -2779,7 +2792,10 @@ export function useChatStream({
       // notification when the app window is no longer foregrounded.
       if (ownsRequestLifecycle && !keepExistingStreamLoading && chatResolved && targetSessionId) {
         const agent = agents.find((a) => a.id === currentAgentId)
-        if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
+        if (
+          isAgentNotifyEnabled(agent?.notifyOnComplete) &&
+          (await canNotifyOrdinaryExecution(targetSessionId))
+        ) {
           const status = lastTurnStatusBySessionRef.current.get(targetSessionId)?.status
           const completed =
             status !== "failed" && status !== "interrupted" && status !== "cancelling"

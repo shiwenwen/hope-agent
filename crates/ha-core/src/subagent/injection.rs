@@ -2236,6 +2236,22 @@ pub(crate) async fn inject_and_run_parent_with_ui_guard(
             settle_injection_source(on_injected.as_ref(), &run_id);
             return InjectionOutcome::Injected;
         }
+        let private_parent = parent_session_id.clone();
+        let reject_private = session_db
+            .run(move |db| {
+                crate::personal_assistant::attention::signals::private_source_with_conn(
+                    &*db.read_conn()?,
+                    &private_parent,
+                )
+            })
+            .await
+            .unwrap_or(true);
+        if assistant_proof.is_none() && reject_private {
+            // Home only admits fresh Desktop/HTTP owner turns. Reject stale
+            // child notifications before inserting any private history row.
+            release_unarmed_injection_source(on_injected.as_ref(), &run_id);
+            return InjectionOutcome::Abandoned;
+        }
         let engine_result = arm_source_persist_then(
             injection_has_delivery_surface,
             on_injected.as_ref(),

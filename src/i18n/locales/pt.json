@@ -8821,7 +8821,9 @@
     "contextCompactSummaryReasoning": "Raciocínio dos resumos",
     "contextCompactSummaryReasoningDefault": "Manter a política atual",
     "contextCompactSummaryReasoningDesc": "Afeta apenas os resumos de contexto. Níveis incompatíveis geram erro e preservam o histórico. Falhas não trocam o modelo nem aumentam o limite de saída. O padrão mantém o comportamento atual.",
-    "toolAssistantReportDesc": "Registrar progresso verificado, resultados ou uma pergunta persistente ao proprietário"
+    "toolAssistantReportDesc": "Registrar progresso verificado, resultados ou uma pergunta persistente ao proprietário",
+    "toolAssistantResearchDesc": "Consultar referências ou perguntar dentro das permissões atuais no Hope.",
+    "toolAssistantResearchReportDesc": "Relatar descobertas com evidências da pesquisa privada atual; publicar após verificação."
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",
@@ -9298,7 +9300,9 @@
     "feishu_hire_list_talents": "Feishu Recrutamento: Listar candidatos",
     "feishu_hire_get_talent": "Feishu Recrutamento: Consultar candidato",
     "feishu_hire_list_applications": "Feishu Recrutamento: Listar candidaturas",
-    "assistant_report": "Relatar trabalho do assistente"
+    "assistant_report": "Relatar trabalho do assistente",
+    "assistant_research": "Verificar material compartilhado",
+    "assistant_research_report": "Relatar descobertas"
   },
   "tz": {
     "amsterdam": "Amsterdã (UTC+1)",
@@ -13052,6 +13056,83 @@
       "dispatch_failed": "Não foi possível iniciar o trabalho",
       "owner_stopped": "Você interrompeu este assunto",
       "scope_or_stop_changed": "O escopo ou estado de parada mudou"
+    },
+    "research": {
+      "settingsTitle": "Ajuda proativa",
+      "settingsHint": "Hope só acompanha o material que você compartilha explicitamente. Pausar interrompe o trabalho delegado atual; faça um novo pedido ao retomar.",
+      "enabled": "Encontrar mudanças no material",
+      "pause": "Pausar o trabalho em segundo plano de Hope",
+      "pendingPolicy": "Aplicando configurações…",
+      "sources": "Material compartilhado",
+      "expires": "Compartilhado até {{time}}",
+      "observed": "Última leitura do arquivo: {{time}}",
+      "suspended": "As verificações automáticas estão suspensas. Você pode verificar agora.",
+      "observationGap": "Não foi possível observar este período. Mudanças podem ter passado despercebidas.",
+      "refresh": "Verificar agora",
+      "revoke": "Revogar acesso",
+      "noSources": "Nenhum material compartilhado",
+      "workspace": "Selecione o chat de trabalho do arquivo",
+      "path": "Caminho dentro da pasta de trabalho, ex.: notes/agenda.txt",
+      "focus": "O que acompanhar",
+      "focusPlaceholder": "Por exemplo: detectar conflitos de reuniões e preparar duas alternativas",
+      "days": "Dias de acesso",
+      "baselineHint": "Compartilhe até 4 arquivos UTF-8 de até 64 KiB cada. A primeira leitura cria uma referência; as seguintes relatam mudanças importantes.",
+      "share": "Compartilhar material",
+      "finding": "Nova descoberta",
+      "inference": "Inferência",
+      "uncertainty": "A confirmar",
+      "prepared": "Opções preparadas",
+      "lines": "Linhas {{start}}–{{end}}",
+      "ask": "Perguntar mais a Hope",
+      "askPlaceholder": "Pergunte apenas sobre este material…",
+      "activity": {
+        "pending": "Na fila",
+        "running": "Verificando o material…",
+        "finished": "Concluído; o resultado aparece no chat",
+        "failed": "Não foi possível concluir. Verifique o material e tente novamente.",
+        "cancelled": "Cancelado",
+        "expired": "Expirado. Envie novamente.",
+        "scopeChanged": "O material ou a permissão mudou. Verifique novamente.",
+        "budget": "Limite de pesquisa atingido. Tente mais tarde.",
+        "unverified": "Nenhum resultado verificado foi recebido. Tente novamente."
+      }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope tem novidades. Abra o Hope para ver.",
+      "route": "Receber avisos por",
+      "routes": {
+        "none": "Apenas no Hope",
+        "desktop": "Área de trabalho",
+        "im": "IM do assistente"
+      },
+      "limitHint": "No máximo dois avisos proativos por dia local e por 24 horas corridas. Atualizações relacionadas são agrupadas; perguntas diretas no IM podem receber resposta.",
+      "timezone": "Seu fuso horário (IANA)",
+      "quietStart": "Silêncio a partir de",
+      "quietEnd": "Até",
+      "quietHint": "Usa seu fuso horário. Horas iguais significam silêncio o dia inteiro.",
+      "desktopToIm": "Enviar estados do trabalho do desktop ao IM",
+      "desktopToImHint": "Exige também as permissões de estado e conclusão da conversa. Apenas o estado é enviado; os resultados ficam no Hope.",
+      "pairRequired": "Primeiro emparelhe seu Bot exclusivo nas configurações de IM do assistente.",
+      "sourceDisclosure": "Permitir resumos desta fonte no IM",
+      "sourceDisclosureHint": "Desativado por padrão. Permite resumos breves e perguntas restritas à fonte no chat atual. Revogar invalida o contexto das respostas antigas.",
+      "nextEligible": "Próximo aviso possível: {{time}} ({{zone}})",
+      "deferred": {
+        "timezone_required": "Escolha seu fuso horário para receber avisos.",
+        "quiet_hours": "Horário de silêncio: as novidades ficam no Hope.",
+        "daily_limit": "Limite de avisos atingido. Novas tentativas aguardam.",
+        "policy_pending": "Aguardando a aplicação das configurações.",
+        "paused": "O assistente está pausado.",
+        "disabled": "As novidades ficam no Hope; avisos externos desativados.",
+        "pairing_required": "O IM não está emparelhado ou os avisos estão pausados.",
+        "using_hope": "Você está usando o Hope. Avisos externos aguardam."
+      },
+      "receipts": {
+        "submitting": "{{time}} · Aguardando confirmação da plataforma",
+        "accepted": "{{time}} · Aceito pela plataforma; leitura desconhecida",
+        "unknown": "{{time}} · Entrega desconhecida; sem reenvio automático",
+        "cancelled": "{{time}} · Não enviado; a tentativa continua contando"
+      },
+      "homeHandoffHint": "Perguntas diretas e aprovações de ferramentas na página inicial do assistente só aceitam avisos na área de trabalho. Abra o Hope para responder."
     }
   }
 }

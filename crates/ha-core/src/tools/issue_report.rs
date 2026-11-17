@@ -117,7 +117,7 @@ async fn confirm_create(draft: &IssueDraft, ctx: &super::ToolExecContext) -> Res
         },
         crate::truncate_utf8(&draft.body, 4_000)
     );
-    let response = super::ask_user_question::execute(
+    let response = super::ask_user_question::execute_with_context(
         &json!({
             "context": "Hope Agent is ready to create a GitHub issue. Confirm before anything is submitted.",
             "questions": [{
@@ -142,9 +142,9 @@ async fn confirm_create(draft: &IssueDraft, ctx: &super::ToolExecContext) -> Res
                 "default_values": ["cancel"]
             }]
         }),
-        ctx.session_id.as_deref(),
+        ctx,
     )
-    .await;
+    .await?;
 
     if response.starts_with("Error:") {
         bail!(response);

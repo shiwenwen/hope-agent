@@ -915,6 +915,7 @@ pub async fn run_tool_approval(
         Some(name),
         Some(args),
         ctx.tool_call_id.as_deref(),
+        ctx,
     )
     .await
     {
@@ -1164,6 +1165,48 @@ pub async fn execute_tool_with_context(
     // approval + plan-mode gates have run (so user-facing safeguards apply
     // once at submission time, then the work detaches).
     let async_decision = decide_async_path(name, args, ctx);
+    if crate::personal_assistant::attention::signals::requires_managed_home_work(ctx).await? {
+        let action = args
+            .get("action")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        let controller = (matches!(
+            super::background_policy_for_tool(name),
+            Some(super::BackgroundPolicy::SelfManaged { .. })
+        ) || matches!(
+            name,
+            crate::tool_defs::TOOL_MANAGE_CRON
+                | crate::tool_defs::TOOL_ACP_SPAWN
+                | crate::tool_defs::TOOL_TEAM
+                | crate::tool_defs::TOOL_WORKFLOW
+                | crate::tool_defs::TOOL_LOOP_RESCHEDULE
+                | crate::tool_defs::TOOL_ENTER_PLAN_MODE
+        )) && !matches!(
+            name,
+            crate::tool_defs::TOOL_SESSIONS_CREATE | crate::tool_defs::TOOL_SESSIONS_SEND
+        ) && !matches!(
+            action,
+            "list"
+                | "status"
+                | "get"
+                | "history"
+                | "poll"
+                | "log"
+                | "wait"
+                | "cancel"
+                | "stop"
+                | "kill"
+                | "remove"
+                | "delete"
+        );
+        if !matches!(async_decision, AsyncDecision::Sync)
+            || explicit_async_job_requested(args)
+            || (name == TOOL_EXEC && exec_process_background_mode(args).is_some())
+            || controller
+        {
+            anyhow::bail!("Hope background work must use sessions_create/send so its allowance, Stop and follow-up stay attached to one lightweight item. Delegate only remaining work, first verify completed or unknown actions, and do not replay the original request. Existing explicit dispatch receipts remain authoritative.");
+        }
+    }
 
     // ── Tool-level approval gate ─────────────────────────────────
     // Run the unified permission engine. The engine consumes:

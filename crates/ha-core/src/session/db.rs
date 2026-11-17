@@ -1835,6 +1835,9 @@ impl SessionDB {
         crate::personal_assistant_continue::migrate(&conn)?;
         crate::personal_assistant_im::migrate(&conn)?;
         crate::personal_assistant::items::migrate(&conn)?;
+        crate::personal_assistant::policy::migrate(&conn)?;
+        crate::personal_assistant::research::migrate(&conn)?;
+        crate::personal_assistant::attention::migrate(&conn)?;
 
         // Read-only connection pool. WAL lets these run concurrently with the
         // writer; opened AFTER all migrations above so they observe the final
@@ -2042,6 +2045,12 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        Self::write_ask_user_group(&conn, group)
+    }
+    fn write_ask_user_group(
+        conn: &rusqlite::Connection,
+        group: &crate::ask_user::AskUserQuestionGroup,
+    ) -> anyhow::Result<()> {
         let payload = serde_json::to_string(group)?;
         conn.execute(
             "INSERT OR REPLACE INTO ask_user_questions
@@ -2056,6 +2065,46 @@ impl SessionDB {
                 group.timeout_at.map(|n| n.min(i64::MAX as u64) as i64),
             ],
         )?;
+        Ok(())
+    }
+    /// A dropped tool future cannot recreate a pending question after cleanup.
+    /// The cancellation checks share the same DB lock and transaction as save.
+    pub(crate) fn save_live_ask_user_group(
+        &self,
+        group: &crate::ask_user::AskUserQuestionGroup,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> anyhow::Result<()> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Question database unavailable"))?;
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            anyhow::bail!("Question cancelled before persistence")
+        }
+        let tx = conn.transaction()?;
+        Self::write_ask_user_group(&tx, group)?;
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            anyhow::bail!("Question cancelled during persistence")
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    pub(crate) fn close_live_ask_user_group(
+        &self,
+        request_id: &str,
+        session_id: &str,
+    ) -> anyhow::Result<()> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Question database unavailable"))?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "UPDATE ask_user_questions SET status='answered' WHERE request_id=?1 AND session_id=?2",
+            params![request_id, session_id],
+        )?;
+        tx.execute("UPDATE assistant_attention_home_handoffs SET active=0 WHERE id=?1 AND home_session_id=?2 AND kind='question'",params![request_id,session_id])?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -4014,7 +4063,7 @@ impl SessionDB {
         let conn = self.read_conn()?;
         let mut sql = format!(
             "{} WHERE s.incognito = 0 AND s.archived_at IS NULL
-             AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')
+             AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im','personal_assistant_research')
              AND (?1 IS NULL OR s.agent_id = ?1)
              AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
              AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)",
@@ -4253,7 +4302,7 @@ impl SessionDB {
             let sql = format!(
                 "SELECT m.session_id, MIN(fts.rank) AS best_rank
                  FROM messages_fts fts
-                 JOIN messages m ON m.id = fts.rowid
+                 JOIN assistant_visible_messages m ON m.id = fts.rowid
                  JOIN sessions s ON s.id = m.session_id
                  WHERE messages_fts MATCH ?1
                    AND m.role IN ('user', 'assistant')
@@ -4279,7 +4328,7 @@ impl SessionDB {
             let sql = format!(
                 "SELECT m.session_id, MIN(tri.rank) AS best_rank
                  FROM messages_trigram_fts tri
-                 JOIN messages m ON m.id = tri.rowid
+                 JOIN assistant_visible_messages m ON m.id = tri.rowid
                  JOIN sessions s ON s.id = m.session_id
                  WHERE messages_trigram_fts MATCH ?1
                    AND m.role IN ('user', 'assistant')
@@ -4404,7 +4453,7 @@ impl SessionDB {
         // main session list / picker — hide them unconditionally (no active
         // exception, unlike incognito below).
         where_clauses.push(
-            "s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')"
+            "s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im','personal_assistant_research')"
                 .to_string(),
         );
         where_clauses.push("s.archived_at IS NULL".to_string());
@@ -4479,7 +4528,7 @@ impl SessionDB {
     ) -> Result<(Vec<SessionMeta>, u32)> {
         let conn = self.read_conn()?;
         let where_sql = " WHERE s.archived_at IS NOT NULL AND s.incognito = 0
-              AND s.kind NOT IN ('side', 'eval_fixture', 'personal_assistant','personal_assistant_im')";
+              AND s.kind NOT IN ('side', 'eval_fixture', 'personal_assistant','personal_assistant_im','personal_assistant_research')";
         let total: u32 = conn.query_row(
             &format!("SELECT COUNT(*) FROM sessions s{where_sql}"),
             [],
@@ -4508,7 +4557,7 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1
              ORDER BY id ASC",
         )?;
@@ -4531,7 +4580,7 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE id = ?1",
             params![message_id],
             Self::row_to_session_message,
@@ -4558,7 +4607,7 @@ impl SessionDB {
         let conn = self.read_conn()?;
 
         let total: u32 = conn.query_row(
-            "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
+            "SELECT COUNT(*) FROM assistant_visible_messages AS messages WHERE session_id = ?1",
             params![session_id],
             |row| row.get(0),
         )?;
@@ -4569,7 +4618,7 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1
              ORDER BY id DESC
              LIMIT ?2",
@@ -4605,7 +4654,7 @@ impl SessionDB {
     pub fn latest_session_message_id(&self, session_id: &str) -> Result<Option<i64>> {
         let conn = self.read_conn()?;
         conn.query_row(
-            "SELECT MAX(id) FROM messages WHERE session_id = ?1",
+            "SELECT MAX(id) FROM assistant_visible_messages AS messages WHERE session_id = ?1",
             params![session_id],
             |row| row.get(0),
         )
@@ -4627,7 +4676,7 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1 AND id <= ?2
              ORDER BY id DESC
              LIMIT ?3",
@@ -4666,7 +4715,7 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1 AND id < ?2
              ORDER BY id DESC
              LIMIT ?3",
@@ -4717,7 +4766,7 @@ impl SessionDB {
 
         let anchor_id: Option<i64> = conn
             .query_row(
-                "SELECT id FROM messages
+                "SELECT id FROM assistant_visible_messages AS messages
                  WHERE session_id = ?1 AND id < ?2 AND role = 'user'
                  ORDER BY id DESC LIMIT 1",
                 params![session_id, oldest_id],
@@ -4732,7 +4781,7 @@ impl SessionDB {
                 // orphan row (session can begin with tool/thinking rows when
                 // persistence is in flight).
                 match conn.query_row::<Option<i64>, _, _>(
-                    "SELECT MIN(id) FROM messages WHERE session_id = ?1 AND id < ?2",
+                    "SELECT MIN(id) FROM assistant_visible_messages AS messages WHERE session_id = ?1 AND id < ?2",
                     params![session_id, oldest_id],
                     |row| row.get(0),
                 ) {
@@ -4752,7 +4801,7 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1 AND id >= ?2 AND id < ?3
              ORDER BY id ASC",
         )?;
@@ -4807,7 +4856,7 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1 AND id > ?2
              ORDER BY id ASC
              LIMIT ?3",
@@ -4857,7 +4906,7 @@ impl SessionDB {
         // upper bound. None means we extend to the session's tail.
         let next_user_id: Option<i64> = conn
             .query_row(
-                "SELECT id FROM messages
+                "SELECT id FROM assistant_visible_messages AS messages
                  WHERE session_id = ?1 AND id > ?2 AND role = 'user'
                  ORDER BY id ASC LIMIT 1",
                 params![session_id, anchor_id],
@@ -4869,7 +4918,7 @@ impl SessionDB {
             None => {
                 // Treat the row after the session's max id as the cap.
                 let max_id: i64 = conn.query_row(
-                    "SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = ?1",
+                    "SELECT COALESCE(MAX(id), 0) FROM assistant_visible_messages AS messages WHERE session_id = ?1",
                     params![session_id],
                     |row| row.get(0),
                 )?;
@@ -4888,7 +4937,7 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1 AND id > ?2 AND id < ?3
              ORDER BY id ASC",
         )?;
@@ -4903,7 +4952,7 @@ impl SessionDB {
 
     fn has_messages_before(conn: &Connection, session_id: &str, id: i64) -> bool {
         conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id = ?1 AND id < ?2)",
+            "SELECT EXISTS(SELECT 1 FROM assistant_visible_messages AS messages WHERE session_id = ?1 AND id < ?2)",
             params![session_id, id],
             |row| row.get::<_, i64>(0),
         )
@@ -4913,7 +4962,7 @@ impl SessionDB {
 
     fn has_messages_after(conn: &Connection, session_id: &str, id: i64) -> bool {
         conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id = ?1 AND id > ?2)",
+            "SELECT EXISTS(SELECT 1 FROM assistant_visible_messages AS messages WHERE session_id = ?1 AND id > ?2)",
             params![session_id, id],
             |row| row.get::<_, i64>(0),
         )
@@ -5038,6 +5087,9 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        if crate::personal_assistant::research::is_research_context(&conn, session_id)? {
+            anyhow::bail!("Private research messages require sealed stream persistence");
+        }
         let now = chrono::Utc::now().to_rfc3339();
         let timestamp = if msg.timestamp.is_empty() {
             &now
@@ -5080,6 +5132,9 @@ impl SessionDB {
         msg: &NewMessage,
         resolved_ts: &str,
     ) {
+        if self.assistant_research_context(session_id).unwrap_or(true) {
+            return;
+        }
         // Live transcript mirror for hook scripts (design §10): mirror when ANY
         // scope has handlers — the global user/managed registry OR the session
         // cwd's project/local hooks. Never mirror incognito sessions. Runs only
@@ -5289,7 +5344,7 @@ impl SessionDB {
         }
         conn.execute(
             "UPDATE sessions SET updated_at = ?1
-             WHERE id = (SELECT session_id FROM messages WHERE id = ?2)",
+             WHERE id = (SELECT session_id FROM assistant_visible_messages AS messages WHERE id = ?2)",
             params![now, message_id],
         )?;
         Ok(())
@@ -5333,17 +5388,17 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1
                AND id > COALESCE(
-                   (SELECT id FROM messages
+                   (SELECT id FROM assistant_visible_messages AS messages
                     WHERE session_id = ?1 AND role = 'user'
                     ORDER BY id DESC
                     LIMIT 1 OFFSET 1),
                    0
                )
                AND id < COALESCE(
-                   (SELECT MAX(id) FROM messages WHERE session_id = ?1 AND role = 'user'),
+                   (SELECT MAX(id) FROM assistant_visible_messages AS messages WHERE session_id = ?1 AND role = 'user'),
                    9223372036854775807
                )
              ORDER BY id ASC",
@@ -5380,10 +5435,10 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1
                AND id > COALESCE(
-                   (SELECT MAX(id) FROM messages
+                   (SELECT MAX(id) FROM assistant_visible_messages AS messages
                     WHERE session_id = ?1 AND role = 'user'),
                    0
                )
@@ -5410,7 +5465,7 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1 AND role = 'user'
              ORDER BY id DESC
              LIMIT 1",
@@ -5432,10 +5487,10 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "SELECT DISTINCT session_id FROM messages
+            "SELECT DISTINCT session_id FROM assistant_visible_messages AS messages
              WHERE stream_status = 'orphaned'
                AND id > COALESCE(
-                   (SELECT MAX(u.id) FROM messages u
+                   (SELECT MAX(u.id) FROM assistant_visible_messages u
                     WHERE u.session_id = messages.session_id AND u.role = 'user'),
                    0
                )",
@@ -5483,7 +5538,7 @@ impl SessionDB {
              WHERE session_id = ?1
                AND stream_status = 'orphaned'
                AND id > COALESCE(
-                   (SELECT MAX(id) FROM messages
+                   (SELECT MAX(id) FROM assistant_visible_messages AS messages
                     WHERE session_id = ?1 AND role = 'user'),
                    0
                )",
@@ -5507,17 +5562,17 @@ impl SessionDB {
         let exists: i64 = conn.query_row(
             "SELECT EXISTS(
                  SELECT 1
-                 FROM messages o
+                 FROM assistant_visible_messages o
                  WHERE o.session_id = ?1
                    AND o.stream_status = 'orphaned'
                    AND o.id > COALESCE(
-                       (SELECT MAX(id) FROM messages
+                       (SELECT MAX(id) FROM assistant_visible_messages AS messages
                         WHERE session_id = ?1 AND role = 'user'),
                        0
                    )
                    AND EXISTS (
                        SELECT 1
-                       FROM messages e
+                       FROM assistant_visible_messages e
                        WHERE e.session_id = o.session_id
                          AND e.role = 'event'
                          AND e.content = ?2
@@ -6261,7 +6316,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "SELECT role, COUNT(*) FROM messages
+            "SELECT role, COUNT(*) FROM assistant_visible_messages AS messages
              WHERE session_id = ?1 AND role IN ('user', 'assistant')
              GROUP BY role",
         )?;
@@ -6291,7 +6346,7 @@ impl SessionDB {
             "SELECT COALESCE(SUM(tokens_in), 0),
                     COALESCE(SUM(tokens_out), 0),
                     COUNT(*)
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1
                AND role = 'assistant'
                AND is_side_snapshot = 0",
@@ -6320,7 +6375,7 @@ impl SessionDB {
         let row = conn
             .query_row(
                 "SELECT tokens_in, tokens_in_last, tokens_cache_creation, tokens_cache_read, model
-                 FROM messages
+                 FROM assistant_visible_messages AS messages
                  WHERE session_id = ?1 AND role = 'assistant'
                  ORDER BY id DESC
                  LIMIT 1",
@@ -6350,7 +6405,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM messages WHERE session_id = ?1 AND role IN ('user', 'assistant')",
+            "SELECT COUNT(*) FROM assistant_visible_messages AS messages WHERE session_id = ?1 AND role IN ('user', 'assistant')",
             params![session_id],
             |row| row.get(0),
         )?;
@@ -6634,7 +6689,7 @@ impl SessionDB {
                         SET archived_at = ?2,
                             pinned_at = NULL,
                             last_read_message_id = (
-                                SELECT COALESCE(MAX(id), 0) FROM messages
+                                SELECT COALESCE(MAX(id), 0) FROM assistant_visible_messages AS messages
                                  WHERE session_id = ?1
                             )
                       WHERE id = ?1 AND archived_at IS NULL",
@@ -7023,6 +7078,11 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        crate::personal_assistant::research::check_context_write(
+            &conn,
+            session_id,
+            context_run_id,
+        )?;
         let changed = conn.execute(
             "UPDATE sessions
              SET context_json = ?1,
@@ -7055,6 +7115,7 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        crate::personal_assistant::research::check_context_write(&conn, session_id, None)?;
         let changed = if let Some(expected) = expected_context_json {
             conn.execute(
                 "UPDATE sessions
@@ -7081,6 +7142,9 @@ impl SessionDB {
     /// Pre-provenance side contexts cannot safely distinguish inherited items
     /// during compaction. Fail closed there; idle learning still uses own rows.
     pub fn context_supports_memory_flush(&self, session_id: &str) -> Result<bool> {
+        if self.assistant_research_context(session_id)? {
+            return Ok(false);
+        }
         let conn = self
             .conn
             .lock()
@@ -7112,7 +7176,7 @@ impl SessionDB {
             return Ok(None);
         }
         let mut stmt = conn.prepare(
-            "SELECT role, content FROM messages
+            "SELECT role, content FROM assistant_visible_messages AS messages
               WHERE session_id = ?1 AND is_side_snapshot = 0
                 AND role IN ('user', 'assistant') AND TRIM(content) <> ''
               ORDER BY id DESC LIMIT ?2",
@@ -7132,6 +7196,9 @@ impl SessionDB {
     /// Load the agent's conversation_history JSON for a session.
     /// Returns None if the session has no saved context.
     pub fn load_context(&self, session_id: &str) -> Result<Option<String>> {
+        if self.assistant_research_context(session_id)? {
+            return Ok(None);
+        }
         let conn = self
             .conn
             .lock()
@@ -7218,7 +7285,7 @@ impl SessionDB {
                    FROM sessions s
                   WHERE s.is_cron = 0
                     AND s.archived_at IS NULL
-                    AND s.kind NOT IN ('side', 'knowledge', 'eval_fixture', 'personal_assistant','personal_assistant_im')
+                    AND s.kind NOT IN ('side', 'knowledge', 'eval_fixture', 'personal_assistant','personal_assistant_im','personal_assistant_research')
                     AND (
                         (s.project_id IS NULL
                          AND s.parent_session_id IS NULL
@@ -7296,7 +7363,7 @@ impl SessionDB {
                     COALESCE(last_read_message_id, 0),
                     (
                         SELECT COALESCE(MAX(id), 0)
-                        FROM messages
+                        FROM assistant_visible_messages AS messages
                         WHERE session_id = ?1
                           AND (?2 IS NULL OR id <= ?2)
                     )
@@ -7322,7 +7389,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "UPDATE sessions SET last_read_message_id = (SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = ?1) WHERE id = ?1"
+            "UPDATE sessions SET last_read_message_id = (SELECT COALESCE(MAX(id), 0) FROM assistant_visible_messages AS messages WHERE session_id = ?1) WHERE id = ?1"
         )?;
         for id in session_ids {
             stmt.execute(params![id])?;
@@ -7344,7 +7411,7 @@ impl SessionDB {
             "UPDATE sessions AS s
                 SET last_read_message_id = (
                     SELECT COALESCE(MAX(id), 0)
-                    FROM messages
+                    FROM assistant_visible_messages AS messages
                     WHERE messages.session_id = s.id
                 )
               WHERE s.project_id = ?1 AND {}",
@@ -7368,7 +7435,7 @@ impl SessionDB {
         let sql = format!(
             "UPDATE sessions AS s
                 SET last_read_message_id = (
-                    SELECT COALESCE(MAX(id), 0) FROM messages
+                    SELECT COALESCE(MAX(id), 0) FROM assistant_visible_messages AS messages
                      WHERE messages.session_id = s.id
                 )
               WHERE {}",
@@ -7459,7 +7526,7 @@ impl SessionDB {
         let sql = format!(
             "UPDATE sessions AS s
                 SET last_read_message_id = (
-                    SELECT COALESCE(MAX(id), 0) FROM messages
+                    SELECT COALESCE(MAX(id), 0) FROM assistant_visible_messages AS messages
                      WHERE messages.session_id = s.id
                 )
               WHERE {}",
@@ -7613,7 +7680,7 @@ impl SessionDB {
 
         // Build dynamic WHERE / params. Each concrete query binds its match
         // parameter first, then appends these shared filters.
-        let mut where_clauses: Vec<String> = Vec::new();
+        let mut where_clauses: Vec<String> = vec!["s.kind <> 'personal_assistant_research' AND NOT EXISTS(SELECT 1 FROM assistant_research_runs research WHERE research.session_id=s.id)".to_owned()];
         let mut filter_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         if exclude_imported {
@@ -7648,7 +7715,7 @@ impl SessionDB {
             // session and is allowed to search its content while it is open.
             where_clauses.push("s.incognito = 0".to_string());
             where_clauses.push(
-                "s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')"
+                "s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im','personal_assistant_research')"
                     .to_string(),
             );
             where_clauses.push("s.archived_at IS NULL".to_string());
@@ -7661,7 +7728,7 @@ impl SessionDB {
                 for t in type_list {
                     match t {
                         SessionTypeFilter::Regular => type_clauses.push(
-                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im'))".to_string(),
+                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im','personal_assistant_research'))".to_string(),
                         ),
                         SessionTypeFilter::Cron => {
                             type_clauses.push("s.is_cron = 1".to_string())
@@ -7700,7 +7767,7 @@ impl SessionDB {
                     cc.channel_id, cc.chat_type,
                     fts.rank
              FROM messages_fts fts
-             JOIN messages m ON m.id = fts.rowid
+             JOIN assistant_visible_messages m ON m.id = fts.rowid
              JOIN sessions s ON s.id = m.session_id
              LEFT JOIN channel_conversations cc ON cc.session_id = s.id
              WHERE messages_fts MATCH ?
@@ -7718,7 +7785,7 @@ impl SessionDB {
                     cc.channel_id, cc.chat_type,
                     tri.rank
              FROM messages_trigram_fts tri
-             JOIN messages m ON m.id = tri.rowid
+             JOIN assistant_visible_messages m ON m.id = tri.rowid
              JOIN sessions s ON s.id = m.session_id
              LEFT JOIN channel_conversations cc ON cc.session_id = s.id
              WHERE messages_trigram_fts MATCH ?
@@ -7821,8 +7888,8 @@ impl SessionDB {
                             cc.channel_id, cc.chat_type
                      FROM sessions s
                      LEFT JOIN channel_conversations cc ON cc.session_id = s.id
-                     LEFT JOIN messages lm ON lm.id = (
-                         SELECT MAX(m2.id) FROM messages m2 WHERE m2.session_id = s.id
+                     LEFT JOIN assistant_visible_messages lm ON lm.id = (
+                         SELECT MAX(m2.id) FROM assistant_visible_messages m2 WHERE m2.session_id = s.id
                      )
                      {}
                      {} COALESCE(s.title, '') LIKE ? ESCAPE '\\'
@@ -7980,7 +8047,7 @@ impl SessionDB {
                  FROM sessions s
                  WHERE s.incognito = 0
                    AND s.archived_at IS NULL
-                   AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')
+                   AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im','personal_assistant_research')
                    AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
                    AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                    AND COALESCE(s.title, '') LIKE ?1 ESCAPE '\\'
@@ -8015,13 +8082,13 @@ impl SessionDB {
                             snippet(messages_fts, 0, '\x02', '\x03', '…', 16) AS snippet,
                             fts.rank AS rank
                      FROM messages_fts fts
-                     JOIN messages m ON m.id = fts.rowid
+                     JOIN assistant_visible_messages m ON m.id = fts.rowid
                      JOIN sessions s ON s.id = m.session_id
                      WHERE messages_fts MATCH ?1
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
                        AND s.archived_at IS NULL
-                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')
+                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im','personal_assistant_research')
                        AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
                        AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                  )
@@ -8058,13 +8125,13 @@ impl SessionDB {
                             snippet(messages_trigram_fts, 0, '\x02', '\x03', '…', 16) AS snippet,
                             tri.rank AS rank
                      FROM messages_trigram_fts tri
-                     JOIN messages m ON m.id = tri.rowid
+                     JOIN assistant_visible_messages m ON m.id = tri.rowid
                      JOIN sessions s ON s.id = m.session_id
                      WHERE messages_trigram_fts MATCH ?1
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
                        AND s.archived_at IS NULL
-                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im')
+                       AND s.kind NOT IN ('side','knowledge','design','eval_fixture','personal_assistant','personal_assistant_im','personal_assistant_research')
                        AND NOT EXISTS (SELECT 1 FROM personal_assistant_private_sessions pa WHERE pa.session_id = s.id)
                        AND NOT EXISTS (SELECT 1 FROM session_import_sources src WHERE src.session_id = s.id)
                  )
@@ -8134,7 +8201,7 @@ impl SessionDB {
         after: u32,
     ) -> Result<(Vec<SessionMessage>, u32, bool, bool)> {
         let total: u32 = conn.query_row(
-            "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
+            "SELECT COUNT(*) FROM assistant_visible_messages AS messages WHERE session_id = ?1",
             params![session_id],
             |row| row.get(0),
         )?;
@@ -8146,7 +8213,7 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1 AND id <= ?2
              ORDER BY id DESC
              LIMIT ?3",
@@ -8170,7 +8237,7 @@ impl SessionDB {
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
                     tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, persistence_run_id
-             FROM messages
+             FROM assistant_visible_messages AS messages
              WHERE session_id = ?1 AND id > ?2
              ORDER BY id ASC
              LIMIT ?3",
@@ -8221,7 +8288,7 @@ impl SessionDB {
             return Ok(None);
         }
         let live: Option<(Option<String>,String,String,String)> = tx.query_row(
-            "SELECT s.title,m.content,m.role,m.timestamp FROM messages m JOIN sessions s ON s.id=m.session_id
+            "SELECT s.title,m.content,m.role,m.timestamp FROM assistant_visible_messages m JOIN sessions s ON s.id=m.session_id
              WHERE m.id=?1 AND m.session_id=?2", params![hit.message_id,hit.session_id],
             |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
         ).optional()?;
@@ -8298,7 +8365,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "SELECT content FROM messages
+            "SELECT content FROM assistant_visible_messages AS messages
              WHERE session_id = ?1 AND role = 'user' AND length(content) > 0
              ORDER BY id DESC LIMIT 1",
         )?;
@@ -8327,7 +8394,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "SELECT timestamp FROM messages
+            "SELECT timestamp FROM assistant_visible_messages AS messages
              WHERE session_id = ?1 AND role = 'user'
              ORDER BY id DESC LIMIT 2",
         )?;
@@ -8365,7 +8432,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "SELECT content FROM messages
+            "SELECT content FROM assistant_visible_messages AS messages
              WHERE session_id = ?1
                AND role = 'user'
                AND length(content) > 0

@@ -44,6 +44,7 @@ mod grep;
 pub(crate) mod image;
 // pub：ha-mac 的截图结果复用 image marker 构建（工具结果图片标记契约）。
 mod assistant_report;
+mod assistant_research;
 pub mod image_markers;
 mod issue_report;
 pub(crate) mod job_status;

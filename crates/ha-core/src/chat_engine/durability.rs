@@ -2147,6 +2147,13 @@ pub(crate) fn active(session_id: &str) -> Option<Arc<StreamCoordinator>> {
     coordinator
 }
 
+// Read the host source before copying any private in-memory events. This also
+// covers teardown windows where the session row has already been deleted.
+pub(crate) fn active_is_private_research(session_id: &str) -> bool {
+    active(session_id)
+        .is_some_and(|coordinator| coordinator.source == ChatSource::AssistantResearch)
+}
+
 pub(crate) fn active_snapshot(session_id: &str) -> Option<StreamSnapshot> {
     active(session_id).map(|coordinator| coordinator.snapshot())
 }
