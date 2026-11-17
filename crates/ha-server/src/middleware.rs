@@ -153,13 +153,13 @@ impl AuthState {
         let now = unix_time();
         let resources = ha_core::server_auth::create_scoped_access_ticket(
             signing_key.as_ref(),
-            "resources",
+            "owner_resources",
             ttl_secs,
             now,
         )?;
         let events = ha_core::server_auth::create_scoped_access_ticket(
             signing_key.as_ref(),
-            "events",
+            "owner_events",
             ttl_secs,
             now,
         )?;
@@ -538,6 +538,16 @@ pub async fn require_api_key(
     next: Next,
 ) -> Response {
     if !state.auth_required() {
+        if let Some(db) = ha_core::get_session_db().cloned() {
+            let private = db.run(|db| db.has_personal_assistant_private_data()).await;
+            if private.unwrap_or(true) {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    "Private assistant data requires owner-token authentication for HTTP access",
+                )
+                    .into_response();
+            }
+        }
         // A scoped Knowledge Agent token only makes sense alongside owner API-key
         // protection. Without an owner key the server is intentionally in no-auth
         // mode; do not let a read token alone lock every other endpoint into an
@@ -579,7 +589,10 @@ pub async fn require_api_key(
     if path == "/ws/events"
         && event_ticket_from_headers(request.headers())
             .as_deref()
-            .is_some_and(|ticket| state.check_access_ticket(ticket, "events"))
+            .is_some_and(|ticket| {
+                state.check_access_ticket(ticket, "events")
+                    || state.check_access_ticket(ticket, "owner_events")
+            })
     {
         return next.run(request).await;
     }

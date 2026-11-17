@@ -66,6 +66,8 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { WatchGoalButton } from "@/components/personal-assistant/WatchGoalButton"
+import type { AssistantWatch } from "@/components/personal-assistant/usePersonalAssistant"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SearchInput } from "@/components/ui/search-input"
@@ -277,6 +279,8 @@ export interface WorkspaceFocusRequest {
 }
 
 interface WorkspacePanelProps {
+  personalGoalWatches?: AssistantWatch[]
+  onWatchPersonalGoal?: (sessionId: string, goalId: string, watching: boolean) => Promise<void>
   taskSnapshot: TaskProgressSnapshot | null
   taskExecutionState?: WorkspaceTaskExecutionState
   /** 会话消息 —— 当前轮 live tail 在面板内部聚合,与后端历史全量合并。 */
@@ -12635,11 +12639,15 @@ function domainSoakReportHasSamples(report?: DomainSoakReport | null): boolean {
 
 function GoalWorkspaceSection({
   sessionId,
+  personalGoalWatches,
+  onWatchPersonalGoal,
   incognito,
   onEnsureSession,
   goalState,
 }: {
   sessionId?: string | null
+  personalGoalWatches?: AssistantWatch[]
+  onWatchPersonalGoal?: (sessionId: string, goalId: string, watching: boolean) => Promise<void>
   incognito?: boolean
   onEnsureSession?: () => Promise<string | null>
   goalState: GoalStateSnapshot
@@ -12942,6 +12950,18 @@ function GoalWorkspaceSection({
       meta={
         activeGoal ? (
           <div className="flex items-center gap-1">
+            {sessionId && !incognito && onWatchPersonalGoal && (
+              <WatchGoalButton
+                sessionId={sessionId}
+                goalId={activeGoal.id}
+                watching={
+                  !!personalGoalWatches?.some(
+                    (watch) => watch.sessionId === sessionId && watch.goalId === activeGoal.id,
+                  )
+                }
+                onChange={onWatchPersonalGoal}
+              />
+            )}
             <StatusPill
               label={goalStateLabel(t, activeGoal.state)}
               tone={goalStateTone(activeGoal.state)}
@@ -22414,6 +22434,8 @@ function WorkflowAgentsTab({
  * 内存合并;输出 / 来源两段各自定高内部滚动,滚到底自动增量渲染(无按钮)。
  */
 export default function WorkspacePanel({
+  personalGoalWatches,
+  onWatchPersonalGoal,
   taskSnapshot,
   taskExecutionState = "idle",
   messages,
@@ -22515,6 +22537,19 @@ export default function WorkspacePanel({
     if (!shouldConsumeWorkspaceFocus(focusRequest, sessionId, lastFocusRequestRef.current)) {
       return
     }
+    if (focusRequest.section === "goal" && focusRequest.itemId) {
+      if (goalState.loading || goalState.loadedSessionId !== sessionId) return
+      if (
+        goalState.error ||
+        goalState.snapshot?.goal.id !== focusRequest.itemId ||
+        goalState.snapshot.goal.sessionId !== sessionId
+      ) {
+        lastFocusRequestRef.current = focusRequest.nonce
+        toast.error(t("personalAssistant.unavailable"))
+        onFocusRequestHandled?.(focusRequest.nonce)
+        return
+      }
+    }
     lastFocusRequestRef.current = focusRequest.nonce
     const scroll = (target: HTMLDivElement | null) =>
       window.setTimeout(() => target?.scrollIntoView?.({ block: "start", behavior: "smooth" }), 0)
@@ -22532,7 +22567,17 @@ export default function WorkspacePanel({
       scroll(progressSectionRef.current)
     }
     onFocusRequestHandled?.(focusRequest.nonce)
-  }, [focusRequest, focusWorkflowRun, onFocusRequestHandled, sessionId])
+  }, [
+    focusRequest,
+    focusWorkflowRun,
+    goalState.loading,
+    goalState.loadedSessionId,
+    goalState.error,
+    goalState.snapshot,
+    onFocusRequestHandled,
+    sessionId,
+    t,
+  ])
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const {
@@ -22595,6 +22640,8 @@ export default function WorkspacePanel({
 
         <div ref={goalSectionRef}>
           <GoalWorkspaceSection
+            personalGoalWatches={personalGoalWatches}
+            onWatchPersonalGoal={onWatchPersonalGoal}
             sessionId={sessionId}
             incognito={incognito}
             onEnsureSession={onEnsureSession}

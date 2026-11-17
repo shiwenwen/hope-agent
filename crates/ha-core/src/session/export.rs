@@ -110,6 +110,9 @@ pub fn export_session(
     session_id: &str,
     opts: ExportOptions,
 ) -> Result<ExportPayload> {
+    if session_db.assistant_research_context(session_id)? {
+        anyhow::bail!("Private research is available only through current-source updates")
+    }
     let meta = session_db
         .get_session(session_id)?
         .ok_or_else(|| anyhow::anyhow!("session not found: {}", session_id))?;

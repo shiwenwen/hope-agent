@@ -972,8 +972,22 @@ impl SessionDB {
     /// restart fence active and Continue safely retryable; a Secondary can
     /// report success only after the Primary handoff is durable.
     pub fn finish_session_autonomy_resume(&self, pause_id: &str) -> Result<bool> {
+        self.finish_session_autonomy_resume_with_assistant(pause_id, None)
+    }
+
+    pub(crate) fn finish_session_autonomy_resume_with_assistant(
+        &self,
+        pause_id: &str,
+        assistant: Option<&crate::personal_assistant_continue::AssistantContinueProof>,
+    ) -> Result<bool> {
         let mut conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {e}"))?;
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(proof) = assistant {
+            if proof.pause_id != pause_id {
+                anyhow::bail!("Continue proof belongs to another pause receipt");
+            }
+            crate::personal_assistant_continue::validate_with_conn(&tx, proof)?;
+        }
         let pause = tx
             .query_row(
                 "SELECT session_id, subagent_run_ids_json

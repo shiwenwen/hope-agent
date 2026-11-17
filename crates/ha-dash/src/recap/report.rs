@@ -215,7 +215,7 @@ where
 }
 
 fn compute_quantitative(
-    _session_db: &Arc<SessionDB>,
+    session_db: &Arc<SessionDB>,
     log_db: &Arc<LogDB>,
     _cron_db: &Arc<cron::CronDB>,
     filter: &RecapFilters,
@@ -225,7 +225,12 @@ fn compute_quantitative(
     let cost_trend = query_cost_trend(filter)?;
     let heatmap = query_activity_heatmap(filter)?;
     let hourly = query_hourly_distribution(filter)?;
-    let top_sessions = query_top_sessions(filter, 10)?;
+    let mut top_sessions = Vec::new();
+    for session in query_top_sessions(filter, 10)? {
+        if !session_db.is_personal_assistant_private_session(&session.id)? {
+            top_sessions.push(session);
+        }
+    }
     let model_efficiency = query_model_efficiency(filter)?;
     Ok(QuantitativeStats {
         overview,

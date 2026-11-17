@@ -168,6 +168,10 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                     timeout_secs,
                     true,
                     Some("Enter Plan Mode?".to_string()),
+                    crate::personal_assistant::attention::signals::classify_private_session(
+                        session_id,
+                    )
+                    .await,
                 );
                 app_warn!(
                     "plan",

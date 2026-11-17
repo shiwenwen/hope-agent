@@ -158,6 +158,8 @@ impl std::fmt::Debug for SessionDbHandle {
 /// [`crate::tools::pending_approvals_per_session`] for the canonical pattern).
 #[derive(Debug, Clone, Default)]
 pub struct ToolExecContext {
+    /// Kernel-selected schema and execution ceiling.
+    pub tool_scope: Option<super::ToolScope>,
     /// Model context window in tokens (for dynamic output truncation)
     pub context_window_tokens: Option<u32>,
     /// Estimated tokens currently used by system prompt + messages + max_output.
@@ -181,6 +183,11 @@ pub struct ToolExecContext {
     pub session_id: Option<String>,
     /// Durable chat-turn identity for turn-scoped opaque references.
     pub turn_id: Option<String>,
+    /// Kernel durability identity, including rowless parent/subagent runs.
+    pub persistence_run_id: Option<String>,
+    /// Runtime-issued idempotency token retained by async re-entry.
+    /// Actual retry attempts consume separate budget; dispatch re-entry does not.
+    pub assistant_retry_attempt: u32,
     /// Opaque Agent references resolved from typed composer gestures for this
     /// turn. These are selectors only, never authorization or spawn commands.
     pub agent_binding_refs: Vec<crate::prompt_context::AgentBindingRef>,
@@ -534,6 +541,9 @@ impl ToolExecContext {
 
     /// Whether the tool is visible under the current combined restrictions.
     pub fn is_tool_visible(&self, name: &str) -> bool {
+        if self.tool_scope.is_some_and(|scope| !scope.allows(name)) {
+            return false;
+        }
         super::tool_visible_with_filters(
             name,
             &self.agent_tool_filter,

@@ -164,6 +164,7 @@
     "resolvedElsewhere": "審批已由其他端處理"
   },
   "auth": {
+    "ownerTokenSetupBody": "此服務已儲存私人助理資料。請從桌面設定或服務啟動配置中設定 Server Owner Token，再回到這裡登入。",
     "checking": "正在檢查伺服器安全狀態…",
     "fingerprint": "伺服器 Token 指紋：{{fingerprint}}",
     "retry": "重試",
@@ -1338,7 +1339,8 @@
     "channelUnreadStatus": "IM 會話未讀",
     "generatedImageName": "生成的圖片 {{index}}",
     "noAgents": "暫無 Agent",
-    "sessionFailed": "對話失敗"
+    "sessionFailed": "對話失敗",
+    "composerOptions": "對話選項"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 認證令牌已失效，請重新登入以繼續使用。",
@@ -8818,7 +8820,10 @@
     },
     "contextCompactSummaryReasoning": "摘要專用推理覆寫",
     "contextCompactSummaryReasoningDefault": "保留目前摘要策略",
-    "contextCompactSummaryReasoningDesc": "僅用於上下文摘要。不支援的等級會報錯並保留歷史；失敗後不會自動換模型或提高輸出上限。預設維持現況。"
+    "contextCompactSummaryReasoningDesc": "僅用於上下文摘要。不支援的等級會報錯並保留歷史；失敗後不會自動換模型或提高輸出上限。預設維持現況。",
+    "toolAssistantReportDesc": "記錄已核實的事項進展、結果或需要主人回答的持久問題",
+    "toolAssistantResearchDesc": "只在 Hope 中讀取發現引用或提交來源內追問，不擴大資料權限。",
+    "toolAssistantResearchReportDesc": "為目前私人研究提交有來源依據的發現，核實後顯示於 Hope。"
   },
   "shortcuts": {
     "actionOpenSettings": "開啟設定",
@@ -9294,7 +9299,10 @@
     "feishu_hire_get_job": "飛書招聘：查詢職缺",
     "feishu_hire_list_talents": "飛書招聘：列出人才",
     "feishu_hire_get_talent": "飛書招聘：查詢人才",
-    "feishu_hire_list_applications": "飛書招聘：列出投遞"
+    "feishu_hire_list_applications": "飛書招聘：列出投遞",
+    "assistant_report": "回報助理事項",
+    "assistant_research": "檢查共享資料",
+    "assistant_research_report": "提交資料發現"
   },
   "tz": {
     "amsterdam": "阿姆斯特丹 (UTC+1)",
@@ -12913,6 +12921,218 @@
       "supported": "受支援",
       "degraded": "降級",
       "blocked": "受阻"
+    }
+  },
+  "personalAssistant": {
+    "im": {
+      "identityInUse": "這個機器人已用於工作對話。請為個人助理新建一個機器人，現有連線沒有變更。",
+      "title": "連接 Telegram",
+      "separateBot": "為個人助理配置專用 Telegram 機器人，並配對本人的私聊。專案工作對話使用工作機器人。",
+      "token": "專用機器人權杖",
+      "connect": "核對身分並連接",
+      "botId": "機器人 ID",
+      "userId": "Telegram 使用者 ID",
+      "chatId": "本人私聊 ID",
+      "pair": "產生配對碼",
+      "codeExpires": "配對碼到期時間",
+      "restartPairing": "重新開始配對",
+      "confirm": "確認此 Telegram 帳號",
+      "unpair": "解除本人私聊配對",
+      "remove": "移除助理機器人",
+      "paused": "暫停主動通知",
+      "work": "此私聊可以操作的工作",
+      "chooseWork": "選擇工作對話",
+      "noWork": "請先在 Hope 開啟或建立工作對話。",
+      "queryStatus": "查詢工作狀態",
+      "delegate": "交辦新工作",
+      "stop": "停止交辦工作",
+      "completionNotice": "接收完成提醒",
+      "expires": "權限到期時間",
+      "statusOnly": "Telegram 回覆顯示工作狀態。來源訊息與結果可在 Hope 檢視。",
+      "revoke": "撤回權限",
+      "receipts": "傳送回執",
+      "openBot": "在 Telegram 開啟機器人",
+      "expired": "已到期",
+      "noAccess": "權限已撤回",
+      "state": {
+        "unpaired": "請連接此機器人的本人私聊。",
+        "awaiting_code": "請在此機器人的本人私聊中傳送配對命令。",
+        "awaiting_confirmation": "有個私聊提交了配對碼。請核對這個 Telegram 身分確實屬於你，再確認。",
+        "awaiting_activation": "請回到此機器人的私聊中點「啟用」。此後新傳送的訊息才會受理。",
+        "active": "本人私聊已啟用，請在下方選擇允許操作的工作。"
+      },
+      "delivery": {
+        "pending": "等待傳送",
+        "submitting": "正在提交",
+        "accepted": "平台已接收",
+        "unknown": "結果未知",
+        "cancelled": "已取消"
+      },
+      "notificationPolicy": "主動通知：{{start}}–{{end}} 勿擾，每個當地日最多 {{limit}} 則。此策略不限制對你訊息的即時回覆。",
+      "notificationTimezone": "主人時區：{{timezone}}",
+      "notificationTimezoneRequired": "主動通知已關閉。請在主人資料中設定有效的 IANA 時區後啟用。",
+      "deferred": {
+        "timezone_required": "等待有效的主人時區",
+        "quiet_hours": "等待勿擾時段結束",
+        "daily_limit": "已達每日通知上限"
+      }
+    },
+    "stop": "停止工作",
+    "title": "個人助理",
+    "work": "交辦工作",
+    "goals": "關注的目標",
+    "emptyWork": "在這裡交辦，讓既有工作對話分別推進。",
+    "emptyGoals": "在工作區關注目標後，這裡會提示新的阻礙及待驗收事項。",
+    "watchGoal": "讓助理關注",
+    "unwatchGoal": "停止關注",
+    "opening": "正在開啟個人助理…",
+    "source": "開啟來源",
+    "unavailable": "此事項已無法使用。",
+    "attention": "待處理（{{count}}）",
+    "blocked": "新的阻礙",
+    "awaiting_acceptance": "等待你驗收",
+    "status": {
+      "queued": "排隊中",
+      "running": "辦理中",
+      "cancellation_requested": "已要求停止",
+      "completed": "已完成",
+      "interrupted": "已中斷",
+      "cancelled": "已取消",
+      "failed": "失敗"
+    },
+    "historyLocked": "助手歷史不支援編輯重送。請傳送新訊息更正指令，或在工作面板停止單項交辦。",
+    "items": "事項",
+    "settings": {
+      "title": "助手設定",
+      "description": "管理個人助手的資料與專屬 IM 連線。",
+      "profile": "助手資料",
+      "im": "IM 連線",
+      "name": "助手名字",
+      "nameHint": "填寫 1–32 個字元。改名後保留原對話和交辦事項。",
+      "uploadAvatar": "上傳頭像",
+      "resetAvatar": "恢復預設",
+      "presetAvatar": "預設頭像",
+      "presets": {
+        "sparkles": "星光頭像",
+        "bot": "機器人頭像",
+        "heart": "愛心頭像"
+      },
+      "identityHint": "這是個人助手的獨立資料，與其他 Agent 和你的個人資料分開儲存。",
+      "botIdentityHint": "Telegram Bot 的名字和頭像由平台單獨管理，這裡的修改不會同步到 Bot 資料。"
+    },
+    "welcomeTitle": "我是{{name}}",
+    "welcomeBody": "告訴我你想做什麼。你可以隨時回來繼續對話，或查看交辦工作的進度。",
+    "messagePlaceholder": "有什麼想交給我的嗎？",
+    "readUpdate": "查看更新",
+    "executionHistory": "執行歷史",
+    "emptyItems": "把事情交給 Hope，它會持續跟進。",
+    "executionDetails": "執行詳情",
+    "itemUsage": "{{turns}} 輪 · {{tools}} 次工具 · 活躍 {{seconds}} 秒",
+    "itemExpiry": "跟進有效期至：{{time}}",
+    "continueItem": "繼續（追加 8 輪、64 次工具、30 分鐘）",
+    "updates": {
+      "update": "更新",
+      "result": "結果",
+      "progress": "進展",
+      "waiting": "等待中",
+      "blocked": "遇到阻礙",
+      "needs_review": "待核實",
+      "question": "需要你回答"
+    },
+    "itemState": {
+      "open": "進行中",
+      "waiting": "等待中",
+      "done": "已交付",
+      "stopped": "已停止"
+    },
+    "itemReason": {
+      "needs_input": "等待你回答",
+      "background_work": "等待背景工作",
+      "work_state_unknown": "工作結果未知，重試前需要核實",
+      "awaiting_verification": "結果仍需核實",
+      "execution_failed": "執行結果未能核實",
+      "budget_exhausted": "額度已用完，需要你明確繼續",
+      "no_progress": "沒有新的進展，等待你的指示",
+      "dispatch_failed": "工作未能啟動",
+      "owner_stopped": "你已停止此事項",
+      "scope_or_stop_changed": "範圍或停止狀態已改變"
+    },
+    "research": {
+      "settingsTitle": "主動關注",
+      "settingsHint": "Hope 只關注你明確共享的資料。暫停會停止目前交辦；恢復後需重新交辦。",
+      "enabled": "主動發現資料中的變化",
+      "pause": "暫停 Hope 的背景工作",
+      "pendingPolicy": "正在套用設定…",
+      "sources": "共享的資料",
+      "expires": "有效至 {{time}}",
+      "observed": "最近讀取檔案：{{time}}",
+      "suspended": "已暫停自動關注；需要時可主動檢查。",
+      "observationGap": "這段時間無法讀取，無法確認是否曾有變化。",
+      "refresh": "現在檢查",
+      "revoke": "撤銷共享",
+      "noSources": "尚未共享資料",
+      "workspace": "選擇資料所在的工作對話",
+      "path": "工作目錄內的檔案路徑，例如 notes/agenda.txt",
+      "focus": "關注什麼",
+      "focusPlaceholder": "例如：留意會議衝突，提前準備兩個可行方案",
+      "days": "共享天數",
+      "baselineHint": "最多共享 4 個 UTF-8 文字檔，每個不超過 64 KiB。首次讀取只建立基準；之後有重要變化才產生發現。",
+      "share": "共享資料",
+      "finding": "新發現",
+      "inference": "判斷",
+      "uncertainty": "待確認",
+      "prepared": "準備好的方案",
+      "lines": "第 {{start}}–{{end}} 行",
+      "ask": "繼續問 Hope",
+      "askPlaceholder": "只針對這份資料追問…",
+      "activity": {
+        "pending": "已排隊",
+        "running": "正在檢查資料…",
+        "finished": "已完成，結果顯示在對話中",
+        "failed": "未能完成，請檢查資料後重試",
+        "cancelled": "已取消",
+        "expired": "已過期，請重新發起",
+        "scopeChanged": "資料或授權已變更，請重新檢查",
+        "budget": "研究額度已用完，稍後可重試",
+        "unverified": "沒有可驗證的結果，請重試"
+      }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope 有新進展，請開啟 Hope 查看。",
+      "route": "透過哪裡提醒我",
+      "routes": {
+        "none": "僅在 Hope 內",
+        "desktop": "桌面通知",
+        "im": "助手 IM"
+      },
+      "limitHint": "主動提醒每天最多兩次，滾動 24 小時內也最多兩次；相關更新合併傳送。你在 IM 中主動提問仍可收到答覆。",
+      "timezone": "主人時區（IANA）",
+      "quietStart": "勿擾開始",
+      "quietEnd": "結束",
+      "quietHint": "依主人時區計算；開始與結束相同表示全天勿擾。",
+      "desktopToIm": "將桌面交辦狀態傳到 IM",
+      "desktopToImHint": "仍需對應工作對話的狀態與完成通知授權。預設只傳狀態，結果留在 Hope。",
+      "pairRequired": "請先在助手 IM 設定中配對專屬 Bot。",
+      "sourceDisclosure": "允許在助手 IM 傳送此資料摘要",
+      "sourceDisclosureHint": "預設關閉。僅對目前配對私聊開放簡短摘要與限定資料的追問；撤銷後舊訊息上下文失效。",
+      "nextEligible": "最早可再次提醒：{{time}}（{{zone}}）",
+      "deferred": {
+        "timezone_required": "設定主人時區後才能接收提醒。",
+        "quiet_hours": "勿擾時段：有用的更新暫留在 Hope。",
+        "daily_limit": "已達提醒上限，後續嘗試會等待。",
+        "policy_pending": "正在等待助手設定生效。",
+        "paused": "個人助手已暫停。",
+        "disabled": "更新留在 Hope，外部提醒已關閉。",
+        "pairing_required": "助手 IM 尚未配對，或通知已暫停。",
+        "using_hope": "你正在使用 Hope，暫緩外部提醒。"
+      },
+      "receipts": {
+        "submitting": "{{time}} · 正在等待平台確認",
+        "accepted": "{{time}} · 平台已接收，未確認已讀",
+        "unknown": "{{time}} · 送達未知，不自動重傳",
+        "cancelled": "{{time}} · 未提交，本次嘗試仍計入額度"
+      },
+      "homeHandoffHint": "助手主對話的直接問答與工具審批僅支援桌面提醒，請回到 Hope 處理。"
     }
   }
 }

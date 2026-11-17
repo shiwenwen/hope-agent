@@ -25,6 +25,7 @@ const MAX_AGENT_SUMMARY_BYTES: usize = 600;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RunInstructionSource {
+    PersonalAssistant,
     Cron,
     Subagent,
     Team,
@@ -47,6 +48,11 @@ pub struct RunInstructionContext {
 }
 
 impl RunInstructionContext {
+    pub(crate) fn append_kernel_instruction(&mut self, instruction: &str) {
+        self.instruction
+            .get_or_insert_with(String::new)
+            .push_str(instruction);
+    }
     pub fn new(source: RunInstructionSource, content: impl Into<String>) -> Result<Self> {
         let content = content.into();
         if content.trim().is_empty() {

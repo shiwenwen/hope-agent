@@ -233,6 +233,8 @@ impl ChannelPlugin for TelegramPlugin {
         let bot_id = me.id.0 as i64;
         let bot_username = me.username().to_string();
 
+        crate::personal_assistant_im::claim_ordinary_bot_start(account, bot_id).await?;
+
         app_info!(
             "channel",
             "telegram",

@@ -196,9 +196,7 @@ pub fn handle_rename(
 /// open Cmd+F.
 pub fn handle_sessions(session_db: &Arc<SessionDB>, args: &str) -> Result<CommandResult, String> {
     let query = args.trim();
-    let all = session_db
-        .list_sessions_excluding_imported(None)
-        .map_err(|e| e.to_string())?;
+    let all = ordinary_session_candidates(session_db)?;
 
     // Friendly agent display names; one IO per /sessions, fall back to bare
     // ids on error. `list_agents` also reads memory counts we discard —
@@ -244,6 +242,26 @@ pub fn handle_sessions(session_db: &Arc<SessionDB>, args: &str) -> Result<Comman
             sessions: picker_items,
         }),
     })
+}
+
+/// The shared slash picker also renders directly into ordinary IM replies.
+/// Private work is discovered through the personal assistant's scoped tools.
+fn ordinary_session_candidates(
+    session_db: &Arc<SessionDB>,
+) -> Result<Vec<crate::session::SessionMeta>, String> {
+    let mut candidates = Vec::new();
+    for session in session_db
+        .list_sessions_excluding_imported(None)
+        .map_err(|error| error.to_string())?
+    {
+        if !session_db
+            .is_personal_assistant_private_session(&session.id)
+            .map_err(|error| error.to_string())?
+        {
+            candidates.push(session);
+        }
+    }
+    Ok(candidates)
 }
 
 /// Apply `/sessions <query>` filter: metadata substring ∪ FTS5 message-body
@@ -404,6 +422,12 @@ pub fn handle_session(
 fn resolve_session_id_or_prefix(session_db: &Arc<SessionDB>, arg: &str) -> Result<String, String> {
     if let Some(meta) = session_db.get_session(arg).map_err(|e| e.to_string())? {
         if session_db
+            .is_personal_assistant_private_session(&meta.id)
+            .map_err(|error| error.to_string())?
+        {
+            return Err(format!("Session `{arg}` not found"));
+        }
+        if session_db
             .is_codex_imported_session(&meta.id)
             .map_err(|e| e.to_string())?
         {
@@ -414,9 +438,7 @@ fn resolve_session_id_or_prefix(session_db: &Arc<SessionDB>, arg: &str) -> Resul
     // Fallback: prefix scan. The list excludes incognito and imported rows;
     // `/sessions` further filters cron / subagent rows for the picker, but
     // raw resolution tolerates those when the user explicitly typed the id.
-    let candidates: Vec<crate::session::SessionMeta> = session_db
-        .list_sessions_excluding_imported(None)
-        .map_err(|e| e.to_string())?
+    let candidates: Vec<crate::session::SessionMeta> = ordinary_session_candidates(session_db)?
         .into_iter()
         .filter(|s| s.id.starts_with(arg))
         .collect();
@@ -630,6 +652,93 @@ mod tests {
             side.forked_from_session_id.as_deref(),
             Some(source.id.as_str())
         );
+    }
+
+    #[test]
+    fn shared_session_picker_does_not_disclose_private_work_or_starve_public_matches() {
+        let (_dir, db) = test_db();
+        let live = db.create_session("ha-main").unwrap();
+        db.update_session_title(&live.id, "Ordinary work").unwrap();
+        db.append_message(&live.id, &NewMessage::user("needle public result"))
+            .unwrap();
+        for n in 0..=SESSION_PICKER_LIMIT {
+            let private = db.create_session("ha-main").unwrap();
+            db.update_session_title(&private.id, "needle private-name")
+                .unwrap();
+            db.append_message(
+                &private.id,
+                &NewMessage::user("needle private-only-marker secret-value"),
+            )
+            .unwrap();
+            db.with_conn_for_test(|conn| {
+                conn.execute(
+                    "INSERT INTO personal_assistant_private_sessions(session_id) VALUES (?1)",
+                    [&private.id],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+            if n == 0 {
+                assert!(handle_session(&db, None, &private.id).is_err());
+                assert!(handle_session(&db, None, &private.id[..8]).is_err());
+            }
+        }
+        for query in ["", "needle", "eed"] {
+            let result = handle_sessions(&db, query).unwrap();
+            assert!(!result.content.contains("private-name"));
+            assert!(!result.content.contains("secret-value"));
+            let Some(CommandAction::ShowSessionPicker { sessions }) = result.action else {
+                panic!("expected session picker");
+            };
+            assert_eq!(sessions.len(), 1, "query={query}");
+            assert_eq!(sessions[0].id, live.id);
+        }
+        for query in ["needle", "eed"] {
+            let hits = db.search_distinct_session_snippets(query, 1).unwrap();
+            assert_eq!(hits.len(), 1, "query={query}");
+            assert_eq!(hits[0].0, live.id);
+        }
+        assert!(db
+            .search_distinct_session_snippets("private-only-marker", 10)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn distinct_body_search_keeps_two_sessions_when_one_has_many_matching_messages() {
+        let (_dir, db) = test_db();
+        let chatty = db.create_session("ha-main").unwrap();
+        let other = db.create_session("ha-main").unwrap();
+        db.update_session_title(&chatty.id, "Ordinary first work")
+            .unwrap();
+        db.update_session_title(&other.id, "Ordinary second work")
+            .unwrap();
+        for n in 0..40 {
+            db.append_message(
+                &chatty.id,
+                &NewMessage::user(&format!("needle public chatty {n}")),
+            )
+            .unwrap();
+        }
+        db.append_message(&other.id, &NewMessage::user("needle public second"))
+            .unwrap();
+        // Neither title matches. Full token and token-infix queries must both
+        // execute the body-search SQL, with LIMIT applied to distinct sessions.
+        for query in ["needle", "eed"] {
+            let hits = db.search_distinct_session_snippets(query, 2).unwrap();
+            assert_eq!(hits.len(), 2, "query={query}");
+            let ids = hits
+                .iter()
+                .map(|hit| hit.0.as_str())
+                .collect::<std::collections::HashSet<_>>();
+            assert!(ids.contains(chatty.id.as_str()));
+            assert!(ids.contains(other.id.as_str()));
+            assert!(hits.iter().all(|hit| hit.1.contains("public")));
+            assert_eq!(
+                db.search_distinct_session_snippets(query, 1).unwrap().len(),
+                1
+            );
+        }
     }
 
     #[test]

@@ -18,6 +18,8 @@ pub mod export;
 mod helpers;
 pub(crate) use helpers::workspace_root;
 mod ide_context;
+mod model_search;
+pub(crate) use model_search::{ModelHistorySource, ModelSearchWindow};
 mod pending;
 pub mod pet_activity;
 pub(crate) mod request_payload_store;
@@ -96,6 +98,9 @@ pub use tasks::{
     set_task_status_and_snapshot, Task, TaskStatus,
 };
 pub(crate) use turn_queue::emit_turn_released;
+pub(crate) use turn_queue::{
+    enqueue_personal_assistant_with_conn, personal_assistant_queue_is_head_with_conn,
+};
 pub use turn_queue::{
     DirectTurnAdmission, EnqueueQueuedTurnMessageOutcome, NewQueuedTurnMessage,
     NewScheduledTurnMessage, QueuedTurnMessageMode, QueuedTurnMessageRecord,

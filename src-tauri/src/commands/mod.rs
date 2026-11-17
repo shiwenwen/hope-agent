@@ -3,6 +3,7 @@ pub use error::CmdError;
 
 pub mod acp_control;
 pub mod agent_mgmt;
+pub mod assistant_research;
 pub mod auth;
 pub mod background_jobs;
 pub mod browser;
@@ -43,6 +44,8 @@ pub mod memory;
 pub mod misc;
 pub mod onboarding;
 pub mod permission;
+pub mod personal_assistant;
+pub mod personal_assistant_im;
 pub mod pet;
 pub mod plan;
 pub mod plan_index;

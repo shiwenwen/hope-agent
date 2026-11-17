@@ -123,7 +123,10 @@ pub(crate) fn effective_session_memory_access(
     };
     EffectiveSessionMemoryAccess {
         use_memories: policy.use_memories.allows(),
-        contribute_to_memories: policy.contribute_to_memories.allows(),
+        contribute_to_memories: policy.contribute_to_memories.allows()
+            && !db
+                .is_personal_assistant_private_session(session_id)
+                .unwrap_or(true),
     }
 }
 

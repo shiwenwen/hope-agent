@@ -18,11 +18,12 @@ import {
   isConfiguredHttpBaseSameOrigin,
 } from "@/lib/transport-provider"
 
-type GateState = "checking" | "ready" | "login" | "unavailable"
+type GateState = "checking" | "ready" | "login" | "unavailable" | "setup"
 
 interface AuthStatus {
   authRequired: boolean
   authenticated: boolean
+  ownerTokenSetupRequired?: boolean
 }
 
 export function AuthGate({ children }: { children: ReactNode }) {
@@ -51,6 +52,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
       })
       if (!response.ok) throw new Error(`status ${response.status}`)
       const status = (await response.json()) as AuthStatus
+      if (status.ownerTokenSetupRequired) {
+        clearStoredApiKey()
+        setToken("")
+        setState("setup")
+        return
+      }
       if (!status.authRequired || status.authenticated) {
         clearStoredApiKey()
         setState("ready")
@@ -84,11 +91,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
     const requireAuth = () => {
       setToken("")
       setError(null)
-      setState("login")
+      void check()
     }
     window.addEventListener(AUTH_REQUIRED_EVENT, requireAuth)
     return () => window.removeEventListener(AUTH_REQUIRED_EVENT, requireAuth)
-  }, [])
+  }, [check])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -124,7 +131,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           <h1 className="text-2xl font-semibold leading-none tracking-tight">
             {t("auth.tokenRequiredTitle")}
           </h1>
-          <p className="text-sm text-muted-foreground">{t("auth.tokenRequiredBody")}</p>
+          <p className="text-sm text-muted-foreground">{t(state === "setup" ? "auth.ownerTokenSetupBody" : "auth.tokenRequiredBody")}</p>
         </div>
         <div className="p-6 pt-0">
           {state === "checking" ? (
@@ -132,6 +139,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
               <Loader2 className="size-4 animate-spin" />
               {t("auth.checking")}
             </div>
+          ) : state === "setup" ? (
+            <Button className="w-full" onClick={() => void check()}>{t("auth.retry")}</Button>
           ) : state === "unavailable" ? (
             <div className="space-y-4">
               <div className="flex gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">

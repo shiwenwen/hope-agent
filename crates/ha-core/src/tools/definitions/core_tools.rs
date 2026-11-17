@@ -107,7 +107,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_RUNTIME_CANCEL.into(),
-            description: "Cancel a session async job, subagent, or process. `requested` is not termination; check `finalStatus` or status. Unknown targets return `refused`. This is cancellation, not pause; use `manage_cron` for schedules.".into(),
+            description: "Cancel an owned async job, subagent, process, or assistant_request. `requested` is not termination; check `finalStatus`. Unknown IDs return `refused`. Cancellation, not pause; schedules use `manage_cron`.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -117,8 +117,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "kind": {
                         "type": "string",
-                        "enum": ["async_job", "subagent", "process"],
-                        "description": "Runtime kind: async_job, subagent, or process."
+                        "enum": ["async_job", "subagent", "process", "assistant_request"],
+                        "description": "assistant_request requires an authorized live personal-assistant turn."
                     },
                     "id": {
                         "type": "string",
@@ -131,7 +131,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_SESSION_CONTINUE.into(),
-            description: "Resume the current conversation only when the user explicitly asks. Use the exact `pause_id` from `<session-paused>`; stale ids fail; do not call for status or replanning.".into(),
+            description: "When user explicitly asks: resume current conversation with system pause_id. Owner home may set session_id from this turn's status pauseId; do not call for status.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
             concurrent_safe: false,
@@ -140,6 +140,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "type": "object",
                 "properties": {
                     "pause_id": {
+                        "type": "string"
+                    },
+                    "session_id": {
                         "type": "string"
                     }
                 },
@@ -1726,7 +1729,60 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        ToolDefinition {
+            name: crate::tool_defs::TOOL_ASSISTANT_RESEARCH.into(),
+            description: "In the owner's live Hope conversation, list opaque references to current source-scoped updates or queue a question about an exact reference. Returns status and identity only. Source bodies and answers stay in private updates, never ordinary chat history. This does not grant source permissions or execute a Goal.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
+            internal: true, concurrent_safe: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            parameters: json!({"type":"object","properties":{
+                "action":{"type":"string","enum":["list","query"]},
+                "finding_id":{"type":"string"},"revision":{"type":"integer","minimum":1},
+                "question":{"type":"string","maxLength":8000}
+            },"required":["action"],"additionalProperties":false}),
+        },
+        ToolDefinition {
+            name: crate::tool_defs::TOOL_ASSISTANT_RESEARCH_REPORT.into(),
+            description: "Submit the private research result for this exact sealed source-scoped execution, then end the turn. Separate facts, inference, uncertainty and prepared alternatives. References must cite actual supplied source IDs, scope revision, current or previous version and line ranges. Reuse a stable short topic_key for the same issue. Empty findings means no useful update; explicit questions require an answer or a clearly unverified finding. This records a proposal; publication waits for committed execution and current full source permissions.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
+            internal: true, concurrent_safe: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            parameters: json!({"type":"object","properties":{"findings":{"type":"array","maxItems":8,"items":{
+                "type":"object","properties":{
+                    "attentionUntil":{"type":"string","format":"date-time","description":"Optional absolute RFC3339 deadline after which this finding should no longer interrupt the owner. Host caps eligibility to 24 hours; it never overrides quiet hours or quota."},"topicKey":{"type":"string","maxLength":64},"fact":{"type":"string","maxLength":2000},
+                    "inference":{"type":"string","maxLength":4000},"uncertainty":{"type":"string","maxLength":2000},
+                    "prepared":{"type":"string","maxLength":12000},"references":{"type":"array","minItems":1,"maxItems":8,"items":{
+                        "type":"object","properties":{"sourceId":{"type":"string"},"revision":{"type":"integer"},"version":{"type":"string"},"startLine":{"type":"integer","minimum":1},"endLine":{"type":"integer","minimum":1}},
+                        "required":["sourceId","revision","version","startLine","endLine"],"additionalProperties":false
+                    }}
+                },"required":["topicKey","fact","inference","uncertainty","prepared","references"],"additionalProperties":false
+            }}},"required":["findings"],"additionalProperties":false}),
+        },
         // ── Sessions Send ───────────────────────────────────────
+        ToolDefinition {
+            name: crate::tool_defs::TOOL_ASSISTANT_REPORT.into(),
+            description: "Report a verified result or next step for the assistant task bound to this worker turn. Use done only when the original request is satisfied and results are checked; waiting for a real dependency or decision; continue for another step inside the original request; failed for an unrecoverable blocker. This records a report, not fresh permission. Available only to an admitted assistant worker.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
+            internal: true,
+            concurrent_safe: false,
+            background_policy: crate::tools::definitions::BackgroundPolicy::ForegroundOnly,
+            parameters: json!({
+                "type":"object",
+                "properties":{
+                    "outcome":{"type":"string","enum":["done","waiting","continue","failed"]},
+                    "summary":{"type":"string","minLength":1,"maxLength":16384},
+                    "next_instruction":{"type":"string","maxLength":16384},
+                    "resume_after_seconds":{"type":"integer","minimum":60,"maximum":86400,"description":"Only for waiting on an external condition: schedule one later verification within this existing item, with next_instruction. Never use with a question or to repeat an unverified write. Same expiry, Stop and cumulative allowance apply."},
+                    "question":{"type":"string","maxLength":8192,"description":"For waiting on the owner, ask one concrete question. It persists across restarts; end this worker turn after recording it."},
+                    "options":{"type":"array","maxItems":6,"items":{"type":"object","properties":{
+                        "value":{"type":"string"},"label":{"type":"string"},
+                        "description":{"type":"string"},"recommended":{"type":"boolean"}
+                    },"required":["value","label"],"additionalProperties":false}}
+                },
+                "required":["outcome","summary"],
+                "additionalProperties":false
+            }),
+        },
         ToolDefinition {
             name: TOOL_SESSIONS_SEND.into(),
             description: "Submit a durable agent turn to another regular session, optionally with inline file attachments. The target agent always runs in the background; wait only controls whether this call waits for its reply. Returns the durable turn ID. Incognito and non-regular targets are refused.".into(),
@@ -1741,6 +1797,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "description": "Target session ID"
                     },
+                    "assistant_item_id": {"type":"string","description":"Hope Home only: exact existing open item ID when the owner provides additional information for that same request. Retains its original scope and cumulative allowance; a new request requires a new item."},
                     "message": {
                         "type": "string",
                         "description": "Message content. Optional when at least one attachment is supplied."
@@ -2684,6 +2741,7 @@ mod tests {
         assert!(kinds.iter().any(|kind| kind == "async_job"));
         assert!(kinds.iter().any(|kind| kind == "subagent"));
         assert!(kinds.iter().any(|kind| kind == "process"));
+        assert!(kinds.iter().any(|kind| kind == "assistant_request"));
         assert!(!kinds.iter().any(|kind| kind == "cron"));
         for contract in ["not termination", "`refused`", "not pause"] {
             assert!(runtime_cancel.description.contains(contract), "{contract}");

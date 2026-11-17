@@ -50,10 +50,10 @@ jobs:
         include:
           # macOS arm64 — Apple silicon DMG, native build on M-series runner.
           - platform: macos-arm64
-            os: macos-14
+            os: macos-15
             rust_target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
-            # 关键路径 lane（macos-14 只有 3 核）。纯提速，非 OOM 规避。
+            # 关键路径 lane（历史 macos-14 为 3 核，现迁至 macos-15）。纯提速，非 OOM 规避。
             # 4 → 16（v0.24.0）：ha-core 增 4710 行后本 lane 从 98 涨到 152 /
             # 173 分钟。dry-run 实测 16 档为 103 分钟，代价是裸二进制
             # 192.4 → 225.3 MB，用户实际下载的压缩包 84.8 → 95.3 MB（+12%）。

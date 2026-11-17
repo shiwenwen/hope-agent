@@ -1360,6 +1360,10 @@ pub async fn start_background_tasks() {
     crate::chat_engine::stop::spawn_session_autonomy_stop_fence_watcher();
 
     if primary {
+        crate::tools::spawn_personal_assistant_worker();
+    }
+
+    if primary {
         // Host-level sleep prevention (`prevent_sleep` setting). Primary-only so
         // a single process owns the OS assertion; reacts to config changes.
         spawn_keep_awake_listener();

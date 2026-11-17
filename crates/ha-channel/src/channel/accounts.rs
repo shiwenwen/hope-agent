@@ -150,30 +150,53 @@ pub async fn add_account(
         notify_session_eviction: parsed_channel_id != ChannelId::WeCom,
         notify_startup: parsed_channel_id != ChannelId::WeCom,
     };
+    let _telegram_guard = if parsed_channel_id == ChannelId::Telegram {
+        Some(crate::personal_assistant_im::configuration_guard().await?)
+    } else {
+        None
+    };
+    let telegram_bot = if parsed_channel_id == ChannelId::Telegram {
+        Some(
+            crate::personal_assistant_im::reserve_ordinary_bot(
+                &id,
+                &account.credentials,
+                &account.settings,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
 
     // Duplicate check + push happen inside `mutate_config_async` so two
     // concurrent add_account calls can't both pass the check on the same
     // credential and then race-write the config file — clone-then-save
     // clobbers the loser silently (config write red line #7).
     let account_for_write = account.clone();
-    ha_core::config::mutate_config_async(("channels.add", "channel.accounts"), move |store| {
-        if let Some(fp) = credential_fingerprint(
-            &account_for_write.channel_id,
-            &account_for_write.credentials,
-        ) {
-            if let Some(existing) = find_duplicate_account(
-                &store.channels.accounts,
+    let saved =
+        ha_core::config::mutate_config_async(("channels.add", "channel.accounts"), move |store| {
+            if let Some(fp) = credential_fingerprint(
                 &account_for_write.channel_id,
-                &fp,
-                None,
+                &account_for_write.credentials,
             ) {
-                anyhow::bail!("{}: {}", DUPLICATE_CREDENTIAL_ERROR_PREFIX, existing.label);
+                if let Some(existing) = find_duplicate_account(
+                    &store.channels.accounts,
+                    &account_for_write.channel_id,
+                    &fp,
+                    None,
+                ) {
+                    anyhow::bail!("{}: {}", DUPLICATE_CREDENTIAL_ERROR_PREFIX, existing.label);
+                }
             }
-        }
-        store.channels.accounts.push(account_for_write);
-        Ok(())
-    })
-    .await?;
+            store.channels.accounts.push(account_for_write);
+            Ok(())
+        })
+        .await;
+    if let Some(bot_id) = telegram_bot {
+        crate::personal_assistant_im::finish_ordinary_bot_reservation(&id, bot_id, saved.is_ok())
+            .await?;
+    }
+    saved?;
 
     if account.enabled {
         if let Some(registry) = ha_core::get_channel_registry() {
@@ -189,12 +212,39 @@ pub async fn add_account(
 /// Apply `params` to the named account and manage registry lifecycle
 /// transitions (start/stop/restart) based on the before/after enabled state.
 pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Result<()> {
+    let snapshot = ha_core::config::cached_config()
+        .channels
+        .find_account(account_id)
+        .cloned()
+        .ok_or_else(|| anyhow!("Account not found"))?;
+    let check_identity = snapshot.channel_id == ChannelId::Telegram
+        && (params.credentials.is_some()
+            || params.settings.is_some()
+            || params.enabled == Some(true));
+    let _telegram_guard = if snapshot.channel_id == ChannelId::Telegram {
+        Some(crate::personal_assistant_im::configuration_guard().await?)
+    } else {
+        None
+    };
+    let telegram_bot = if check_identity {
+        Some(
+            crate::personal_assistant_im::reserve_ordinary_bot(
+                account_id,
+                params.credentials.as_ref().unwrap_or(&snapshot.credentials),
+                params.settings.as_ref().unwrap_or(&snapshot.settings),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+    let expected_credentials = snapshot.credentials;
     // All dup-check + patch application run inside `mutate_config_async` so a
     // concurrent write can't win the save race and clobber this update (config
     // write red line #7). Registry lifecycle (start/stop/restart) is async and
     // must stay outside — the closure signature is sync.
     let account_id_owned = account_id.to_string();
-    let (was_enabled, updated) = ha_core::config::mutate_config_async(
+    let saved = ha_core::config::mutate_config_async(
         ("channels.update", "channel.accounts"),
         move |store| {
             let idx = store
@@ -204,6 +254,11 @@ pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Re
                 .position(|a| a.id == account_id_owned)
                 .ok_or_else(|| anyhow!("Account '{}' not found", account_id_owned))?;
             let channel_id = store.channels.accounts[idx].channel_id.clone();
+            if check_identity && store.channels.accounts[idx].credentials != expected_credentials {
+                return Err(
+                    ha_core::personal_assistant_im::AssistantImError::StaleGeneration.into(),
+                );
+            }
 
             if let Some(new_credentials) = params.credentials.as_ref() {
                 if let Some(fp) = credential_fingerprint(&channel_id, new_credentials) {
@@ -259,7 +314,16 @@ pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Re
             Ok((was_enabled, account.clone()))
         },
     )
-    .await?;
+    .await;
+    if let Some(bot_id) = telegram_bot {
+        crate::personal_assistant_im::finish_ordinary_bot_reservation(
+            account_id,
+            bot_id,
+            saved.is_ok(),
+        )
+        .await?;
+    }
+    let (was_enabled, updated) = saved?;
 
     // Persistence is the boundary: after this point attach re-reads the
     // account as disabled and safely resolves queued work GUI-only. Notify
@@ -316,6 +380,15 @@ pub fn set_account_auto_transcribe_voice(
 /// Stop, unregister, and clean up a channel account. For WeChat accounts this
 /// also removes the persisted iLink state on disk.
 pub async fn remove_account(account_id: &str) -> Result<()> {
+    let is_telegram = ha_core::config::cached_config()
+        .channels
+        .find_account(account_id)
+        .is_some_and(|account| account.channel_id == ChannelId::Telegram);
+    let _telegram_guard = if is_telegram {
+        Some(crate::personal_assistant_im::configuration_guard().await?)
+    } else {
+        None
+    };
     if let Some(registry) = ha_core::get_channel_registry() {
         let _ = registry.stop_account(account_id).await;
     }
@@ -333,6 +406,13 @@ pub async fn remove_account(account_id: &str) -> Result<()> {
         },
     )
     .await?;
+    if is_telegram {
+        if let Some(db) = ha_core::get_session_db() {
+            let id = account_id.to_owned();
+            db.run(move |db| db.release_telegram_bot_account(&id))
+                .await?;
+        }
+    }
 
     // The config no longer exposes this delivery surface. Emit before
     // best-effort provider-specific cleanup so a cleanup error cannot strand

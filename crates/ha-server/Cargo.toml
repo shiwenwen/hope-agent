@@ -1,6 +1,6 @@
 [package]
 name = "ha-server"
-version = "0.72.0"
+version = "0.75.0"
 description = "Hope Agent HTTP/WebSocket server"
 license.workspace = true
 authors.workspace = true
@@ -34,6 +34,7 @@ ha-core = { path = "../ha-core" }
 ha-agent-runtime = { path = "../ha-agent-runtime" }
 ha-memory = { path = "../ha-memory" }
 ha-goal = { path = "../ha-goal" }
+ha-assistant = { path = "../ha-assistant" }
 ha-workflow = { path = "../ha-workflow" }
 ha-improve = { path = "../ha-improve" }
 ha-acp = { path = "../ha-acp" }
@@ -91,6 +92,7 @@ windows-sys = { version = "0.52", features = [
 # Only the integration tests drive the server over real HTTP; all outbound
 # HTTP in the product lives in ha-core.
 [dev-dependencies]
+ha-core = { path = "../ha-core", features = ["test-support"] }
 reqwest = { workspace = true }
 
 [lints]

@@ -20,6 +20,9 @@ use crate::user_config;
 ///   allowing a model-authored merge here would leak token material into chat
 ///   history without rotating the active credential.
 const BLOCKED_UPDATE_CATEGORIES: &[&str] = &[
+    // Private identity is managed by its explicit-owner UI, not shared Agent config.
+    "personal_assistant_profile",
+    "assistant_policy",
     "active_model",
     "fallback_models",
     "channels",
@@ -60,6 +63,8 @@ const BLOCKED_USER_UPDATE_FIELDS: &[&str] = &["remoteApiKey"];
 /// entries are readable after category-specific redaction but omitted from the
 /// update schema. Keeping all three concerns together prevents future drift.
 const SETTINGS_CATEGORY_RISKS: &[(&str, &str)] = &[
+    ("personal_assistant_profile", "read_only"),
+    ("assistant_policy", "read_only"),
     ("user", "low"),
     ("theme", "low"),
     ("language", "low"),
@@ -582,6 +587,15 @@ fn read_category(category: &str) -> Result<Value> {
     let cfg = config::cached_config();
 
     match category {
+        "assistant_policy" => {
+            Ok(json!({"ownerOnly":true,"managedIn":"Assistant settings","settings":"[REDACTED]"}))
+        }
+        "personal_assistant_profile" => Ok(json!({
+            "ownerOnly": true,
+            "managedIn": "Personal assistant settings",
+            "name": "[REDACTED]",
+            "avatar": "[REDACTED]",
+        })),
         "user" => {
             let uc = user_config::load_user_config()?;
             Ok(redact_user_value(serde_json::to_value(&uc)?))
@@ -1900,11 +1914,33 @@ mod tests {
     }
 
     #[test]
+    fn personal_assistant_identity_is_redacted_and_not_model_writable() {
+        let value = read_category("personal_assistant_profile").unwrap();
+        assert_eq!(value["name"], "[REDACTED]");
+        assert_eq!(value["avatar"], "[REDACTED]");
+        assert_eq!(value["ownerOnly"], true);
+        assert!(BLOCKED_UPDATE_CATEGORIES.contains(&"personal_assistant_profile"));
+        assert!(!update_settings_categories().contains(&"personal_assistant_profile"));
+    }
+
+    #[test]
+    fn assistant_policy_is_owner_managed_and_never_model_writable() {
+        assert_eq!(
+            read_category("assistant_policy").unwrap(),
+            json!({"ownerOnly":true,"managedIn":"Assistant settings","settings":"[REDACTED]"})
+        );
+        assert!(BLOCKED_UPDATE_CATEGORIES.contains(&"assistant_policy"));
+        assert!(!update_settings_categories().contains(&"assistant_policy"));
+    }
+
+    #[test]
     fn risk_level_read_only_categories_low() {
         // Read-only categories report `low` because the model cannot mutate them
         // through this tool — the BLOCKED_UPDATE_CATEGORIES check rejects writes
         // before risk_level is even consulted.
         let expected = [
+            "assistant_policy",
+            "personal_assistant_profile",
             "active_model",
             "active_stt_model",
             "channels",

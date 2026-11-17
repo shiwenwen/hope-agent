@@ -47,6 +47,9 @@ pub(crate) fn build_extraction_prompt(
     let since_rfc = since.to_rfc3339();
 
     for (i, entry) in candidates.iter().enumerate() {
+        if session_db.is_personal_assistant_private_session(&entry.session_id)? {
+            continue;
+        }
         let mut block = String::new();
         block.push_str(&format!("{}. **{}**", i + 1, entry.title));
         if let Some(name) = &entry.agent_name {

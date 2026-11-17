@@ -6,6 +6,7 @@ members = [
     "crates/ha-agent-runtime",
     "crates/ha-memory",
     "crates/ha-goal",
+    "crates/ha-assistant",
     "crates/ha-workflow",
     "crates/ha-browser",
     "crates/ha-config-schema",

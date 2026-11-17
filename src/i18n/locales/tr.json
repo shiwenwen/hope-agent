@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Onay başka bir cihazda yanıtlandı"
   },
   "auth": {
+    "ownerTokenSetupBody": "Bu sunucuda özel asistan verileri var. Masaüstü ayarlarında veya sunucu başlangıç yapılandırmasında bir Server Owner Token belirleyin, ardından giriş yapmak için buraya dönün.",
     "checking": "Sunucu güvenliği denetleniyor…",
     "fingerprint": "Sunucu token parmak izi: {{fingerprint}}",
     "retry": "Tekrar dene",
@@ -1338,7 +1339,8 @@
     "channelUnreadStatus": "Okunmamış IM sohbeti",
     "generatedImageName": "Oluşturulan görsel {{index}}",
     "noAgents": "Ajan yok",
-    "sessionFailed": "Konuşma başarısız oldu"
+    "sessionFailed": "Konuşma başarısız oldu",
+    "composerOptions": "Sohbet seçenekleri"
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth tokenınız artık geçerli değil. Devam etmek için tekrar oturum açın.",
@@ -8818,7 +8820,10 @@
     },
     "contextCompactSummaryReasoning": "Özete özel akıl yürütme",
     "contextCompactSummaryReasoningDefault": "Mevcut özet ilkesini koru",
-    "contextCompactSummaryReasoningDesc": "Yalnızca bağlam özetlerini etkiler. Desteklenmeyen düzeyler hata verir ve geçmişi korur. Hata durumunda model veya çıktı sınırı otomatik değişmez. Varsayılan, mevcut davranışı korur."
+    "contextCompactSummaryReasoningDesc": "Yalnızca bağlam özetlerini etkiler. Desteklenmeyen düzeyler hata verir ve geçmişi korur. Hata durumunda model veya çıktı sınırı otomatik değişmez. Varsayılan, mevcut davranışı korur.",
+    "toolAssistantReportDesc": "Doğrulanmış ilerlemeyi, sonucu veya sahibine kalıcı bir soruyu kaydet",
+    "toolAssistantResearchDesc": "Hope’ta bulgu referanslarını görüntüleyin veya mevcut kaynak izinleriyle sorun.",
+    "toolAssistantResearchReportDesc": "Geçerli özel araştırmanın kanıta dayalı bulgularını bildirin; doğrulandıktan sonra yayımlanır."
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",
@@ -9294,7 +9299,10 @@
     "feishu_hire_get_job": "Feishu İşe alım: Pozisyonu getir",
     "feishu_hire_list_talents": "Feishu İşe alım: Adayları listele",
     "feishu_hire_get_talent": "Feishu İşe alım: Adayı getir",
-    "feishu_hire_list_applications": "Feishu İşe alım: Başvuruları listele"
+    "feishu_hire_list_applications": "Feishu İşe alım: Başvuruları listele",
+    "assistant_report": "Asistan işini bildir",
+    "assistant_research": "Paylaşılan materyali kontrol et",
+    "assistant_research_report": "Bulguları bildir"
   },
   "tz": {
     "amsterdam": "Amsterdam (UTC+1)",
@@ -12913,6 +12921,218 @@
       "supported": "Destekleniyor",
       "degraded": "Kısıtlı",
       "blocked": "Engellendi"
+    }
+  },
+  "personalAssistant": {
+    "im": {
+      "identityInUse": "Bu bot zaten iş konuşmalarında kullanılıyor. Asistan için ayrı bir bot oluşturun; mevcut bağlantı değiştirilmedi.",
+      "title": "Telegram bağla",
+      "separateBot": "Asistan için ayrı bir Telegram botu oluşturun ve özel sohbetinizi eşleştirin. Proje sohbetleri için iş botunu kullanın.",
+      "token": "Özel bot belirteci",
+      "connect": "Doğrula ve bağla",
+      "botId": "Bot kimliği",
+      "userId": "Telegram kullanıcı kimliği",
+      "chatId": "Özel sohbet kimliği",
+      "pair": "Eşleştirme kodu oluştur",
+      "codeExpires": "Kodun sona erme zamanı",
+      "restartPairing": "Eşleştirmeyi yeniden başlat",
+      "confirm": "Bu Telegram hesabını doğrula",
+      "unpair": "Özel sohbet eşleştirmesini kaldır",
+      "remove": "Asistan botunu kaldır",
+      "paused": "Proaktif bildirimleri duraklat",
+      "work": "Bu sohbetten erişilebilen işler",
+      "chooseWork": "Sohbet seç",
+      "noWork": "Önce Hope içinde bir iş sohbeti açın veya oluşturun.",
+      "queryStatus": "İş durumunu sor",
+      "delegate": "Yeni iş devret",
+      "stop": "Devredilen işi durdur",
+      "completionNotice": "Tamamlanma bildirimleri al",
+      "expires": "İznin sona erme zamanı",
+      "statusOnly": "Telegram yanıtları iş durumunu gösterir. Kaynak mesajları ve sonuçları incelemek için Hope uygulamasını açın.",
+      "revoke": "Erişimi iptal et",
+      "receipts": "Gönderim kayıtları",
+      "openBot": "Botu Telegram içinde aç",
+      "expired": "Süresi doldu",
+      "noAccess": "Erişim iptal edildi",
+      "state": {
+        "unpaired": "Özel sohbetinizi bu botla eşleştirin.",
+        "awaiting_code": "Eşleştirme komutunu bu botun özel sohbetine gönderin.",
+        "awaiting_confirmation": "Bir özel sohbet kodu gönderdi. Yalnızca bu Telegram kimliğinin size ait olduğunu doğruladıktan sonra onaylayın.",
+        "awaiting_activation": "Botun özel sohbetine dönüp Etkinleştir düğmesine basın. Bundan sonra gönderilen yeni mesajlar kabul edilir.",
+        "active": "Özel sohbetiniz etkinleştirildi. Erişebileceği işleri aşağıdan seçin."
+      },
+      "delivery": {
+        "pending": "Gönderim bekleniyor",
+        "submitting": "Gönderiliyor",
+        "accepted": "Platform kabul etti",
+        "unknown": "Sonuç bilinmiyor",
+        "cancelled": "İptal edildi"
+      },
+      "notificationPolicy": "Proaktif bildirimler: {{start}}–{{end}} arasında sessiz saatler ve yerel gün başına en fazla {{limit}} bildirim. Bu politika mesajlarınıza verilen yanıtları sınırlamaz.",
+      "notificationTimezone": "Sahibin saat dilimi: {{timezone}}",
+      "notificationTimezoneRequired": "Proaktif bildirimler devre dışı. Etkinleştirmek için sahip profilinde geçerli bir IANA saat dilimi ayarlayın.",
+      "deferred": {
+        "timezone_required": "Geçerli bir sahip saat dilimi bekleniyor",
+        "quiet_hours": "Sessiz saatlerin bitmesi bekleniyor",
+        "daily_limit": "Günlük bildirim sınırına ulaşıldı"
+      }
+    },
+    "stop": "İşi durdur",
+    "title": "Kişisel asistan",
+    "work": "Devredilen işler",
+    "goals": "Takip edilen hedefler",
+    "emptyWork": "Asistanınızdan mevcut sohbetlerinizdeki işleri koordine etmesini isteyin.",
+    "emptyGoals": "Yeni engelleri ve kabul isteklerini burada görmek için hedefi çalışma alanından takip edin.",
+    "watchGoal": "Asistanla takip et",
+    "unwatchGoal": "Takibi bırak",
+    "opening": "Asistanınız açılıyor…",
+    "source": "Kaynağı aç",
+    "unavailable": "Bu öğe artık kullanılamıyor.",
+    "attention": "İlgi gerekiyor ({{count}})",
+    "blocked": "Yeni engel",
+    "awaiting_acceptance": "Kabulünüz bekleniyor",
+    "status": {
+      "queued": "Sırada",
+      "running": "Çalışıyor",
+      "cancellation_requested": "Durdurma istendi",
+      "completed": "Tamamlandı",
+      "interrupted": "Kesildi",
+      "cancelled": "İptal edildi",
+      "failed": "Başarısız"
+    },
+    "historyLocked": "Asistan geçmişi yeniden yazılamaz. Bir talimatı düzeltmek için yeni bir mesaj gönderin veya çalışma panelinden bir görevlendirmeyi durdurun.",
+    "items": "İşler",
+    "settings": {
+      "title": "Asistan ayarları",
+      "description": "Asistanınızın profilini ve özel mesajlaşma bağlantısını yönetin.",
+      "profile": "Profil",
+      "im": "Mesajlaşma bağlantısı",
+      "name": "Asistan adı",
+      "nameHint": "1–32 karakter kullanın. Adı değiştirmek konuşmayı ve işleri korur.",
+      "uploadAvatar": "Avatar yükle",
+      "resetAvatar": "Varsayılanı geri yükle",
+      "presetAvatar": "Hazır avatarlar",
+      "presets": {
+        "sparkles": "Parıltı avatarı",
+        "bot": "Robot avatarı",
+        "heart": "Kalp avatarı"
+      },
+      "identityHint": "Bu profil kişisel asistanınıza aittir. Diğer Agents ve kendi profilinizden ayrı saklanır.",
+      "botIdentityHint": "Telegram Bot adı ve avatarı Telegram üzerinden ayrı yönetilir. Buradaki değişiklikler Bot profilini güncellemez."
+    },
+    "welcomeTitle": "Ben {{name}}",
+    "welcomeBody": "Ne yapmak istediğinizi söyleyin. Konuşmayı sürdürmek veya devredilen işleri kontrol etmek için buraya dönebilirsiniz.",
+    "messagePlaceholder": "Ne yapmak istersiniz?",
+    "readUpdate": "Güncellemeyi oku",
+    "executionHistory": "Çalıştırma geçmişi",
+    "emptyItems": "İşi Hope’a verin; tamamlanana kadar takip etsin.",
+    "executionDetails": "Çalıştırma ayrıntıları",
+    "itemUsage": "{{turns}} tur · {{tools}} araç · {{seconds}} etkin saniye",
+    "itemExpiry": "Takip bitişi: {{time}}",
+    "continueItem": "Devam et (+8 tur, 64 araç, 30 dk)",
+    "updates": {
+      "update": "Güncelleme",
+      "result": "Sonuç",
+      "progress": "İlerleme",
+      "waiting": "Bekliyor",
+      "blocked": "Engellendi",
+      "needs_review": "Doğrulama gerekiyor",
+      "question": "Yanıtınız gerekiyor"
+    },
+    "itemState": {
+      "open": "Sürüyor",
+      "waiting": "Bekliyor",
+      "done": "Teslim edildi",
+      "stopped": "Durduruldu"
+    },
+    "itemReason": {
+      "needs_input": "Yanıtınız bekleniyor",
+      "background_work": "Arka plan işi bekleniyor",
+      "work_state_unknown": "Sonuç bilinmiyor; yeniden denemeden önce doğrulayın",
+      "awaiting_verification": "Sonucun doğrulanması gerekiyor",
+      "execution_failed": "Çalıştırma doğrulanamadı",
+      "budget_exhausted": "Sınır doldu; devam talimatınız gerekiyor",
+      "no_progress": "Yeni ilerleme yok; talimatınız bekleniyor",
+      "dispatch_failed": "İş başlatılamadı",
+      "owner_stopped": "Bu işi durdurdunuz",
+      "scope_or_stop_changed": "Kapsam veya durdurma durumu değişti"
+    },
+    "research": {
+      "settingsTitle": "Proaktif yardım",
+      "settingsHint": "Hope yalnızca açıkça paylaştığınız materyali izler. Duraklatma mevcut görevleri durdurur; sürdürdükten sonra yeniden görevlendirin.",
+      "enabled": "Paylaşılan materyaldeki değişiklikleri bul",
+      "pause": "Hope’un arka plan çalışmasını duraklat",
+      "pendingPolicy": "Ayarlar uygulanıyor…",
+      "sources": "Paylaşılan materyal",
+      "expires": "Paylaşım sonu: {{time}}",
+      "observed": "Son dosya okuması: {{time}}",
+      "suspended": "Otomatik kontroller duraklatıldı. Gerektiğinde şimdi kontrol edebilirsiniz.",
+      "observationGap": "Bu dönem gözlemlenemedi. Değişiklikler kaçırılmış olabilir.",
+      "refresh": "Şimdi kontrol et",
+      "revoke": "Paylaşımı iptal et",
+      "noSources": "Henüz materyal paylaşılmadı",
+      "workspace": "Dosyanın bulunduğu iş sohbetini seçin",
+      "path": "Çalışma alanındaki dosya yolu, ör. notes/agenda.txt",
+      "focus": "Ne izlenecek",
+      "focusPlaceholder": "Örneğin: toplantı çakışmalarını bul ve iki uygun seçenek hazırla",
+      "days": "Paylaşım süresi (gün)",
+      "baselineHint": "Her biri en çok 64 KiB olan 4 UTF-8 metin dosyası paylaşın. İlk okuma başlangıç kaydıdır; sonraki kontroller önemli değişiklikleri bildirir.",
+      "share": "Materyali paylaş",
+      "finding": "Yeni bulgu",
+      "inference": "Çıkarım",
+      "uncertainty": "Doğrulanacak",
+      "prepared": "Hazırlanan seçenekler",
+      "lines": "Satır {{start}}–{{end}}",
+      "ask": "Hope’a daha fazla sor",
+      "askPlaceholder": "Yalnızca bu materyal hakkında sorun…",
+      "activity": {
+        "pending": "Sırada",
+        "running": "Materyal kontrol ediliyor…",
+        "finished": "Tamamlandı; sonuç sohbette görünür",
+        "failed": "Tamamlanamadı. Materyali kontrol edip yeniden deneyin.",
+        "cancelled": "İptal edildi",
+        "expired": "Süresi doldu. Yeniden gönderin.",
+        "scopeChanged": "Materyal veya izin değişti. Tekrar kontrol edin.",
+        "budget": "Araştırma sınırı doldu. Daha sonra deneyin.",
+        "unverified": "Doğrulanmış sonuç alınamadı. Yeniden deneyin."
+      }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope’ta bir gelişme var. Görmek için Hope’u açın.",
+      "route": "Bildirim kanalı",
+      "routes": {
+        "none": "Yalnızca Hope içinde",
+        "desktop": "Masaüstü",
+        "im": "Asistan IM"
+      },
+      "limitHint": "Yerel günde ve kayan 24 saatte en fazla iki proaktif bildirim. İlgili güncellemeler birleştirilir; IM üzerinden doğrudan sorularınız yanıtlanabilir.",
+      "timezone": "Saat diliminiz (IANA)",
+      "quietStart": "Sessizlik başlangıcı",
+      "quietEnd": "Bitişi",
+      "quietHint": "Saat diliminiz kullanılır. Aynı başlangıç ve bitiş, tüm gün sessizlik demektir.",
+      "desktopToIm": "Masaüstü iş durumunu IM’e gönder",
+      "desktopToImHint": "İlgili sohbetin durum ve tamamlanma izinleri de gerekir. Yalnızca durum gönderilir; sonuçlar Hope’ta kalır.",
+      "pairRequired": "Önce Asistan IM ayarlarında özel Bot’unuzu eşleştirin.",
+      "sourceDisclosure": "Bu kaynağın özetlerine IM’de izin ver",
+      "sourceDisclosureHint": "Varsayılan olarak kapalıdır. Eşleşmiş sohbette kısa özetlere ve kaynakla sınırlı sorulara izin verir. İptal edilince eski yanıt bağlamı geçersiz olur.",
+      "nextEligible": "Sonraki olası bildirim: {{time}} ({{zone}})",
+      "deferred": {
+        "timezone_required": "Bildirim almak için saat diliminizi seçin.",
+        "quiet_hours": "Sessiz saatler: güncellemeler şimdilik Hope’ta kalır.",
+        "daily_limit": "Bildirim sınırına ulaşıldı. Yeni denemeler bekler.",
+        "policy_pending": "Asistan ayarlarının uygulanması bekleniyor.",
+        "paused": "Asistan duraklatıldı.",
+        "disabled": "Güncellemeler Hope’ta kalır; dış bildirimler kapalıdır.",
+        "pairing_required": "IM eşleşmemiş veya bildirimler duraklatılmış.",
+        "using_hope": "Hope’u kullanıyorsunuz. Dış bildirimler ertelenir."
+      },
+      "receipts": {
+        "submitting": "{{time}} · Platform onayı bekleniyor",
+        "accepted": "{{time}} · Platform kabul etti; okunduğu bilinmiyor",
+        "unknown": "{{time}} · Teslim belirsiz; otomatik tekrar yok",
+        "cancelled": "{{time}} · Gönderilmedi; deneme yine de sayılır"
+      },
+      "homeHandoffHint": "Asistan ana sayfasındaki doğrudan sorular ve araç onayları yalnızca masaüstü bildirimlerini destekler. Yanıtlamak için Hope’u açın."
     }
   }
 }

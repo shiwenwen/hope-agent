@@ -164,6 +164,7 @@
     "resolvedElsewhere": "Aprovação tratada em outro dispositivo"
   },
   "auth": {
+    "ownerTokenSetupBody": "Este servidor contém dados privados do assistente. Defina um Server Owner Token nas configurações do aplicativo ou de inicialização do servidor e volte aqui para entrar.",
     "checking": "Verificando a segurança do servidor…",
     "fingerprint": "Impressão digital do token: {{fingerprint}}",
     "retry": "Tentar novamente",
@@ -1338,7 +1339,8 @@
     "channelUnreadStatus": "Conversa de mensagem não lida",
     "generatedImageName": "Imagem gerada {{index}}",
     "noAgents": "Nenhum agente",
-    "sessionFailed": "Falha na conversa"
+    "sessionFailed": "Falha na conversa",
+    "composerOptions": "Opções de conversa"
   },
   "codexAuth": {
     "expiredDescription": "Seu token OAuth do Codex não é mais válido. Faça login novamente para continuar.",
@@ -8818,7 +8820,10 @@
     },
     "contextCompactSummaryReasoning": "Raciocínio dos resumos",
     "contextCompactSummaryReasoningDefault": "Manter a política atual",
-    "contextCompactSummaryReasoningDesc": "Afeta apenas os resumos de contexto. Níveis incompatíveis geram erro e preservam o histórico. Falhas não trocam o modelo nem aumentam o limite de saída. O padrão mantém o comportamento atual."
+    "contextCompactSummaryReasoningDesc": "Afeta apenas os resumos de contexto. Níveis incompatíveis geram erro e preservam o histórico. Falhas não trocam o modelo nem aumentam o limite de saída. O padrão mantém o comportamento atual.",
+    "toolAssistantReportDesc": "Registrar progresso verificado, resultados ou uma pergunta persistente ao proprietário",
+    "toolAssistantResearchDesc": "Consultar referências ou perguntar dentro das permissões atuais no Hope.",
+    "toolAssistantResearchReportDesc": "Relatar descobertas com evidências da pesquisa privada atual; publicar após verificação."
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",
@@ -9294,7 +9299,10 @@
     "feishu_hire_get_job": "Feishu Recrutamento: Consultar vaga",
     "feishu_hire_list_talents": "Feishu Recrutamento: Listar candidatos",
     "feishu_hire_get_talent": "Feishu Recrutamento: Consultar candidato",
-    "feishu_hire_list_applications": "Feishu Recrutamento: Listar candidaturas"
+    "feishu_hire_list_applications": "Feishu Recrutamento: Listar candidaturas",
+    "assistant_report": "Relatar trabalho do assistente",
+    "assistant_research": "Verificar material compartilhado",
+    "assistant_research_report": "Relatar descobertas"
   },
   "tz": {
     "amsterdam": "Amsterdã (UTC+1)",
@@ -12913,6 +12921,218 @@
       "supported": "Compatível",
       "degraded": "Degradado",
       "blocked": "Bloqueado"
+    }
+  },
+  "personalAssistant": {
+    "im": {
+      "identityInUse": "Este bot já é usado em conversas de trabalho. Crie outro para o assistente; a conexão existente não foi alterada.",
+      "title": "Conectar Telegram",
+      "separateBot": "Configure um bot do Telegram exclusivo para o assistente e vincule seu chat privado. Use o bot de trabalho para conversas de projetos.",
+      "token": "Token do bot exclusivo",
+      "connect": "Verificar e conectar",
+      "botId": "ID do bot",
+      "userId": "ID do usuário no Telegram",
+      "chatId": "ID do chat privado",
+      "pair": "Gerar código de vinculação",
+      "codeExpires": "Validade do código",
+      "restartPairing": "Reiniciar vinculação",
+      "confirm": "Confirmar esta conta do Telegram",
+      "unpair": "Desvincular chat privado",
+      "remove": "Remover bot do assistente",
+      "paused": "Pausar notificações proativas",
+      "work": "Trabalho disponível neste chat",
+      "chooseWork": "Escolher conversa",
+      "noWork": "Primeiro abra ou crie uma conversa de trabalho no Hope.",
+      "queryStatus": "Consultar status do trabalho",
+      "delegate": "Delegar novo trabalho",
+      "stop": "Parar trabalho delegado",
+      "completionNotice": "Receber avisos de conclusão",
+      "expires": "Validade da permissão",
+      "statusOnly": "As respostas no Telegram mostram o status do trabalho. Abra o Hope para revisar mensagens de origem e resultados.",
+      "revoke": "Revogar acesso",
+      "receipts": "Confirmações de envio",
+      "openBot": "Abrir bot no Telegram",
+      "expired": "Expirado",
+      "noAccess": "Acesso revogado",
+      "state": {
+        "unpaired": "Vincule seu chat privado a este bot.",
+        "awaiting_code": "Envie o comando de vinculação para este bot no seu chat privado.",
+        "awaiting_confirmation": "Um chat privado enviou o código. Confirme somente após verificar que esta identidade do Telegram é sua.",
+        "awaiting_activation": "Volte ao chat privado do bot e toque em Ativar. Serão aceitas as novas mensagens enviadas depois disso.",
+        "active": "Seu chat privado está ativo. Escolha abaixo os trabalhos aos quais ele pode acessar."
+      },
+      "delivery": {
+        "pending": "Aguardando envio",
+        "submitting": "Enviando",
+        "accepted": "Aceito pela plataforma",
+        "unknown": "Resultado desconhecido",
+        "cancelled": "Cancelado"
+      },
+      "notificationPolicy": "Avisos proativos: silêncio das {{start}} às {{end}}, no máximo {{limit}} por dia local. Esta política não limita as respostas às suas mensagens.",
+      "notificationTimezone": "Fuso horário do proprietário: {{timezone}}",
+      "notificationTimezoneRequired": "Os avisos proativos estão desativados. Defina um fuso horário IANA válido no perfil do proprietário para ativá-los.",
+      "deferred": {
+        "timezone_required": "Aguardando um fuso horário válido do proprietário",
+        "quiet_hours": "Aguardando o fim do horário de silêncio",
+        "daily_limit": "Limite diário de avisos atingido"
+      }
+    },
+    "stop": "Parar trabalho",
+    "title": "Assistente pessoal",
+    "work": "Trabalho delegado",
+    "goals": "Objetivos acompanhados",
+    "emptyWork": "Peça ao assistente para coordenar o trabalho nas suas conversas existentes.",
+    "emptyGoals": "Acompanhe um objetivo no espaço de trabalho para receber novos bloqueios e pedidos de aceitação aqui.",
+    "watchGoal": "Acompanhar no assistente",
+    "unwatchGoal": "Parar de acompanhar",
+    "opening": "Abrindo seu assistente…",
+    "source": "Abrir origem",
+    "unavailable": "Este item não está mais disponível.",
+    "attention": "Precisam de atenção ({{count}})",
+    "blocked": "Novo bloqueio",
+    "awaiting_acceptance": "Aguardando sua aceitação",
+    "status": {
+      "queued": "Na fila",
+      "running": "Em andamento",
+      "cancellation_requested": "Parada solicitada",
+      "completed": "Concluído",
+      "interrupted": "Interrompido",
+      "cancelled": "Cancelado",
+      "failed": "Falhou"
+    },
+    "historyLocked": "O histórico do assistente não pode ser reescrito. Envie uma nova mensagem para corrigir uma instrução ou pare uma delegação no painel de trabalho.",
+    "items": "Pendências",
+    "settings": {
+      "title": "Configurações do assistente",
+      "description": "Gerencie o perfil do assistente e sua conexão privada de mensagens.",
+      "profile": "Perfil",
+      "im": "Conexão de mensagens",
+      "name": "Nome do assistente",
+      "nameHint": "Use de 1 a 32 caracteres. Renomear mantém a conversa e as tarefas.",
+      "uploadAvatar": "Enviar avatar",
+      "resetAvatar": "Restaurar padrão",
+      "presetAvatar": "Avatares predefinidos",
+      "presets": {
+        "sparkles": "Avatar de brilho",
+        "bot": "Avatar de robô",
+        "heart": "Avatar de coração"
+      },
+      "identityHint": "Este perfil pertence ao assistente pessoal e fica separado dos outros Agents e do seu próprio perfil.",
+      "botIdentityHint": "O Telegram gerencia o nome e o avatar do Bot separadamente. As alterações aqui não atualizam o perfil do Bot."
+    },
+    "welcomeTitle": "Sou {{name}}",
+    "welcomeBody": "Conte o que deseja fazer. Você pode voltar para continuar a conversa ou acompanhar o trabalho delegado.",
+    "messagePlaceholder": "O que você gostaria de fazer?",
+    "readUpdate": "Ler atualização",
+    "executionHistory": "Histórico de execução",
+    "emptyItems": "Deixe o trabalho com Hope; ele fará o acompanhamento.",
+    "executionDetails": "Detalhes da execução",
+    "itemUsage": "{{turns}} turnos · {{tools}} ferramentas · {{seconds}} s ativos",
+    "itemExpiry": "Acompanhamento até: {{time}}",
+    "continueItem": "Continuar (+8 turnos, 64 ferramentas, 30 min)",
+    "updates": {
+      "update": "Novidade",
+      "result": "Resultado",
+      "progress": "Progresso",
+      "waiting": "Aguardando",
+      "blocked": "Bloqueado",
+      "needs_review": "Requer verificação",
+      "question": "Sua resposta é necessária"
+    },
+    "itemState": {
+      "open": "Em andamento",
+      "waiting": "Aguardando",
+      "done": "Entregue",
+      "stopped": "Interrompido"
+    },
+    "itemReason": {
+      "needs_input": "Aguardando sua resposta",
+      "background_work": "Aguardando trabalho em segundo plano",
+      "work_state_unknown": "Resultado desconhecido; verifique antes de tentar novamente",
+      "awaiting_verification": "O resultado precisa ser verificado",
+      "execution_failed": "Não foi possível verificar a execução",
+      "budget_exhausted": "Limite esgotado; é preciso autorizar a continuação",
+      "no_progress": "Sem novo progresso; aguardando suas instruções",
+      "dispatch_failed": "Não foi possível iniciar o trabalho",
+      "owner_stopped": "Você interrompeu este assunto",
+      "scope_or_stop_changed": "O escopo ou estado de parada mudou"
+    },
+    "research": {
+      "settingsTitle": "Ajuda proativa",
+      "settingsHint": "Hope só acompanha o material que você compartilha explicitamente. Pausar interrompe o trabalho delegado atual; faça um novo pedido ao retomar.",
+      "enabled": "Encontrar mudanças no material",
+      "pause": "Pausar o trabalho em segundo plano de Hope",
+      "pendingPolicy": "Aplicando configurações…",
+      "sources": "Material compartilhado",
+      "expires": "Compartilhado até {{time}}",
+      "observed": "Última leitura do arquivo: {{time}}",
+      "suspended": "As verificações automáticas estão suspensas. Você pode verificar agora.",
+      "observationGap": "Não foi possível observar este período. Mudanças podem ter passado despercebidas.",
+      "refresh": "Verificar agora",
+      "revoke": "Revogar acesso",
+      "noSources": "Nenhum material compartilhado",
+      "workspace": "Selecione o chat de trabalho do arquivo",
+      "path": "Caminho dentro da pasta de trabalho, ex.: notes/agenda.txt",
+      "focus": "O que acompanhar",
+      "focusPlaceholder": "Por exemplo: detectar conflitos de reuniões e preparar duas alternativas",
+      "days": "Dias de acesso",
+      "baselineHint": "Compartilhe até 4 arquivos UTF-8 de até 64 KiB cada. A primeira leitura cria uma referência; as seguintes relatam mudanças importantes.",
+      "share": "Compartilhar material",
+      "finding": "Nova descoberta",
+      "inference": "Inferência",
+      "uncertainty": "A confirmar",
+      "prepared": "Opções preparadas",
+      "lines": "Linhas {{start}}–{{end}}",
+      "ask": "Perguntar mais a Hope",
+      "askPlaceholder": "Pergunte apenas sobre este material…",
+      "activity": {
+        "pending": "Na fila",
+        "running": "Verificando o material…",
+        "finished": "Concluído; o resultado aparece no chat",
+        "failed": "Não foi possível concluir. Verifique o material e tente novamente.",
+        "cancelled": "Cancelado",
+        "expired": "Expirado. Envie novamente.",
+        "scopeChanged": "O material ou a permissão mudou. Verifique novamente.",
+        "budget": "Limite de pesquisa atingido. Tente mais tarde.",
+        "unverified": "Nenhum resultado verificado foi recebido. Tente novamente."
+      }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope tem novidades. Abra o Hope para ver.",
+      "route": "Receber avisos por",
+      "routes": {
+        "none": "Apenas no Hope",
+        "desktop": "Área de trabalho",
+        "im": "IM do assistente"
+      },
+      "limitHint": "No máximo dois avisos proativos por dia local e por 24 horas corridas. Atualizações relacionadas são agrupadas; perguntas diretas no IM podem receber resposta.",
+      "timezone": "Seu fuso horário (IANA)",
+      "quietStart": "Silêncio a partir de",
+      "quietEnd": "Até",
+      "quietHint": "Usa seu fuso horário. Horas iguais significam silêncio o dia inteiro.",
+      "desktopToIm": "Enviar estados do trabalho do desktop ao IM",
+      "desktopToImHint": "Exige também as permissões de estado e conclusão da conversa. Apenas o estado é enviado; os resultados ficam no Hope.",
+      "pairRequired": "Primeiro emparelhe seu Bot exclusivo nas configurações de IM do assistente.",
+      "sourceDisclosure": "Permitir resumos desta fonte no IM",
+      "sourceDisclosureHint": "Desativado por padrão. Permite resumos breves e perguntas restritas à fonte no chat atual. Revogar invalida o contexto das respostas antigas.",
+      "nextEligible": "Próximo aviso possível: {{time}} ({{zone}})",
+      "deferred": {
+        "timezone_required": "Escolha seu fuso horário para receber avisos.",
+        "quiet_hours": "Horário de silêncio: as novidades ficam no Hope.",
+        "daily_limit": "Limite de avisos atingido. Novas tentativas aguardam.",
+        "policy_pending": "Aguardando a aplicação das configurações.",
+        "paused": "O assistente está pausado.",
+        "disabled": "As novidades ficam no Hope; avisos externos desativados.",
+        "pairing_required": "O IM não está emparelhado ou os avisos estão pausados.",
+        "using_hope": "Você está usando o Hope. Avisos externos aguardam."
+      },
+      "receipts": {
+        "submitting": "{{time}} · Aguardando confirmação da plataforma",
+        "accepted": "{{time}} · Aceito pela plataforma; leitura desconhecida",
+        "unknown": "{{time}} · Entrega desconhecida; sem reenvio automático",
+        "cancelled": "{{time}} · Não enviado; a tentativa continua contando"
+      },
+      "homeHandoffHint": "Perguntas diretas e aprovações de ferramentas na página inicial do assistente só aceitam avisos na área de trabalho. Abra o Hope para responder."
     }
   }
 }

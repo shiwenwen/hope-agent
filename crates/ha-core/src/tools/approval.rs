@@ -65,6 +65,8 @@ pub struct ApprovalRequest {
     /// are stored as `Deny` even when the global preference is `Proceed`.
     #[serde(default)]
     pub timeout_action: crate::config::ApprovalTimeoutAction,
+    #[serde(default)]
+    pub assistant_attention: crate::personal_assistant::attention::NotificationOwnership,
 }
 
 /// Reason payload — flat shape so the frontend can switch on `kind` without
@@ -618,6 +620,7 @@ pub async fn submit_approval_response(
         return Err(ApprovalSubmitError::NotPending);
     };
     let session_id = entry.request.session_id.clone();
+    crate::personal_assistant::attention::signals::close_handoff_later(request_id);
     let delivered = entry.sender.send(response).is_ok();
     drop(pending);
     emit_pending_interactions_changed(session_id.as_deref());
@@ -662,6 +665,7 @@ pub async fn deny_pending_for_session(session_id: &str, source: ApprovalResoluti
     let count = drained.len();
     let mut cleanup_request_ids = Vec::with_capacity(count);
     for (request_id, entry) in drained {
+        crate::personal_assistant::attention::signals::close_handoff_later(&request_id);
         let _ = entry.sender.send(ApprovalResponse::Deny);
         emit_approval_resolved(&request_id, Some(session_id), "deny", source);
         cleanup_request_ids.push(request_id);
@@ -694,6 +698,7 @@ pub async fn deny_all_pending(source: ApprovalResolutionSource) -> usize {
     let count = drained.len();
     let mut cleanup_request_ids = Vec::with_capacity(count);
     for (request_id, entry) in drained {
+        crate::personal_assistant::attention::signals::close_handoff_later(&request_id);
         let session_id = entry.request.session_id;
         let _ = entry.sender.send(ApprovalResponse::Deny);
         emit_approval_resolved(&request_id, session_id.as_deref(), "deny", source);
@@ -873,6 +878,7 @@ pub(crate) async fn check_and_request_approval(
     // install never clones them (the clone is past `any_handlers_for`).
     tool_input: Option<&serde_json::Value>,
     tool_use_id: Option<&str>,
+    ctx: &crate::tool_defs::ToolExecContext,
 ) -> std::result::Result<ApprovalResponse, ApprovalCheckError> {
     // Epic D (DEADLOCK-1..5): an `Ask` was decided, but on some entries no human
     // can ever answer it. Resolve the surface BEFORE registering a pending entry
@@ -1031,7 +1037,27 @@ pub(crate) async fn check_and_request_approval(
         timeout_at_ms,
         timeout_secs,
         timeout_action: effective_timeout_action,
+        assistant_attention: crate::personal_assistant::attention::signals::classify_context(ctx)
+            .await,
     };
+    if !request.assistant_attention.is_ordinary() {
+        crate::personal_assistant::attention::signals::register_handoff(
+            ctx,
+            &request_id,
+            timeout_at_ms.map(|value| value / 1000),
+        )
+        .await
+        .map_err(|_| ApprovalCheckError::RequestSerialization)?;
+    }
+
+    struct AttentionGuard(String);
+    impl Drop for AttentionGuard {
+        fn drop(&mut self) {
+            crate::personal_assistant::attention::signals::close_handoff_later(&self.0);
+        }
+    }
+    let _attention_guard =
+        (!request.assistant_attention.is_ordinary()).then(|| AttentionGuard(request_id.clone()));
 
     // Register the complete request before emitting. A surface that receives a
     // resync immediately after the event can now recover the same payload.
@@ -1060,11 +1086,13 @@ pub(crate) async fn check_and_request_approval(
         bus.emit(EVENT_APPROVAL_REQUIRED, event_data);
         // Notification hook (observation): bridge the permission prompt to user
         // scripts / desktop notifications. Fire-and-forget.
-        crate::hooks::fire_notification(
-            session_id.unwrap_or_default(),
-            "permission_prompt",
-            command,
-        );
+        if request.assistant_attention.is_ordinary() {
+            crate::hooks::fire_notification(
+                session_id.unwrap_or_default(),
+                "permission_prompt",
+                command,
+            );
+        }
         // NOTE: the PermissionRequest hook is dispatched (blocking, deny-capable)
         // earlier — before this prompt is built — so it is NOT re-fired here.
         app_info!(
@@ -1078,6 +1106,7 @@ pub(crate) async fn check_and_request_approval(
         if forward_approval_request(&request) == Some(false) {
             let removed = get_pending_approvals().lock().await.remove(&request_id);
             if let Some(entry) = removed {
+                crate::personal_assistant::attention::signals::close_handoff_later(&request_id);
                 let _ = entry.sender.send(ApprovalResponse::Deny);
             }
             emit_pending_interactions_changed(session_id);
@@ -1118,6 +1147,7 @@ pub(crate) async fn check_and_request_approval(
         }
     };
 
+    crate::personal_assistant::attention::signals::close_handoff_later(&request_id);
     match wait_result {
         Ok(response) => {
             // R8: a user grant (allow once/always) is the real audit origin —
@@ -1204,6 +1234,7 @@ pub(crate) async fn check_and_request_approval(
                         "session_id": session_id,
                         "timeout_secs": timeout_secs,
                         "timeout_action": effective_timeout_action,
+                        "assistant_attention": request.assistant_attention,
                     }),
                 );
             }
@@ -1389,6 +1420,7 @@ mod tests {
             timeout_at_ms: Some(6_000),
             timeout_secs: 5,
             timeout_action: crate::config::ApprovalTimeoutAction::Deny,
+            assistant_attention: Default::default(),
         };
         get_pending_approvals().lock().await.insert(
             request_id.clone(),
@@ -1501,6 +1533,7 @@ mod tests {
                             timeout_at_ms: None,
                             timeout_secs: 0,
                             timeout_action: crate::config::ApprovalTimeoutAction::Deny,
+                            assistant_attention: Default::default(),
                         },
                     },
                 );
@@ -1607,6 +1640,7 @@ mod tests {
                             timeout_at_ms,
                             timeout_secs: 0,
                             timeout_action: crate::config::ApprovalTimeoutAction::Deny,
+                            assistant_attention: Default::default(),
                         },
                     },
                 );

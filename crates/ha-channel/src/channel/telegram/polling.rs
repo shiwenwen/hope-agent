@@ -173,6 +173,14 @@ async fn convert_message(
     bot_id: i64,
     bot_username: &str,
 ) -> Option<MsgContext> {
+    // A private-assistant pairing secret mistakenly sent to a work bot is
+    // discarded before ordinary history, slash commands or model processing.
+    if msg
+        .text()
+        .is_some_and(|text| text.trim_start().starts_with("/ha_pair"))
+    {
+        return None;
+    }
     // Broadcast channel post 通常没有 msg.from（频道身份发的，无个人 sender），
     // 普通 group/dm 必有 from。from 缺失时用 chat.id 作 sender_id（与频道
     // 等价），sender_name 取 chat.title。bot 自己发的消息仍只能靠 from.id 过滤。

@@ -47,6 +47,7 @@ extern crate ha_base;
 
 pub mod channel;
 pub mod im_mirror;
+pub mod personal_assistant_im;
 pub mod tools;
 
 /// 幂等装配：三处接线。
@@ -149,6 +150,7 @@ fn register_hooks() {
 
     fn spawn_startup_notifier(registry: Arc<ha_core::channel::ChannelRegistry>) {
         channel::worker::spawn_startup_notifier(registry);
+        personal_assistant_im::spawn();
     }
 
     fn spawn_start_watchdog_loop(registry: Arc<ha_core::channel::ChannelRegistry>) {

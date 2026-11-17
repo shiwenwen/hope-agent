@@ -107,6 +107,7 @@ pub async fn spawn_skill_fork(
     };
 
     let params = SpawnParams {
+        parent_execution_id: None,
         task,
         agent_id: resolved_agent,
         parent_session_id: parent_session_id.to_string(),

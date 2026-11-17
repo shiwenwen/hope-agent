@@ -104,6 +104,10 @@ pub fn is_design_scope_tool(name: &str) -> bool {
 pub enum ToolScope {
     Knowledge,
     Design,
+    /// Sealed, owner-paired IM view. Never widens platform authority.
+    PersonalAssistantIm,
+    /// Sealed source-scoped analysis; no ordinary tool capabilities.
+    AssistantResearch,
 }
 
 impl ToolScope {
@@ -120,8 +124,17 @@ impl ToolScope {
     /// True iff a tool `name` is visible under this scope.
     pub fn allows(&self, name: &str) -> bool {
         match self {
+            ToolScope::AssistantResearch => name == super::TOOL_ASSISTANT_RESEARCH_REPORT,
             ToolScope::Knowledge => is_knowledge_scope_tool(name),
             ToolScope::Design => is_design_scope_tool(name),
+            ToolScope::PersonalAssistantIm => matches!(
+                name,
+                TOOL_SESSIONS_LIST
+                    | TOOL_SESSION_STATUS
+                    | TOOL_SESSIONS_SEND
+                    | TOOL_RUNTIME_CANCEL
+                    | TOOL_TOOL_SEARCH
+            ),
         }
     }
 }

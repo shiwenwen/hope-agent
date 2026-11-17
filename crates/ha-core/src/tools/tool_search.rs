@@ -138,13 +138,16 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // tool whose name is unknown, and the first dynamic call cannot connect
     // until its name resolves. Let the feature crate populate missing catalogs
     // before searching; failures are isolated and logged per server there.
-    let dynamic_mcp_definitions =
-        if agent_cfg.capabilities.mcp_enabled && app_config.mcp_global.enabled {
-            crate::mcp::ensure_tool_catalogs(mcp_server).await;
-            Some(crate::mcp::tool_definitions())
-        } else {
-            None
-        };
+    let dynamic_mcp_definitions = if ctx.tool_scope
+        != Some(crate::tool_defs::ToolScope::PersonalAssistantIm)
+        && agent_cfg.capabilities.mcp_enabled
+        && app_config.mcp_global.enabled
+    {
+        crate::mcp::ensure_tool_catalogs(mcp_server).await;
+        Some(crate::mcp::tool_definitions())
+    } else {
+        None
+    };
 
     // Dynamic MCP tools (`mcp__<server>__<tool>`) — gated by agent.mcp_enabled
     // and the global MCP kill switch.
@@ -172,6 +175,9 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     let plan_mode_allowed_tools =
         crate::mcp::canonicalize_tool_filter_names(&ctx.plan_mode_allowed_tools);
     candidates.retain(|t| {
+        if ctx.tool_scope.is_some_and(|scope| !scope.allows(&t.name)) {
+            return false;
+        }
         crate::tool_defs::tool_visible_with_filters(
             &t.name,
             &ctx.agent_tool_filter,
@@ -180,6 +186,11 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
             &plan_mode_allowed_tools,
         )
     });
+
+    if ctx.tool_scope == Some(crate::tool_defs::ToolScope::PersonalAssistantIm) {
+        deferred_names.retain(|name| ctx.is_tool_visible(name));
+        total_deferred = deferred_names.len();
+    }
 
     // KB-scoped tools (note_* / session_to_note) are useless without an attached
     // KB — hide them on a no-KB session, mirroring the eager-schema gate in

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { getTransport } from "@/lib/transport-provider"
+import { getTransport, getTransportRevision } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
 export interface UseAvatarUploadOptions {
@@ -13,6 +13,7 @@ export interface UseAvatarUploadOptions {
   logCategory: string
   /** Invoked with the absolute on-disk path returned by `save_avatar`. */
   onSaved: (path: string) => void
+  onError?: (error: unknown) => void
 }
 
 export interface UseAvatarUploadResult {
@@ -30,14 +31,15 @@ export interface UseAvatarUploadResult {
  * cancel), and must also be revoked on unmount if the caller unmounts
  * while the dialog is open.
  */
-export function useAvatarUpload(
-  opts: UseAvatarUploadOptions,
-): UseAvatarUploadResult {
+export function useAvatarUpload(opts: UseAvatarUploadOptions): UseAvatarUploadResult {
   const [cropSrc, setCropSrc] = useState<string | null>(null)
   const pendingRevokeRef = useRef<(() => void) | null>(null)
+  const mounted = useRef(false)
 
   useEffect(() => {
+    mounted.current = true
     return () => {
+      mounted.current = false
       if (pendingRevokeRef.current) pendingRevokeRef.current()
     }
   }, [])
@@ -50,21 +52,24 @@ export function useAvatarUpload(
   }, [])
 
   const handleAvatarPick = useCallback(async () => {
+    const transport = getTransport()
+    const revision = getTransportRevision()
     try {
-      const picked = await getTransport().pickLocalImage()
+      const picked = await transport.pickLocalImage()
       if (!picked) return
+      if (!mounted.current || revision !== getTransportRevision()) {
+        picked.revoke?.()
+        return
+      }
       clearPendingRevoke()
       pendingRevokeRef.current = picked.revoke ?? null
       setCropSrc(picked.src)
     } catch (e) {
-      logger.error(
-        "settings",
-        `${opts.logCategory}::pickAvatar`,
-        "Failed to pick avatar",
-        e,
-      )
+      if (!mounted.current || revision !== getTransportRevision()) return
+      logger.error("settings", `${opts.logCategory}::pickAvatar`, "Failed to pick avatar", e)
+      opts.onError?.(e)
     }
-  }, [clearPendingRevoke, opts.logCategory])
+  }, [clearPendingRevoke, opts])
 
   const handleCropCancel = useCallback(() => {
     setCropSrc(null)
@@ -73,23 +78,22 @@ export function useAvatarUpload(
 
   const handleCropConfirm = useCallback(
     async (blob: Blob) => {
+      const transport = getTransport()
+      const revision = getTransportRevision()
       setCropSrc(null)
       clearPendingRevoke()
       try {
         const buf = await blob.arrayBuffer()
-        const transport = getTransport()
+        if (!mounted.current || revision !== getTransportRevision()) return
         const savedPath = await transport.call<string>("save_avatar", {
           data: transport.prepareFileData(buf, blob.type || "image/png"),
           fileName: opts.fileName(blob),
         })
-        opts.onSaved(savedPath)
+        if (mounted.current && revision === getTransportRevision()) opts.onSaved(savedPath)
       } catch (e) {
-        logger.error(
-          "settings",
-          `${opts.logCategory}::saveAvatar`,
-          "Failed to save avatar",
-          e,
-        )
+        if (!mounted.current || revision !== getTransportRevision()) return
+        logger.error("settings", `${opts.logCategory}::saveAvatar`, "Failed to save avatar", e)
+        opts.onError?.(e)
       }
     },
     [clearPendingRevoke, opts],

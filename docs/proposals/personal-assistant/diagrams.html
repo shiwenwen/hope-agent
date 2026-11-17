@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>Hope 个人助手 · 架构与流程</title>
+  <style>
+    :root { --paper: #fffef9; --ink: #173c35; --sub: #475f54; --green: #155544; --wash: #e1efe3; --line: #60766a; --rule: #c9d4c9; --legacy: #f2f3ee; color: var(--ink); background: #f4f4ed; font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1120px; margin: auto; padding: 24px clamp(12px, 3vw, 38px) 42px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 18px; }
+    h1 { margin: 0; font-size: clamp(1.35rem, 3vw, 1.85rem); letter-spacing: -.04em; }
+    nav { display: flex; flex-wrap: wrap; gap: 18px; font-size: .94rem; }
+    a { color: var(--green); text-underline-offset: .21em; }
+    figure { margin: 0 0 24px; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    svg { display: block; width: 100%; min-width: 960px; height: auto; }
+    svg text { font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; fill: var(--ink); }
+    .paper { fill: var(--paper); }
+    .heading { font-size: 32px; font-weight: 720; letter-spacing: -.6px; }
+    .phase, .caption { font-size: 16px; fill: var(--sub); }
+    .band { font-size: 23px; font-weight: 720; }
+    .rule { stroke: var(--rule); stroke-width: 1.3; }
+    .nodebox, .decision { fill: var(--paper); stroke: var(--line); stroke-width: 1.5; }
+    .node-name { font-size: 22px; font-weight: 650; }
+    .node-note { font-size: 15.5px; fill: var(--sub); }
+    .decision-name { font-size: 19px; font-weight: 670; }
+    .decision-note { font-size: 14.5px; fill: var(--sub); }
+    .focus .nodebox { fill: var(--green); stroke: var(--green); }
+    .focus .node-name { fill: var(--paper); }
+    .focus .node-note { fill: #e5f1e9; }
+    .legacy .nodebox { fill: var(--legacy); stroke: #78897d; }
+    .decision { fill: var(--wash); stroke: var(--green); }
+    .edge { fill: none; stroke: var(--line); stroke-width: 2; stroke-linejoin: round; }
+    .edge.main { stroke: var(--green); stroke-width: 2.45; }
+    .edge.async { stroke-dasharray: 6 4; }
+    .ordinary-tip { fill: var(--line); } .primary-tip { fill: var(--green); }
+    .edge-label { font-size: 15px; fill: var(--sub); }
+    figcaption { margin: 0; padding: 13px 20px 16px; border-top: 1px solid var(--rule); color: var(--sub); font-size: .94rem; line-height: 1.55; }
+    @media print { :root { background: white; } main { margin: 0; padding: 0; } nav { display: none; } figure { break-inside: avoid; } .diagram-container { overflow: visible; } svg { min-width: 0; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header><h1>Hope 个人助手 · 架构与流程</h1><nav aria-label="设计资料"><a href="README.md">总体设计</a><a href="im.md">IM 设计</a><a href="walkthrough.html">交互原型</a></nav></header>
+    <figure>
+      <div class="diagram-container" role="region" aria-label="可横向滚动的架构图" tabindex="0">
+        <svg id="architecture" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 626" role="img" aria-labelledby="architecture-title architecture-desc">
+          <title id="architecture-title">个人助手与工作 IM 的架构</title>
+          <desc id="architecture-desc">桌面与专属机器人连接同一个私人主对话，主对话经内核派工并接收回执。旧工作机器人继续按一对一绑定收发。</desc>
+          <defs>
+          <marker id="architecture-arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+          <path d="M 0 1 L 9 5 L 0 9 Z" class="ordinary-tip"/>
+          </marker>
+          <marker id="architecture-primary" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+          <path d="M 0 1 L 9 5 L 0 9 Z" class="primary-tip"/>
+          </marker>
+          </defs>
+          <rect x="0" y="0" width="960" height="626" rx="0" class="paper"/>
+          <text x="28" y="46" class="heading" text-anchor="start">个人助手与工作 IM 如何连接</text>
+          <text x="932" y="44" class="phase" text-anchor="end">目标架构 · 设计稿</text>
+          <line x1="28" y1="65" x2="932" y2="65" class="rule"/>
+          <text x="28" y="98" class="band" text-anchor="start">个人助手</text>
+          <text x="144" y="98" class="caption" text-anchor="start">本地入口 P0  /  专属 IM 试点 P1</text>
+          <path class="edge direct" d="M 244 163 H 274 Q 282 163 282 171 V 182 Q 282 190 290 190 H 355" marker-end="url(#architecture-arrow)"/>
+          <path class="edge direct" d="M 244 293 H 290 Q 298 293 298 285 V 224 Q 298 216 306 216 H 355" marker-end="url(#architecture-arrow)"/>
+          <path class="edge main" d="M 604 174 H 706" marker-end="url(#architecture-primary)"/>
+          <g>
+          <rect x="616" y="145" width="78" height="19" rx="2" class="paper"/>
+          <text x="655" y="161" class="edge-label" text-anchor="middle">提交工作</text>
+          </g>
+          <path class="edge async" d="M 708 224 H 606" marker-end="url(#architecture-arrow)"/>
+          <g>
+          <rect x="616" y="196" width="78" height="19" rx="2" class="paper"/>
+          <text x="655" y="212" class="edge-label" text-anchor="middle">逐项回报</text>
+          </g>
+          <path class="edge direct" d="M 478 248 V 322" marker-end="url(#architecture-arrow)"/>
+          <g>
+          <rect x="484" y="273" width="112" height="19" rx="2" class="paper"/>
+          <text x="540" y="289" class="edge-label" text-anchor="middle">确认长期委托</text>
+          </g>
+          <path class="edge direct" d="M 604 359 H 706" marker-end="url(#architecture-arrow)"/>
+          <g>
+          <rect x="621.5" y="331" width="65" height="19" rx="2" class="paper"/>
+          <text x="654" y="347" class="edge-label" text-anchor="middle">有变化</text>
+          </g>
+          <path class="edge async" d="M 821 405 V 427 Q 821 435 813 435 H 144 Q 136 435 136 427 V 337" marker-end="url(#architecture-arrow)"/>
+          <g>
+          <rect x="407" y="408" width="210" height="19" rx="2" class="paper"/>
+          <text x="512" y="424" class="edge-label" text-anchor="middle">仅向获准的本人私聊投递</text>
+          </g>
+          <g class="node normal">
+          <rect x="28" y="124" width="216" height="76" rx="8" class="nodebox"/>
+          <text x="44" y="160" class="node-name" text-anchor="start">桌面 / Web</text>
+          <text x="44" y="185" class="node-note" text-anchor="start">已验证主人身份</text>
+          </g>
+          <g class="node normal">
+          <rect x="28" y="256" width="216" height="80" rx="8" class="nodebox"/>
+          <text x="44" y="292" class="node-name" text-anchor="start">个人助手专属 Bot</text>
+          <text x="44" y="317" class="node-note" text-anchor="start">只接已配对的本人私聊</text>
+          </g>
+          <g class="node focus">
+          <rect x="356" y="148" width="248" height="100" rx="8" class="nodebox"/>
+          <text x="372" y="177" class="node-name" text-anchor="start">私人主对话</text>
+          <text x="372" y="202" class="node-note" text-anchor="start">按入口读取可见上下文</text>
+          <text x="372" y="223" class="node-note" text-anchor="start">登记交办、状态与回执</text>
+          </g>
+          <g class="node normal">
+          <rect x="708" y="148" width="224" height="100" rx="8" class="nodebox"/>
+          <text x="724" y="177" class="node-name" text-anchor="start">目标工作会话</text>
+          <text x="724" y="202" class="node-note" text-anchor="start">TurnKernel 准入执行</text>
+          <text x="724" y="223" class="node-note" text-anchor="start">流程、工具沿用目标权限</text>
+          </g>
+          <g class="node normal">
+          <rect x="356" y="324" width="248" height="80" rx="8" class="nodebox"/>
+          <text x="372" y="360" class="node-name" text-anchor="start">授权的长期委托</text>
+          <text x="372" y="385" class="node-note" text-anchor="start">在线主机核实指定来源</text>
+          </g>
+          <g class="node normal">
+          <rect x="708" y="324" width="224" height="80" rx="8" class="nodebox"/>
+          <text x="724" y="360" class="node-name" text-anchor="start">私人事项与通知</text>
+          <text x="724" y="385" class="node-note" text-anchor="start">在主对话内可查</text>
+          </g>
+          <line x1="28" y1="467" x2="932" y2="467" class="rule"/>
+          <text x="28" y="502" class="band" text-anchor="start">现有工作 IM</text>
+          <text x="182" y="502" class="caption" text-anchor="start">独立机器人身份、绑定和收发记录</text>
+          <path class="edge direct" d="M 244 560 H 354" marker-end="url(#architecture-arrow)"/>
+          <path class="edge direct" d="M 604 560 H 706" marker-end="url(#architecture-arrow)"/>
+          <g class="node legacy">
+          <rect x="28" y="522" width="216" height="80" rx="8" class="nodebox"/>
+          <text x="44" y="558" class="node-name" text-anchor="start">原工作 Bot</text>
+          <text x="44" y="583" class="node-note" text-anchor="start">私聊、群或话题</text>
+          </g>
+          <g class="node legacy">
+          <rect x="356" y="522" width="248" height="80" rx="8" class="nodebox"/>
+          <text x="372" y="558" class="node-name" text-anchor="start">普通 IM 路由</text>
+          <text x="372" y="583" class="node-note" text-anchor="start">按既有绑定收发</text>
+          </g>
+          <g class="node legacy">
+          <rect x="708" y="522" width="224" height="80" rx="8" class="nodebox"/>
+          <text x="724" y="558" class="node-name" text-anchor="start">绑定的工作会话</text>
+          <text x="724" y="583" class="node-note" text-anchor="start">回复回到原聊天</text>
+          </g>
+          </svg>
+      </div>
+      <figcaption>两套 IM 可复用平台协议。专属 Bot 与工作 Bot 分别持有连接、授权和收发记录。P0 只向具备私密隔离条件的本地普通会话派工。</figcaption>
+    </figure>
+    <figure>
+      <div class="diagram-container" role="region" aria-label="可横向滚动的交办与持续关注流程图" tabindex="0">
+        <svg id="workflow" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 814" role="img" aria-labelledby="workflow-title workflow-desc">
+          <title id="workflow-title">从一次交办到持续关注</title>
+          <desc id="workflow-desc">工作在各自会话并行进行，结果分别回到私人主对话。只有主人另行确认长期委托后，才持续跟踪并按权限提醒。</desc>
+          <defs>
+          <marker id="workflow-arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+          <path d="M 0 1 L 9 5 L 0 9 Z" class="ordinary-tip"/>
+          </marker>
+          <marker id="workflow-primary" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+          <path d="M 0 1 L 9 5 L 0 9 Z" class="primary-tip"/>
+          </marker>
+          </defs>
+          <rect x="0" y="0" width="960" height="814" rx="0" class="paper"/>
+          <text x="28" y="46" class="heading" text-anchor="start">从一次交办到持续关注</text>
+          <text x="932" y="44" class="phase" text-anchor="end">用户流程 · 设计稿</text>
+          <line x1="28" y1="65" x2="932" y2="65" class="rule"/>
+          <text x="28" y="101" class="band" text-anchor="start">这一次</text>
+          <text x="128" y="101" class="caption" text-anchor="start">主人说「查发布还缺什么，让手册补完升级步骤，结果都回这里。」</text>
+          <path class="edge direct" d="M 392 208 V 222 Q 392 230 384 230 H 262 Q 254 230 254 238 V 254" marker-end="url(#workflow-arrow)"/>
+          <path class="edge direct" d="M 568 208 V 222 Q 568 230 576 230 H 698 Q 706 230 706 238 V 254" marker-end="url(#workflow-arrow)"/>
+          <path class="edge async" d="M 254 338 V 352 Q 254 360 262 360 H 384 Q 392 360 392 368 V 382" marker-end="url(#workflow-arrow)"/>
+          <path class="edge async" d="M 706 338 V 352 Q 706 360 698 360 H 576 Q 568 360 568 368 V 382" marker-end="url(#workflow-arrow)"/>
+          <g class="node focus">
+          <rect x="260" y="124" width="440" height="84" rx="8" class="nodebox"/>
+          <text x="276" y="160" class="node-name" text-anchor="start">主对话核对目标，登记两项交办</text>
+          <text x="276" y="185" class="node-note" text-anchor="start">目标忙时排队，主人仍可交代下一件事。</text>
+          </g>
+          <g class="node normal">
+          <rect x="60" y="256" width="388" height="80" rx="8" class="nodebox"/>
+          <text x="76" y="292" class="node-name" text-anchor="start">版本发布 · 等你决定</text>
+          <text x="76" y="317" class="node-note" text-anchor="start">缺 Windows 测试，需要你选测试机。</text>
+          </g>
+          <g class="node normal">
+          <rect x="512" y="256" width="388" height="80" rx="8" class="nodebox"/>
+          <text x="528" y="292" class="node-name" text-anchor="start">用户手册 · 已完成</text>
+          <text x="528" y="317" class="node-note" text-anchor="start">升级步骤已补齐，附上原会话的草稿。</text>
+          </g>
+          <g class="node normal">
+          <rect x="260" y="384" width="440" height="80" rx="8" class="nodebox"/>
+          <text x="276" y="420" class="node-name" text-anchor="start">结果分别回到主对话</text>
+          <text x="276" y="445" class="node-note" text-anchor="start">先收到的先显示，每条回执都能打开来源。</text>
+          </g>
+          <line x1="28" y1="496" x2="932" y2="496" class="rule"/>
+          <text x="28" y="531" class="band" text-anchor="start">以后也盯</text>
+          <text x="154" y="531" class="caption" text-anchor="start">主人另行确认「这周继续盯发布，有新阻塞时告诉我。」</text>
+          <path class="edge direct" d="M 252 627 H 349" marker-end="url(#workflow-arrow)"/>
+          <path class="edge main" d="M 585 627 H 706" marker-end="url(#workflow-primary)"/>
+          <g>
+          <rect x="613.5" y="599" width="65" height="19" rx="2" class="paper"/>
+          <text x="646" y="615" class="edge-label" text-anchor="middle">有新阻塞</text>
+          </g>
+          <path class="edge direct" d="M 468 675 V 705" marker-end="url(#workflow-arrow)"/>
+          <g>
+          <rect x="491" y="680" width="62" height="19" rx="2" class="paper"/>
+          <text x="522" y="696" class="edge-label" text-anchor="middle">无新阻塞</text>
+          </g>
+          <path class="edge async" d="M 820 675 V 705" marker-end="url(#workflow-arrow)"/>
+          <g>
+          <rect x="666.5" y="681" width="127" height="19" rx="2" class="paper"/>
+          <text x="730" y="697" class="edge-label" text-anchor="middle">许可与时段满足</text>
+          </g>
+          <g class="node normal">
+          <rect x="28" y="584" width="224" height="88" rx="8" class="nodebox"/>
+          <text x="44" y="620" class="node-name" text-anchor="start">建立长期委托</text>
+          <text x="44" y="645" class="node-note" text-anchor="start">记录来源、截止日和基线</text>
+          </g>
+          <polygon class="decision" points="468,574 584,627 468,674 352,627"/>
+          <text x="468" y="624" class="decision-name" text-anchor="middle">出现新阻塞？</text>
+          <text x="468" y="646" class="decision-note" text-anchor="middle">按最新状态核实</text>
+          <g class="node normal">
+          <rect x="708" y="584" width="224" height="90" rx="8" class="nodebox"/>
+          <text x="724" y="620" class="node-name" text-anchor="start">生成本地事项</text>
+          <text x="724" y="645" class="node-note" text-anchor="start">附原因和来源</text>
+          </g>
+          <g class="node legacy">
+          <rect x="352" y="708" width="232" height="80" rx="8" class="nodebox"/>
+          <text x="368" y="744" class="node-name" text-anchor="start">静默</text>
+          <text x="368" y="769" class="node-note" text-anchor="start">仅更新核实时间</text>
+          </g>
+          <g class="node normal">
+          <rect x="708" y="708" width="224" height="80" rx="8" class="nodebox"/>
+          <text x="724" y="744" class="node-name" text-anchor="start">专属私聊提醒</text>
+          <text x="724" y="769" class="node-note" text-anchor="start">仅发给已授权的主人</text>
+          </g>
+          </svg>
+      </div>
+      <figcaption>两项工作分别结算。主人可以点击回执接手原会话。长期跟踪在主人确认后启用，专属私聊只按当前许可接收提醒。</figcaption>
+    </figure>
+  </main>
+</body>
+</html>

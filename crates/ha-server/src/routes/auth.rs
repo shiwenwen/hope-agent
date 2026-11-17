@@ -36,6 +36,7 @@ pub struct ScopedResourceService(pub axum::Router);
 pub struct ServerAuthStatus {
     auth_required: bool,
     authenticated: bool,
+    owner_token_setup_required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     token_fingerprint: Option<String>,
 }
@@ -69,7 +70,22 @@ pub async fn server_auth_status(
     Extension(auth): Extension<AuthState>,
     headers: HeaderMap,
 ) -> Response {
-    no_store_json(StatusCode::OK, &server_auth_status_payload(&auth, &headers))
+    let mut payload = server_auth_status_payload(&auth, &headers);
+    if !auth.auth_required() {
+        if let Some(db) = ha_core::get_session_db().cloned() {
+            if db
+                .run(|db| db.has_personal_assistant_private_data())
+                .await
+                .unwrap_or(true)
+            {
+                payload.auth_required = true;
+                payload.authenticated = false;
+                payload.owner_token_setup_required = true;
+                payload.token_fingerprint = None;
+            }
+        }
+    }
+    no_store_json(StatusCode::OK, &payload)
 }
 
 fn server_auth_status_payload(auth: &AuthState, headers: &HeaderMap) -> ServerAuthStatus {
@@ -77,6 +93,7 @@ fn server_auth_status_payload(auth: &AuthState, headers: &HeaderMap) -> ServerAu
     ServerAuthStatus {
         auth_required: auth.auth_required(),
         authenticated,
+        owner_token_setup_required: false,
         token_fingerprint: authenticated.then(|| auth.owner_fingerprint()).flatten(),
     }
 }
@@ -314,7 +331,19 @@ pub async fn serve_scoped_resource(
     let Some(required_scope) = required_resource_scope(&resource_path) else {
         return no_store_error(StatusCode::NOT_FOUND, "Resource not found");
     };
-    if !auth.check_access_ticket(&ticket, &required_scope) {
+    let mut allowed = auth.check_access_ticket(&ticket, &required_scope);
+    if required_scope == "resources" {
+        let owner_resource = auth.check_access_ticket(&ticket, "owner_resources");
+        let private = if let Some(db) = ha_core::get_session_db().cloned() {
+            db.run(|db| db.has_personal_assistant_private_data())
+                .await
+                .unwrap_or(true)
+        } else {
+            false
+        };
+        allowed = owner_resource || (allowed && !private);
+    }
+    if !allowed {
         return no_store_error(
             StatusCode::UNAUTHORIZED,
             "Invalid or expired resource ticket",

@@ -164,6 +164,7 @@
     "resolvedElsewhere": "承認は別のデバイスで処理されました"
   },
   "auth": {
+    "ownerTokenSetupBody": "このサーバーには個人アシスタントのデータがあります。デスクトップ設定またはサーバー起動設定で Server Owner Token を設定してから、ここに戻ってサインインしてください。",
     "checking": "サーバーのセキュリティを確認しています…",
     "fingerprint": "サーバートークンのフィンガープリント: {{fingerprint}}",
     "retry": "再試行",
@@ -1338,7 +1339,8 @@
     "channelUnreadStatus": "IMチャットが未読",
     "generatedImageName": "生成画像 {{index}}",
     "noAgents": "エージェントがいません",
-    "sessionFailed": "会話に失敗しました"
+    "sessionFailed": "会話に失敗しました",
+    "composerOptions": "チャットの設定"
   },
   "codexAuth": {
     "expiredDescription": "Codex の OAuth トークンが無効になりました。続行するには再度ログインしてください。",
@@ -8818,7 +8820,10 @@
     },
     "contextCompactSummaryReasoning": "要約専用の推論設定",
     "contextCompactSummaryReasoningDefault": "現在の要約方針を維持",
-    "contextCompactSummaryReasoningDesc": "コンテキスト要約だけに適用します。非対応のレベルは履歴を保持してエラーになります。失敗してもモデルや出力上限を自動変更しません。既定は現在の動作を維持します。"
+    "contextCompactSummaryReasoningDesc": "コンテキスト要約だけに適用します。非対応のレベルは履歴を保持してエラーになります。失敗してもモデルや出力上限を自動変更しません。既定は現在の動作を維持します。",
+    "toolAssistantReportDesc": "確認済みの進捗、結果、または保存される質問を記録します",
+    "toolAssistantResearchDesc": "Hope で発見の参照を確認し、現在の資料権限内で追加質問します。",
+    "toolAssistantResearchReportDesc": "現在の非公開調査の根拠付き発見を報告し、確認後に表示します。"
   },
   "shortcuts": {
     "actionOpenSettings": "設定を開く",
@@ -9294,7 +9299,10 @@
     "feishu_hire_get_job": "Feishu 採用：求人を取得",
     "feishu_hire_list_talents": "Feishu 採用：候補者一覧",
     "feishu_hire_get_talent": "Feishu 採用：候補者を取得",
-    "feishu_hire_list_applications": "Feishu 採用：応募一覧"
+    "feishu_hire_list_applications": "Feishu 採用：応募一覧",
+    "assistant_report": "アシスタント作業の報告",
+    "assistant_research": "共有資料を確認",
+    "assistant_research_report": "資料の発見を報告"
   },
   "tz": {
     "amsterdam": "アムステルダム (UTC+1)",
@@ -12913,6 +12921,218 @@
       "supported": "サポート対象",
       "degraded": "制限あり",
       "blocked": "利用不可"
+    }
+  },
+  "personalAssistant": {
+    "im": {
+      "identityInUse": "このボットは仕事の会話で使用中です。アシスタント用に別のボットを作成してください。既存の接続は変更されていません。",
+      "title": "Telegram に接続",
+      "separateBot": "アシスタント専用の Telegram ボットを設定し、自分の個人チャットをペアリングします。プロジェクトの会話には作業用ボットを使います。",
+      "token": "専用ボットのトークン",
+      "connect": "確認して接続",
+      "botId": "ボット ID",
+      "userId": "Telegram ユーザー ID",
+      "chatId": "個人チャット ID",
+      "pair": "ペアリングコードを生成",
+      "codeExpires": "コードの有効期限",
+      "restartPairing": "ペアリングをやり直す",
+      "confirm": "この Telegram アカウントを確認",
+      "unpair": "個人チャットのペアリングを解除",
+      "remove": "アシスタントのボットを削除",
+      "paused": "自発的な通知を一時停止",
+      "work": "この個人チャットから操作できる作業",
+      "chooseWork": "作業チャットを選択",
+      "noWork": "まず Hope で作業チャットを開くか作成してください。",
+      "queryStatus": "作業状況を確認",
+      "delegate": "新しい作業を依頼",
+      "stop": "依頼した作業を停止",
+      "completionNotice": "完了通知を受け取る",
+      "expires": "権限の有効期限",
+      "statusOnly": "Telegram の返信には作業状況が表示されます。元のメッセージと結果は Hope で確認できます。",
+      "revoke": "権限を取り消す",
+      "receipts": "送信結果",
+      "openBot": "Telegram でボットを開く",
+      "expired": "期限切れ",
+      "noAccess": "権限取り消し済み",
+      "state": {
+        "unpaired": "このボットに自分の個人チャットを接続してください。",
+        "awaiting_code": "このボットとの個人チャットにペアリングコマンドを送信してください。",
+        "awaiting_confirmation": "プライベートチャットからコードが送信されました。この Telegram アカウントが自分のものか確認してから承認してください。",
+        "awaiting_activation": "ボットの個人チャットに戻り「有効化」を押してください。その後の新しいメッセージから受け付けます。",
+        "active": "個人チャットが有効になりました。アクセスを許可する作業を選んでください。"
+      },
+      "delivery": {
+        "pending": "送信待ち",
+        "submitting": "送信中",
+        "accepted": "プラットフォームが受理",
+        "unknown": "結果不明",
+        "cancelled": "キャンセル済み"
+      },
+      "notificationPolicy": "自発的な通知：{{start}}〜{{end}} は通知せず、現地日付で1日最大 {{limit}} 件です。メッセージへの即時返信はこの制限の対象外です。",
+      "notificationTimezone": "所有者のタイムゾーン：{{timezone}}",
+      "notificationTimezoneRequired": "自発的な通知は無効です。有効にするには、所有者プロフィールに有効な IANA タイムゾーンを設定してください。",
+      "deferred": {
+        "timezone_required": "有効な所有者タイムゾーンの設定待ち",
+        "quiet_hours": "通知を控える時間帯の終了待ち",
+        "daily_limit": "1日の通知上限に達しました"
+      }
+    },
+    "stop": "作業を停止",
+    "title": "パーソナルアシスタント",
+    "work": "依頼した作業",
+    "goals": "フォロー中の目標",
+    "emptyWork": "既存の作業チャットへの依頼をここからまとめて行えます。",
+    "emptyGoals": "ワークスペースで目標をフォローすると、新たな障害や確認依頼がここに表示されます。",
+    "watchGoal": "アシスタントでフォロー",
+    "unwatchGoal": "フォローを停止",
+    "opening": "アシスタントを開いています…",
+    "source": "元のチャットを開く",
+    "unavailable": "この項目は利用できなくなりました。",
+    "attention": "要対応（{{count}}）",
+    "blocked": "新たな障害",
+    "awaiting_acceptance": "確認待ち",
+    "status": {
+      "queued": "待機中",
+      "running": "実行中",
+      "cancellation_requested": "停止を要求済み",
+      "completed": "完了",
+      "interrupted": "中断",
+      "cancelled": "キャンセル済み",
+      "failed": "失敗"
+    },
+    "historyLocked": "アシスタントの履歴は編集して再送信できません。新しいメッセージで指示を訂正するか、作業パネルで個別の依頼を停止してください。",
+    "items": "対応事項",
+    "settings": {
+      "title": "アシスタント設定",
+      "description": "アシスタントのプロフィールと専用 IM 接続を管理します。",
+      "profile": "プロフィール",
+      "im": "IM 接続",
+      "name": "アシスタントの名前",
+      "nameHint": "1～32 文字で入力してください。名前を変えても会話と依頼は保持されます。",
+      "uploadAvatar": "画像をアップロード",
+      "resetAvatar": "初期設定に戻す",
+      "presetAvatar": "プリセット画像",
+      "presets": {
+        "sparkles": "きらめきの画像",
+        "bot": "ロボットの画像",
+        "heart": "ハートの画像"
+      },
+      "identityHint": "個人アシスタント専用のプロフィールです。他の Agent やあなたのプロフィールとは別に保存されます。",
+      "botIdentityHint": "Telegram Bot の名前と画像は Telegram 側で管理します。ここで変更しても Bot には反映されません。"
+    },
+    "welcomeTitle": "{{name}}です",
+    "welcomeBody": "やりたいことを教えてください。いつでも戻って会話を続けたり、依頼した作業の進捗を確認したりできます。",
+    "messagePlaceholder": "何をお手伝いしましょうか？",
+    "readUpdate": "更新を読む",
+    "executionHistory": "実行履歴",
+    "emptyItems": "Hope に依頼すると、完了までフォローします。",
+    "executionDetails": "実行の詳細",
+    "itemUsage": "{{turns}} ターン · {{tools}} ツール · 実行 {{seconds}} 秒",
+    "itemExpiry": "フォロー期限：{{time}}",
+    "continueItem": "続行（8 ターン・64 ツール・30 分追加）",
+    "updates": {
+      "update": "更新内容",
+      "result": "結果",
+      "progress": "進捗",
+      "waiting": "待機中",
+      "blocked": "問題あり",
+      "needs_review": "要確認",
+      "question": "回答が必要です"
+    },
+    "itemState": {
+      "open": "進行中",
+      "waiting": "待機中",
+      "done": "完了",
+      "stopped": "停止済み"
+    },
+    "itemReason": {
+      "needs_input": "回答を待っています",
+      "background_work": "バックグラウンド処理待ち",
+      "work_state_unknown": "結果が不明です。再試行前に確認してください",
+      "awaiting_verification": "結果の確認が必要です",
+      "execution_failed": "実行結果を確認できませんでした",
+      "budget_exhausted": "上限に達しました。続行の指示が必要です",
+      "no_progress": "進展がありません。指示を待っています",
+      "dispatch_failed": "処理を開始できませんでした",
+      "owner_stopped": "この件を停止しました",
+      "scope_or_stop_changed": "範囲または停止状態が変わりました"
+    },
+    "research": {
+      "settingsTitle": "先回りのサポート",
+      "settingsHint": "Hope は明示的に共有した資料だけを確認します。一時停止すると現在の依頼は停止します。再開後は改めて依頼してください。",
+      "enabled": "共有資料の変化を見つける",
+      "pause": "Hope のバックグラウンド作業を一時停止",
+      "pendingPolicy": "設定を適用中…",
+      "sources": "共有した資料",
+      "expires": "共有期限：{{time}}",
+      "observed": "最終ファイル読み取り：{{time}}",
+      "suspended": "自動確認は停止中です。必要なときに手動で確認できます。",
+      "observationGap": "この期間は確認できず、変化を見逃した可能性があります。",
+      "refresh": "今すぐ確認",
+      "revoke": "共有を取り消す",
+      "noSources": "共有した資料はありません",
+      "workspace": "ファイルのある作業チャットを選択",
+      "path": "作業フォルダー内のパス（例：notes/agenda.txt）",
+      "focus": "注目すること",
+      "focusPlaceholder": "例：会議の重複を見つけ、実行可能な案を2つ用意する",
+      "days": "共有する日数",
+      "baselineHint": "UTF-8 テキストを最大4ファイル、各64 KiBまで共有できます。初回は基準を保存し、その後の重要な変化を報告します。",
+      "share": "資料を共有",
+      "finding": "新しい発見",
+      "inference": "推測",
+      "uncertainty": "要確認",
+      "prepared": "用意した案",
+      "lines": "{{start}}～{{end}} 行",
+      "ask": "Hope に追加で質問",
+      "askPlaceholder": "この資料について質問…",
+      "activity": {
+        "pending": "待機中",
+        "running": "資料を確認中…",
+        "finished": "完了しました。結果はチャットに表示されます",
+        "failed": "完了できませんでした。資料を確認して再試行してください",
+        "cancelled": "キャンセル済み",
+        "expired": "期限切れです。再度依頼してください",
+        "scopeChanged": "資料または権限が変わりました。再確認してください",
+        "budget": "調査の上限に達しました。後で再試行してください",
+        "unverified": "確認済みの結果を取得できませんでした。再試行してください"
+      }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope に更新があります。Hope を開いて確認してください。",
+      "route": "通知先",
+      "routes": {
+        "none": "Hope 内のみ",
+        "desktop": "デスクトップ",
+        "im": "アシスタント IM"
+      },
+      "limitHint": "自発通知は現地日付と過去24時間の両方で最大2回。関連更新はまとめます。IMでの直接の質問には返信できます。",
+      "timezone": "所有者のタイムゾーン（IANA）",
+      "quietStart": "通知を控える開始時刻",
+      "quietEnd": "終了時刻",
+      "quietHint": "所有者のタイムゾーンを使用します。開始と終了が同じなら終日通知しません。",
+      "desktopToIm": "デスクトップで依頼した仕事の状態をIMへ送る",
+      "desktopToImHint": "対象会話の状態・完了通知の許可も必要です。状態のみ送り、結果はHopeに残します。",
+      "pairRequired": "先にアシスタントIM設定で専用Botをペアリングしてください。",
+      "sourceDisclosure": "この資料の要約をアシスタントIMに許可",
+      "sourceDisclosureHint": "初期設定はオフ。現在のペアリング先に短い要約と資料限定の質問を許可します。取り消すと古い返信文脈は無効です。",
+      "nextEligible": "次に通知可能：{{time}}（{{zone}}）",
+      "deferred": {
+        "timezone_required": "通知を受けるにはタイムゾーンを設定してください。",
+        "quiet_hours": "通知を控える時間帯です。更新はHopeに残ります。",
+        "daily_limit": "通知上限に達しました。次の試行は待機します。",
+        "policy_pending": "アシスタント設定の反映を待っています。",
+        "paused": "アシスタントは一時停止中です。",
+        "disabled": "更新はHope内に残り、外部通知はオフです。",
+        "pairing_required": "アシスタントIMが未接続、または通知が停止中です。",
+        "using_hope": "Hopeを使用中のため外部通知を控えます。"
+      },
+      "receipts": {
+        "submitting": "{{time}} · プラットフォームの確認待ち",
+        "accepted": "{{time}} · 受理済み、既読は未確認",
+        "unknown": "{{time}} · 配信不明、自動再送なし",
+        "cancelled": "{{time}} · 未送信、試行回数には計上"
+      },
+      "homeHandoffHint": "アシスタントのホームでの直接の質問とツールの承認は、デスクトップ通知のみ対応しています。Hope に戻って対応してください。"
     }
   }
 }

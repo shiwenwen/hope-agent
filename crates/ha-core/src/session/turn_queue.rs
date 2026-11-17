@@ -63,6 +63,7 @@ pub enum QueuedTurnMessageSource {
     Http,
     Channel,
     Scheduled,
+    PersonalAssistant,
 }
 
 impl QueuedTurnMessageSource {
@@ -71,6 +72,7 @@ impl QueuedTurnMessageSource {
             "http" => Self::Http,
             "channel" => Self::Channel,
             "scheduled" => Self::Scheduled,
+            "personal_assistant" => Self::PersonalAssistant,
             _ => Self::Desktop,
         }
     }
@@ -81,11 +83,15 @@ impl QueuedTurnMessageSource {
             Self::Http => "http",
             Self::Channel => "channel",
             Self::Scheduled => "scheduled",
+            Self::PersonalAssistant => "personal_assistant",
         }
     }
 
     pub fn is_backend_managed(self) -> bool {
-        matches!(self, Self::Channel | Self::Scheduled)
+        matches!(
+            self,
+            Self::Channel | Self::Scheduled | Self::PersonalAssistant
+        )
     }
 }
 
@@ -259,6 +265,7 @@ impl From<&QueuedTurnMessageRecord> for QueuedTurnMessageView {
             managed_by: match value.source {
                 QueuedTurnMessageSource::Channel => Some("channel"),
                 QueuedTurnMessageSource::Scheduled => Some("scheduled"),
+                QueuedTurnMessageSource::PersonalAssistant => Some("personal_assistant"),
                 _ => None,
             },
             can_force_insert: value.can_force_insert(),
@@ -458,6 +465,53 @@ const RECORD_SELECT: &str = "SELECT request_id, session_id, turn_id, message, di
     source_ref, channel_origin_json, mode, status, created_at, updated_at
     FROM queued_turn_user_messages";
 
+/// Called inside the assistant request transaction. Sharing the ordinary queue
+/// preserves ordering with desktop, HTTP, IM and scheduled input.
+pub(crate) fn enqueue_personal_assistant_with_conn(
+    conn: &rusqlite::Connection,
+    request_id: &str,
+    session_id: &str,
+    message: &str,
+) -> Result<()> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM queued_turn_user_messages WHERE session_id = ?1",
+        params![session_id],
+        |row| row.get(0),
+    )?;
+    if count >= MAX_QUEUED_TURN_MESSAGES_PER_SESSION {
+        anyhow::bail!("target message queue is full");
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO queued_turn_user_messages
+         (request_id, session_id, message, attachments_json, is_plan_trigger,
+          goal_trigger, options_json, source, source_ref, mode, status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, '[]', 0, 0, '{}', 'personal_assistant', ?1,
+                 'queue', 'queued', ?4, ?4)",
+        params![request_id, session_id, message, now],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn personal_assistant_queue_is_head_with_conn(
+    conn: &rusqlite::Connection,
+    request_id: &str,
+    session_id: &str,
+) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM queued_turn_user_messages q
+           WHERE q.request_id = ?1 AND q.session_id = ?2
+             AND q.source = 'personal_assistant' AND q.status = 'queued'
+             AND q.id = (SELECT MIN(head.id) FROM queued_turn_user_messages head
+                         WHERE head.session_id = ?2 AND head.status IN
+                         ('queued','fallback_after_reply','waiting_tool_boundary','inserting','dispatching'))
+             AND NOT EXISTS(SELECT 1 FROM direct_turn_admissions WHERE session_id = ?2)
+         )",
+        params![request_id, session_id], |row| row.get(0),
+    ).map_err(Into::into)
+}
+
 fn validate_scheduled_source_ref(source_ref: &str) -> Result<()> {
     let value = source_ref
         .parse::<u64>()
@@ -500,6 +554,15 @@ pub(super) fn consume_direct_turn_admission(
 }
 
 impl SessionDB {
+    pub(crate) fn personal_assistant_queue_is_ready(
+        &self,
+        request_id: &str,
+        session_id: &str,
+    ) -> Result<bool> {
+        let conn = self.read_conn()?;
+        personal_assistant_queue_is_head_with_conn(&conn, request_id, session_id)
+    }
+
     fn try_direct_turn_lock(&self, session_id: &str) -> Result<Option<std::fs::File>> {
         try_direct_turn_lock_in(&self.direct_turn_locks_dir, session_id)
     }
@@ -645,7 +708,10 @@ impl SessionDB {
         &self,
         input: NewQueuedTurnMessage,
     ) -> Result<EnqueueQueuedTurnMessageOutcome> {
-        if input.source == QueuedTurnMessageSource::Scheduled {
+        if matches!(
+            input.source,
+            QueuedTurnMessageSource::Scheduled | QueuedTurnMessageSource::PersonalAssistant
+        ) {
             return Err(anyhow!(
                 "Scheduled-managed messages require the typed scheduled enqueue"
             ));
@@ -658,7 +724,10 @@ impl SessionDB {
         input: NewQueuedTurnMessage,
         admission: super::ForegroundStopAdmission,
     ) -> Result<EnqueueQueuedTurnMessageOutcome> {
-        if input.source == QueuedTurnMessageSource::Scheduled {
+        if matches!(
+            input.source,
+            QueuedTurnMessageSource::Scheduled | QueuedTurnMessageSource::PersonalAssistant
+        ) {
             return Err(anyhow!(
                 "Scheduled-managed messages require the typed scheduled enqueue"
             ));

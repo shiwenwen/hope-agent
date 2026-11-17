@@ -114,11 +114,14 @@ impl LlmApiAdapter for RuntimeAdapter<'_> {
         client: &reqwest::Client,
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult> {
-        RUNTIME
-            .get()
-            .ok_or_else(|| anyhow::anyhow!("one-shot Provider runtime is not registered"))?
-            .one_shot(self.provider, client, req)
-            .await
+        crate::personal_assistant::items::bounded_auxiliary_call(async {
+            RUNTIME
+                .get()
+                .ok_or_else(|| anyhow::anyhow!("one-shot Provider runtime is not registered"))?
+                .one_shot(self.provider, client, req)
+                .await
+        })
+        .await
     }
 
     async fn one_shot_stream(
@@ -128,11 +131,14 @@ impl LlmApiAdapter for RuntimeAdapter<'_> {
         cancel: &Arc<AtomicBool>,
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
-        RUNTIME
-            .get()
-            .ok_or_else(|| anyhow::anyhow!("one-shot Provider runtime is not registered"))?
-            .one_shot_stream(self.provider, client, req, cancel, on_delta)
-            .await
+        crate::personal_assistant::items::bounded_auxiliary_call(async {
+            RUNTIME
+                .get()
+                .ok_or_else(|| anyhow::anyhow!("one-shot Provider runtime is not registered"))?
+                .one_shot_stream(self.provider, client, req, cancel, on_delta)
+                .await
+        })
+        .await
     }
 }
 

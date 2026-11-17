@@ -78,7 +78,12 @@ pub fn resolve_candidates(
         }
     };
 
-    let sessions = session_db.list_sessions_excluding_imported(filters.agent_id.as_deref())?;
+    let mut sessions = Vec::new();
+    for session in session_db.list_sessions_excluding_imported(filters.agent_id.as_deref())? {
+        if !session_db.is_personal_assistant_private_session(&session.id)? {
+            sessions.push(session);
+        }
+    }
     let mut candidates: Vec<CandidateSession> = sessions
         .into_iter()
         .filter(|s| {
@@ -166,6 +171,13 @@ where
             if cancel.is_cancelled() {
                 anyhow::bail!("cancelled");
             }
+            let source_id = cand.session_id.clone();
+            let eligible = session_db
+                .run(move |db| recap_source_is_public(db, &source_id))
+                .await?;
+            if !eligible {
+                anyhow::bail!("recap source is no longer available");
+            }
             // Cache hit: return immediately without an LLM call.
             if let Ok(Some(facet)) = cache.get_cached_facet(
                 &cand.session_id,
@@ -175,9 +187,24 @@ where
             ) {
                 return Ok(facet);
             }
-            let messages = session_db.load_session_messages(&cand.session_id)?;
+            let source_id = cand.session_id.clone();
+            let messages = session_db
+                .run(move |db| {
+                    if !recap_source_is_public(db, &source_id)? {
+                        anyhow::bail!("recap source is no longer available");
+                    }
+                    db.load_session_messages(&source_id)
+                })
+                .await?;
             let transcript = serialize_transcript(&messages);
             let facet = extract_one(chain, &cand.session_id, &transcript, &locale).await?;
+            let source_id = cand.session_id.clone();
+            if !session_db
+                .run(move |db| recap_source_is_public(db, &source_id))
+                .await?
+            {
+                anyhow::bail!("recap source is no longer available");
+            }
             if let Err(e) = cache.save_facet(
                 &facet,
                 &cand.last_message_ts,
@@ -221,6 +248,14 @@ where
         total
     );
     Ok(facets)
+}
+
+fn recap_source_is_public(db: &SessionDB, session_id: &str) -> Result<bool> {
+    Ok(!db.is_personal_assistant_private_session(session_id)?
+        && db
+            .get_session(session_id)?
+            .is_some_and(|session| !session.incognito)
+        && !db.is_codex_imported_session(session_id)?)
 }
 
 /// Extract a session facet. Public so `report.rs` can also persist results
@@ -522,14 +557,15 @@ mod candidate_tests {
     use rusqlite::params;
 
     #[test]
-    fn recap_candidates_exclude_imports_before_session_cap() {
+    fn recap_candidates_exclude_imports_and_private_work_before_session_cap() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("sessions.db");
         let session_db = Arc::new(SessionDB::open(&db_path).unwrap());
         let recap_db = RecapDb::open(&dir.path().join("recap.db")).unwrap();
         let live = session_db.create_session("ha-main").unwrap();
         let imported = session_db.create_session("ha-main").unwrap();
-        for session in [&live, &imported] {
+        let private = session_db.create_session("ha-main").unwrap();
+        for session in [&live, &imported, &private] {
             session_db
                 .append_message(&session.id, &NewMessage::user("question"))
                 .unwrap();
@@ -551,6 +587,12 @@ mod candidate_tests {
         )
         .unwrap();
         let now = chrono::Utc::now();
+        conn.execute(
+            "INSERT INTO personal_assistant_private_sessions(session_id) VALUES (?1)",
+            [&private.id],
+        )
+        .unwrap();
+        assert!(!recap_source_is_public(&session_db, &private.id).unwrap());
         conn.execute(
             "INSERT INTO session_import_sources
              (provider, source_id, session_id, content_hash, imported_at)

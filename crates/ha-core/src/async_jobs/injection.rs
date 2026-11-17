@@ -265,6 +265,28 @@ fn flush_merge_buffer(session_id: &str) {
             _ => return,
         }
     };
+    // Source ownership is immutable and distinct from the shared parent session.
+    // Keep independent assistant items out of the same completion batch.
+    let mut groups = std::collections::BTreeMap::<Option<String>, Vec<PendingJobInjection>>::new();
+    for job in jobs {
+        let owner = match crate::get_session_db() {
+            Some(db) => match db.assistant_source_owner("job", &job.job_id) {
+                Ok(owner) => owner,
+                Err(_) => {
+                    release_dispatch(&job.job_id);
+                    continue;
+                }
+            },
+            None => None,
+        };
+        groups.entry(owner).or_default().push(job);
+    }
+    for jobs in groups.into_values() {
+        dispatch_owned_group(session_id, jobs);
+    }
+}
+
+fn dispatch_owned_group(session_id: &str, jobs: Vec<PendingJobInjection>) {
     if jobs.len() == 1 {
         let j = jobs.into_iter().next().expect("len == 1 checked");
         dispatch_injection(
@@ -406,11 +428,16 @@ fn dispatch_merged_injection(session_id: String, jobs: Vec<PendingJobInjection>)
             Ok(rt) => {
                 let ids_for_arm = ids_for_injected.clone();
                 let ids_for_settle = ids_for_injected.clone();
+                let assistant_sources = ids_for_injected
+                    .iter()
+                    .map(|id| ("job".to_owned(), id.clone()))
+                    .collect();
                 let ids_for_process_release = ids_for_injected;
                 let on_injected = crate::subagent::injection::OnInjected::new(
                     move || claim_batch_no_replay_with_retry(&ids_for_arm),
                     move || mark_injected_batch_with_retry(&ids_for_settle),
                 )
+                .with_assistant_sources(assistant_sources)
                 .with_primary_handoff()
                 .with_process_dispatch_release(move || {
                     release_dispatches(&ids_for_process_release)
@@ -596,6 +623,7 @@ pub fn dispatch_injection(
                     move || claim_no_replay_with_retry(&job_id_for_arm),
                     move || mark_injected_with_retry(&job_id_for_settle),
                 )
+                .with_assistant_sources(vec![("job".to_owned(), job_id_for_db.clone())])
                 .with_primary_handoff()
                 .with_process_dispatch_release(move || {
                     release_dispatch(&job_id_for_process_release)

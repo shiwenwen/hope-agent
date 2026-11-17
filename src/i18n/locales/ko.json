@@ -164,6 +164,7 @@
     "resolvedElsewhere": "다른 기기에서 승인이 처리되었습니다"
   },
   "auth": {
+    "ownerTokenSetupBody": "이 서버에는 개인 비서 데이터가 있습니다. 데스크톱 설정이나 서버 시작 구성에서 Server Owner Token을 설정한 후 여기서 로그인하세요.",
     "checking": "서버 보안 상태 확인 중…",
     "fingerprint": "서버 토큰 지문: {{fingerprint}}",
     "retry": "다시 시도",
@@ -1338,7 +1339,8 @@
     "channelUnreadStatus": "읽지 않은 IM 대화",
     "generatedImageName": "생성된 이미지 {{index}}",
     "noAgents": "에이전트 없음",
-    "sessionFailed": "대화 실패"
+    "sessionFailed": "대화 실패",
+    "composerOptions": "대화 옵션"
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth 토큰이 더 이상 유효하지 않습니다. 계속하려면 다시 로그인하세요.",
@@ -8818,7 +8820,10 @@
     },
     "contextCompactSummaryReasoning": "요약 전용 추론 설정",
     "contextCompactSummaryReasoningDefault": "현재 요약 정책 유지",
-    "contextCompactSummaryReasoningDesc": "컨텍스트 요약에만 적용됩니다. 지원하지 않는 단계는 기록을 보존하고 오류를 표시합니다. 실패해도 모델이나 출력 한도를 자동 변경하지 않으며 기본값은 현재 동작을 유지합니다."
+    "contextCompactSummaryReasoningDesc": "컨텍스트 요약에만 적용됩니다. 지원하지 않는 단계는 기록을 보존하고 오류를 표시합니다. 실패해도 모델이나 출력 한도를 자동 변경하지 않으며 기본값은 현재 동작을 유지합니다.",
+    "toolAssistantReportDesc": "확인된 진행 상황, 결과 또는 저장되는 질문을 기록합니다",
+    "toolAssistantResearchDesc": "Hope에서 발견 참조를 확인하거나 현재 자료 권한 내에서 질문합니다.",
+    "toolAssistantResearchReportDesc": "현재 비공개 조사에서 근거가 있는 발견을 보고하고 검증 후 표시합니다."
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",
@@ -9294,7 +9299,10 @@
     "feishu_hire_get_job": "Feishu 채용: 채용 공고 조회",
     "feishu_hire_list_talents": "Feishu 채용: 인재 목록",
     "feishu_hire_get_talent": "Feishu 채용: 인재 조회",
-    "feishu_hire_list_applications": "Feishu 채용: 지원 내역 목록"
+    "feishu_hire_list_applications": "Feishu 채용: 지원 내역 목록",
+    "assistant_report": "도우미 작업 보고",
+    "assistant_research": "공유 자료 확인",
+    "assistant_research_report": "자료 발견 보고"
   },
   "tz": {
     "amsterdam": "암스테르담 (UTC+1)",
@@ -12913,6 +12921,218 @@
       "supported": "지원됨",
       "degraded": "제한됨",
       "blocked": "차단됨"
+    }
+  },
+  "personalAssistant": {
+    "im": {
+      "identityInUse": "이 봇은 이미 업무 대화에 사용 중입니다. 개인 비서용 봇을 새로 만드세요. 기존 연결은 변경되지 않았습니다.",
+      "title": "Telegram 연결",
+      "separateBot": "비서 전용 Telegram 봇을 설정하고 본인의 개인 채팅을 연결하세요. 프로젝트 대화에는 업무용 봇을 사용하세요.",
+      "token": "전용 봇 토큰",
+      "connect": "확인 후 연결",
+      "botId": "봇 ID",
+      "userId": "Telegram 사용자 ID",
+      "chatId": "개인 채팅 ID",
+      "pair": "페어링 코드 생성",
+      "codeExpires": "코드 만료 시간",
+      "restartPairing": "페어링 다시 시작",
+      "confirm": "이 Telegram 계정 확인",
+      "unpair": "개인 채팅 페어링 해제",
+      "remove": "비서 봇 제거",
+      "paused": "자동 알림 일시 중지",
+      "work": "개인 채팅에서 이용 가능한 작업",
+      "chooseWork": "작업 대화 선택",
+      "noWork": "먼저 Hope에서 작업 대화를 열거나 만드세요.",
+      "queryStatus": "작업 상태 조회",
+      "delegate": "새 작업 위임",
+      "stop": "위임한 작업 중지",
+      "completionNotice": "완료 알림 수신",
+      "expires": "권한 만료 시간",
+      "statusOnly": "Telegram 답변에는 작업 상태가 표시됩니다. 원본 메시지와 결과는 Hope에서 확인하세요.",
+      "revoke": "권한 철회",
+      "receipts": "전송 확인",
+      "openBot": "Telegram에서 봇 열기",
+      "expired": "만료됨",
+      "noAccess": "권한 철회됨",
+      "state": {
+        "unpaired": "이 봇에 본인의 개인 채팅을 연결하세요.",
+        "awaiting_code": "이 봇과의 개인 채팅에 페어링 명령을 보내세요.",
+        "awaiting_confirmation": "개인 채팅에서 코드를 제출했습니다. 이 Telegram 계정이 본인 것인지 확인한 후 승인하세요.",
+        "awaiting_activation": "봇의 개인 채팅으로 돌아가 활성화를 누르세요. 이후 새로 보낸 메시지부터 처리됩니다.",
+        "active": "개인 채팅이 활성화되었습니다. 아래에서 접근을 허용할 작업을 선택하세요."
+      },
+      "delivery": {
+        "pending": "전송 대기",
+        "submitting": "제출 중",
+        "accepted": "플랫폼 접수 완료",
+        "unknown": "결과 알 수 없음",
+        "cancelled": "취소됨"
+      },
+      "notificationPolicy": "선제 알림: {{start}}~{{end}} 방해 금지, 현지 날짜 기준 하루 최대 {{limit}}개입니다. 메시지에 대한 즉시 응답에는 이 정책이 적용되지 않습니다.",
+      "notificationTimezone": "소유자 시간대: {{timezone}}",
+      "notificationTimezoneRequired": "선제 알림이 비활성화되었습니다. 소유자 프로필에 유효한 IANA 시간대를 설정하면 활성화됩니다.",
+      "deferred": {
+        "timezone_required": "유효한 소유자 시간대 설정 대기 중",
+        "quiet_hours": "방해 금지 시간 종료 대기 중",
+        "daily_limit": "일일 알림 한도에 도달함"
+      }
+    },
+    "stop": "작업 중지",
+    "title": "개인 비서",
+    "work": "위임한 작업",
+    "goals": "관심 목표",
+    "emptyWork": "여기서 기존 작업 대화에 업무를 나누어 맡기세요.",
+    "emptyGoals": "작업 공간에서 목표를 팔로우하면 새 장애물과 검수 요청이 여기에 표시됩니다.",
+    "watchGoal": "비서가 목표 확인",
+    "unwatchGoal": "팔로우 중단",
+    "opening": "개인 비서를 여는 중…",
+    "source": "원본 열기",
+    "unavailable": "더 이상 사용할 수 없는 항목입니다.",
+    "attention": "확인 필요 ({{count}})",
+    "blocked": "새 장애물",
+    "awaiting_acceptance": "검수 대기",
+    "status": {
+      "queued": "대기 중",
+      "running": "처리 중",
+      "cancellation_requested": "중지 요청됨",
+      "completed": "완료",
+      "interrupted": "중단됨",
+      "cancelled": "취소됨",
+      "failed": "실패"
+    },
+    "historyLocked": "어시스턴트 기록은 수정 후 다시 보낼 수 없습니다. 새 메시지로 지시를 정정하거나 작업 패널에서 개별 위임을 중지하세요.",
+    "items": "할 일",
+    "settings": {
+      "title": "도우미 설정",
+      "description": "도우미 프로필과 전용 IM 연결을 관리하세요.",
+      "profile": "도우미 프로필",
+      "im": "IM 연결",
+      "name": "도우미 이름",
+      "nameHint": "1~32자로 입력하세요. 이름을 바꿔도 대화와 맡긴 작업은 유지됩니다.",
+      "uploadAvatar": "아바타 업로드",
+      "resetAvatar": "기본값 복원",
+      "presetAvatar": "기본 제공 아바타",
+      "presets": {
+        "sparkles": "반짝임 아바타",
+        "bot": "로봇 아바타",
+        "heart": "하트 아바타"
+      },
+      "identityHint": "개인 도우미 전용 프로필입니다. 다른 Agent 및 내 프로필과 별도로 저장됩니다.",
+      "botIdentityHint": "Telegram Bot의 이름과 아바타는 Telegram에서 별도로 관리합니다. 여기서 바꿔도 Bot 프로필에는 반영되지 않습니다."
+    },
+    "welcomeTitle": "{{name}}입니다",
+    "welcomeBody": "하고 싶은 일을 알려 주세요. 언제든 돌아와 대화를 이어 가거나 맡긴 작업의 진행 상황을 확인할 수 있습니다.",
+    "messagePlaceholder": "무엇을 도와드릴까요?",
+    "readUpdate": "업데이트 읽기",
+    "executionHistory": "실행 기록",
+    "emptyItems": "Hope에 일을 맡기면 끝까지 진행 상황을 챙깁니다.",
+    "executionDetails": "실행 세부 정보",
+    "itemUsage": "{{turns}}턴 · 도구 {{tools}}회 · 실행 {{seconds}}초",
+    "itemExpiry": "후속 처리 만료: {{time}}",
+    "continueItem": "계속 (+8턴, 도구 64회, 30분)",
+    "updates": {
+      "update": "업데이트 내용",
+      "result": "결과",
+      "progress": "진행 상황",
+      "waiting": "대기 중",
+      "blocked": "문제 발생",
+      "needs_review": "확인 필요",
+      "question": "답변이 필요합니다"
+    },
+    "itemState": {
+      "open": "진행 중",
+      "waiting": "대기 중",
+      "done": "완료됨",
+      "stopped": "중지됨"
+    },
+    "itemReason": {
+      "needs_input": "답변을 기다리는 중",
+      "background_work": "백그라운드 작업 대기 중",
+      "work_state_unknown": "결과를 알 수 없습니다. 재시도 전에 확인하세요",
+      "awaiting_verification": "결과 확인이 필요합니다",
+      "execution_failed": "실행 결과를 확인하지 못했습니다",
+      "budget_exhausted": "한도에 도달했습니다. 계속하도록 지시해 주세요",
+      "no_progress": "진전이 없어 지시를 기다립니다",
+      "dispatch_failed": "작업을 시작하지 못했습니다",
+      "owner_stopped": "이 일을 중지했습니다",
+      "scope_or_stop_changed": "범위 또는 중지 상태가 변경되었습니다"
+    },
+    "research": {
+      "settingsTitle": "능동적인 도움",
+      "settingsHint": "Hope는 명시적으로 공유한 자료만 확인합니다. 일시 중지하면 현재 위임 작업이 중단되며, 재개 후 다시 요청해야 합니다.",
+      "enabled": "공유 자료의 변화 찾기",
+      "pause": "Hope의 백그라운드 작업 일시 중지",
+      "pendingPolicy": "설정 적용 중…",
+      "sources": "공유한 자료",
+      "expires": "공유 기한: {{time}}",
+      "observed": "최근 파일 읽기: {{time}}",
+      "suspended": "자동 확인이 중지되었습니다. 필요할 때 직접 확인할 수 있습니다.",
+      "observationGap": "이 기간에는 읽지 못했으므로 변화를 놓쳤을 수 있습니다.",
+      "refresh": "지금 확인",
+      "revoke": "공유 취소",
+      "noSources": "아직 공유한 자료가 없습니다",
+      "workspace": "파일이 있는 작업 채팅 선택",
+      "path": "작업 폴더 내 파일 경로, 예: notes/agenda.txt",
+      "focus": "관심 사항",
+      "focusPlaceholder": "예: 회의 일정 충돌을 찾고 실행 가능한 대안 두 가지 준비",
+      "days": "공유 일수",
+      "baselineHint": "UTF-8 텍스트 파일 최대 4개, 각각 64 KiB까지 공유합니다. 처음에는 기준을 저장하고 이후 중요한 변화를 알립니다.",
+      "share": "자료 공유",
+      "finding": "새로운 발견",
+      "inference": "추론",
+      "uncertainty": "확인할 사항",
+      "prepared": "준비한 대안",
+      "lines": "{{start}}–{{end}}행",
+      "ask": "Hope에 더 질문하기",
+      "askPlaceholder": "이 자료에 대해서만 질문…",
+      "activity": {
+        "pending": "대기 중",
+        "running": "자료 확인 중…",
+        "finished": "완료했습니다. 결과가 채팅에 표시됩니다",
+        "failed": "완료하지 못했습니다. 자료를 확인하고 다시 시도하세요",
+        "cancelled": "취소됨",
+        "expired": "만료되었습니다. 다시 요청하세요",
+        "scopeChanged": "자료나 권한이 변경되었습니다. 다시 확인하세요",
+        "budget": "조사 한도를 사용했습니다. 나중에 다시 시도하세요",
+        "unverified": "검증된 결과를 받지 못했습니다. 다시 시도하세요"
+      }
+    },
+    "noticePolicy": {
+      "privateNotice": "Hope에 새 소식이 있습니다. Hope에서 확인하세요.",
+      "route": "알림 받을 곳",
+      "routes": {
+        "none": "Hope 안에서만",
+        "desktop": "데스크톱",
+        "im": "비서 IM"
+      },
+      "limitHint": "선제 알림은 현지 날짜별 및 최근 24시간 동안 각각 최대 두 번입니다. 관련 소식은 합치며 IM 직접 질문에는 답할 수 있습니다.",
+      "timezone": "사용자 시간대(IANA)",
+      "quietStart": "방해 금지 시작",
+      "quietEnd": "종료",
+      "quietHint": "사용자 시간대를 따릅니다. 시작과 종료가 같으면 하루 종일 방해 금지입니다.",
+      "desktopToIm": "데스크톱에서 맡긴 작업 상태를 IM으로 전송",
+      "desktopToImHint": "해당 작업 대화의 상태 및 완료 알림 권한도 필요합니다. 상태만 보내고 결과는 Hope에 남깁니다.",
+      "pairRequired": "먼저 비서 IM 설정에서 전용 Bot을 연결하세요.",
+      "sourceDisclosure": "이 자료 요약을 비서 IM에 허용",
+      "sourceDisclosureHint": "기본은 꺼짐입니다. 현재 연결한 채팅에 짧은 요약과 자료 범위 내 질문만 허용합니다. 철회하면 이전 답장 맥락은 무효가 됩니다.",
+      "nextEligible": "다음 알림 가능 시각: {{time}} ({{zone}})",
+      "deferred": {
+        "timezone_required": "알림을 받으려면 사용자 시간대를 설정하세요.",
+        "quiet_hours": "방해 금지 시간입니다. 소식은 Hope에 보관합니다.",
+        "daily_limit": "알림 한도에 도달했습니다. 다음 시도는 대기합니다.",
+        "policy_pending": "비서 설정 적용을 기다리는 중입니다.",
+        "paused": "개인 비서가 일시 정지되었습니다.",
+        "disabled": "소식은 Hope에 남으며 외부 알림은 꺼져 있습니다.",
+        "pairing_required": "비서 IM이 연결되지 않았거나 알림이 정지되었습니다.",
+        "using_hope": "Hope를 사용 중이므로 외부 알림을 보류합니다."
+      },
+      "receipts": {
+        "submitting": "{{time}} · 플랫폼 확인 대기",
+        "accepted": "{{time}} · 플랫폼 접수, 읽음 확인 없음",
+        "unknown": "{{time}} · 전달 여부 불명, 자동 재전송 없음",
+        "cancelled": "{{time}} · 미제출, 시도 횟수에는 포함"
+      },
+      "homeHandoffHint": "어시스턴트 홈의 직접 질문과 도구 승인은 데스크톱 알림만 지원합니다. Hope로 돌아가 응답하세요."
     }
   }
 }

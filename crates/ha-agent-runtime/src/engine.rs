@@ -707,7 +707,15 @@ pub async fn execute_admitted_params(
     // tokens until concurrency or external limits intervene. Subagent
     // observability lives on `SubagentStart` / `SubagentStop` instead, also
     // gated against hook-spawned children in `subagent::spawn`.
-    if source.fires_user_lifecycle_hooks() {
+    if source.fires_user_lifecycle_hooks()
+        && !matches!(
+            tool_scope,
+            Some(
+                ha_core::tool_defs::ToolScope::PersonalAssistantIm
+                    | ha_core::tool_defs::ToolScope::AssistantResearch
+            )
+        )
+    {
         if let Some(extra) = ha_core::hooks::fire_session_start_observation(
             &session_id,
             &agent_id,
@@ -763,18 +771,25 @@ pub async fn execute_admitted_params(
         .map(|wire| message_without_typed_note_spans(&canonical_user_message, wire))
         .unwrap_or_else(|| canonical_user_message.clone());
     let legacy_note_slots = 5usize.saturating_sub(bound_notes.len().min(5));
-    let legacy_notes = (legacy_note_slots > 0)
-        .then(|| {
-            ha_core::knowledge_hooks::resolve_inline_injections(
-                &legacy_note_message,
-                &session_id,
-                kb_access_source(source),
-                kb_origin,
-                channel_kb_context.clone(),
-                legacy_note_slots,
+    let legacy_notes = (legacy_note_slots > 0
+        && !matches!(
+            tool_scope,
+            Some(
+                ha_core::tool_defs::ToolScope::PersonalAssistantIm
+                    | ha_core::tool_defs::ToolScope::AssistantResearch
             )
-        })
-        .flatten();
+        ))
+    .then(|| {
+        ha_core::knowledge_hooks::resolve_inline_injections(
+            &legacy_note_message,
+            &session_id,
+            kb_access_source(source),
+            kb_origin,
+            channel_kb_context.clone(),
+            legacy_note_slots,
+        )
+    })
+    .flatten();
     if legacy_notes.is_some() {
         // A current typed wire may legitimately coexist with the explicit
         // read-only `[[note]]` compatibility syntax (for example a typed
@@ -881,21 +896,31 @@ pub async fn execute_admitted_params(
                 durability.persistence_run_id().to_string(),
             )
         });
-    let mut im_mirror = ha_core::channel_hooks::attach_live_mirror(
-        &session_id,
-        source,
-        im_mirror_generation,
-        Some(ha_core::channel_hooks::LastUserSnapshot {
-            source: source.as_str().to_string(),
-            text: ha_core::util::non_empty_trim_or(
-                display_text.as_deref(),
-                &canonical_user_message,
-            )
-            .to_owned(),
-            attachment_count: attachments.len(),
-        }),
-    )
-    .await;
+    let mut im_mirror = if matches!(
+        tool_scope,
+        Some(
+            ha_core::tool_defs::ToolScope::PersonalAssistantIm
+                | ha_core::tool_defs::ToolScope::AssistantResearch
+        )
+    ) {
+        None
+    } else {
+        ha_core::channel_hooks::attach_live_mirror(
+            &session_id,
+            source,
+            im_mirror_generation,
+            Some(ha_core::channel_hooks::LastUserSnapshot {
+                source: source.as_str().to_string(),
+                text: ha_core::util::non_empty_trim_or(
+                    display_text.as_deref(),
+                    &canonical_user_message,
+                )
+                .to_owned(),
+                attachment_count: attachments.len(),
+            }),
+        )
+        .await
+    };
 
     let total_models = model_chain.len();
     let mut last_error: Option<String> = None;
@@ -1908,14 +1933,30 @@ pub async fn execute_admitted_params(
                     // (fire_stop guards on it), never on a user interrupt.
                     // `response` is the turn's final assistant text
                     // (`last_assistant_message`), so a Stop hook can inspect it.
-                    ha_core::hooks::fire_stop(
-                        &session_id,
-                        Some(&agent_id),
-                        terminal_status.as_str(),
-                        Some(&response),
-                    );
+                    if !matches!(
+                        tool_scope,
+                        Some(
+                            ha_core::tool_defs::ToolScope::PersonalAssistantIm
+                                | ha_core::tool_defs::ToolScope::AssistantResearch
+                        )
+                    ) {
+                        ha_core::hooks::fire_stop(
+                            &session_id,
+                            Some(&agent_id),
+                            terminal_status.as_str(),
+                            Some(&response),
+                        );
+                    }
 
-                    if terminal_status == session::ChatTurnStatus::Completed {
+                    if terminal_status == session::ChatTurnStatus::Completed
+                        && !matches!(
+                            tool_scope,
+                            Some(
+                                ha_core::tool_defs::ToolScope::PersonalAssistantIm
+                                    | ha_core::tool_defs::ToolScope::AssistantResearch
+                            )
+                        )
+                    {
                         let continuation = {
                             let session_id = session_id.clone();
                             let agent_id = agent_id.clone();
