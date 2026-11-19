@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- 更新底层依赖，修复并发配置读取和 Linux 扩展属性读取所依赖的内存安全问题。 (#923)
+
 ## [0.75.0] - 2026-11-16
 
 ### Added
