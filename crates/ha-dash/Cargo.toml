@@ -24,6 +24,9 @@ uuid = { workspace = true }
 sysinfo = "0.38"
 tokio-util = { version = "0.7", features = ["rt"] }
 
+# Anthropic / OpenAI / Gemini 官方标价（每行注明价格页与核对日期，零依赖）
+llm-prices = "1.3"
+
 [dev-dependencies]
 ha-core = { path = "../ha-core", features = ["test-support"] }
 tempfile = "3"

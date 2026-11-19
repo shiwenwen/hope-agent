@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **大盘成本估算**：未在设置中标价的 Anthropic / OpenAI / Gemini 模型，改用随版本内置的官方标价快照（`llm-prices` 1.3.0）估算成本，修正部分旧型号与新型号的单价；用户配置的单价仍然优先，其他厂商继续使用原内置估算表。快照只随依赖更新而变化，不会联网获取实时价格；仅覆盖基础单价，不含长上下文与缓存档位。 (#925)
+
 ## [0.75.0] - 2026-11-16
 
 ### Added
