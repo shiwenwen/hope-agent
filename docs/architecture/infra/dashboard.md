@@ -256,7 +256,7 @@ flowchart TD
 ```
 
 - **用户配置优先**：按 `(provider_id, model_id)` 回查 Provider 配置单价——这是「用户实际付多少」的真相源。模板与 GUI 都存厂商价目页原价，Provider 声明 `currency = CNY` 时**只在这一处**按 `CNY_PER_USD` 换算成 USD 入账。
-- **`Some(0.0)` 与 `None` 语义不同**：`Some(0.0)` 是「明确不按 token 计费」（本地模型、包月端点），如实记 $0、**不回退**；`None`（未标价）与查不到 provider/model 一样落到估算表。只标了一侧价（另一侧 `None`）仍视为已标价，缺的一侧按 0 计。
+- **`Some(0.0)` 与 `None` 语义不同**：`Some(0.0)` 是「明确不按 token 计费」（本地模型、包月端点），如实记 $0、**不回退**；`None`（未标价）与查不到 provider/model 一样进入下一级：先查 `llm-prices` 官方标价快照，未覆盖的 id 再落到内置估算表。只标了一侧价（另一侧 `None`）仍视为已标价，缺的一侧按 0 计。
 - **官方标价快照（第二级）**：未标价时，`listed_price` 先查编译进二进制的 `llm-prices` 快照（Cargo.lock 锁定版本），只接受 `anthropic` / `openai` / `google` 三家且输入、输出两侧都有价的条目；认得带日期后缀、`anthropic/` 前缀及 Bedrock / Vertex 形式的 id。快照**只随依赖升级而变化，运行时不联网、不读文件**，因此价格可能落后于厂商最新调价，以用户配置为准。只取基础单价，不含长上下文、缓存读写等档位。表外 id 返回 `None`，落到下一级。
 - **内置估算表兜底**：`estimate_cost` 按 `model_id.contains()` 子串匹配，**首次命中即返回**。因此更具体的臂必须排在通用族之前（`claude-opus-4-5`+ 是 $5/$25，须先于 `claude-opus-4` 的 $15/$75；`grok-4.5` 须先于 `grok-4`；`kimi-k2.7-code-highspeed` 须先于 `kimi-k2.7`；`gemini-*-flash-lite` 须先于同代 `-flash`；`qwen3.8-max` 须先于末尾的通用 `qwen` 臂）。人民币计价厂商（qwen、豆包方舟、腾讯混元 `hy3`）的臂统一写成 `¥价 / CNY_PER_USD`，与配置路径口径一致。未命中任何臂时默认 `$3 / $15`。
 - **`contains` 区分大小写**：托管方常用 HuggingFace 式 id（`hf:zai-org/GLM-5.2`、`hf:Qwen/Qwen3.6-27B`），只写小写臂会让它们整片掉进默认价（实测约 40 倍高估）。新增臂时若该模型可能以大写形式出现，须同时给出大小写两种拼写——单测 `current_generation_models_are_not_billed_at_the_default` 已按真实模板 id 钉住这一点。
@@ -264,7 +264,7 @@ flowchart TD
 
 ### 估算表节选（示例，非全表）
 
-> 定价随厂商调价与新模型上线持续变动，下表仅示意匹配机制与量级。**权威定价以 [`cost.rs`](../../../crates/ha-dash/src/dashboard/cost.rs) 的内联表及其单测为准**（单测 `estimator_matches_direct_provider_template_prices` / `specific_arms_win_over_their_generic_family` 会锁住关键条目）。
+> 下表是**兜底估算表的示例**，仅示意匹配机制与量级。对 `llm-prices` 快照覆盖的 id（Anthropic / OpenAI / Gemini），以 Cargo.lock 锁定版本的 `llm-prices` 快照为准，`listed_price` 优先于本表：例如 `gpt-4.1` 按快照记 $2 / $8，而不是内联 `gpt-4` 臂的 $30 / $60。快照未覆盖的 id 才使用 [`cost.rs`](../../../crates/ha-dash/src/dashboard/cost.rs) 的内联表（单测 `estimator_matches_direct_provider_template_prices` / `specific_arms_win_over_their_generic_family` 锁住关键条目）。
 
 | 厂商 | 匹配子串（示例） | Input $/1M | Output $/1M |
 |------|------|-------------|---------------|
