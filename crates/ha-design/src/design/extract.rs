@@ -1447,8 +1447,17 @@ mod tests {
             stream
                 .set_read_timeout(Some(std::time::Duration::from_secs(5)))
                 .unwrap();
-            let mut request = [0; 4096];
-            let _ = stream.read(&mut request);
+            // TCP reads can split the request headers. Consume them completely
+            // before closing the response, or unread bytes can reset the socket
+            // and turn the size-cap assertion into an unrelated stream error.
+            let mut request = Vec::new();
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let mut chunk = [0; 1024];
+                let count = stream.read(&mut chunk).unwrap();
+                assert!(count > 0, "fixture request ended before complete headers");
+                request.extend_from_slice(&chunk[..count]);
+                assert!(request.len() <= 16 * 1024, "fixture headers exceed limit");
+            }
             // The cap test intentionally closes the response before its end.
             let _ = stream.write_all(response.as_bytes());
         });
@@ -1538,11 +1547,8 @@ mod tests {
             );
         }
         let response = figma_fixture(200, "", &"x".repeat(12 * 1024 * 1024 + 1)).await;
-        assert!(figma_response(response)
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("12 MB cap"));
+        let error = figma_response(response).await.unwrap_err();
+        assert!(error.to_string().contains("12 MB cap"), "{error:#}");
         let response = figma_fixture(200, "", r#"{"document": {}}"#).await;
         assert!(figma_response(response)
             .await

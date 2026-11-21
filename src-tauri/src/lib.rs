@@ -1050,6 +1050,8 @@ pub fn run() {
             commands::design::revoke_design_share_cmd,
             commands::design::run_design_visual_regression_cmd,
             commands::design::accept_design_visual_baseline_cmd,
+            commands::design::get_design_quality_image_cmd,
+            commands::design::restore_design_visual_baseline_cmd,
             commands::design::get_design_scenarios_cmd,
             commands::design::save_design_scenarios_cmd,
             commands::design::get_design_components_manifest_cmd,

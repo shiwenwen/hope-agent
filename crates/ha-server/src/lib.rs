@@ -3445,6 +3445,14 @@ fn build_router_with_cors(
             post(routes::design::accept_visual_baseline),
         )
         .route(
+            "/design/artifacts/{id}/quality-image",
+            post(routes::design::quality_image),
+        )
+        .route(
+            "/design/artifacts/{id}/visual-baseline/restore",
+            post(routes::design::restore_visual_baseline),
+        )
+        .route(
             "/design/visual-baseline",
             post(routes::design::accept_visual_baseline_unscoped),
         )

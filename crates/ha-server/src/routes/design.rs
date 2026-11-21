@@ -16,6 +16,7 @@ use tower_http::services::ServeFile;
 use ha_core::paths;
 use ha_core::session::SessionMeta;
 use ha_design::design::extract::Direction;
+use ha_design::design::quality_store::StaleBaselineRevision;
 use ha_design::design::service::{
     self, BindingSyncReport, CreateArtifactInput, CreateProjectInput, ElementPatch,
     ExtractSystemInput, ReferenceImageInput, RemoveElementResult, SaveSystemInput,
@@ -1024,6 +1025,15 @@ pub async fn run_visual_regression(
     ))
 }
 
+fn visual_baseline_error(error: anyhow::Error) -> AppError {
+    match error.downcast_ref::<StaleBaselineRevision>() {
+        Some(conflict) => {
+            AppError::conflict_with_code(StaleBaselineRevision::CODE, conflict.to_string())
+        }
+        None => error.into(),
+    }
+}
+
 pub async fn accept_visual_baseline(
     Path(id): Path<String>,
     Json(body): Json<QualityAcceptBody>,
@@ -1035,7 +1045,7 @@ pub async fn accept_visual_baseline(
     Ok(Json(
         ha_design::design::quality::accept(body.input)
             .await
-            .map_err(|e| AppError::internal(e.to_string()))?,
+            .map_err(visual_baseline_error)?,
     ))
 }
 
@@ -1045,7 +1055,50 @@ pub async fn accept_visual_baseline_unscoped(
     Ok(Json(
         ha_design::design::quality::accept(body.input)
             .await
-            .map_err(|e| AppError::internal(e.to_string()))?,
+            .map_err(visual_baseline_error)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct QualityImageBody {
+    pub input: ha_design::design::quality_store::QualityImageInput,
+}
+#[derive(Debug, Deserialize)]
+pub struct QualityRestoreBody {
+    pub input: ha_design::design::quality_store::RestoreBaselineInput,
+}
+
+pub async fn quality_image(
+    Path(id): Path<String>,
+    Json(body): Json<QualityImageBody>,
+) -> Result<Json<ha_design::design::quality_store::QualityImage>, AppError> {
+    validate_id(&id)?;
+    if body.input.artifact_id != id {
+        return Err(AppError::bad_request("artifact id mismatch"));
+    }
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::quality_store::review_image(body.input)
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+pub async fn restore_visual_baseline(
+    Path(id): Path<String>,
+    Json(body): Json<QualityRestoreBody>,
+) -> Result<Json<ha_design::design::quality::QualityManifest>, AppError> {
+    validate_id(&id)?;
+    if body.input.artifact_id != id {
+        return Err(AppError::bad_request("artifact id mismatch"));
+    }
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_design::design::quality_store::restore(body.input)
+        })
+        .await
+        .map_err(visual_baseline_error)?,
     ))
 }
 
@@ -1762,10 +1815,23 @@ pub async fn serve_artifact_file(
 ) -> Result<Response, AppError> {
     validate_id(&project_id)?;
     validate_id(&artifact_id)?;
-    validate_safe_rest_path(&rest)?;
 
     let base_dir = paths::design_artifact_dir(&project_id, &artifact_id)
         .map_err(|e| AppError::internal(e.to_string()))?;
+    serve_artifact_file_from_dir(base_dir, rest, request).await
+}
+
+// Artifact HTML contains both the author's script and the editor/scenario bridge.
+// Keep it in an opaque origin even when opened outside the GUI iframe. The main
+// application's CSP blocks inline scripts and must not be used for this document.
+const ARTIFACT_HTML_CSP: &str = "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+
+async fn serve_artifact_file_from_dir(
+    base_dir: std::path::PathBuf,
+    rest: String,
+    request: Request,
+) -> Result<Response, AppError> {
+    validate_safe_rest_path(&rest)?;
     let candidate = base_dir.join(&rest);
     let file_canon = contained_canonical(&base_dir, &candidate).await?;
 
@@ -1793,6 +1859,12 @@ pub async fn serve_artifact_file(
             no_referrer: true,
         },
     );
+    if mime.starts_with("text/html") {
+        response.headers_mut().insert(
+            header::CONTENT_SECURITY_POLICY,
+            axum::http::HeaderValue::from_static(ARTIFACT_HTML_CSP),
+        );
+    }
 
     Ok(response)
 }
@@ -1974,6 +2046,116 @@ pub async fn chat_threads_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use axum::http::{Request as HttpRequest, StatusCode};
+    use axum::routing::get;
+    use axum::Router;
+
+    fn preview_test_router(root: std::path::PathBuf) -> Router {
+        let handler = move |Path(rest): Path<String>, request: Request| {
+            let root = root.clone();
+            async move { serve_artifact_file_from_dir(root, rest, request).await }
+        };
+        Router::new()
+            .route("/api/design/preview/{*rest}", get(handler.clone()))
+            .route("/api/resource/ticket/design/{*rest}", get(handler))
+            .route("/settings", get(|| async { "owner" }))
+            .layer(axum::middleware::from_fn(
+                crate::middleware::security_headers,
+            ))
+    }
+
+    #[tokio::test]
+    async fn artifact_html_runs_inline_scripts_in_an_opaque_offline_sandbox() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("index.html"),
+            "<script>/* scenario */</script>",
+        )
+        .unwrap();
+        let app = preview_test_router(temp.path().to_path_buf());
+        for path in [
+            "/api/design/preview/index.html",
+            "/api/resource/ticket/design/index.html",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    HttpRequest::builder()
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let csp = response.headers()[header::CONTENT_SECURITY_POLICY]
+                .to_str()
+                .unwrap();
+            let directives: Vec<_> = csp.split("; ").collect();
+            for required in [
+                "sandbox allow-scripts",
+                "default-src 'none'",
+                "script-src 'self' 'unsafe-inline'",
+                "connect-src 'none'",
+                "frame-src 'none'",
+                "form-action 'none'",
+                "base-uri 'none'",
+            ] {
+                assert!(directives.contains(&required), "{path}: missing {required}");
+            }
+            assert!(!csp.contains("allow-same-origin"));
+            assert!(!csp.contains("unsafe-eval"));
+            assert!(!csp.contains("https:"));
+            assert_eq!(
+                response.headers().contains_key(header::X_FRAME_OPTIONS),
+                !path.starts_with("/api/resource/")
+            );
+        }
+        let owner = app
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/settings")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let csp = owner.headers()[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap();
+        assert!(csp.contains("script-src 'self';"));
+        assert!(!csp.contains("sandbox allow-scripts"));
+        assert!(csp.contains("frame-ancestors 'self'"));
+    }
+
+    #[tokio::test]
+    async fn artifact_sandbox_is_html_only_and_keeps_path_guards() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("asset.css"), "body{color:red}").unwrap();
+        let app = preview_test_router(temp.path().to_path_buf());
+        for (path, expected) in [
+            ("asset.css", StatusCode::OK),
+            ("missing.html", StatusCode::NOT_FOUND),
+            ("../outside.html", StatusCode::BAD_REQUEST),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    HttpRequest::builder()
+                        .uri(format!("/api/design/preview/{path}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected, "{path}");
+            assert!(!response.headers()[header::CONTENT_SECURITY_POLICY]
+                .to_str()
+                .unwrap()
+                .contains("sandbox allow-scripts"));
+        }
+    }
 
     #[test]
     fn id_accepts_typical() {

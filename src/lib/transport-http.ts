@@ -594,6 +594,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
     path: "/api/design/artifacts/{artifactId}/visual-regression",
   },
   accept_design_visual_baseline_cmd: { method: "POST", path: "/api/design/visual-baseline" },
+  get_design_quality_image_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/quality-image",
+  },
+  restore_design_visual_baseline_cmd: {
+    method: "POST",
+    path: "/api/design/artifacts/{artifactId}/visual-baseline/restore",
+  },
   get_design_scenarios_cmd: { method: "GET", path: "/api/design/artifacts/{artifactId}/scenarios" },
   save_design_scenarios_cmd: {
     method: "PUT",
@@ -2275,11 +2283,13 @@ interface CachedPreviewTicket {
 
 class HttpTransportResponseError extends Error {
   readonly status: number
+  readonly code?: string
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string) {
     super(message)
     this.name = "HttpTransportResponseError"
     this.status = status
+    this.code = code
   }
 }
 
@@ -2766,26 +2776,24 @@ export class HttpTransport implements Transport {
     })
 
     if (!response.ok) {
-      // Preserve the transport-neutral CAS result so the form can keep its
-      // draft and offer reload/retry. External HTTP callers still receive 409.
-      if (command === "cron_update_job" && response.status === 409) {
-        const conflict = await response
-          .clone()
-          .json()
-          .catch(() => null)
-        if (
-          conflict &&
-          typeof conflict === "object" &&
-          (conflict as { code?: unknown }).code === "cron_revision_conflict"
-        ) {
-          return conflict as T
-        }
+      const conflict: { code?: unknown } | null =
+        response.status === 409
+          ? await response
+              .clone()
+              .json()
+              .catch(() => null)
+          : null
+      const code = typeof conflict?.code === "string" ? conflict.code : undefined
+      // Cron exposes a conflict as a result so its form can keep the draft.
+      if (command === "cron_update_job" && code === "cron_revision_conflict") {
+        return conflict as T
       }
       const text = await response.text().catch(() => "")
       this.handleAuthFailure(response.status, auth.revision)
       throw new HttpTransportResponseError(
         response.status,
         `[HttpTransport] ${def.method} ${url} returned ${response.status}: ${text}`,
+        code,
       )
     }
 
