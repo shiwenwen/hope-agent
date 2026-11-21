@@ -18,6 +18,8 @@ type Finding = { lens: string; severity: string; message: string }
 type BaselineState = { revisionId: string | null; revisions: DesignBaselineRevision[] }
 type Diff = DesignQualityRun["diffs"][number]
 
+const BASELINE_REVISION_CONFLICT = "design_baseline_revision_conflict"
+
 /** Mounted only for one artifact/connection and one open review dialog. */
 export function DesignQualityReview({
   artifactId,
@@ -37,7 +39,7 @@ export function DesignQualityReview({
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [baseline, setBaseline] = useState<BaselineState>({ revisionId: null, revisions: [] })
-  const [changed, setChanged] = useState(false)
+  const [baselineStatus, setBaselineStatus] = useState<"current" | "updated" | "stale">("current")
 
   useEffect(() => {
     const scope = { transport: tx }
@@ -47,7 +49,7 @@ export function DesignQualityReview({
     setFindings(null)
     setError(null)
     setSelected(null)
-    setChanged(false)
+    setBaselineStatus("current")
     setBaseline({ revisionId: null, revisions: [] })
     void Promise.allSettled([
       tx.call<Finding[]>("review_design_artifact_cmd", { id: artifactId }),
@@ -87,7 +89,8 @@ export function DesignQualityReview({
       busy ||
       loading ||
       getTransport() !== tx ||
-      (!revisionId && changed)
+      baselineStatus === "stale" ||
+      (!revisionId && baselineStatus === "updated")
     )
       return
     const isCurrent = () => scopeRef.current === scope && getTransport() === tx
@@ -109,12 +112,23 @@ export function DesignQualityReview({
           })
       if (!isCurrent()) return
       setBaseline(value)
-      setChanged(true)
+      setBaselineStatus("updated")
       toast.success(
         t(revisionId ? "design.review.baselineRestored" : "design.review.baselineAccepted"),
       )
     } catch (e) {
       if (!isCurrent()) return
+      // Tauri rejects with a string; HTTP puts the code on its response error.
+      if (
+        e === BASELINE_REVISION_CONFLICT ||
+        (typeof e === "object" &&
+          e !== null &&
+          "code" in e &&
+          e.code === BASELINE_REVISION_CONFLICT)
+      ) {
+        setBaselineStatus("stale")
+        return
+      }
       logger.warn("design", "DesignQualityReview::baseline", "baseline operation failed", e)
       toast.error(t("design.review.baselineFailed"))
     } finally {
@@ -195,7 +209,7 @@ export function DesignQualityReview({
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
-                disabled={busy || loading || changed || !run.reviewId}
+                disabled={busy || loading || baselineStatus !== "current" || !run.reviewId}
                 onClick={() => void mutate()}
               >
                 {t("design.review.acceptBaseline")}
@@ -210,7 +224,12 @@ export function DesignQualityReview({
                 {t("design.review.rerun", "重新审查")}
               </Button>
             </div>
-            {changed && (
+            {baselineStatus === "stale" && (
+              <p role="alert" className="text-sm text-destructive">
+                {t("design.review.baselineConflict")}
+              </p>
+            )}
+            {baselineStatus === "updated" && (
               <p role="status" className="text-xs text-muted-foreground">
                 {t("design.review.baselineChanged", "基线已更新；重新审查可比较新基线。")}
               </p>
@@ -228,7 +247,7 @@ export function DesignQualityReview({
                       size="sm"
                       variant="ghost"
                       className="mr-1 text-xs"
-                      disabled={busy || !baseline.revisionId}
+                      disabled={busy || baselineStatus === "stale" || !baseline.revisionId}
                       onClick={() => void mutate(r.id)}
                     >
                       {t("design.review.restoreBaseline", "恢复基线")} ·{" "}

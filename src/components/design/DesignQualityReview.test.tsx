@@ -122,6 +122,68 @@ it("loads a selected pair on demand and accepts its saved receipt without recapt
   )
 })
 
+it.each([
+  [
+    "accept",
+    "accept_design_visual_baseline_cmd",
+    "design.review.acceptBaseline",
+    {
+      code: "design_baseline_revision_conflict",
+    },
+  ],
+  [
+    "restore",
+    "restore_design_visual_baseline_cmd",
+    /恢复基线/,
+    "design_baseline_revision_conflict",
+  ],
+])(
+  "keeps the captures and requires a fresh review after a stale %s",
+  async (_, command, button, rejection) => {
+    const older = { ...run.baselineRevisions[0], id: "R0" }
+    call.mockImplementation((cmd, args) => {
+      if (cmd === "run_design_visual_regression_cmd") {
+        return Promise.resolve({ ...run, baselineRevisions: [older, ...run.baselineRevisions] })
+      }
+      if (cmd === command) return Promise.reject(rejection)
+      return fixture(cmd, args)
+    })
+    render(<DesignQualityReview artifactId="A" onClose={vi.fn()} />)
+    await ready()
+    fireEvent.click(screen.getByRole("button", { name: /Empty/ }))
+    await screen.findByAltText("Empty 本轮截图")
+    fireEvent.click(screen.getByRole("button", { name: button }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("design.review.baselineConflict")
+    expect(screen.getByAltText("Empty 本轮截图")).toBeInTheDocument()
+    expect(screen.getByAltText("Empty 审查时基线")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "design.review.acceptBaseline" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: /恢复基线/ })).toBeDisabled()
+    expect(error).not.toHaveBeenCalled()
+    expect(success).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "重新审查" }))
+    await ready()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "design.review.acceptBaseline" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: /恢复基线/ })).toBeEnabled()
+  },
+)
+
+it("keeps the generic failure and allows retry for an unrelated error", async () => {
+  call.mockImplementation((cmd, args) =>
+    cmd === "accept_design_visual_baseline_cmd"
+      ? Promise.reject(new Error("disk error"))
+      : fixture(cmd, args),
+  )
+  render(<DesignQualityReview artifactId="A" onClose={vi.fn()} />)
+  await ready()
+  fireEvent.click(screen.getByRole("button", { name: "design.review.acceptBaseline" }))
+  await waitFor(() => expect(error).toHaveBeenCalledWith("design.review.baselineFailed"))
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "design.review.acceptBaseline" })).toBeEnabled()
+})
+
 it("displays missing baselines without requesting a nonexistent image", async () => {
   render(<DesignQualityReview artifactId="A" onClose={vi.fn()} />)
   await ready()

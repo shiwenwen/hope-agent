@@ -12362,6 +12362,7 @@
       "captureVersion": "画像バージョン",
       "rerun": "再チェック",
       "baselineChanged": "ベースラインを更新しました。再チェックして比較できます。",
+      "baselineConflict": "別のウィンドウまたはセッションで基準画像が更新されました。スクリーンショットの採用や基準画像の復元の前に、再レビューしてください。",
       "baselineHistory": "保存済みベースライン",
       "restoreBaseline": "ベースラインを復元",
       "currentCapture": "今回の画像",

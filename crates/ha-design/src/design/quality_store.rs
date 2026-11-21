@@ -18,6 +18,21 @@ const MAX_REVIEWS: usize = 4;
 const MAX_REVISIONS: usize = 4;
 const MAX_STORE_BYTES: u64 = 768 * 1024 * 1024;
 
+#[derive(Debug)]
+pub struct StaleBaselineRevision;
+
+impl StaleBaselineRevision {
+    pub const CODE: &'static str = "design_baseline_revision_conflict";
+}
+
+impl std::fmt::Display for StaleBaselineRevision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("stale baseline revision")
+    }
+}
+
+impl std::error::Error for StaleBaselineRevision {}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QualityReceipt {
@@ -278,10 +293,9 @@ pub(super) fn accept_review_at(
         "stale baseline acceptance: artifact changed"
     );
     let mut manifest = quality::load_manifest(dir, &input.artifact_id)?;
-    anyhow::ensure!(
-        input.expected_baseline_revision == manifest.revision_id,
-        "stale baseline revision"
-    );
+    if input.expected_baseline_revision != manifest.revision_id {
+        return Err(StaleBaselineRevision.into());
+    }
     let receipt = manifest
         .reviews
         .iter()
@@ -293,10 +307,9 @@ pub(super) fn accept_review_at(
             && receipt.run.scenarios_hash == scenarios_hash,
         "stale reviewed capture"
     );
-    anyhow::ensure!(
-        receipt.run.baseline_revision == manifest.revision_id,
-        "reviewed baseline revision changed"
-    );
+    if receipt.run.baseline_revision != manifest.revision_id {
+        return Err(StaleBaselineRevision.into());
+    }
     let keys: BTreeSet<_> = receipt.entries.keys().cloned().collect();
     anyhow::ensure!(
         !keys.is_empty() && &keys == plan_keys,
@@ -395,10 +408,9 @@ pub struct RestoreBaselineInput {
 }
 fn restore_at(dir: &Path, input: &RestoreBaselineInput) -> Result<QualityManifest> {
     let mut manifest = quality::load_manifest(dir, &input.artifact_id)?;
-    anyhow::ensure!(
-        manifest.revision_id.as_deref() == Some(&input.expected_revision_id),
-        "stale baseline revision"
-    );
+    if manifest.revision_id.as_deref() != Some(&input.expected_revision_id) {
+        return Err(StaleBaselineRevision.into());
+    }
     anyhow::ensure!(
         input.revision_id != input.expected_revision_id,
         "baseline revision already current"
@@ -542,7 +554,13 @@ mod tests {
             Some(&request.expected_revision_id)
         );
         assert_eq!(revision.restored_from.as_ref(), Some(&request.revision_id));
-        assert!(restore_at(dir.path(), &request).is_err());
+        let accepted_bytes = std::fs::read(dir.path().join("manifest.json")).unwrap();
+        let error = restore_at(dir.path(), &request).unwrap_err();
+        assert!(error.is::<StaleBaselineRevision>());
+        assert_eq!(
+            accepted_bytes,
+            std::fs::read(dir.path().join("manifest.json")).unwrap()
+        );
     }
 
     #[test]
@@ -568,8 +586,19 @@ mod tests {
             before,
             std::fs::read(dir.path().join("manifest.json")).unwrap()
         );
-        accept_at(dir.path(), &run);
-        assert!(accept_review_at(dir.path(), &input(&run), "source", "scenes", &keys).is_err());
+        let accepted = accept_at(dir.path(), &run);
+        let accepted_bytes = std::fs::read(dir.path().join("manifest.json")).unwrap();
+        let mut request = input(&run);
+        let error = accept_review_at(dir.path(), &request, "source", "scenes", &keys).unwrap_err();
+        assert!(error.is::<StaleBaselineRevision>());
+        // A caller that supplies the current revision still needs a review of it.
+        request.expected_baseline_revision = accepted.revision_id;
+        let error = accept_review_at(dir.path(), &request, "source", "scenes", &keys).unwrap_err();
+        assert!(error.is::<StaleBaselineRevision>());
+        assert_eq!(
+            accepted_bytes,
+            std::fs::read(dir.path().join("manifest.json")).unwrap()
+        );
     }
 
     #[test]

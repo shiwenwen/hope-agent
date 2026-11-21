@@ -16,6 +16,7 @@ use tower_http::services::ServeFile;
 use ha_core::paths;
 use ha_core::session::SessionMeta;
 use ha_design::design::extract::Direction;
+use ha_design::design::quality_store::StaleBaselineRevision;
 use ha_design::design::service::{
     self, BindingSyncReport, CreateArtifactInput, CreateProjectInput, ElementPatch,
     ExtractSystemInput, ReferenceImageInput, RemoveElementResult, SaveSystemInput,
@@ -1024,6 +1025,15 @@ pub async fn run_visual_regression(
     ))
 }
 
+fn visual_baseline_error(error: anyhow::Error) -> AppError {
+    match error.downcast_ref::<StaleBaselineRevision>() {
+        Some(conflict) => {
+            AppError::conflict_with_code(StaleBaselineRevision::CODE, conflict.to_string())
+        }
+        None => error.into(),
+    }
+}
+
 pub async fn accept_visual_baseline(
     Path(id): Path<String>,
     Json(body): Json<QualityAcceptBody>,
@@ -1035,7 +1045,7 @@ pub async fn accept_visual_baseline(
     Ok(Json(
         ha_design::design::quality::accept(body.input)
             .await
-            .map_err(|e| AppError::internal(e.to_string()))?,
+            .map_err(visual_baseline_error)?,
     ))
 }
 
@@ -1045,7 +1055,7 @@ pub async fn accept_visual_baseline_unscoped(
     Ok(Json(
         ha_design::design::quality::accept(body.input)
             .await
-            .map_err(|e| AppError::internal(e.to_string()))?,
+            .map_err(visual_baseline_error)?,
     ))
 }
 
@@ -1088,7 +1098,7 @@ pub async fn restore_visual_baseline(
             ha_design::design::quality_store::restore(body.input)
         })
         .await
-        .map_err(|e| AppError::internal(e.to_string()))?,
+        .map_err(visual_baseline_error)?,
     ))
 }
 

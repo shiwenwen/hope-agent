@@ -12362,6 +12362,7 @@
       "captureVersion": "Versão da captura",
       "rerun": "Revisar novamente",
       "baselineChanged": "Referência atualizada. Revise novamente para comparar.",
+      "baselineConflict": "A referência mudou em outra janela ou sessão. Execute a revisão novamente antes de aceitar capturas ou restaurar uma referência.",
       "baselineHistory": "Referências salvas",
       "restoreBaseline": "Restaurar referência",
       "currentCapture": "Captura atual",

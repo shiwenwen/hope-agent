@@ -1555,3 +1555,20 @@ test("design review images and restores stay artifact-scoped with private owner 
     )
   }
 })
+
+test("a design baseline conflict preserves the response code on the rejected call", async () => {
+  fetchMock.mockResolvedValueOnce(
+    Response.json(
+      { code: "design_baseline_revision_conflict", error: "stale baseline revision" },
+      { status: 409 },
+    ),
+  )
+  const transport = new HttpTransport("http://localhost:8420", "synthetic-owner")
+  await expect(
+    transport.call("accept_design_visual_baseline_cmd", { input: { artifactId: "A" } }),
+  ).rejects.toMatchObject({
+    status: 409,
+    code: "design_baseline_revision_conflict",
+    message: expect.stringContaining("stale baseline revision"),
+  })
+})

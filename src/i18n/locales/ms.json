@@ -12362,6 +12362,7 @@
       "captureVersion": "Versi tangkapan",
       "rerun": "Semak semula",
       "baselineChanged": "Garis dasar dikemas kini. Semak semula untuk membandingkan.",
+      "baselineConflict": "Garis dasar berubah dalam tetingkap atau sesi lain. Jalankan semakan semula sebelum menerima tangkapan atau memulihkan garis dasar.",
       "baselineHistory": "Garis dasar tersimpan",
       "restoreBaseline": "Pulihkan garis dasar",
       "currentCapture": "Tangkapan semasa",

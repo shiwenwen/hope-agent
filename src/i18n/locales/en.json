@@ -12362,6 +12362,7 @@
       "captureVersion": "Capture version",
       "rerun": "Run again",
       "baselineChanged": "Baseline updated. Run another review to compare it.",
+      "baselineConflict": "The baseline changed in another window or session. Run the review again before accepting captures or restoring a baseline.",
       "baselineHistory": "Retained baselines",
       "restoreBaseline": "Restore baseline",
       "currentCapture": "Current capture",
