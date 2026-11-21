@@ -14,32 +14,44 @@ use serde_json::Value;
 
 #[tauri::command]
 pub async fn get_onboarding_state() -> Result<OnboardingState, CmdError> {
-    state::get_state().map_err(Into::into)
+    ha_core::blocking::run_blocking(state::get_state)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn save_onboarding_draft(step: u32, draft: Value) -> Result<(), CmdError> {
-    state::save_draft(step, draft).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || state::save_draft(step, draft))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn mark_onboarding_completed() -> Result<(), CmdError> {
-    state::mark_completed().map_err(Into::into)
+    ha_core::blocking::run_blocking(state::mark_completed)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn mark_onboarding_skipped(step_key: String) -> Result<(), CmdError> {
-    state::mark_skipped(&step_key).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || state::mark_skipped(&step_key))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn reset_onboarding() -> Result<(), CmdError> {
-    state::reset().map_err(Into::into)
+    ha_core::blocking::run_blocking(state::reset)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn apply_onboarding_language(language: String) -> Result<(), CmdError> {
-    apply::apply_language(&language).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || apply::apply_language(&language))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -49,12 +61,15 @@ pub async fn apply_onboarding_profile(
     ai_experience: Option<String>,
     response_style: Option<String>,
 ) -> Result<(), CmdError> {
-    apply::apply_profile(ProfileStepInput {
-        name,
-        timezone,
-        ai_experience,
-        response_style,
+    ha_core::blocking::run_blocking(move || {
+        apply::apply_profile(ProfileStepInput {
+            name,
+            timezone,
+            ai_experience,
+            response_style,
+        })
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -62,17 +77,25 @@ pub async fn apply_onboarding_profile(
 pub async fn apply_personality_preset_cmd(preset_id: String) -> Result<(), CmdError> {
     let preset = personality_preset_by_id(&preset_id)
         .ok_or_else(|| CmdError::msg(format!("unknown personality preset: {}", preset_id)))?;
-    apply::apply_personality_preset(preset).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || apply::apply_personality_preset(preset))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn apply_onboarding_safety(approvals_enabled: bool) -> Result<(), CmdError> {
-    apply::apply_safety(SafetyStepInput { approvals_enabled }).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        apply::apply_safety(SafetyStepInput { approvals_enabled })
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn apply_onboarding_skills(disabled: Vec<String>) -> Result<(), CmdError> {
-    apply::apply_skills(disabled).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || apply::apply_skills(disabled))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -80,7 +103,11 @@ pub async fn apply_onboarding_server(
     bind_addr: Option<String>,
     api_key: Option<String>,
 ) -> Result<(), CmdError> {
-    apply::apply_server(ServerStepInput { bind_addr, api_key }).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || {
+        apply::apply_server(ServerStepInput { bind_addr, api_key })
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
