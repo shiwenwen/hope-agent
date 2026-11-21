@@ -212,6 +212,7 @@ struct Candidate {
     targets: Vec<CronDeliveryTarget>,
     permission: Option<SessionMode>,
     sandbox: Option<SandboxMode>,
+    model: Option<ActiveModel>,
 }
 
 impl Candidate {
@@ -225,6 +226,7 @@ impl Candidate {
             targets: job.delivery_targets.unwrap_or_default(),
             permission: job.permission_mode_override,
             sandbox: job.sandbox_mode_override,
+            model: job.model_override,
         }
     }
 
@@ -238,6 +240,7 @@ impl Candidate {
             targets: job.delivery_targets,
             permission: job.permission_mode_override,
             sandbox: job.sandbox_mode_override,
+            model: job.model_override,
         }
     }
 }
@@ -612,7 +615,20 @@ fn inspect_agent(
         .map(|definition| definition.config.model.clone())
         .unwrap_or_default();
     let config = ha_core::config::cached_config();
-    report.execution.primary_model = ha_core::provider::resolve_model_chain(&model, &config).0;
+    report.execution.primary_model = match &candidate.model {
+        // A creation-time snapshot is the whole point of the pin (#784):
+        // report it as what will dispatch, still verifying the chain so a
+        // snapshot that outlived its provider keeps its fallback visible.
+        Some(snapshot) => {
+            ha_core::provider::resolve_model_chain_with_preferred(
+                Some(&snapshot.to_string()),
+                &model,
+                &config,
+            )
+            .0
+        }
+        None => ha_core::provider::resolve_model_chain(&model, &config).0,
+    };
     if report.execution.primary_model.is_none() {
         report.block(CronPreflightIssueCode::ModelUnconfigured);
     }
@@ -936,6 +952,7 @@ mod tests {
             targets: Vec::new(),
             permission: None,
             sandbox: None,
+            model: None,
         };
         let mut report = CronPreflightReport::new(CronPreflightOperation::Create);
         inspect_agent(&candidate, None, &session_db, &mut report);

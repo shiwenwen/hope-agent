@@ -1481,6 +1481,36 @@ pub(crate) async fn execute_claimed_job(
     ) {
         Ok(meta) => {
             let _ = session_db.update_session_title(&meta.id, &job.name);
+            // Pin the creation-time model snapshot (#784) before the turn is
+            // registered, so dispatch sees a session with its own model
+            // preference. A snapshot referencing a since-deleted model only
+            // warns: the agent chain / global active model remains the
+            // fallback, and failing the whole scheduled run over a stale pin
+            // would turn a provider edit into missed tasks.
+            if let Some(model) = &job.model_override {
+                let provider_name = ha_core::config::cached_config()
+                    .providers
+                    .iter()
+                    .find(|provider| provider.id == model.provider_id)
+                    .map(|provider| provider.name.clone());
+                if let Err(error) = session_db.update_session_model(
+                    &meta.id,
+                    Some(model.provider_id.as_str()),
+                    provider_name.as_deref(),
+                    Some(model.model_id.as_str()),
+                ) {
+                    app_warn!(
+                        "cron",
+                        "executor",
+                        "Job '{}' ({}): failed to pin model {}::{} on run session: {}",
+                        job.name,
+                        job.id,
+                        model.provider_id,
+                        model.model_id,
+                        error
+                    );
+                }
+            }
             // Per-job permission/sandbox overrides are applied below, after the
             // run log is open, so a failed *sandbox* write (which would leave the
             // run unconfined) can fail-closed with a proper run-log entry.
@@ -1965,6 +1995,7 @@ pub(crate) async fn execute_claimed_job(
         session_db,
         cancel_flag.clone(),
         Some(foreground_stop_admission),
+        job.model_override.as_ref(),
     ));
     let mut timed_out = false;
     // C08: whether the user had already cancelled BEFORE the outer timeout fired
@@ -3058,6 +3089,7 @@ pub async fn build_and_run_agent_with_cancel(
     session_db: &Arc<ha_core::session::SessionDB>,
     cancel: Arc<AtomicBool>,
     foreground_stop_admission: Option<ha_core::session::ForegroundStopAdmission>,
+    model_override: Option<&ha_core::provider::ActiveModel>,
 ) -> Result<String> {
     build_and_run_agent_with_context(
         agent_id,
@@ -3068,6 +3100,7 @@ pub async fn build_and_run_agent_with_cancel(
         None,
         Some(cancel),
         foreground_stop_admission,
+        model_override,
     )
     .await
 }
@@ -3083,6 +3116,7 @@ pub async fn build_and_run_agent_with_context(
     run_instruction_context: Option<&str>,
     cancel: Option<Arc<AtomicBool>>,
     foreground_stop_admission: Option<ha_core::session::ForegroundStopAdmission>,
+    model_override: Option<&ha_core::provider::ActiveModel>,
 ) -> Result<String> {
     // Load app config from disk
     let store = ha_core::config::cached_config();
@@ -3127,6 +3161,12 @@ pub async fn build_and_run_agent_with_context(
         Arc::new(ha_core::chat_engine::NoopEventSink),
     )
     .with_turn_id(turn_id.to_string())
+    .with_model_preference(
+        model_override.map(|model| model.to_string()),
+        // Non-strict: a snapshot that outlived its provider falls back to the
+        // agent chain / global active model instead of failing the run (#784).
+        false,
+    )
     .with_temperature(resolved_temperature)
     .with_run_context(run_context)
     .with_reasoning_effort(reasoning_effort)
@@ -3898,6 +3938,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         {
@@ -4005,6 +4046,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         let next_before = job.next_run_at.clone();
@@ -4108,6 +4150,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         {
@@ -4192,6 +4235,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         {
@@ -4286,6 +4330,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         let first = db
@@ -4354,6 +4399,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         let session = session_db
@@ -4470,6 +4516,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         {
@@ -4550,6 +4597,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         let claimed = db
@@ -4614,6 +4662,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         let next_before = job.next_run_at.clone();
@@ -4688,6 +4737,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         let claimed = db
@@ -4757,6 +4807,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         let claimed = db
@@ -4856,6 +4907,7 @@ mod tests {
                 job_timeout_secs: None,
                 permission_mode_override: None,
                 sandbox_mode_override: None,
+                model_override: None,
             })
             .expect("add job");
         let claimed = db
