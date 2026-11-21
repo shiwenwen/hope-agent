@@ -26,7 +26,12 @@
 # -------------------------------------------------------------------
 # Stage 1: build the Vite frontend (arch-independent)
 # -------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS web
+# Base images are pinned by manifest-list digest (covers both release
+# architectures) so an upstream tag can never silently swap the build /
+# runtime environment under a rebuild. To bump a pin, resolve the new
+# multi-arch digest (`docker buildx imagetools inspect <image>:<tag>`)
+# and update it here together with the version tag.
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS web
 
 # Pin pnpm to the version declared in package.json#packageManager so
 # lockfile resolution is reproducible. `corepack prepare --activate`
@@ -63,7 +68,7 @@ RUN pnpm build && \
 # -------------------------------------------------------------------
 # Stage 2: build the Rust `hope-agent` binary
 # -------------------------------------------------------------------
-FROM rust:1.95.0-trixie AS rust
+FROM rust:1.95.0-trixie@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 AS rust
 
 # protobuf-compiler is required by `prost-build` at compile time.
 # pkg-config is needed by several -sys crates even though OpenSSL is
@@ -130,7 +135,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # -------------------------------------------------------------------
 # Stage 3: minimal runtime
 # -------------------------------------------------------------------
-FROM debian:trixie-slim AS runtime
+FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS runtime
 
 # ca-certificates: required for outbound HTTPS to provider APIs.
 # tzdata: required for cron schedules / `TZ` env var to take effect.
