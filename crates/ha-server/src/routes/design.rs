@@ -16,6 +16,7 @@ use tower_http::services::ServeFile;
 use ha_core::paths;
 use ha_core::session::SessionMeta;
 use ha_design::design::extract::Direction;
+use ha_design::design::quality::StaleReviewedScenarios;
 use ha_design::design::quality_store::StaleBaselineRevision;
 use ha_design::design::service::{
     self, BindingSyncReport, CreateArtifactInput, CreateProjectInput, ElementPatch,
@@ -1026,12 +1027,13 @@ pub async fn run_visual_regression(
 }
 
 fn visual_baseline_error(error: anyhow::Error) -> AppError {
-    match error.downcast_ref::<StaleBaselineRevision>() {
-        Some(conflict) => {
-            AppError::conflict_with_code(StaleBaselineRevision::CODE, conflict.to_string())
-        }
-        None => error.into(),
+    if error.is::<StaleBaselineRevision>() {
+        return AppError::conflict_with_code(StaleBaselineRevision::CODE, error.to_string());
     }
+    if error.is::<StaleReviewedScenarios>() {
+        return AppError::conflict_with_code(StaleReviewedScenarios::CODE, error.to_string());
+    }
+    error.into()
 }
 
 pub async fn accept_visual_baseline(

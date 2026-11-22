@@ -12363,6 +12363,7 @@
       "rerun": "Yeniden incele",
       "baselineChanged": "Referans güncellendi. Karşılaştırmak için yeniden inceleyin.",
       "baselineConflict": "Temel görüntü başka bir pencere veya oturumda değişti. Ekran görüntülerini kabul etmeden veya temel görüntüyü geri yüklemeden önce incelemeyi yeniden çalıştırın.",
+      "scenariosConflict": "Kaydedilen senaryolar değişti. Ekran görüntülerini kabul etmeden önce incelemeyi yeniden çalıştırın.",
       "baselineHistory": "Saklanan referanslar",
       "restoreBaseline": "Referansı geri yükle",
       "currentCapture": "Güncel görüntü",

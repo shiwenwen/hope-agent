@@ -523,15 +523,29 @@ fn finish_quality_run(
     Ok(result)
 }
 
+#[derive(Debug)]
+pub struct StaleReviewedScenarios;
+
+impl StaleReviewedScenarios {
+    pub const CODE: &'static str = "design_reviewed_scenarios_conflict";
+}
+
+impl std::fmt::Display for StaleReviewedScenarios {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("reviewed scenarios changed before baseline acceptance")
+    }
+}
+
+impl std::error::Error for StaleReviewedScenarios {}
+
 fn ensure_acceptance_scenarios(
     scenarios: &super::scenarios::ScenariosEnvelope,
     expected: Option<&str>,
 ) -> Result<()> {
     if let Some(expected) = expected {
-        anyhow::ensure!(
-            expected == scenarios.hash,
-            "visual_scenarios_incomplete: reviewed scenarios changed before baseline acceptance"
-        );
+        if expected != scenarios.hash {
+            return Err(StaleReviewedScenarios.into());
+        }
     } else {
         anyhow::ensure!(scenarios.manifest.viewports.is_empty()
             && scenarios.manifest.scenarios.len() == 1
@@ -782,7 +796,9 @@ mod tests {
             hash: "reviewed".into(),
         };
         assert!(ensure_acceptance_scenarios(&custom, None).is_err());
-        assert!(ensure_acceptance_scenarios(&custom, Some("stale")).is_err());
+        assert!(ensure_acceptance_scenarios(&custom, Some("stale"))
+            .unwrap_err()
+            .is::<StaleReviewedScenarios>());
         assert!(ensure_acceptance_scenarios(&custom, Some("reviewed")).is_ok());
         let legacy = ScenariosEnvelope {
             manifest: Default::default(),

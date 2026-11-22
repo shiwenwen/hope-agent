@@ -12363,6 +12363,7 @@
       "rerun": "Revisar de nuevo",
       "baselineChanged": "Referencia actualizada. Revisa de nuevo para compararla.",
       "baselineConflict": "La referencia cambió en otra ventana o sesión. Repite la revisión antes de aceptar capturas o restaurar una referencia.",
+      "scenariosConflict": "Los escenarios guardados han cambiado. Vuelve a ejecutar la revisión antes de aceptar las capturas.",
       "baselineHistory": "Referencias guardadas",
       "restoreBaseline": "Restaurar referencia",
       "currentCapture": "Captura actual",

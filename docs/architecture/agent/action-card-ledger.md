@@ -1,5 +1,15 @@
 # 行动卡统一迭代台账
 
+## 2026-11-22：场景变更后重新审查
+
+沿 `PRODUCT-11-A2-SCENARIO-VALIDATION` 继续 [PR #908](https://github.com/shiwenwen/hope-agent/pull/908)，
+同步 main `7a432b5c` 并同时保留 #908 与 #922 的变更说明。场景被另一个标签页保存后，质量审查
+保留旧截图对照，暂停接受并提示重新审查。重新审查成功后可接受新版场景的截图。恢复历史修订仍校验
+当前基线修订。HTTP 以 409 和 `design_reviewed_scenarios_conflict` 标识冲突，Tauri 使用同一标识。
+
+前沿技术 Agent 雷达的 `11-A2` 与 Design A2、路线图 R4 关联到同一行动卡，实施主责为
+`automation-7`。M4 仍为部分交付，待验收 Tauri、Windows/Linux 实际浏览器和受保护的 main 交付。
+
 ## 2026-11-18：项目副本独立完成视觉基线验收
 
 沿 `PRODUCT-11-A2-SCENARIO-VALIDATION` 和 [PR #908](https://github.com/shiwenwen/hope-agent/pull/908)

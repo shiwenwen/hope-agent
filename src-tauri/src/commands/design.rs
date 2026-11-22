@@ -8,6 +8,7 @@
 use crate::commands::CmdError;
 use ha_core::session::SessionMeta;
 use ha_design::design::extract::Direction;
+use ha_design::design::quality::StaleReviewedScenarios;
 use ha_design::design::quality_store::StaleBaselineRevision;
 use ha_design::design::service::BindingSyncReport;
 use ha_design::design::service::{
@@ -368,6 +369,9 @@ pub async fn run_design_visual_regression_cmd(
 fn visual_baseline_error(error: anyhow::Error) -> CmdError {
     if error.is::<StaleBaselineRevision>() {
         return CmdError::msg(StaleBaselineRevision::CODE);
+    }
+    if error.is::<StaleReviewedScenarios>() {
+        return CmdError::msg(StaleReviewedScenarios::CODE);
     }
     error.into()
 }

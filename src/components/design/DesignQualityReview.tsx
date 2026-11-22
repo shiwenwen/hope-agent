@@ -19,6 +19,7 @@ type BaselineState = { revisionId: string | null; revisions: DesignBaselineRevis
 type Diff = DesignQualityRun["diffs"][number]
 
 const BASELINE_REVISION_CONFLICT = "design_baseline_revision_conflict"
+const REVIEWED_SCENARIOS_CONFLICT = "design_reviewed_scenarios_conflict"
 
 /** Mounted only for one artifact/connection and one open review dialog. */
 export function DesignQualityReview({
@@ -39,7 +40,9 @@ export function DesignQualityReview({
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [baseline, setBaseline] = useState<BaselineState>({ revisionId: null, revisions: [] })
-  const [baselineStatus, setBaselineStatus] = useState<"current" | "updated" | "stale">("current")
+  const [baselineStatus, setBaselineStatus] = useState<
+    "current" | "updated" | "stale" | "staleScenarios"
+  >("current")
 
   useEffect(() => {
     const scope = { transport: tx }
@@ -90,7 +93,7 @@ export function DesignQualityReview({
       loading ||
       getTransport() !== tx ||
       baselineStatus === "stale" ||
-      (!revisionId && baselineStatus === "updated")
+      (!revisionId && baselineStatus !== "current")
     )
       return
     const isCurrent = () => scopeRef.current === scope && getTransport() === tx
@@ -119,14 +122,13 @@ export function DesignQualityReview({
     } catch (e) {
       if (!isCurrent()) return
       // Tauri rejects with a string; HTTP puts the code on its response error.
-      if (
-        e === BASELINE_REVISION_CONFLICT ||
-        (typeof e === "object" &&
-          e !== null &&
-          "code" in e &&
-          e.code === BASELINE_REVISION_CONFLICT)
-      ) {
+      const code = typeof e === "object" && e !== null && "code" in e ? e.code : e
+      if (code === BASELINE_REVISION_CONFLICT) {
         setBaselineStatus("stale")
+        return
+      }
+      if (code === REVIEWED_SCENARIOS_CONFLICT) {
+        setBaselineStatus("staleScenarios")
         return
       }
       logger.warn("design", "DesignQualityReview::baseline", "baseline operation failed", e)
@@ -224,9 +226,13 @@ export function DesignQualityReview({
                 {t("design.review.rerun", "重新审查")}
               </Button>
             </div>
-            {baselineStatus === "stale" && (
+            {(baselineStatus === "stale" || baselineStatus === "staleScenarios") && (
               <p role="alert" className="text-sm text-destructive">
-                {t("design.review.baselineConflict")}
+                {t(
+                  baselineStatus === "stale"
+                    ? "design.review.baselineConflict"
+                    : "design.review.scenariosConflict",
+                )}
               </p>
             )}
             {baselineStatus === "updated" && (

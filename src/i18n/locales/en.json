@@ -12363,6 +12363,7 @@
       "rerun": "Run again",
       "baselineChanged": "Baseline updated. Run another review to compare it.",
       "baselineConflict": "The baseline changed in another window or session. Run the review again before accepting captures or restoring a baseline.",
+      "scenariosConflict": "The saved scenarios changed. Run the review again before accepting captures.",
       "baselineHistory": "Retained baselines",
       "restoreBaseline": "Restore baseline",
       "currentCapture": "Current capture",
