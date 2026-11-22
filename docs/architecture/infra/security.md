@@ -409,3 +409,9 @@ SDK-21 的版本差异只能作为维护线索，不能推导旧锁可接受非�
 [#905](https://github.com/shiwenwen/hope-agent/pull/905) 将五处 `setup-node` 固定到 [Node 24.22.3 正式安全版](https://nodejs.org/en/blog/release/v24.22.3)，覆盖上游列出的 HTTP/2、TLS、代理错误脱敏等修复。工作流安装版本受影响，不据此断言产品入口可被利用；该维护只覆盖 CI 构建运行时，宿主与 Docker 镜像由各自主责维护。回滚应选已修补的兼容 Node 24 版本。
 
 同包更新完整 SHA 固定的 pnpm/action-setup 6.1.1、docker/login-action 4.8.0 与 setup-rust-toolchain 2.0.1。已审阅上游源码差异：pnpm 修复共享 store 引导及缺失缓存目录保存；Rust 更新内部缓存 Action，但本项目仍禁用其缓存；Docker 调整 Docker Hub OIDC 默认期限，本项目显式登录 GHCR，不进入该路径。保留 packageManager、Actions 输入、权限、job 名、matrix、merge_group 和受保护门禁。普通检查及精确 head CI 分别留证，不代表发布、生产登录或真实桌面验收。
+
+## 2026-11-21 KaTeX 公式渲染安全补丁
+
+直接依赖固定为 KaTeX 0.18.2，工作区 override 复用直接依赖的版本，让 `@streamdown/math`、`rehype-katex`、Mermaid 和 `@lobehub/ui` 使用同一套渲染器与样式。聊天 Markdown 和知识笔记预览继续按需从本地包加载公式样式。0.18 引入内部 CSS 类前缀，搜索高亮使用的 `.katex-mathml` 选择器仍适用。
+
+0.18.2 修正已有原型污染条件下的公式信任限制。公式渲染沿用现有信任设置、Markdown 清洗与 Tauri CSP。升级时保持渲染器、样式和传递依赖配套，修复下限为 0.18.2。 [KaTeX 安全公告](https://github.com/KaTeX/KaTeX/security/advisories/GHSA-238p-pmpm-9mq7) [0.18.0 变更说明](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.0)
