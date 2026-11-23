@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.76.0] - 2026-11-20
+## [0.76.0] - 2026-11-24
+
+### Changed
+
+- 更新设计空间的 JSX/TSX 组件编译器，保持现有 Rust 工具链兼容。 (#924)
 
 ### Fixed
+
+- 修复聊天和知识笔记公式渲染依赖的信任设置缺陷。 (#922)
+
+- 更新底层依赖，修复并发配置读取和 Linux 扩展属性读取所依赖的内存安全问题。 (#923)
 
 - 更新构建流程依赖，并将 CI Node 固定到 24.22.3 安全补丁。 (#905)
 

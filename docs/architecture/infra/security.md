@@ -50,6 +50,12 @@ flowchart TB
 
 **唯一的例外是 LLM Provider 出站**：`ProviderConfig.allow_private_network` 只是一个 UI 标记，后端不做拦截。原因很实际——用户的本地 Ollama / vLLM 自部署常年住在 `192.168.*` / `10.*`，如果对 Provider 也套 SSRF 策略，最常见的本地部署反而被误伤。这条例外在下文"调用方对照"里会再点明。
 
+### 并发快照与 Linux 扩展属性依赖
+
+配置缓存和 MCP 工具目录使用默认的 `ArcSwap` 策略发布进程内快照。`arc-swap 1.9.5` 修复跨实例地址复用导致的类型混淆，并包含 1.9.4 的强弱引用修复。见[上游变更记录](https://github.com/vorner/arc-swap/blob/v1.9.5/CHANGELOG.md)。
+
+`rustix` 1.x 锁定到 1.1.6，修复零长度缓冲区调用扩展属性接口时的内存初始化问题。扩展属性依赖仍使用现有接口，Hope 自有的 Linux 安全能力探测继续经 `libc` 发起查询。见 [RUSTSEC-2026-0486](https://rustsec.org/advisories/RUSTSEC-2026-0486.html)。
+
 ### 桌面深链依赖的临时上游补丁
 
 工作区将 `tauri-plugin-deep-link 2.6.2` 固定到官方签名提交 `463977675da7bbb257dee59669b5e122c8d681db`，仅补齐 Linux INI 解析选项的新增字段，保留原有引号与转义处理设置，以及该版本的 XDG 注册归属与错误上报修复。`rust-ini 0.21.3` 及所有已锁定包的版本保持不变，Cargo 重新解析已有跨平台依赖边；不回退到已撤回的 INI 版本。来源由 `Cargo.toml` 与 `Cargo.lock` 的完整提交摘要固定；有兼容的正式 crate 发布后再移除补丁，并以真实桌面构建与 Linux 相关验证验收。普通不含 Tauri 壳的 Rust CI 不构成此路径的编译证明。 本轮兼容依赖维护保留 `single-instance 2.5.4`，避免 `2.5.5` 要求 `deep-link ^2.6.3` 后令该补丁失效；正式版替换仍按上述桌面构建合同单独验收。通知插件的 Rust 与 npm 包同步到 `2.8.0`，由 `verify-tauri-version-sync.mjs` 检查主次版本一致。
@@ -403,3 +409,9 @@ SDK-21 的版本差异只能作为维护线索，不能推导旧锁可接受非�
 [#905](https://github.com/shiwenwen/hope-agent/pull/905) 将五处 `setup-node` 固定到 [Node 24.22.3 正式安全版](https://nodejs.org/en/blog/release/v24.22.3)，覆盖上游列出的 HTTP/2、TLS、代理错误脱敏等修复。工作流安装版本受影响，不据此断言产品入口可被利用；该维护只覆盖 CI 构建运行时，宿主与 Docker 镜像由各自主责维护。回滚应选已修补的兼容 Node 24 版本。
 
 同包更新完整 SHA 固定的 pnpm/action-setup 6.1.1、docker/login-action 4.8.0 与 setup-rust-toolchain 2.0.1。已审阅上游源码差异：pnpm 修复共享 store 引导及缺失缓存目录保存；Rust 更新内部缓存 Action，但本项目仍禁用其缓存；Docker 调整 Docker Hub OIDC 默认期限，本项目显式登录 GHCR，不进入该路径。保留 packageManager、Actions 输入、权限、job 名、matrix、merge_group 和受保护门禁。普通检查及精确 head CI 分别留证，不代表发布、生产登录或真实桌面验收。
+
+## 2026-11-21 KaTeX 公式渲染安全补丁
+
+直接依赖固定为 KaTeX 0.18.2，工作区 override 复用直接依赖的版本，让 `@streamdown/math`、`rehype-katex`、Mermaid 和 `@lobehub/ui` 使用同一套渲染器与样式。聊天 Markdown 和知识笔记预览继续按需从本地包加载公式样式。0.18 引入内部 CSS 类前缀，搜索高亮使用的 `.katex-mathml` 选择器仍适用。
+
+0.18.2 修正已有原型污染条件下的公式信任限制。公式渲染沿用现有信任设置、Markdown 清洗与 Tauri CSP。升级时保持渲染器、样式和传递依赖配套，修复下限为 0.18.2。 [KaTeX 安全公告](https://github.com/KaTeX/KaTeX/security/advisories/GHSA-238p-pmpm-9mq7) [0.18.0 变更说明](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.0)
