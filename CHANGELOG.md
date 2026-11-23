@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- 更新设计空间的 JSX/TSX 组件编译器，保持现有 Rust 工具链兼容。 (#924)
+
 ### Fixed
 
 - 修复聊天和知识笔记公式渲染依赖的信任设置缺陷。 (#922)
