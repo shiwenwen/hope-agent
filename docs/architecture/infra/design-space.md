@@ -397,6 +397,7 @@ sequenceDiagram
 `component` 形态要达到真交互（state / 事件 / hooks / mini-app），关键是**把编译搬到后端**，浏览器仍零编译：
 
 - **`compile.rs`（oxc，纯 Rust、进程内、零外部二进制、零网络）**：LLM 产出的 JSX/TSX 源（classic runtime、全局 `React`、无 import/export）→ `Parser` → `SemanticBuilder` → `Transformer`（`JsxRuntime::Classic` → `React.createElement`）→ `Codegen` → 浏览器可执行 JS。
+- **Oxc 版本约束**：分配器、解析器、源类型、语义分析、转换和代码生成使用同一 0.146 发行线，兼容项目的 Rust 1.95。解析器和后续阶段共享源类型、语法树及作用域，升级时需一起检查。
 - **`build_component_html`**：内联 vendored React 18 production UMD（`include_str!`，锁 18 因 19 删了 UMD）+ 编译产物 + bootstrap → 静态 `index.html`；iframe 载已编译产物、`sandbox="allow-scripts"` opaque origin、零网络。
 - **失败必降级不白屏**：编译 `Err` → `build_component_error_html`（静态错误页，产物仍可开、可重生），绝不 bail 阻断创建、绝不后端 panic。
 - **能力边界**：编译产物 ≠ 源码，故 component **不支持 oid 字节级微调**（微调只归可 oid 的形态）；不走流式（阻塞 `create_artifact_generating`，编译一次 + 单次落盘）。
