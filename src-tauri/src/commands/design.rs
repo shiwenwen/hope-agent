@@ -9,7 +9,7 @@ use crate::commands::CmdError;
 use ha_core::session::SessionMeta;
 use ha_design::design::extract::Direction;
 use ha_design::design::quality::StaleReviewedScenarios;
-use ha_design::design::quality_store::StaleBaselineRevision;
+use ha_design::design::quality_store::{StaleBaselineRevision, StaleReviewedArtifact};
 use ha_design::design::service::BindingSyncReport;
 use ha_design::design::service::{
     self, ArtifactView, CreateArtifactInput, CreateProjectInput, ElementPatch, ExportResult,
@@ -372,6 +372,9 @@ fn visual_baseline_error(error: anyhow::Error) -> CmdError {
     }
     if error.is::<StaleReviewedScenarios>() {
         return CmdError::msg(StaleReviewedScenarios::CODE);
+    }
+    if error.is::<StaleReviewedArtifact>() {
+        return CmdError::msg(StaleReviewedArtifact::CODE);
     }
     error.into()
 }

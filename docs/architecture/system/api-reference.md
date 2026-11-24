@@ -1021,7 +1021,7 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | `revoke_design_share_cmd` | `DELETE /api/design/artifacts/{artifactId}/share` | ✅ |
 | _(公开只读快照，无鉴权)_ | `GET /api/design/share/{token}` | ✅ HTTP-only |
 | `run_design_visual_regression_cmd` | `POST /api/design/artifacts/{artifactId}/visual-regression`（场景×视口截图、保存审阅凭证 + 像素差 + 静态 DOM/a11y） | ✅ |
-| `accept_design_visual_baseline_cmd` | `POST /api/design/visual-baseline`（owner 显式晋升 `reviewId` 保存的截图，不重捕获；`expectedArtifactHash` / `expectedScenariosHash` / `expectedBaselineRevision` 拒绝陈旧写；基线修订或场景哈希冲突返回 409，分别使用 `design_baseline_revision_conflict` 或 `design_reviewed_scenarios_conflict`） | ✅ |
+| `accept_design_visual_baseline_cmd` | `POST /api/design/visual-baseline`（owner 显式晋升 `reviewId` 保存的截图；产物哈希、场景哈希和基线修订冲突分别返回 HTTP 409，错误标识为 `design_reviewed_artifact_conflict`、`design_reviewed_scenarios_conflict`、`design_baseline_revision_conflict`。Tauri 使用相同标识） | ✅ |
 | `get_design_quality_image_cmd` | `POST /api/design/artifacts/{artifactId}/quality-image`（owner，`{input:{artifactId,reviewId,scenarioId,viewport,side}}`；只读本产物凭证引用的 PNG data URL，无任意路径或 hash 参数） | ✅ |
 | `restore_design_visual_baseline_cmd` | `POST /api/design/artifacts/{artifactId}/visual-baseline/restore`（owner，`{input:{artifactId,revisionId,expectedRevisionId}}`；恢复保留修订并生成新修订；基线修订冲突同样返回 409） | ✅ |
 | `get/save_design_scenarios_cmd` | `GET/PUT /api/design/artifacts/{artifactId}/scenarios`（≤12 场景、≤4 视口、本地 route；GET 返回 `manifest + hash`，PUT 必带 `expectedHash` 防陈旧整文覆盖） | ✅ |

@@ -12363,6 +12363,7 @@
       "rerun": "Kiểm tra lại",
       "baselineChanged": "Ảnh chuẩn đã cập nhật. Kiểm tra lại để so sánh.",
       "baselineConflict": "Đường cơ sở đã thay đổi trong cửa sổ hoặc phiên khác. Hãy kiểm tra lại trước khi chấp nhận ảnh chụp hoặc khôi phục đường cơ sở.",
+      "artifactConflict": "Nội dung thiết kế đã thay đổi. Hãy chạy lại quy trình xem xét trước khi chấp nhận ảnh chụp.",
       "scenariosConflict": "Các kịch bản đã lưu đã thay đổi. Hãy chạy lại quy trình xem xét trước khi chấp nhận ảnh chụp.",
       "baselineHistory": "Ảnh chuẩn đã lưu",
       "restoreBaseline": "Khôi phục ảnh chuẩn",

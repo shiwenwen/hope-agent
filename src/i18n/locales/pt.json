@@ -12363,6 +12363,7 @@
       "rerun": "Revisar novamente",
       "baselineChanged": "Referência atualizada. Revise novamente para comparar.",
       "baselineConflict": "A referência mudou em outra janela ou sessão. Execute a revisão novamente antes de aceitar capturas ou restaurar uma referência.",
+      "artifactConflict": "O conteúdo do design mudou. Execute a revisão novamente antes de aceitar as capturas.",
       "scenariosConflict": "Os cenários salvos mudaram. Execute a revisão novamente antes de aceitar as capturas.",
       "baselineHistory": "Referências salvas",
       "restoreBaseline": "Restaurar referência",

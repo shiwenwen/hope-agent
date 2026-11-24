@@ -17,9 +17,16 @@ import type { DesignBaselineRevision, DesignQualityRun } from "@/types/design"
 type Finding = { lens: string; severity: string; message: string }
 type BaselineState = { revisionId: string | null; revisions: DesignBaselineRevision[] }
 type Diff = DesignQualityRun["diffs"][number]
+type BaselineStatus = "current" | "updated" | "stale" | "staleScenarios" | "staleArtifact"
 
 const BASELINE_REVISION_CONFLICT = "design_baseline_revision_conflict"
 const REVIEWED_SCENARIOS_CONFLICT = "design_reviewed_scenarios_conflict"
+const REVIEWED_ARTIFACT_CONFLICT = "design_reviewed_artifact_conflict"
+const conflictMessages: Partial<Record<BaselineStatus, string>> = {
+  stale: "design.review.baselineConflict",
+  staleScenarios: "design.review.scenariosConflict",
+  staleArtifact: "design.review.artifactConflict",
+}
 
 /** Mounted only for one artifact/connection and one open review dialog. */
 export function DesignQualityReview({
@@ -40,9 +47,8 @@ export function DesignQualityReview({
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [baseline, setBaseline] = useState<BaselineState>({ revisionId: null, revisions: [] })
-  const [baselineStatus, setBaselineStatus] = useState<
-    "current" | "updated" | "stale" | "staleScenarios"
-  >("current")
+  const [baselineStatus, setBaselineStatus] = useState<BaselineStatus>("current")
+  const conflictMessage = conflictMessages[baselineStatus]
 
   useEffect(() => {
     const scope = { transport: tx }
@@ -129,6 +135,10 @@ export function DesignQualityReview({
       }
       if (code === REVIEWED_SCENARIOS_CONFLICT) {
         setBaselineStatus("staleScenarios")
+        return
+      }
+      if (code === REVIEWED_ARTIFACT_CONFLICT) {
+        setBaselineStatus("staleArtifact")
         return
       }
       logger.warn("design", "DesignQualityReview::baseline", "baseline operation failed", e)
@@ -226,13 +236,9 @@ export function DesignQualityReview({
                 {t("design.review.rerun", "重新审查")}
               </Button>
             </div>
-            {(baselineStatus === "stale" || baselineStatus === "staleScenarios") && (
+            {conflictMessage && (
               <p role="alert" className="text-sm text-destructive">
-                {t(
-                  baselineStatus === "stale"
-                    ? "design.review.baselineConflict"
-                    : "design.review.scenariosConflict",
-                )}
+                {t(conflictMessage)}
               </p>
             )}
             {baselineStatus === "updated" && (

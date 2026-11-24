@@ -12363,6 +12363,7 @@
       "rerun": "重新审查",
       "baselineChanged": "基线已更新；重新审查可比较新基线。",
       "baselineConflict": "基线已在其他窗口或会话中更新。请重新审查，再接受截图或恢复旧基线。",
+      "artifactConflict": "设计内容发生变化。请重新审查，再接受截图。",
       "scenariosConflict": "已保存的场景发生变化。请重新审查，再接受截图。",
       "baselineHistory": "已保留的基线",
       "restoreBaseline": "恢复基线",

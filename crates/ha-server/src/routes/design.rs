@@ -17,7 +17,7 @@ use ha_core::paths;
 use ha_core::session::SessionMeta;
 use ha_design::design::extract::Direction;
 use ha_design::design::quality::StaleReviewedScenarios;
-use ha_design::design::quality_store::StaleBaselineRevision;
+use ha_design::design::quality_store::{StaleBaselineRevision, StaleReviewedArtifact};
 use ha_design::design::service::{
     self, BindingSyncReport, CreateArtifactInput, CreateProjectInput, ElementPatch,
     ExtractSystemInput, ReferenceImageInput, RemoveElementResult, SaveSystemInput,
@@ -1032,6 +1032,9 @@ fn visual_baseline_error(error: anyhow::Error) -> AppError {
     }
     if error.is::<StaleReviewedScenarios>() {
         return AppError::conflict_with_code(StaleReviewedScenarios::CODE, error.to_string());
+    }
+    if error.is::<StaleReviewedArtifact>() {
+        return AppError::conflict_with_code(StaleReviewedArtifact::CODE, error.to_string());
     }
     error.into()
 }

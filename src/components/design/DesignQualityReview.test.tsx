@@ -170,47 +170,67 @@ it.each([
   },
 )
 
-it("keeps a saved comparison and pauses acceptance when the scenarios changed", async () => {
-  const older = { ...run.baselineRevisions[0], id: "R0" }
-  const refreshed = { ...run, reviewId: "review-2", scenariosHash: "updated-scenes" }
-  call.mockImplementation((cmd, args) => {
-    if (cmd === "run_design_visual_regression_cmd") {
-      return Promise.resolve({ ...run, baselineRevisions: [older, ...run.baselineRevisions] })
-    }
-    if (cmd === "accept_design_visual_baseline_cmd") {
-      return Promise.reject({ code: "design_reviewed_scenarios_conflict" })
-    }
-    return fixture(cmd, args)
-  })
-  render(<DesignQualityReview artifactId="A" onClose={vi.fn()} />)
-  await ready()
-  fireEvent.click(screen.getByRole("button", { name: /Empty/ }))
-  await screen.findByAltText("Empty 本轮截图")
-  fireEvent.click(screen.getByRole("button", { name: "design.review.acceptBaseline" }))
-  expect(await screen.findByRole("alert")).toHaveTextContent("design.review.scenariosConflict")
-  expect(screen.getByAltText("Empty 审查时基线")).toBeInTheDocument()
-  expect(screen.getByRole("button", { name: "design.review.acceptBaseline" })).toBeDisabled()
-  expect(screen.getByRole("button", { name: /恢复基线/ })).toBeEnabled()
-  expect(error).not.toHaveBeenCalled()
+it.each([
+  {
+    reason: { code: "design_reviewed_scenarios_conflict" },
+    message: "design.review.scenariosConflict",
+    refreshed: { scenariosHash: "updated-scenes" },
+  },
+  {
+    reason: { code: "design_reviewed_artifact_conflict" },
+    message: "design.review.artifactConflict",
+    refreshed: { artifactHash: "updated-source" },
+  },
+  {
+    reason: "design_reviewed_artifact_conflict",
+    message: "design.review.artifactConflict",
+    refreshed: { artifactHash: "updated-source" },
+  },
+])(
+  "keeps the saved comparison and pauses acceptance on $message",
+  async ({ reason, message, refreshed }) => {
+    const older = { ...run.baselineRevisions[0], id: "R0" }
+    const nextRun = { ...run, reviewId: "review-2", ...refreshed }
+    call.mockImplementation((cmd, args) => {
+      if (cmd === "run_design_visual_regression_cmd") {
+        return Promise.resolve({ ...run, baselineRevisions: [older, ...run.baselineRevisions] })
+      }
+      if (cmd === "accept_design_visual_baseline_cmd") {
+        return Promise.reject(reason)
+      }
+      return fixture(cmd, args)
+    })
+    render(<DesignQualityReview artifactId="A" onClose={vi.fn()} />)
+    await ready()
+    fireEvent.click(screen.getByRole("button", { name: /Empty/ }))
+    await screen.findByAltText("Empty 本轮截图")
+    fireEvent.click(screen.getByRole("button", { name: "design.review.acceptBaseline" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(message)
+    expect(screen.getByAltText("Empty 本轮截图")).toBeInTheDocument()
+    expect(screen.getByAltText("Empty 审查时基线")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "design.review.acceptBaseline" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: /恢复基线/ })).toBeEnabled()
+    expect(error).not.toHaveBeenCalled()
 
-  call.mockImplementation((cmd, args) =>
-    cmd === "run_design_visual_regression_cmd" ? Promise.resolve(refreshed) : fixture(cmd, args),
-  )
-  fireEvent.click(screen.getByRole("button", { name: "重新审查" }))
-  await ready()
-  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole("button", { name: "design.review.acceptBaseline" }))
-  await waitFor(() => expect(success).toHaveBeenCalledOnce())
-  expect(call).toHaveBeenLastCalledWith("accept_design_visual_baseline_cmd", {
-    input: {
-      artifactId: "A",
-      reviewId: "review-2",
-      expectedArtifactHash: "source",
-      expectedScenariosHash: "updated-scenes",
-      expectedBaselineRevision: "R1",
-    },
-  })
-})
+    call.mockImplementation((cmd, args) =>
+      cmd === "run_design_visual_regression_cmd" ? Promise.resolve(nextRun) : fixture(cmd, args),
+    )
+    fireEvent.click(screen.getByRole("button", { name: "重新审查" }))
+    await ready()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "design.review.acceptBaseline" }))
+    await waitFor(() => expect(success).toHaveBeenCalledOnce())
+    expect(call).toHaveBeenLastCalledWith("accept_design_visual_baseline_cmd", {
+      input: {
+        artifactId: "A",
+        reviewId: "review-2",
+        expectedArtifactHash: nextRun.artifactHash,
+        expectedScenariosHash: nextRun.scenariosHash,
+        expectedBaselineRevision: "R1",
+      },
+    })
+  },
+)
 
 it("keeps the generic failure and allows retry for an unrelated error", async () => {
   call.mockImplementation((cmd, args) =>

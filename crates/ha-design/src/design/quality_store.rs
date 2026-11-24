@@ -33,6 +33,21 @@ impl std::fmt::Display for StaleBaselineRevision {
 
 impl std::error::Error for StaleBaselineRevision {}
 
+#[derive(Debug)]
+pub struct StaleReviewedArtifact;
+
+impl StaleReviewedArtifact {
+    pub const CODE: &'static str = "design_reviewed_artifact_conflict";
+}
+
+impl std::fmt::Display for StaleReviewedArtifact {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("reviewed artifact changed before baseline acceptance")
+    }
+}
+
+impl std::error::Error for StaleReviewedArtifact {}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QualityReceipt {
@@ -288,10 +303,9 @@ pub(super) fn accept_review_at(
     scenarios_hash: &str,
     plan_keys: &BTreeSet<String>,
 ) -> Result<QualityManifest> {
-    anyhow::ensure!(
-        input.expected_artifact_hash == actual_hash,
-        "stale baseline acceptance: artifact changed"
-    );
+    if input.expected_artifact_hash != actual_hash {
+        return Err(StaleReviewedArtifact.into());
+    }
     let mut manifest = quality::load_manifest(dir, &input.artifact_id)?;
     if input.expected_baseline_revision != manifest.revision_id {
         return Err(StaleBaselineRevision.into());
@@ -303,10 +317,12 @@ pub(super) fn accept_review_at(
         .context("review receipt missing or expired; run review again")?;
     anyhow::ensure!(
         receipt.run.artifact_id == input.artifact_id
-            && receipt.run.artifact_hash == actual_hash
             && receipt.run.scenarios_hash == scenarios_hash,
         "stale reviewed capture"
     );
+    if receipt.run.artifact_hash != actual_hash {
+        return Err(StaleReviewedArtifact.into());
+    }
     if receipt.run.baseline_revision != manifest.revision_id {
         return Err(StaleBaselineRevision.into());
     }
@@ -561,6 +577,23 @@ mod tests {
             accepted_bytes,
             std::fs::read(dir.path().join("manifest.json")).unwrap()
         );
+    }
+
+    #[test]
+    fn stale_artifact_refuses_acceptance_without_changing_the_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let (run, _) = save_review(dir.path(), 10);
+        let manifest = dir.path().join("manifest.json");
+        let before = std::fs::read(&manifest).unwrap();
+        let plan_keys = BTreeSet::from(["2x2".to_string()]);
+        let mut request = input(&run);
+        for expected in [run.artifact_hash.as_str(), "updated"] {
+            request.expected_artifact_hash = expected.into();
+            let error = accept_review_at(dir.path(), &request, "updated", "scenes", &plan_keys)
+                .unwrap_err();
+            assert!(error.is::<StaleReviewedArtifact>());
+            assert_eq!(std::fs::read(&manifest).unwrap(), before);
+        }
     }
 
     #[test]
