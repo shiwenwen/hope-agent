@@ -48,6 +48,21 @@ impl std::fmt::Display for StaleReviewedArtifact {
 
 impl std::error::Error for StaleReviewedArtifact {}
 
+#[derive(Debug)]
+pub struct ReviewUnavailable;
+
+impl ReviewUnavailable {
+    pub const CODE: &'static str = "design_review_unavailable";
+}
+
+impl std::fmt::Display for ReviewUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("review receipt missing or expired; run review again")
+    }
+}
+
+impl std::error::Error for ReviewUnavailable {}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QualityReceipt {
@@ -314,7 +329,7 @@ pub(super) fn accept_review_at(
         .reviews
         .iter()
         .find(|r| r.run.review_id == input.review_id)
-        .context("review receipt missing or expired; run review again")?;
+        .ok_or(ReviewUnavailable)?;
     anyhow::ensure!(
         receipt.run.artifact_id == input.artifact_id
             && receipt.run.scenarios_hash == scenarios_hash,
@@ -373,7 +388,7 @@ fn review_image_at(dir: &Path, input: &QualityImageInput) -> Result<QualityImage
         .reviews
         .iter()
         .find(|r| r.run.review_id == input.review_id)
-        .context("review receipt missing or expired")?;
+        .ok_or(ReviewUnavailable)?;
     anyhow::ensure!(
         review.run.artifact_id == input.artifact_id,
         "review artifact identity mismatch"
@@ -666,6 +681,37 @@ mod tests {
         assert_eq!(
             before,
             std::fs::read(dir.path().join("manifest.json")).unwrap()
+        );
+    }
+
+    #[test]
+    fn expired_review_cannot_be_read_or_accepted_at_the_same_baseline_revision() {
+        let dir = tempfile::tempdir().unwrap();
+        let (old, _) = save_review(dir.path(), 0);
+        let mut latest = old.clone();
+        for color in 1..=MAX_REVIEWS {
+            latest = save_review(dir.path(), color as u8).0;
+        }
+        assert_eq!(latest.baseline_revision, old.baseline_revision);
+        let manifest = dir.path().join("manifest.json");
+        let before = std::fs::read(&manifest).unwrap();
+        let image_error =
+            review_image_at(dir.path(), &image_input(&old, ImageSide::Current)).unwrap_err();
+        assert!(image_error.is::<ReviewUnavailable>());
+        let accept_error = accept_review_at(
+            dir.path(),
+            &input(&old),
+            "source",
+            "scenes",
+            &BTreeSet::from(["2x2".into()]),
+        )
+        .unwrap_err();
+        assert!(accept_error.is::<ReviewUnavailable>());
+        assert_eq!(std::fs::read(&manifest).unwrap(), before);
+        let shown = review_image_at(dir.path(), &image_input(&latest, ImageSide::Current)).unwrap();
+        assert_eq!(
+            accept_at(dir.path(), &latest).baselines["2x2"].image_hash,
+            shown.image_hash
         );
     }
 

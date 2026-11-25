@@ -9,7 +9,9 @@ use crate::commands::CmdError;
 use ha_core::session::SessionMeta;
 use ha_design::design::extract::Direction;
 use ha_design::design::quality::StaleReviewedScenarios;
-use ha_design::design::quality_store::{StaleBaselineRevision, StaleReviewedArtifact};
+use ha_design::design::quality_store::{
+    ReviewUnavailable, StaleBaselineRevision, StaleReviewedArtifact,
+};
 use ha_design::design::service::BindingSyncReport;
 use ha_design::design::service::{
     self, ArtifactView, CreateArtifactInput, CreateProjectInput, ElementPatch, ExportResult,
@@ -366,7 +368,7 @@ pub async fn run_design_visual_regression_cmd(
         .map_err(Into::into)
 }
 
-fn visual_baseline_error(error: anyhow::Error) -> CmdError {
+fn visual_review_error(error: anyhow::Error) -> CmdError {
     if error.is::<StaleBaselineRevision>() {
         return CmdError::msg(StaleBaselineRevision::CODE);
     }
@@ -375,6 +377,9 @@ fn visual_baseline_error(error: anyhow::Error) -> CmdError {
     }
     if error.is::<StaleReviewedArtifact>() {
         return CmdError::msg(StaleReviewedArtifact::CODE);
+    }
+    if error.is::<ReviewUnavailable>() {
+        return CmdError::msg(ReviewUnavailable::CODE);
     }
     error.into()
 }
@@ -385,7 +390,7 @@ pub async fn accept_design_visual_baseline_cmd(
 ) -> Result<ha_design::design::quality::QualityManifest, CmdError> {
     ha_design::design::quality::accept(input)
         .await
-        .map_err(visual_baseline_error)
+        .map_err(visual_review_error)
 }
 
 #[tauri::command]
@@ -394,7 +399,7 @@ pub async fn get_design_quality_image_cmd(
 ) -> Result<ha_design::design::quality_store::QualityImage, CmdError> {
     ha_core::blocking::run_blocking(move || ha_design::design::quality_store::review_image(input))
         .await
-        .map_err(Into::into)
+        .map_err(visual_review_error)
 }
 
 #[tauri::command]
@@ -403,7 +408,7 @@ pub async fn restore_design_visual_baseline_cmd(
 ) -> Result<ha_design::design::quality::QualityManifest, CmdError> {
     ha_core::blocking::run_blocking(move || ha_design::design::quality_store::restore(input))
         .await
-        .map_err(visual_baseline_error)
+        .map_err(visual_review_error)
 }
 
 #[tauri::command]

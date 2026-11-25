@@ -12364,6 +12364,7 @@
       "baselineChanged": "Baseline updated. Run another review to compare it.",
       "baselineConflict": "The baseline changed in another window or session. Run the review again before accepting captures or restoring a baseline.",
       "artifactConflict": "The design content changed. Run the review again before accepting captures.",
+      "reviewUnavailable": "These review captures are no longer available. Run the review again to capture new images.",
       "scenariosConflict": "The saved scenarios changed. Run the review again before accepting captures.",
       "baselineHistory": "Retained baselines",
       "restoreBaseline": "Restore baseline",

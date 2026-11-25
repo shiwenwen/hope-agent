@@ -246,6 +246,58 @@ it("keeps the generic failure and allows retry for an unrelated error", async ()
   expect(screen.getByRole("button", { name: "design.review.acceptBaseline" })).toBeEnabled()
 })
 
+it.each([
+  ["get_design_quality_image_cmd", /Empty/, { code: "design_review_unavailable" }],
+  [
+    "accept_design_visual_baseline_cmd",
+    "design.review.acceptBaseline",
+    "design_review_unavailable",
+  ],
+])("recovers an expired review reported by %s", async (command, button, reason) => {
+  const older = { ...run.baselineRevisions[0], id: "R0" }
+  let attempts = 0
+  call.mockImplementation((cmd, args) => {
+    if (cmd === "run_design_visual_regression_cmd") {
+      attempts++
+      if (attempts === 2) return Promise.reject("visual_scenarios_incomplete")
+      return Promise.resolve({
+        ...run,
+        reviewId: attempts === 1 ? run.reviewId : "review-new",
+        baselineRevisions: [older, ...run.baselineRevisions],
+      })
+    }
+    if (cmd === command && attempts === 1) return Promise.reject(reason)
+    return fixture(cmd, args)
+  })
+  render(<DesignQualityReview artifactId="A" onClose={vi.fn()} />)
+  await ready()
+  if (command === "accept_design_visual_baseline_cmd") {
+    fireEvent.click(screen.getByRole("button", { name: /Empty/ }))
+    await screen.findByAltText("Empty 本轮截图")
+  }
+  fireEvent.click(screen.getByRole("button", { name: button }))
+  expect(await screen.findByRole("alert")).toHaveTextContent("design.review.reviewUnavailable")
+  expect(screen.getByRole("button", { name: "design.review.acceptBaseline" })).toBeDisabled()
+  expect(screen.getByRole("button", { name: /恢复基线/ })).toBeEnabled()
+  if (command === "accept_design_visual_baseline_cmd") {
+    expect(screen.getByAltText("Empty 本轮截图")).toBeInTheDocument()
+  }
+  expect(error).not.toHaveBeenCalled()
+
+  fireEvent.click(screen.getByRole("button", { name: "重新审查" }))
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "design.review.visualScenarioIncomplete",
+  )
+  fireEvent.click(screen.getByRole("button", { name: "重新审查" }))
+  await ready()
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "design.review.acceptBaseline" }))
+  await waitFor(() => expect(success).toHaveBeenCalledOnce())
+  expect(call).toHaveBeenLastCalledWith("accept_design_visual_baseline_cmd", {
+    input: expect.objectContaining({ reviewId: "review-new" }),
+  })
+})
+
 it("displays missing baselines without requesting a nonexistent image", async () => {
   render(<DesignQualityReview artifactId="A" onClose={vi.fn()} />)
   await ready()

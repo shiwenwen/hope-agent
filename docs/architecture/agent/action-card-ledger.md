@@ -1,5 +1,13 @@
 # 行动卡统一迭代台账
 
+## 2026-11-25 旧审查截图超出保留范围后的恢复
+
+沿 `PRODUCT-11-A2-SCENARIO-VALIDATION` 继续 [PR #908](https://github.com/shiwenwen/hope-agent/pull/908)。
+同步 main `d36eb1414`，保留 #908 和依赖 #932 的更新说明。同一产物保存超过四次审查后，
+读取或接受已淘汰的审查返回 `design_review_unavailable`。弹窗保留已加载的截图，停用旧接受并允许
+重新审查。即使重审失败也可在同一弹窗重试，成功后接受新一轮保存的截图。回退可撤回弹窗和错误映射改动，
+审阅及基线文件格式保持兼容。M4 还需要 Tauri、Windows/Linux 实际浏览器和受保护的 main 交付。
+
 ## 2026-11-22：场景变更后重新审查
 
 沿 `PRODUCT-11-A2-SCENARIO-VALIDATION` 继续 [PR #908](https://github.com/shiwenwen/hope-agent/pull/908)，

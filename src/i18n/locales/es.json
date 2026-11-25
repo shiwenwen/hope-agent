@@ -12364,6 +12364,7 @@
       "baselineChanged": "Referencia actualizada. Revisa de nuevo para compararla.",
       "baselineConflict": "La referencia cambió en otra ventana o sesión. Repite la revisión antes de aceptar capturas o restaurar una referencia.",
       "artifactConflict": "El contenido del diseño ha cambiado. Vuelve a ejecutar la revisión antes de aceptar las capturas.",
+      "reviewUnavailable": "Las capturas de esta revisión ya no están disponibles. Vuelve a ejecutar la revisión para obtener nuevas capturas.",
       "scenariosConflict": "Los escenarios guardados han cambiado. Vuelve a ejecutar la revisión antes de aceptar las capturas.",
       "baselineHistory": "Referencias guardadas",
       "restoreBaseline": "Restaurar referencia",

@@ -17,7 +17,9 @@ use ha_core::paths;
 use ha_core::session::SessionMeta;
 use ha_design::design::extract::Direction;
 use ha_design::design::quality::StaleReviewedScenarios;
-use ha_design::design::quality_store::{StaleBaselineRevision, StaleReviewedArtifact};
+use ha_design::design::quality_store::{
+    ReviewUnavailable, StaleBaselineRevision, StaleReviewedArtifact,
+};
 use ha_design::design::service::{
     self, BindingSyncReport, CreateArtifactInput, CreateProjectInput, ElementPatch,
     ExtractSystemInput, ReferenceImageInput, RemoveElementResult, SaveSystemInput,
@@ -1026,7 +1028,7 @@ pub async fn run_visual_regression(
     ))
 }
 
-fn visual_baseline_error(error: anyhow::Error) -> AppError {
+fn visual_review_error(error: anyhow::Error) -> AppError {
     if error.is::<StaleBaselineRevision>() {
         return AppError::conflict_with_code(StaleBaselineRevision::CODE, error.to_string());
     }
@@ -1035,6 +1037,9 @@ fn visual_baseline_error(error: anyhow::Error) -> AppError {
     }
     if error.is::<StaleReviewedArtifact>() {
         return AppError::conflict_with_code(StaleReviewedArtifact::CODE, error.to_string());
+    }
+    if error.is::<ReviewUnavailable>() {
+        return AppError::conflict_with_code(ReviewUnavailable::CODE, error.to_string());
     }
     error.into()
 }
@@ -1050,7 +1055,7 @@ pub async fn accept_visual_baseline(
     Ok(Json(
         ha_design::design::quality::accept(body.input)
             .await
-            .map_err(visual_baseline_error)?,
+            .map_err(visual_review_error)?,
     ))
 }
 
@@ -1060,7 +1065,7 @@ pub async fn accept_visual_baseline_unscoped(
     Ok(Json(
         ha_design::design::quality::accept(body.input)
             .await
-            .map_err(visual_baseline_error)?,
+            .map_err(visual_review_error)?,
     ))
 }
 
@@ -1086,7 +1091,7 @@ pub async fn quality_image(
             ha_design::design::quality_store::review_image(body.input)
         })
         .await
-        .map_err(|e| AppError::internal(e.to_string()))?,
+        .map_err(visual_review_error)?,
     ))
 }
 
@@ -1103,7 +1108,7 @@ pub async fn restore_visual_baseline(
             ha_design::design::quality_store::restore(body.input)
         })
         .await
-        .map_err(visual_baseline_error)?,
+        .map_err(visual_review_error)?,
     ))
 }
 

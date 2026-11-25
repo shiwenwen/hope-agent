@@ -12364,6 +12364,7 @@
       "baselineChanged": "基線已更新；重新審查可比較新基線。",
       "baselineConflict": "基準已在其他視窗或工作階段中更新。請重新審查，再接受截圖或還原舊基準。",
       "artifactConflict": "設計內容已變更。請重新審查，再接受擷取畫面。",
+      "reviewUnavailable": "這次審查的截圖已無法取得。請重新審查以取得新的截圖。",
       "scenariosConflict": "已儲存的情境已變更。請重新審查，再接受擷取畫面。",
       "baselineHistory": "已保留的基線",
       "restoreBaseline": "還原基線",

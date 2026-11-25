@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Loader2, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
@@ -22,10 +22,16 @@ type BaselineStatus = "current" | "updated" | "stale" | "staleScenarios" | "stal
 const BASELINE_REVISION_CONFLICT = "design_baseline_revision_conflict"
 const REVIEWED_SCENARIOS_CONFLICT = "design_reviewed_scenarios_conflict"
 const REVIEWED_ARTIFACT_CONFLICT = "design_reviewed_artifact_conflict"
+const REVIEW_UNAVAILABLE = "design_review_unavailable"
 const conflictMessages: Partial<Record<BaselineStatus, string>> = {
   stale: "design.review.baselineConflict",
   staleScenarios: "design.review.scenariosConflict",
   staleArtifact: "design.review.artifactConflict",
+}
+
+function errorCode(error: unknown) {
+  // Tauri rejects with a string; HTTP puts the code on its response error.
+  return typeof error === "object" && error !== null && "code" in error ? error.code : error
 }
 
 /** Mounted only for one artifact/connection and one open review dialog. */
@@ -48,6 +54,8 @@ export function DesignQualityReview({
   const [selected, setSelected] = useState<number | null>(null)
   const [baseline, setBaseline] = useState<BaselineState>({ revisionId: null, revisions: [] })
   const [baselineStatus, setBaselineStatus] = useState<BaselineStatus>("current")
+  const [reviewUnavailable, setReviewUnavailable] = useState(false)
+  const markReviewUnavailable = useCallback(() => setReviewUnavailable(true), [])
   const conflictMessage = conflictMessages[baselineStatus]
 
   useEffect(() => {
@@ -59,6 +67,7 @@ export function DesignQualityReview({
     setError(null)
     setSelected(null)
     setBaselineStatus("current")
+    setReviewUnavailable(false)
     setBaseline({ revisionId: null, revisions: [] })
     void Promise.allSettled([
       tx.call<Finding[]>("review_design_artifact_cmd", { id: artifactId }),
@@ -99,7 +108,7 @@ export function DesignQualityReview({
       loading ||
       getTransport() !== tx ||
       baselineStatus === "stale" ||
-      (!revisionId && baselineStatus !== "current")
+      (!revisionId && (baselineStatus !== "current" || reviewUnavailable))
     )
       return
     const isCurrent = () => scopeRef.current === scope && getTransport() === tx
@@ -127,8 +136,7 @@ export function DesignQualityReview({
       )
     } catch (e) {
       if (!isCurrent()) return
-      // Tauri rejects with a string; HTTP puts the code on its response error.
-      const code = typeof e === "object" && e !== null && "code" in e ? e.code : e
+      const code = errorCode(e)
       if (code === BASELINE_REVISION_CONFLICT) {
         setBaselineStatus("stale")
         return
@@ -139,6 +147,10 @@ export function DesignQualityReview({
       }
       if (code === REVIEWED_ARTIFACT_CONFLICT) {
         setBaselineStatus("staleArtifact")
+        return
+      }
+      if (code === REVIEW_UNAVAILABLE) {
+        markReviewUnavailable()
         return
       }
       logger.warn("design", "DesignQualityReview::baseline", "baseline operation failed", e)
@@ -152,6 +164,17 @@ export function DesignQualityReview({
     scopeRef.current = null
     onClose()
   }
+  const rerunButton = (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={busy || loading}
+      onClick={() => setAttempt((value) => value + 1)}
+    >
+      <RefreshCw className="mr-1 h-3 w-3" />
+      {t("design.review.rerun", "重新审查")}
+    </Button>
+  )
   return (
     <Dialog
       open
@@ -177,6 +200,7 @@ export function DesignQualityReview({
             {t(error)}
           </p>
         )}
+        {!run && !loading && rerunButton}
         {run && (
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
@@ -194,6 +218,7 @@ export function DesignQualityReview({
                   variant="outline"
                   className="h-auto flex-col items-start px-2 py-1.5 text-xs"
                   aria-pressed={selected === index}
+                  disabled={reviewUnavailable}
                   onClick={() => setSelected(index)}
                 >
                   <span className="max-w-full truncate">{diff.scenarioTitle}</span>
@@ -212,6 +237,7 @@ export function DesignQualityReview({
                 artifactId={artifactId}
                 run={run}
                 diff={run.diffs[selected]}
+                onUnavailable={markReviewUnavailable}
               />
             )}
             <p className="break-all text-[10px] text-muted-foreground">
@@ -221,24 +247,27 @@ export function DesignQualityReview({
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
-                disabled={busy || loading || baselineStatus !== "current" || !run.reviewId}
+                disabled={
+                  busy ||
+                  loading ||
+                  baselineStatus !== "current" ||
+                  reviewUnavailable ||
+                  !run.reviewId
+                }
                 onClick={() => void mutate()}
               >
                 {t("design.review.acceptBaseline")}
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy || loading}
-                onClick={() => setAttempt((value) => value + 1)}
-              >
-                <RefreshCw className="mr-1 h-3 w-3" />
-                {t("design.review.rerun", "重新审查")}
-              </Button>
+              {rerunButton}
             </div>
             {conflictMessage && (
               <p role="alert" className="text-sm text-destructive">
                 {t(conflictMessage)}
+              </p>
+            )}
+            {reviewUnavailable && (
+              <p role="alert" className="text-sm text-destructive">
+                {t("design.review.reviewUnavailable")}
               </p>
             )}
             {baselineStatus === "updated" && (
@@ -295,15 +324,17 @@ function CapturePair({
   artifactId,
   run,
   diff,
+  onUnavailable,
 }: {
   artifactId: string
   run: DesignQualityRun
   diff: Diff
+  onUnavailable: () => void
 }) {
   const { t } = useTranslation()
   const tx = getTransport()
   const [images, setImages] = useState<{ current: string; baseline?: string } | null>(null)
-  const [failed, setFailed] = useState(false)
+  const [failure, setFailure] = useState<"unavailable" | "other" | null>(null)
   useEffect(() => {
     let alive = true
     const read = async (side: "current" | "baseline", expected: string) => {
@@ -331,14 +362,21 @@ function CapturePair({
       .then(([current, baseline]) => {
         if (alive && getTransport() === tx) setImages({ current, baseline })
       })
-      .catch(() => {
-        if (alive && getTransport() === tx) setFailed(true)
+      .catch((error: unknown) => {
+        if (!alive || getTransport() !== tx) return
+        if (errorCode(error) === REVIEW_UNAVAILABLE) {
+          setFailure("unavailable")
+          onUnavailable()
+        } else {
+          setFailure("other")
+        }
       })
     return () => {
       alive = false
     }
-  }, [artifactId, tx, run.reviewId, diff])
-  if (failed)
+  }, [artifactId, tx, run.reviewId, diff, onUnavailable])
+  if (failure === "unavailable") return null
+  if (failure === "other")
     return (
       <p role="alert" className="text-xs text-destructive">
         {t("design.review.captureFailed", "截图不可用，请重新审查。")}
