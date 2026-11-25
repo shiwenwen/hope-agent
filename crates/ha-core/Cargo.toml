@@ -44,7 +44,7 @@ tiktoken-rs = "0.12.0"
 
 # Non-workspace dependencies (core-specific)
 sqlite-vec = "0.1"
-cron = "0.13"
+cron = "0.17"
 # IANA timezone support for cron schedules (DST-aware). chrono-tz carries the
 # full zone table; iana-time-zone (already transitive via chrono) detects the
 # host zone for the legacy null→local backfill.
