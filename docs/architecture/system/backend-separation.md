@@ -148,6 +148,8 @@ kernel 不 `use` 任何特征 crate，但它确实需要特征的行为（IM 撤
 | 系统服务 | `service_install.rs` —— launchd / systemd / Task Scheduler 注册原语 |
 | 其它原语 | `blocking.rs` / `ttl_cache.rs` / `event_bus.rs` / `terminal.rs` / `crash_journal.rs` / `execution_mode.rs` / `workflow_mode.rs` / `util.rs` |
 
+共享 URL 解析依赖锁定在 `url 2.5.9`，修复 [RUSTSEC-2026-0592](https://rustsec.org/advisories/RUSTSEC-2026-0592.html) 所述的来源计算栈溢出。出站 HTTP 请求沿用 `security::ssrf::check_url` 安全检查。
+
 **日志全局为什么必须住在 ha-base**：`app_info!` 展开为 `$crate::get_logger()`，`$crate` 解析到**定义宏的 crate**。所以 `APP_LOGGER` / `LOG_DB` 及其访问器必须与宏同住 ha-base；kernel 的 `globals.rs` 只是把它们再导出，保持 `crate::globals::APP_LOGGER` 等既有路径不变。
 
 **反向依赖靠注册钩子解决**（ha-base 不能 `use` `AppConfig`），现有三处：
