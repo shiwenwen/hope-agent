@@ -761,6 +761,7 @@ graph LR
 - 可见性在隔离世界组合原生 `checkVisibility`（祖先 opacity、visibility、content-visibility）和 `IntersectionObserver` 的 `trackVisibility: true`、正面积交集与 `isVisible: true`，涵盖祖先裁剪和遮挡；CDP 等待 Promise。单次观察最多 300 ms，状态轮询受 3 秒绝对截止时间约束。浏览器缺少支持或对半透明、滤镜等效果无法确认时保守拒绝，不退化为只检查元素自身样式。API 边界见 [CSSOM View](https://drafts.csswg.org/cssom-view/#dom-element-checkvisibility) 和 [Chrome 可见性跟踪说明](https://web.dev/articles/intersectionobserver-v2)。
 - 自定义场景必须提供 `ready: {selector, text}`；CSS 选择器最多 256 字节、期望文本最多 512 字节。检查要求恰好一个匹配元素，文本 trim 后精确相等，且元素具有可见样式、非零尺寸并与视口相交。浏览器后端只选择当前隔离页中唯一的直接 `about:srcdoc` 子 frame，在独立执行世界读取 DOM，禁止 universal access，不受产物脚本覆写查询函数或伪造 ACK 影响。每次最多等待约 3 秒，并在截图前再次复核；未到达或配置不支持返回 `visual_scenarios_incomplete`。这是指定 DOM 条件的观察证据，不代表整个业务状态或业务正确性已经证明。旧的默认空状态保持兼容，不强制添加 ready。
 - 真实浏览器逐场景/视口截图，完成或失败都恢复原目标、视口并关闭隔离页。`CdpBackend` 依赖全局活动目标，因此从读取原目标到关闭隔离页并恢复目标/视口的完整捕获流程必须持有浏览器进程级 CDP 操作锁，禁止与浏览器工具、实时帧或其他原生导出交错。
+- 组件预览须包含编译产物的挂载节点 `body > div#ds-root`。编译错误页没有该节点，即使使用默认场景，运行视觉回归和接受已保存的截图也会在发布前被拒绝。HTTP 返回 409 和 `design_component_preview_unavailable`，Tauri 使用同一标识。原审阅凭证和基线保持原样，修复组件后可在同一弹窗重新审查。
 - 只有 CDP 网络与页面操作留在异步 worker；产物/清单读取、PNG 解码、像素比较和基线持久化统一经 `run_blocking`，大图或慢磁盘不得占住聊天、WebSocket 与 HTTP 共用的运行时线程。
 - 单张 PNG 最多 32 MiB，完整捕获集最多 128 MiB；解码前核对预期尺寸，缺失或重复场景视口身份均失败关闭。
 - 截图按 BLAKE3 内容寻址存到 `quality/screenshots/{hash}.png`。`quality/manifest.json` 作为单一原子发布点，同时保存当前基线、不可变审阅凭证和基线修订；旧版 v1 清单缺少这些字段时兼容读取，下一次成功发布升级为 v2；旧二进制拒绝 v2，避免旧写入静默丢失修订。回退先关闭新入口并保留本地质量文件，不自动降级清单。运行成功后保存完整审阅集合，绑定产物 ID/源码及已渲染 HTML 的组合哈希、场景清单哈希、场景配置键、视口、图片哈希、捕获时间和审查时基线修订。自定义基线键仍含场景 ID/配置摘要/尺寸，旧默认空状态仍用尺寸键。

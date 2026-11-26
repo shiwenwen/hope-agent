@@ -16,7 +16,7 @@ use tower_http::services::ServeFile;
 use ha_core::paths;
 use ha_core::session::SessionMeta;
 use ha_design::design::extract::Direction;
-use ha_design::design::quality::StaleReviewedScenarios;
+use ha_design::design::quality::{ComponentPreviewUnavailable, StaleReviewedScenarios};
 use ha_design::design::quality_store::{
     ReviewUnavailable, StaleBaselineRevision, StaleReviewedArtifact,
 };
@@ -1024,11 +1024,14 @@ pub async fn run_visual_regression(
     Ok(Json(
         ha_design::design::quality::run(&id)
             .await
-            .map_err(|e| AppError::internal(e.to_string()))?,
+            .map_err(visual_review_error)?,
     ))
 }
 
 fn visual_review_error(error: anyhow::Error) -> AppError {
+    if error.is::<ComponentPreviewUnavailable>() {
+        return AppError::conflict_with_code(ComponentPreviewUnavailable::CODE, error.to_string());
+    }
     if error.is::<StaleBaselineRevision>() {
         return AppError::conflict_with_code(StaleBaselineRevision::CODE, error.to_string());
     }

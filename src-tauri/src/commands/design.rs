@@ -8,7 +8,7 @@
 use crate::commands::CmdError;
 use ha_core::session::SessionMeta;
 use ha_design::design::extract::Direction;
-use ha_design::design::quality::StaleReviewedScenarios;
+use ha_design::design::quality::{ComponentPreviewUnavailable, StaleReviewedScenarios};
 use ha_design::design::quality_store::{
     ReviewUnavailable, StaleBaselineRevision, StaleReviewedArtifact,
 };
@@ -365,10 +365,13 @@ pub async fn run_design_visual_regression_cmd(
 ) -> Result<ha_design::design::quality::QualityRun, CmdError> {
     ha_design::design::quality::run(&artifact_id)
         .await
-        .map_err(Into::into)
+        .map_err(visual_review_error)
 }
 
 fn visual_review_error(error: anyhow::Error) -> CmdError {
+    if error.is::<ComponentPreviewUnavailable>() {
+        return CmdError::msg(ComponentPreviewUnavailable::CODE);
+    }
     if error.is::<StaleBaselineRevision>() {
         return CmdError::msg(StaleBaselineRevision::CODE);
     }

@@ -151,7 +151,7 @@ pub(super) fn load_manifest(dir: &Path, artifact_id: &str) -> Result<QualityMani
     }
 }
 
-fn artifact_hash(artifact_id: &str) -> Result<String> {
+fn artifact_hash(artifact_id: &str, capture_html: &str) -> Result<String> {
     let source = super::service::get_artifact_source_for_agent(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
     let mut hasher = blake3::Hasher::new();
@@ -160,14 +160,12 @@ fn artifact_hash(artifact_id: &str) -> Result<String> {
     hasher.update(source.css.as_bytes());
     hasher.update(&[0]);
     hasher.update(source.js.as_bytes());
-    let artifact = super::service::get_artifact(artifact_id)?.context("artifact not found")?;
     hasher.update(&[0]);
-    hasher.update(artifact_capture_html(&artifact.project_id, artifact_id)?.as_bytes());
+    hasher.update(capture_html.as_bytes());
     Ok(hasher.finalize().to_hex().to_string())
 }
 
-fn static_findings(html: &str) -> Vec<StaticFinding> {
-    let doc = scraper::Html::parse_document(html);
+fn static_findings(doc: &scraper::Html) -> Vec<StaticFinding> {
     let mut out = Vec::new();
     let img = scraper::Selector::parse("img:not([alt])").expect("constant selector");
     if doc.select(&img).next().is_some() {
@@ -341,6 +339,32 @@ fn artifact_capture_html(project_id: &str, artifact_id: &str) -> Result<String> 
     std::fs::read_to_string(dir.join("index.html")).context("artifact has no rendered index.html")
 }
 
+#[derive(Debug)]
+pub struct ComponentPreviewUnavailable;
+
+impl ComponentPreviewUnavailable {
+    pub const CODE: &'static str = "design_component_preview_unavailable";
+}
+
+impl std::fmt::Display for ComponentPreviewUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("component has no compiled preview to capture")
+    }
+}
+
+impl std::error::Error for ComponentPreviewUnavailable {}
+
+fn ensure_compiled_component(document: &scraper::Html) -> Result<()> {
+    // The component renderer has always emitted this mount on successful
+    // compilation. Its static error page has no mount.
+    let mount = scraper::Selector::parse("body > div#ds-root").expect("constant selector");
+    document
+        .select(&mount)
+        .next()
+        .map(|_| ())
+        .ok_or_else(|| ComponentPreviewUnavailable.into())
+}
+
 fn opening_tag_end(serialized_element: &str, tag: &str) -> Result<usize> {
     let expected = format!("<{tag}");
     if !serialized_element
@@ -420,18 +444,22 @@ fn prepare_quality_run(artifact_id: &str) -> Result<QualityRunPreparation> {
     let (artifact, guard) = super::quality_store::locked_artifact(artifact_id)?;
     let source_lock = super::service::artifact_lock(artifact_id);
     let _source_guard = source_lock.lock().unwrap_or_else(|e| e.into_inner());
-    let artifact_hash = artifact_hash(artifact_id)?;
+    let html = artifact_capture_html(&artifact.project_id, artifact_id)?;
+    let document = scraper::Html::parse_document(&html);
+    if artifact.kind == "component" {
+        ensure_compiled_component(&document)?;
+    }
+    let artifact_hash = artifact_hash(artifact_id, &html)?;
     let scenarios = super::scenarios::get(artifact_id)?;
     let plan = capture_plan(&scenarios.manifest)?;
     let dir = quality_dir(&artifact.project_id, artifact_id)?;
     let manifest = load_manifest(&dir, artifact_id)?;
-    let html = artifact_capture_html(&artifact.project_id, artifact_id)?;
     Ok(QualityRunPreparation {
         artifact_id: artifact_id.to_string(),
         artifact_hash,
         dir,
         manifest,
-        findings: static_findings(&html),
+        findings: static_findings(&document),
         capture_html: html,
         scenarios_hash: scenarios.hash,
         plan,
@@ -446,7 +474,10 @@ fn finish_quality_run(
     ensure_capture_set(&prepared.plan, &captures)?;
     let source_lock = super::service::artifact_lock(&prepared.artifact_id);
     let _source_guard = source_lock.lock().unwrap_or_else(|e| e.into_inner());
-    if artifact_hash(&prepared.artifact_id)? != prepared.artifact_hash {
+    let artifact =
+        super::service::get_artifact(&prepared.artifact_id)?.context("artifact not found")?;
+    let html = artifact_capture_html(&artifact.project_id, &artifact.id)?;
+    if artifact_hash(&artifact.id, &html)? != prepared.artifact_hash {
         anyhow::bail!("artifact changed during visual regression capture");
     }
     ensure_scenarios_unchanged(
@@ -578,7 +609,12 @@ fn accept_review(input: AcceptBaselineInput) -> Result<QualityManifest> {
     let (artifact, _guard) = super::quality_store::locked_artifact(&input.artifact_id)?;
     let source_lock = super::service::artifact_lock(&input.artifact_id);
     let _source_guard = source_lock.lock().unwrap_or_else(|e| e.into_inner());
-    let actual_hash = artifact_hash(&artifact.id)?;
+    let html = artifact_capture_html(&artifact.project_id, &artifact.id)?;
+    if artifact.kind == "component" {
+        // Existing receipts may have been captured from the error page.
+        ensure_compiled_component(&scraper::Html::parse_document(&html))?;
+    }
+    let actual_hash = artifact_hash(&artifact.id, &html)?;
     let scenarios = super::scenarios::get(&artifact.id)?;
     ensure_acceptance_scenarios(&scenarios, input.expected_scenarios_hash.as_deref())?;
     let plan_keys = capture_plan(&scenarios.manifest)?
@@ -748,6 +784,18 @@ pub async fn accept(input: AcceptBaselineInput) -> Result<QualityManifest> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn component_compile_fallback_is_not_a_reviewable_preview() {
+        use super::super::renderer::{build_component_error_html, build_component_html};
+
+        let failed = build_component_error_html("Cart", "invalid component source");
+        let error = ensure_compiled_component(&scraper::Html::parse_document(&failed)).unwrap_err();
+        assert!(error.is::<ComponentPreviewUnavailable>());
+
+        let compiled = build_component_html("Cart", "function App() { return null; }", "", &[]);
+        assert!(ensure_compiled_component(&scraper::Html::parse_document(&compiled)).is_ok());
+    }
 
     fn two_states() -> super::super::scenarios::ScenariosManifest {
         use super::super::scenarios::{ScenarioReady, ScenariosManifest};
@@ -1182,7 +1230,9 @@ mod tests {
 
     #[test]
     fn static_rules_find_missing_names() {
-        let findings = static_findings("<html><body><img><button></button></body></html>");
+        let document =
+            scraper::Html::parse_document("<html><body><img><button></button></body></html>");
+        let findings = static_findings(&document);
         assert!(findings.iter().any(|f| f.code == "image-missing-alt"));
         assert!(findings
             .iter()

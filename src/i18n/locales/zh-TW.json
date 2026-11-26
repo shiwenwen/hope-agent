@@ -12349,6 +12349,7 @@
       "fixStarted": "已讓 AI 開始修復",
       "fixBusy": "對話進行中，請稍候再試",
       "fixPrompt": "請修復設計自查發現的問題：{{detail}}。用設計系統 token（var(--ds-*)）收斂配色、替換硬編碼樣式，只做必要的最小改動，保持產物其它內容與整體設計不變。",
+      "componentPreviewUnavailable": "元件未產生可供審查的編譯預覽。請檢查原始碼與預覽，再重新審查。",
       "visualScenarioIncomplete": "視覺驗證未完成：場景尚未就緒、路由暫不支援或清單已變更，請檢查後重新驗證。",
       "visualUnavailable": "视觉回归不可用，请检查浏览器渲染后端",
       "baselineAccepted": "已接受当前画面为视觉基线",

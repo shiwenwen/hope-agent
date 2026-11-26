@@ -298,6 +298,27 @@ it.each([
   })
 })
 
+it.each(["design_component_preview_unavailable", { code: "design_component_preview_unavailable" }])(
+  "reports an uncompiled component and reloads its review after repair (%j)",
+  async (reason) => {
+    call.mockImplementation((cmd, args) =>
+      cmd === "run_design_visual_regression_cmd" ? Promise.reject(reason) : fixture(cmd, args),
+    )
+    render(<DesignQualityReview artifactId="A" onClose={vi.fn()} />)
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "design.review.componentPreviewUnavailable",
+    )
+    expect(screen.queryByText("design.review.allClear")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "design.review.acceptBaseline" })).toBeNull()
+
+    call.mockImplementation(fixture)
+    fireEvent.click(screen.getByRole("button", { name: "重新审查" }))
+    await ready()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "design.review.acceptBaseline" })).toBeEnabled()
+  },
+)
+
 it("displays missing baselines without requesting a nonexistent image", async () => {
   render(<DesignQualityReview artifactId="A" onClose={vi.fn()} />)
   await ready()

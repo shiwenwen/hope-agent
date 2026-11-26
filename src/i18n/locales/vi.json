@@ -12349,6 +12349,7 @@
       "fixStarted": "AI đang sửa",
       "fixBusy": "Cuộc trò chuyện đang diễn ra, vui lòng thử lại sau",
       "fixPrompt": "Vui lòng sửa vấn đề được phát hiện qua tự kiểm tra thiết kế: {{detail}}. Dùng token hệ thống thiết kế (var(--ds-*)) để gom màu sắc và thay thế kiểu mã hóa cứng. Chỉ thực hiện thay đổi tối thiểu cần thiết và giữ nguyên phần còn lại của thiết kế.",
+      "componentPreviewUnavailable": "Không có bản xem trước thành phần đã biên dịch. Hãy kiểm tra mã nguồn và bản xem trước, rồi chạy lại quá trình đánh giá.",
       "visualScenarioIncomplete": "Xác thực hình ảnh chưa hoàn tất: kịch bản chưa sẵn sàng, tuyến chưa được hỗ trợ hoặc danh sách đã thay đổi. Hãy kiểm tra cấu hình và chạy lại.",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",

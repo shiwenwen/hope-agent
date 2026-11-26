@@ -17,16 +17,24 @@ import type { DesignBaselineRevision, DesignQualityRun } from "@/types/design"
 type Finding = { lens: string; severity: string; message: string }
 type BaselineState = { revisionId: string | null; revisions: DesignBaselineRevision[] }
 type Diff = DesignQualityRun["diffs"][number]
-type BaselineStatus = "current" | "updated" | "stale" | "staleScenarios" | "staleArtifact"
+type BaselineStatus =
+  | "current"
+  | "updated"
+  | "stale"
+  | "staleScenarios"
+  | "staleArtifact"
+  | "componentUnavailable"
 
 const BASELINE_REVISION_CONFLICT = "design_baseline_revision_conflict"
 const REVIEWED_SCENARIOS_CONFLICT = "design_reviewed_scenarios_conflict"
 const REVIEWED_ARTIFACT_CONFLICT = "design_reviewed_artifact_conflict"
 const REVIEW_UNAVAILABLE = "design_review_unavailable"
+const COMPONENT_PREVIEW_UNAVAILABLE = "design_component_preview_unavailable"
 const conflictMessages: Partial<Record<BaselineStatus, string>> = {
   stale: "design.review.baselineConflict",
   staleScenarios: "design.review.scenariosConflict",
   staleArtifact: "design.review.artifactConflict",
+  componentUnavailable: "design.review.componentPreviewUnavailable",
 }
 
 function errorCode(error: unknown) {
@@ -74,6 +82,14 @@ export function DesignQualityReview({
       tx.call<DesignQualityRun>("run_design_visual_regression_cmd", { artifactId }),
     ]).then(([staticResult, visualResult]) => {
       if (scopeRef.current !== scope || getTransport() !== tx) return
+      if (
+        visualResult.status === "rejected" &&
+        errorCode(visualResult.reason) === COMPONENT_PREVIEW_UNAVAILABLE
+      ) {
+        setError("design.review.componentPreviewUnavailable")
+        setLoading(false)
+        return
+      }
       if (staticResult.status === "fulfilled") setFindings(staticResult.value)
       if (visualResult.status === "fulfilled" && visualResult.value.artifactId === artifactId) {
         setRun(visualResult.value)
@@ -147,6 +163,10 @@ export function DesignQualityReview({
       }
       if (code === REVIEWED_ARTIFACT_CONFLICT) {
         setBaselineStatus("staleArtifact")
+        return
+      }
+      if (code === COMPONENT_PREVIEW_UNAVAILABLE) {
+        setBaselineStatus("componentUnavailable")
         return
       }
       if (code === REVIEW_UNAVAILABLE) {

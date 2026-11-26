@@ -1,5 +1,15 @@
 # 行动卡统一迭代台账
 
+## 2026-11-26 组件编译失败后恢复视觉审查
+
+沿 `PRODUCT-11-A2-SCENARIO-VALIDATION` 继续 [PR #908](https://github.com/shiwenwen/hope-agent/pull/908)。
+同步已核验的 main `fb26cc760`，保留定时任务依赖 #930 的更新说明。组件缺编译预览时，
+视觉回归和接受基线返回 `design_component_preview_unavailable`，此前审阅和基线保留。
+隔离 macOS Chrome 实测默认场景未生成错误页截图，已有两场景、三视口的基线清单字节一致。
+恢复可编译版本后，原弹窗接受六张已保存的原图，复跑六项差异均为零。回退可单独撤销本次代码切片，
+原有审阅和基线文件格式兼容。
+M4 仍待 Tauri、Windows/Linux 实际浏览器验收及受保护的 main 交付。
+
 ## 2026-11-25 旧审查截图超出保留范围后的恢复
 
 沿 `PRODUCT-11-A2-SCENARIO-VALIDATION` 继续 [PR #908](https://github.com/shiwenwen/hope-agent/pull/908)。

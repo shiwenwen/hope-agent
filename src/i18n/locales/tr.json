@@ -12349,6 +12349,7 @@
       "fixStarted": "Yapay zeka düzeltmeye başladı",
       "fixBusy": "Bir sohbet devam ediyor, lütfen birazdan tekrar deneyin",
       "fixPrompt": "Tasarım öz denetiminde bulunan sorunu düzeltin: {{detail}}. Renkleri toparlamak ve sabit kodlanmış stilleri değiştirmek için tasarım sistemi belirteçlerini (var(--ds-*)) kullanın. Yalnızca gerekli en az değişikliği yapın ve tasarımın geri kalanını olduğu gibi koruyun.",
+      "componentPreviewUnavailable": "Derlenmiş bileşen önizlemesi yok. Kaynak kodu ve önizlemeyi kontrol edin, ardından incelemeyi yeniden çalıştırın.",
       "visualScenarioIncomplete": "Görsel doğrulama tamamlanmadı: senaryo hazır değil, rota desteklenmiyor veya bildirim değişti. Yapılandırmayı kontrol edip yeniden çalıştırın.",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",

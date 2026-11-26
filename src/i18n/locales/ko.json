@@ -12349,6 +12349,7 @@
       "fixStarted": "AI가 수정을 시작했습니다",
       "fixBusy": "대화가 진행 중입니다. 잠시 후 다시 시도하세요",
       "fixPrompt": "디자인 자체 점검에서 발견된 문제를 수정해 주세요: {{detail}}. 디자인 시스템 토큰(var(--ds-*))으로 색상을 정리하고 하드코딩된 스타일을 교체하세요. 꼭 필요한 최소한의 변경만 하고 나머지 디자인은 그대로 유지하세요.",
+      "componentPreviewUnavailable": "컴파일된 컴포넌트 미리보기가 없습니다. 소스와 미리보기를 확인한 후 검토를 다시 실행하세요.",
       "visualScenarioIncomplete": "시각 검증 미완료: 시나리오가 준비되지 않았거나 경로가 지원되지 않거나 매니페스트가 변경되었습니다. 설정을 확인하고 다시 실행하세요.",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",
