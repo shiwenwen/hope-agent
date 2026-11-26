@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.76.0] - 2026-11-27
+
 ### Changed
 
 - 更新定时任务的 cron 表达式解析器，保留现有时间表达式与时区规则。 (#930)
@@ -20,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复聊天和知识笔记公式渲染依赖的信任设置缺陷。 (#922)
 
 - 更新底层依赖，修复并发配置读取和 Linux 扩展属性读取所依赖的内存安全问题。 (#923)
+
+- 更新构建流程依赖，并将 CI Node 固定到 24.22.3 安全补丁。 (#905)
 
 ## [0.75.0] - 2026-11-16
 
@@ -36,8 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hope 个人助手**：默认使用 Hope logo 作为头像并聚焦简洁对话，将模型、权限、事项和工作台改为按需展开，并保留待处理事项、停止及工作台操作入口。 (#916)
 
 ### Fixed
-
-- 更新构建流程依赖，并将 CI Node 固定到 24.22.3 安全补丁。 (#905)
 
 - 更新 MCP 与基础依赖，保留响应大小限制和深链兼容补丁，避免引入未经桌面与 PDF 动态库验证的更新。 (#912)
 
