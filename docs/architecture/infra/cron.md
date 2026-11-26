@@ -463,6 +463,8 @@ flowchart TD
 
 `Cron` 的 `timezone` 是 IANA 名（`Asia/Shanghai` 等），决定 cron 表达式的时/分字段按哪个时区的墙钟解释。计算与日历展开走**同一口径**（`parse_timezone` + tz-aware 迭代），保证日历预览与实际触发一致。校验只认 `parse_timezone` / `validate_timezone` 这一处——`parse_schedule` 在创建/更新期 trim + 校验，非法 IANA 名直接 `bail!`（不静默回退 UTC，正是静默回退让时区 bug 隐形）。
 
+表达式解析使用 `cron 0.17`。定时任务接受带秒字段的表达式、可选年份和库定义的简写。知识维护与 Dreaming 的 UTC 调度继续在五字段旧配置前补 `0` 秒。
+
 **DST 秋退是这里最锐的边**。`compute_next_cron` 两条返回路径都用 `.find(|dt| *dt > *after)` 而非裸 `.next()`：秋退当天有一段 ambiguous 墙钟窗口（如 01:30 出现两次），`cron` 的下一个本地 occurrence 换算回 UTC 可能**早于** `after`；裸 `.next()` 会把这个过去时刻写进 `next_run_at`，叠加 `get_due_jobs`（`next_run_at <= now`），该任务就会在约 30 分钟窗口内**每 tick 重复触发一整轮 turn + 投递**。`.find(> after)` 跳过任何非严格未来的 occurrence，与 `At`/`Every` 的 `> after` 契约一致。春进不存在时刻 / 秋退重复时刻由 `cron` crate 在 `Tz` 上优雅跳过、不 panic（单测守）。
 
 运行时若遇到**非空但解析失败**的时区名（依赖漂移 / 旧二进制 / 篡改行），回退 UTC 前会 `app_warn`；空/缺省时区仍是静默的 UTC 默认（符合预期）。
