@@ -64,7 +64,7 @@ tauri-plugin-process = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"
 chrono = { version = "0.4", features = ["serde"] }
-cron = "0.13"
+cron = "0.17"
 quick-xml = "0.41"
 async-trait = "0.1"
 url = "2"

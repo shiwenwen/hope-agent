@@ -13,7 +13,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
-cron = "0.13"
+cron = "0.17"
 once_cell = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }

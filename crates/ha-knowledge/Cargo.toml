@@ -16,7 +16,7 @@ anyhow = { workspace = true }
 base64 = { workspace = true }
 blake3 = "1.8.5"
 chrono = { workspace = true }
-cron = "0.13"
+cron = "0.17"
 futures-util = { workspace = true }
 htmd = "0.5"
 ignore = "0.4.25"
