@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- 更新定时任务的 cron 表达式解析器，保留现有时间表达式与时区规则。 (#930)
+
 - 更新设计空间的 JSX/TSX 组件编译器，保持现有 Rust 工具链兼容。 (#924)
 
 ### Fixed
