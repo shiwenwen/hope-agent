@@ -202,7 +202,7 @@ flowchart TD
 
 渲染归属的边界：
 
-- 发给前端 UI / 桌面通知的事件，优先推稳定的 `messageKey` + `messageArgs` + `fallback`，由前端 i18next 按客户端当前语言渲染。
+- 发给前端 UI / 桌面通知的事件，优先推稳定的 `messageKey` + `messageArgs` + `fallback`，由前端 i18next 按客户端当前语言渲染。 英文资源随首屏加载，其余语言从应用打包的 JSON 按需加载，资源到位后再切换语言。资源深度合并使用 i18next 26.3.4 起提供的修复。
 - 后端绕过前端、直接发到 IM / webhook / 外部通道的文本，必须在 Rust 侧渲染；当前没有 per-recipient locale，统一用全局 `AppConfig.language`。
 - **明确不在 Rust 侧渲染**的内容：模型输出、用户输入、工具 / Provider 的原始错误详情、日志、工具 schema / system prompt、LLM 结果正文。这些要么是用户 / 模型自己的语言，要么应保持原样透传。
 

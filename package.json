@@ -104,7 +104,7 @@
     "docx-preview": "^0.3.7",
     "es-toolkit": "^1.45.1",
     "html2canvas": "^1.4.1",
-    "i18next": "^26.0.3",
+    "i18next": "^26.3.4",
     "jspdf": "^4.2.1",
     "katex": "0.18.2",
     "lucide-react": "^1.7.0",

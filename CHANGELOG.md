@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- 更新界面翻译依赖，修复语言资源深度合并中的安全问题。 (#931)
+
 ## [0.76.0] - 2026-11-27
 
 ### Changed
