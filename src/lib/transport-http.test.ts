@@ -1535,3 +1535,40 @@ test("HttpTransport unwraps Tauri-style provider config bodies for HTTP routes",
     }),
   )
 })
+
+test("design review images and restores stay artifact-scoped with private owner headers", async () => {
+  fetchMock.mockImplementation(async () => new Response("null", { status: 200 }))
+  const transport = new HttpTransport("http://localhost:8420", "synthetic-owner")
+  for (const [command, suffix] of [
+    ["get_design_quality_image_cmd", "quality-image"],
+    ["restore_design_visual_baseline_cmd", "visual-baseline/restore"],
+  ]) {
+    const input = { artifactId: "A", reviewId: "saved-review", revisionId: "R1" }
+    await transport.call(command, { artifactId: "A", input })
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `http://localhost:8420/api/design/artifacts/A/${suffix}`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ input }),
+        headers: expect.objectContaining({ Authorization: "Bearer synthetic-owner" }),
+      }),
+    )
+  }
+})
+
+test("a design baseline conflict preserves the response code on the rejected call", async () => {
+  fetchMock.mockResolvedValueOnce(
+    Response.json(
+      { code: "design_baseline_revision_conflict", error: "stale baseline revision" },
+      { status: 409 },
+    ),
+  )
+  const transport = new HttpTransport("http://localhost:8420", "synthetic-owner")
+  await expect(
+    transport.call("accept_design_visual_baseline_cmd", { input: { artifactId: "A" } }),
+  ).rejects.toMatchObject({
+    status: 409,
+    code: "design_baseline_revision_conflict",
+    message: expect.stringContaining("stale baseline revision"),
+  })
+})

@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   Select,
   SelectContent,
@@ -29,6 +30,10 @@ export interface DesignScenario {
   route: string
   state: Record<string, unknown>
   viewportIds: string[]
+  ready?: {
+    selector: string
+    text: string
+  }
 }
 
 export interface DesignScenarioViewport {
@@ -54,6 +59,11 @@ interface Props {
 }
 
 export function DesignScenariosControl({ artifactId, onApply }: Props) {
+  // A draft and its pending requests belong to one artifact, including A → B → A switches.
+  return <ArtifactScenariosControl key={artifactId} artifactId={artifactId} onApply={onApply} />
+}
+
+function ArtifactScenariosControl({ artifactId, onApply }: Props) {
   const { t } = useTranslation()
   const tx = getTransport()
   const [envelope, setEnvelope] = useState<ManifestEnvelope | null>(null)
@@ -62,6 +72,7 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
   const [draft, setDraft] = useState("")
   const [busy, setBusy] = useState(false)
   const onApplyRef = useRef(onApply)
+  const requestScopeRef = useRef<{ transport: ReturnType<typeof getTransport> } | null>(null)
 
   useEffect(() => {
     onApplyRef.current = onApply
@@ -74,10 +85,16 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
 
   useEffect(() => {
     let alive = true
+    const scope = { transport: tx }
+    requestScopeRef.current = scope
     setEnvelope(null)
+    setSelectedId("default")
+    setDialogOpen(false)
+    setDraft("")
+    setBusy(false)
     tx.call<ManifestEnvelope>("get_design_scenarios_cmd", { artifactId })
       .then((value) => {
-        if (!alive) return
+        if (!alive || getTransport() !== tx) return
         setEnvelope(value)
         const first = value.manifest.scenarios[0]
         setSelectedId(first?.id ?? "default")
@@ -86,6 +103,7 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
       .catch((e) => logger.warn("design", "DesignScenariosControl::load", "load failed", e))
     return () => {
       alive = false
+      requestScopeRef.current = null
     }
   }, [applyScenario, artifactId, tx])
 
@@ -111,7 +129,9 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
   }
 
   const save = async () => {
-    if (!envelope) return
+    const scope = requestScopeRef.current
+    if (!envelope || !scope || busy || scope.transport !== tx || getTransport() !== tx) return
+    const isCurrent = () => requestScopeRef.current === scope && getTransport() === tx
     let value: Manifest
     try {
       value = JSON.parse(draft) as Manifest
@@ -126,6 +146,7 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
         expectedHash: envelope.hash,
         manifest: value,
       })
+      if (!isCurrent()) return
       setEnvelope(saved)
       const first = saved.manifest.scenarios[0]
       setSelectedId(first?.id ?? "default")
@@ -133,21 +154,18 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
       setDialogOpen(false)
       toast.success(t("design.scenarios.saved", "场景清单已保存"))
     } catch (e) {
+      if (!isCurrent()) return
       logger.error("design", "DesignScenariosControl::save", "save failed", e)
       toast.error(t("design.scenarios.saveFailed", "场景清单保存失败"))
     } finally {
-      setBusy(false)
+      if (isCurrent()) setBusy(false)
     }
   }
 
   return (
     <>
       <div className="flex h-6 items-center rounded-md border border-border/60 bg-background/70">
-        <Select
-          value={selectedId}
-          disabled={scenarios.length === 0}
-          onValueChange={choose}
-        >
+        <Select value={selectedId} disabled={scenarios.length === 0} onValueChange={choose}>
           <SelectTrigger
             aria-label={t("design.scenarios.label", "预览场景")}
             className="h-5 max-w-32 border-0 bg-transparent px-1 text-[11px]"
@@ -162,15 +180,17 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
             ))}
           </SelectContent>
         </Select>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-5 w-5 rounded-l-none"
-          disabled={!envelope}
-          onClick={openEditor}
-        >
-          <Settings2 className="h-3 w-3" />
-        </Button>
+        <IconTip label={t("design.scenarios.title", "预览场景清单")}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-5 w-5 rounded-l-none"
+            disabled={!envelope}
+            onClick={openEditor}
+          >
+            <Settings2 className="h-3 w-3" />
+          </Button>
+        </IconTip>
       </div>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl">
@@ -184,6 +204,7 @@ export function DesignScenariosControl({ artifactId, onApply }: Props) {
             </DialogDescription>
           </DialogHeader>
           <Textarea
+            aria-label={t("design.scenarios.title", "预览场景清单")}
             className="min-h-[360px] font-mono text-xs"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}

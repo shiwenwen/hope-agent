@@ -1020,8 +1020,10 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | `get_design_share_cmd` | `GET /api/design/artifacts/{artifactId}/share` | ✅ |
 | `revoke_design_share_cmd` | `DELETE /api/design/artifacts/{artifactId}/share` | ✅ |
 | _(公开只读快照，无鉴权)_ | `GET /api/design/share/{token}` | ✅ HTTP-only |
-| `run_design_visual_regression_cmd` | `POST /api/design/artifacts/{artifactId}/visual-regression`（固定三视口截图 + 像素差 + 静态 DOM/a11y） | ✅ |
-| `accept_design_visual_baseline_cmd` | `POST /api/design/visual-baseline`（显式 owner 接受，`expectedArtifactHash` 防陈旧写） | ✅ |
+| `run_design_visual_regression_cmd` | `POST /api/design/artifacts/{artifactId}/visual-regression`（场景×视口截图、保存审阅凭证 + 像素差 + 静态 DOM/a11y。组件编译失败或捕获窗口内预览运行出错时返回 HTTP 409 及 `design_component_preview_unavailable`，Tauri 使用相同标识） | ✅ |
+| `accept_design_visual_baseline_cmd` | `POST /api/design/visual-baseline`（owner 显式晋升 `reviewId` 保存的截图。产物内容、场景、基线已变时返回 HTTP 409 及 `design_reviewed_artifact_conflict`、`design_reviewed_scenarios_conflict`、`design_baseline_revision_conflict`。审阅凭证已淘汰、不存在或缺组件运行检查时返回 `design_review_unavailable`，组件缺编译预览返回 `design_component_preview_unavailable`，两者也用 HTTP 409。Tauri 使用相同标识） | ✅ |
+| `get_design_quality_image_cmd` | `POST /api/design/artifacts/{artifactId}/quality-image`（owner，`{input:{artifactId,reviewId,scenarioId,viewport,side}}`；只读本产物凭证引用的 PNG data URL，无任意路径或 hash 参数。审阅凭证已淘汰或不存在时返回 HTTP 409 及 `design_review_unavailable`，Tauri 使用相同标识） | ✅ |
+| `restore_design_visual_baseline_cmd` | `POST /api/design/artifacts/{artifactId}/visual-baseline/restore`（owner，`{input:{artifactId,revisionId,expectedRevisionId}}`；恢复保留修订并生成新修订；基线修订冲突同样返回 409） | ✅ |
 | `get/save_design_scenarios_cmd` | `GET/PUT /api/design/artifacts/{artifactId}/scenarios`（≤12 场景、≤4 视口、本地 route；GET 返回 `manifest + hash`，PUT 必带 `expectedHash` 防陈旧整文覆盖） | ✅ |
 | `get_design_components_manifest_cmd` | `GET /api/design/projects/{projectId}/components?draft=` | ✅ |
 | `save_design_components_draft_cmd` | `PUT /api/design/projects/{projectId}/components/draft`（`expectedDraftHash` 锁内防陈旧整文覆盖） | ✅ |
@@ -1097,7 +1099,7 @@ turn），调用方必须据此自行收敛本地活动状态，不得继续空�
 | `get_design_system_kit_cmd` | `GET /api/design/systems/{id}/kit`（设计系统套件视图自包含 HTML，返回 JSON 字符串） | ✅ |
 | `design_chat_thread_get_cmd` | `GET /api/design/projects/{projectId}/chat/thread`（设计对话默认加载目标：该项目最近一条对话线程的 SessionMeta，无则空） | ✅ |
 | `design_chat_threads_list_cmd` | `GET /api/design/projects/{projectId}/chat/threads`（设计对话历史选择器分页，`query` FTS 过滤） | ✅ |
-| （静态托管，iframe 直连） | `GET /api/design/projects/{pid}/artifacts/{aid}/{*rest}` | ✅ |
+| （静态托管，iframe 直连） | `GET /api/design/projects/{pid}/artifacts/{aid}/{*rest}`（HTML 使用 opaque `sandbox allow-scripts` CSP，允许内联脚本；禁止网络连接、子 frame 和表单提交；同一处理器服务只读资源票据路径） | ✅ |
 
 Figma 往返在 Tauri / HTTP 两端共用按制品串行化语义：同一制品仅最新预览可提交；`commit` 持锁覆盖回执检查、外部 MCP 调用与最终落盘，未解决的 `.indeterminate` 回执会阻断新预览和后续提交。用户核对 Figma 后须对精确回执选择“已发生”或“未发生”，后端以回执 ID + 本地哈希做 CAS 校验，先原子持久化 `reconciled/<receiptId>.json` 审计记录，再删除阻断标记；写入或删除失败继续 fail closed。
 

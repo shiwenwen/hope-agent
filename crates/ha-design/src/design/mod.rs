@@ -25,6 +25,7 @@ pub mod kit;
 pub mod mcp_provider;
 pub mod patch;
 pub mod quality;
+pub mod quality_store;
 pub mod recipe;
 pub mod recipe_demo;
 pub mod render_native;

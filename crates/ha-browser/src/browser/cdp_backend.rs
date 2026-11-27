@@ -30,6 +30,90 @@ use super::backend::{
 use super::observe_buffer;
 use crate::browser_state::{get_browser_state, BrowserReadyMode, ElementRef as StateRef};
 
+type CaptureConnection = chromiumoxide::Connection<chromiumoxide::types::CdpJsonEventMessage>;
+
+async fn frame_session_command(
+    connection: &mut CaptureConnection,
+    session: Option<&chromiumoxide::cdp::browser_protocol::target::SessionId>,
+    method: &'static str,
+    params: Value,
+) -> Result<Value> {
+    let id = connection.submit_command(method.into(), session.cloned(), params)?;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while let Some(message) = connection.next().await {
+            if let chromiumoxide::types::Message::Response(response) = message? {
+                if response.id != id {
+                    continue;
+                }
+                anyhow::ensure!(
+                    response.error.is_none(),
+                    "isolated capture frame protocol command failed: {method}"
+                );
+                return Ok(response.result.unwrap_or(Value::Null));
+            }
+        }
+        anyhow::bail!("isolated capture frame response stream closed")
+    })
+    .await
+    .map_err(|_| anyhow!("isolated capture frame response timed out"))?
+}
+
+async fn inspect_remote_srcdoc(
+    browser: &chromiumoxide::Browser,
+    target: chromiumoxide::cdp::browser_protocol::target::TargetId,
+    script: &str,
+) -> Result<Value> {
+    let endpoint = browser.websocket_address();
+    let url = url::Url::parse(endpoint)?;
+    anyhow::ensure!(
+        url.scheme() == "ws"
+            && matches!(url.host_str(), Some("127.0.0.1" | "[::1]" | "::1"))
+            && url.username().is_empty()
+            && url.password().is_none(),
+        "capture inspection requires a literal loopback Chrome endpoint"
+    );
+    // A private flattened connection handles Chrome OOPIF targets without
+    // changing chromiumoxide's page-only registry or another client's session.
+    // The target was selected by exact parentFrameId, never by URL alone.
+    let mut connection = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        CaptureConnection::connect(endpoint),
+    )
+    .await
+    .map_err(|_| anyhow!("capture inspection connection timed out"))??;
+    let attached = frame_session_command(
+        &mut connection,
+        None,
+        "Target.attachToTarget",
+        serde_json::json!({"targetId":target,"flatten":true}),
+    )
+    .await?;
+    let session: chromiumoxide::cdp::browser_protocol::target::SessionId = attached["sessionId"]
+        .as_str()
+        .ok_or_else(|| anyhow!("missing isolated capture session"))?
+        .to_string()
+        .into();
+    let result = async {
+        let tree = frame_session_command(&mut connection, Some(&session), "Page.getFrameTree", serde_json::json!({})).await?;
+        let frame = &tree["frameTree"]["frame"];
+        anyhow::ensure!(frame["url"].as_str() == Some("about:srcdoc"), "capture child navigated before inspection");
+        let frame_id = frame["id"].as_str().ok_or_else(|| anyhow!("missing isolated capture frame identity"))?;
+        let world = frame_session_command(&mut connection, Some(&session), "Page.createIsolatedWorld", serde_json::json!({"frameId":frame_id,"worldName":"hope-capture-inspection","grantUniveralAccess":false})).await?;
+        let context_id = world["executionContextId"].as_i64().ok_or_else(|| anyhow!("missing isolated capture world"))?;
+        let evaluated = frame_session_command(&mut connection, Some(&session), "Runtime.evaluate", serde_json::json!({"expression":script,"contextId":context_id,"returnByValue":true,"awaitPromise":true})).await?;
+        anyhow::ensure!(evaluated.get("exceptionDetails").is_none(), "isolated capture DOM inspection failed");
+        Ok(evaluated["result"]["value"].clone())
+    }.await;
+    let _ = frame_session_command(
+        &mut connection,
+        None,
+        "Target.detachFromTarget",
+        serde_json::json!({"sessionId":session}),
+    )
+    .await;
+    result
+}
+
 /// JavaScript injected into the page to extract an accessibility-like element
 /// tree. Lifted verbatim from the previous `tools/browser/snapshot.rs` —
 /// only the wrapper changed.
@@ -1043,6 +1127,103 @@ impl BrowserBackend for CdpBackend {
             .await
             .map_err(|e| anyhow!("Script evaluation failed: {}", e))?;
         Ok(result.into_value().unwrap_or(Value::Null))
+    }
+
+    async fn prepare_capture_page(&self) -> Result<()> {
+        crate::browser_state::ensure_connected().await?;
+        let page = {
+            let state = get_browser_state().lock().await;
+            state.get_active_page()?.clone()
+        };
+        anyhow::ensure!(
+            page.url().await?.as_deref() == Some("about:blank"),
+            "capture preparation requires a disposable blank page"
+        );
+        // Recent Chrome requires a committed parent SiteInstance before
+        // creating an opaque sandboxed srcdoc child. Editing the initial empty
+        // about:blank DOM alone does not establish one. This fixed data URL
+        // commits no network request and grants no extra sandbox capability.
+        page.goto("data:text/html;charset=utf-8,%3C!doctype%20html%3E%3Chtml%3E%3Chead%3E%3Cmeta%20name%3D%22referrer%22%20content%3D%22no-referrer%22%3E%3C/head%3E%3Cbody%3E%3C/body%3E%3C/html%3E").await?;
+        Ok(())
+    }
+
+    async fn evaluate_sandboxed_frame(&self, script: &str) -> Result<Value> {
+        use chromiumoxide::cdp::browser_protocol::page::{
+            CreateIsolatedWorldParams, GetFrameTreeParams,
+        };
+        use chromiumoxide::cdp::js_protocol::runtime::EvaluateParams;
+
+        crate::browser_state::ensure_connected().await?;
+        let (page, browser) = {
+            let state = get_browser_state().lock().await;
+            (
+                state.get_active_page()?.clone(),
+                state
+                    .browser
+                    .as_ref()
+                    .cloned()
+                    .ok_or_else(|| anyhow!("Not connected"))?,
+            )
+        };
+        // Read the browser's current tree. The handler cache can still contain
+        // an earlier iframe during a srcdoc replacement.
+        let tree = page
+            .execute(GetFrameTreeParams::default())
+            .await?
+            .result
+            .frame_tree;
+        let direct_count = tree.child_frames.as_ref().map_or(0, Vec::len);
+        let root_frame = tree.frame.id.clone();
+        let mut children: Vec<_> = tree
+            .child_frames
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|frame| frame.frame.url == "about:srcdoc")
+            .map(|frame| frame.frame.id)
+            .collect();
+        if children.is_empty() {
+            let targets = page
+                .execute(chromiumoxide::cdp::browser_protocol::target::GetTargetsParams::default())
+                .await?;
+            let mut remote: Vec<_> = targets
+                .result
+                .target_infos
+                .iter()
+                .filter(|t| {
+                    t.r#type == "iframe"
+                        && t.url == "about:srcdoc"
+                        && t.parent_frame_id.as_ref() == Some(&root_frame)
+                })
+                .map(|t| t.target_id.clone())
+                .collect();
+            anyhow::ensure!(
+                remote.len() == 1 && direct_count == 0,
+                "capture requires one uniquely parent-bound srcdoc frame"
+            );
+            return inspect_remote_srcdoc(&browser, remote.remove(0), script).await;
+        }
+        anyhow::ensure!(
+            children.len() == 1,
+            "capture requires exactly one direct srcdoc frame"
+        );
+        let world = page
+            .execute(
+                CreateIsolatedWorldParams::builder()
+                    .frame_id(children.remove(0))
+                    .world_name("hope-capture-inspection")
+                    .grant_univeral_access(false)
+                    .build()
+                    .map_err(|e| anyhow!(e))?,
+            )
+            .await?;
+        let expression = EvaluateParams::builder()
+            .expression(script)
+            .context_id(world.result.execution_context_id)
+            .return_by_value(true)
+            .await_promise(true)
+            .build()
+            .map_err(|e| anyhow!(e))?;
+        Ok(page.evaluate_expression(expression).await?.into_value()?)
     }
 
     async fn wait_for(&self, params: WaitParams) -> Result<String> {

@@ -314,18 +314,30 @@ pub fn create_project(input: CreateProjectInput) -> Result<DesignProject> {
     Ok(project)
 }
 
-/// 递归复制目录树（duplicate_project 复制产物磁盘目录用）。源不存在=no-op（产物可能纯 DB 行）。
+/// 复制产物正文/版本；新 ID 不继承原产物的审阅凭证、基线及修订。
+/// 仅跳过产物根目录的 quality，版本或资源内的同名目录仍正常复制。
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
+    copy_directory_contents(src, dst, true)
+}
+
+fn copy_directory_contents(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    artifact_root: bool,
+) -> Result<()> {
     if !src.exists() {
         return Ok(());
     }
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
+        if artifact_root && entry.file_name() == "quality" {
+            continue;
+        }
         let from = entry.path();
         let to = dst.join(entry.file_name());
         if entry.file_type()?.is_dir() {
-            copy_dir_recursive(&from, &to)?;
+            copy_directory_contents(&from, &to, false)?;
         } else {
             std::fs::copy(&from, &to)?;
         }
@@ -5676,5 +5688,40 @@ mod generation_reference_tests {
         let mut images = Vec::new();
         append_generation_reference_paths(&mut images, &paths[..6]).await;
         assert_eq!(images.len(), 6);
+    }
+}
+
+#[cfg(test)]
+mod duplication_quality_tests {
+    #[test]
+    fn copies_design_source_and_nested_assets_without_reusing_quality_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("original");
+        let copy = dir.path().join("copy");
+        std::fs::create_dir_all(source.join("quality/screenshots")).unwrap();
+        std::fs::create_dir_all(source.join("versions/1/quality")).unwrap();
+        std::fs::write(source.join("index.html"), b"design").unwrap();
+        std::fs::write(source.join("scenarios.json"), b"scenarios").unwrap();
+        std::fs::write(
+            source.join("quality/manifest.json"),
+            b"original artifact receipt",
+        )
+        .unwrap();
+        std::fs::write(source.join("versions/1/quality/asset.txt"), b"nested asset").unwrap();
+        super::copy_dir_recursive(&source, &copy).unwrap();
+        assert!(
+            !copy.join("quality").exists(),
+            "a new artifact must start with its own review and baseline identity"
+        );
+        assert_eq!(std::fs::read(copy.join("index.html")).unwrap(), b"design");
+        assert_eq!(
+            std::fs::read(copy.join("scenarios.json")).unwrap(),
+            b"scenarios"
+        );
+        assert_eq!(
+            std::fs::read(copy.join("versions/1/quality/asset.txt")).unwrap(),
+            b"nested asset"
+        );
+        assert!(source.join("quality/manifest.json").is_file());
     }
 }

@@ -245,11 +245,15 @@ describe("PetWindow pointer interactions", () => {
   })
 
   test("announces the selected pet display name", async () => {
+    vi.useFakeTimers()
     mocks.petDisplayName = "Mochi"
 
     render(<PetWindow />)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
 
-    expect(await screen.findByRole("button", { name: "Interact with Mochi" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Interact with Mochi" })).toBeInTheDocument()
   })
 
   test.each([
