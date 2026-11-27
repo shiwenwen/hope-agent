@@ -1,5 +1,13 @@
 # 行动卡统一迭代台账
 
+## 2026-11-27 组件预览运行出错后恢复视觉审查
+
+沿 `PRODUCT-11-A2-SCENARIO-VALIDATION` 继续 [PR #908](https://github.com/shiwenwen/hope-agent/pull/908)。
+同步包含 v0.76.0 和依赖修复 #931 的 main `e7838209d`。隔离 macOS Chrome 复现编译成功的组件在运行时
+抛异常后会留下默认场景截图。修复后，默认场景和仅手机视口出现的运行错误均阻止该批审阅发布，合法空组件仍可截图。
+旧组件凭证可读取图片，接受前需重新审查。恢复正常组件后，原弹窗接受六张保存的原图，复跑六项零差异。
+回退可单独撤销本次代码切片，保留审阅文件和基线修订。M4 待原生 Tauri、Windows/Linux 实际浏览器和受保护的 main 交付。
+
 ## 2026-11-26 组件编译失败后恢复视觉审查
 
 沿 `PRODUCT-11-A2-SCENARIO-VALIDATION` 继续 [PR #908](https://github.com/shiwenwen/hope-agent/pull/908)。

@@ -12349,7 +12349,7 @@
       "fixStarted": "AI is fixing it now",
       "fixBusy": "A conversation is in progress, please try again shortly",
       "fixPrompt": "Please fix the issue found by the design self-check: {{detail}}. Use design-system tokens (var(--ds-*)) to consolidate colors and replace hard-coded styles. Make only the minimal necessary changes and keep everything else in the design intact.",
-      "componentPreviewUnavailable": "There is no compiled component preview. Check the source and preview, then rerun the review.",
+      "componentPreviewUnavailable": "The component preview could not be captured. Check the source and preview, then rerun the review.",
       "visualScenarioIncomplete": "Visual validation incomplete: a scenario is not ready, its route is unsupported, or the manifest changed. Check the configuration and rerun.",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",

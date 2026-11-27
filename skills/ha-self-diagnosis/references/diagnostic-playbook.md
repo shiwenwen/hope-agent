@@ -355,7 +355,7 @@ Goal 改约后 LSP 错误无法被后续 clean diagnostics 或 validation 清除
 
 ### Design 视觉场景验证未完成
 
-视觉回归或基线接受返回 `design_component_preview_unavailable` 时，检查组件预览中的编译错误并修正源码，随后在同一弹窗重新审查。当前审阅和基线文件会保留。
+视觉回归或基线接受返回 `design_component_preview_unavailable` 时，检查组件源代码、编译错误和预览运行时异常，修正后在同一弹窗重新审查。当前审阅和基线文件会保留。
 
 网页端选择器已切换但产物仍显示初始画面时，先检查产物 HTML 响应的 CSP 是否为专用 `sandbox allow-scripts` 策略；若误套主界面的 `script-src 'self'`，内联脚本和场景桥会被拦截。直接 owner 和短时只读票据路径都应保留 opaque sandbox、禁止 `connect-src`，不得通过放宽主界面 CSP 或添加 `allow-same-origin` 修复。
 

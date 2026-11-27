@@ -67,6 +67,8 @@ impl std::error::Error for ReviewUnavailable {}
 #[serde(rename_all = "camelCase")]
 pub struct QualityReceipt {
     pub created_at: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub component_preview_checked: bool,
     pub run: QualityRun,
     pub entries: BTreeMap<String, BaselineEntry>,
 }
@@ -317,6 +319,7 @@ pub(super) fn accept_review_at(
     actual_hash: &str,
     scenarios_hash: &str,
     plan_keys: &BTreeSet<String>,
+    require_component_preview_check: bool,
 ) -> Result<QualityManifest> {
     if input.expected_artifact_hash != actual_hash {
         return Err(StaleReviewedArtifact.into());
@@ -340,6 +343,9 @@ pub(super) fn accept_review_at(
     }
     if receipt.run.baseline_revision != manifest.revision_id {
         return Err(StaleBaselineRevision.into());
+    }
+    if require_component_preview_check && !receipt.component_preview_checked {
+        return Err(ReviewUnavailable.into());
     }
     let keys: BTreeSet<_> = receipt.entries.keys().cloned().collect();
     anyhow::ensure!(
@@ -508,6 +514,7 @@ mod tests {
         };
         manifest.reviews.push(QualityReceipt {
             created_at: chrono::Utc::now().to_rfc3339(),
+            component_preview_checked: false,
             run: run.clone(),
             entries: BTreeMap::from([(
                 "2x2".into(),
@@ -539,6 +546,7 @@ mod tests {
             "source",
             "scenes",
             &BTreeSet::from(["2x2".into()]),
+            false,
         )
         .unwrap()
     }
@@ -604,8 +612,9 @@ mod tests {
         let mut request = input(&run);
         for expected in [run.artifact_hash.as_str(), "updated"] {
             request.expected_artifact_hash = expected.into();
-            let error = accept_review_at(dir.path(), &request, "updated", "scenes", &plan_keys)
-                .unwrap_err();
+            let error =
+                accept_review_at(dir.path(), &request, "updated", "scenes", &plan_keys, false)
+                    .unwrap_err();
             assert!(error.is::<StaleReviewedArtifact>());
             assert_eq!(std::fs::read(&manifest).unwrap(), before);
         }
@@ -617,19 +626,24 @@ mod tests {
         let (run, _) = save_review(dir.path(), 12);
         let before = std::fs::read(dir.path().join("manifest.json")).unwrap();
         let keys = BTreeSet::from(["2x2".into()]);
-        assert!(accept_review_at(dir.path(), &input(&run), "changed", "scenes", &keys).is_err());
-        assert!(accept_review_at(dir.path(), &input(&run), "source", "changed", &keys).is_err());
+        assert!(
+            accept_review_at(dir.path(), &input(&run), "changed", "scenes", &keys, false).is_err()
+        );
+        assert!(
+            accept_review_at(dir.path(), &input(&run), "source", "changed", &keys, false).is_err()
+        );
         assert!(accept_review_at(
             dir.path(),
             &input(&run),
             "source",
             "scenes",
-            &BTreeSet::new()
+            &BTreeSet::new(),
+            false,
         )
         .is_err());
         let mut wrong = input(&run);
         wrong.artifact_id = "B".into();
-        assert!(accept_review_at(dir.path(), &wrong, "source", "scenes", &keys).is_err());
+        assert!(accept_review_at(dir.path(), &wrong, "source", "scenes", &keys, false).is_err());
         assert_eq!(
             before,
             std::fs::read(dir.path().join("manifest.json")).unwrap()
@@ -637,11 +651,13 @@ mod tests {
         let accepted = accept_at(dir.path(), &run);
         let accepted_bytes = std::fs::read(dir.path().join("manifest.json")).unwrap();
         let mut request = input(&run);
-        let error = accept_review_at(dir.path(), &request, "source", "scenes", &keys).unwrap_err();
+        let error =
+            accept_review_at(dir.path(), &request, "source", "scenes", &keys, false).unwrap_err();
         assert!(error.is::<StaleBaselineRevision>());
         // A caller that supplies the current revision still needs a review of it.
         request.expected_baseline_revision = accepted.revision_id;
-        let error = accept_review_at(dir.path(), &request, "source", "scenes", &keys).unwrap_err();
+        let error =
+            accept_review_at(dir.path(), &request, "source", "scenes", &keys, false).unwrap_err();
         assert!(error.is::<StaleBaselineRevision>());
         assert_eq!(
             accepted_bytes,
@@ -675,13 +691,36 @@ mod tests {
             &input(&run),
             "source",
             "scenes",
-            &BTreeSet::from(["2x2".into()])
+            &BTreeSet::from(["2x2".into()]),
+            false
         )
         .is_err());
         assert_eq!(
             before,
             std::fs::read(dir.path().join("manifest.json")).unwrap()
         );
+    }
+
+    #[test]
+    fn legacy_component_receipt_is_readable_but_requires_a_new_review_to_accept() {
+        let dir = tempfile::tempdir().unwrap();
+        let (run, hash) = save_review(dir.path(), 1);
+        let manifest = dir.path().join("manifest.json");
+        let before = std::fs::read(&manifest).unwrap();
+        assert!(!String::from_utf8_lossy(&before).contains("componentPreviewChecked"));
+        let shown = review_image_at(dir.path(), &image_input(&run, ImageSide::Current)).unwrap();
+        assert_eq!(shown.image_hash, hash);
+        let error = accept_review_at(
+            dir.path(),
+            &input(&run),
+            "source",
+            "scenes",
+            &BTreeSet::from(["2x2".into()]),
+            true,
+        )
+        .unwrap_err();
+        assert!(error.is::<ReviewUnavailable>());
+        assert_eq!(std::fs::read(&manifest).unwrap(), before);
     }
 
     #[test]
@@ -704,6 +743,7 @@ mod tests {
             "source",
             "scenes",
             &BTreeSet::from(["2x2".into()]),
+            false,
         )
         .unwrap_err();
         assert!(accept_error.is::<ReviewUnavailable>());

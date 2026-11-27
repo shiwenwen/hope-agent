@@ -329,6 +329,7 @@ struct QualityRunPreparation {
     manifest: QualityManifest,
     findings: Vec<StaticFinding>,
     capture_html: String,
+    is_component: bool,
     scenarios_hash: String,
     plan: Vec<CaptureCase>,
     _artifact_lifecycle_guard: std::fs::File,
@@ -348,7 +349,7 @@ impl ComponentPreviewUnavailable {
 
 impl std::fmt::Display for ComponentPreviewUnavailable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("component has no compiled preview to capture")
+        f.write_str("component preview could not be captured")
     }
 }
 
@@ -389,7 +390,37 @@ fn opening_tag_end(serialized_element: &str, tag: &str) -> Result<usize> {
     anyhow::bail!("artifact capture has an unterminated {tag} element")
 }
 
-fn inject_capture_csp(html: &str) -> Result<String> {
+// The capture observes browser errors even for previously saved component HTML.
+// A healthy component may intentionally render null, so don't inspect child count.
+const COMPONENT_ERROR_OBSERVER: &str = r#"<script>
+(() => {
+    const root = document.documentElement;
+    const fail = () => root.setAttribute('data-ds-capture-runtime', 'failed');
+    root.setAttribute('data-ds-capture-runtime', 'observing');
+    window.addEventListener('error', event => {
+        if (event instanceof ErrorEvent) fail();
+    });
+    window.addEventListener('unhandledrejection', fail);
+})();
+</script>"#;
+
+async fn ensure_component_runtime(backend: &dyn BrowserBackend, is_component: bool) -> Result<()> {
+    if is_component
+        && backend
+            .evaluate_sandboxed_frame(
+                "document.documentElement.getAttribute('data-ds-capture-runtime') === 'observing' &&
+                 !!document.querySelector('body > div#ds-root:not([data-ds-component-error])')",
+            )
+            .await?
+            .as_bool()
+            != Some(true)
+    {
+        return Err(ComponentPreviewUnavailable.into());
+    }
+    Ok(())
+}
+
+fn inject_capture_csp(html: &str, is_component: bool) -> Result<String> {
     // Select the parser-created document elements instead of searching source
     // text: comments or attribute values may contain a spoofed `<head>` before
     // the real element. Rebuilding only the parsed html/head/body structure also
@@ -415,14 +446,17 @@ fn inject_capture_csp(html: &str) -> Result<String> {
     secured.push_str(&root_html[..root_open_end]);
     secured.push_str(&head_html[..head_open_end]);
     secured.push_str(&policy);
+    if is_component {
+        secured.push_str(COMPONENT_ERROR_OBSERVER);
+    }
     secured.push_str(&head_html[head_open_end..]);
     secured.push_str(&body_html);
     secured.push_str("</html>");
     Ok(secured)
 }
 
-fn capture_wrapper_script(html: &str) -> Result<String> {
-    let secured = inject_capture_csp(html)?;
+fn capture_wrapper_script(html: &str, is_component: bool) -> Result<String> {
+    let secured = inject_capture_csp(html, is_component)?;
     let encoded = base64::engine::general_purpose::STANDARD.encode(secured.as_bytes());
     Ok(format!(
         r#"(() => {{
@@ -446,7 +480,8 @@ fn prepare_quality_run(artifact_id: &str) -> Result<QualityRunPreparation> {
     let _source_guard = source_lock.lock().unwrap_or_else(|e| e.into_inner());
     let html = artifact_capture_html(&artifact.project_id, artifact_id)?;
     let document = scraper::Html::parse_document(&html);
-    if artifact.kind == "component" {
+    let is_component = artifact.kind == "component";
+    if is_component {
         ensure_compiled_component(&document)?;
     }
     let artifact_hash = artifact_hash(artifact_id, &html)?;
@@ -461,6 +496,7 @@ fn prepare_quality_run(artifact_id: &str) -> Result<QualityRunPreparation> {
         manifest,
         findings: static_findings(&document),
         capture_html: html,
+        is_component,
         scenarios_hash: scenarios.hash,
         plan,
         _artifact_lifecycle_guard: guard,
@@ -547,6 +583,7 @@ fn finish_quality_run(
     let mut manifest = prepared.manifest;
     manifest.reviews.push(super::quality_store::QualityReceipt {
         created_at: now,
+        component_preview_checked: prepared.is_component,
         run: result.clone(),
         entries,
     });
@@ -627,6 +664,7 @@ fn accept_review(input: AcceptBaselineInput) -> Result<QualityManifest> {
         &actual_hash,
         &scenarios.hash,
         &plan_keys,
+        artifact.kind == "component",
     )
 }
 
@@ -662,7 +700,11 @@ fn readiness_script(ready: &super::scenarios::ScenarioReady) -> Result<String> {
     ))
 }
 
-async fn capture_all(html: &str, plan: &[CaptureCase]) -> Result<Vec<(CaptureCase, Vec<u8>)>> {
+async fn capture_all(
+    html: &str,
+    plan: &[CaptureCase],
+    is_component: bool,
+) -> Result<Vec<(CaptureCase, Vec<u8>)>> {
     // CdpBackend is stateless over one global active target. The guard must
     // cover original-target capture, disposable-tab work, close, and restore.
     let _cdp_operation = ha_browser::browser::acquire_cdp_operation_guard().await;
@@ -696,7 +738,7 @@ async fn capture_all(html: &str, plan: &[CaptureCase]) -> Result<Vec<(CaptureCas
         backend.resize(viewport.width, viewport.height).await?;
         // Each case receives a fresh opaque iframe; state cannot bleed from
         // an earlier scenario or viewport. CSP and the managed-tab lock remain.
-        let wrapper = capture_wrapper_script(html)?;
+        let wrapper = capture_wrapper_script(html, is_component)?;
         let sandbox = backend.evaluate(&wrapper).await?;
         if sandbox.as_str() != Some("allow-scripts") {
             anyhow::bail!("quality capture sandbox was not installed");
@@ -717,6 +759,7 @@ async fn capture_all(html: &str, plan: &[CaptureCase]) -> Result<Vec<(CaptureCas
             anyhow::bail!("sandboxed artifact did not become ready for capture");
         }
         tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+            ensure_component_runtime(backend.as_ref(), is_component).await?;
             if let Some(assertion) = &case.scenario.ready {
                 let message = serde_json::to_string(&serde_json::json!({
                     "type": "ds_scenario", "route": case.scenario.route,
@@ -734,6 +777,7 @@ async fn capture_all(html: &str, plan: &[CaptureCase]) -> Result<Vec<(CaptureCas
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 }
+                ensure_component_runtime(backend.as_ref(), is_component).await?;
                 anyhow::ensure!(reached, "visual_scenarios_incomplete: scenario {} did not reach its visible ready condition", case.scenario.id);
             }
             tokio::time::sleep(std::time::Duration::from_millis(120)).await;
@@ -741,6 +785,7 @@ async fn capture_all(html: &str, plan: &[CaptureCase]) -> Result<Vec<(CaptureCas
                 anyhow::ensure!(backend.evaluate_sandboxed_frame(&readiness_script(assertion)?).await?.as_bool() == Some(true),
                     "visual_scenarios_incomplete: scenario state changed before capture");
             }
+            ensure_component_runtime(backend.as_ref(), is_component).await?;
             let bytes = backend
                 .take_screenshot(ScreenshotParams {
                     format: ImageFormat::Png,
@@ -748,6 +793,7 @@ async fn capture_all(html: &str, plan: &[CaptureCase]) -> Result<Vec<(CaptureCas
                     ..Default::default()
                 })
                 .await?;
+            ensure_component_runtime(backend.as_ref(), is_component).await?;
             if bytes.len() > MAX_PNG_BYTES {
                 anyhow::bail!("captured PNG exceeds 32 MiB");
             }
@@ -772,7 +818,12 @@ pub async fn run(artifact_id: &str) -> Result<QualityRun> {
     let artifact_id = artifact_id.to_string();
     let prepared =
         ha_core::blocking::run_blocking(move || prepare_quality_run(&artifact_id)).await?;
-    let captures = capture_all(&prepared.capture_html, &prepared.plan).await?;
+    let captures = capture_all(
+        &prepared.capture_html,
+        &prepared.plan,
+        prepared.is_component,
+    )
+    .await?;
     ha_core::blocking::run_blocking(move || finish_quality_run(prepared, captures)).await
 }
 
@@ -920,8 +971,11 @@ mod tests {
         backend.prepare_capture_page().await.unwrap();
         backend
             .evaluate(
-                &capture_wrapper_script("<html><body><p id='status'>missing</p></body></html>")
-                    .unwrap(),
+                &capture_wrapper_script(
+                    "<html><body><p id='status'>missing</p></body></html>",
+                    false,
+                )
+                .unwrap(),
             )
             .await
             .unwrap();
@@ -934,7 +988,7 @@ mod tests {
             .into_iter()
             .map(|tab| tab.target_id)
             .collect();
-        let captures = capture_all(&html, &plan).await.unwrap();
+        let captures = capture_all(&html, &plan, false).await.unwrap();
         ensure_capture_set(&plan, &captures).unwrap();
         for (case, bytes) in &captures {
             capture_image(bytes, case.viewport).unwrap();
@@ -958,7 +1012,7 @@ mod tests {
         }
         let mut missing = plan[0].clone();
         missing.scenario.ready.as_mut().unwrap().text = "missing".into();
-        assert!(capture_all(&html, &[missing])
+        assert!(capture_all(&html, &[missing], false)
             .await
             .unwrap_err()
             .to_string()
@@ -975,7 +1029,7 @@ mod tests {
                 )
                 .replace("</body>", "</section></body>");
             assert!(
-                capture_all(&hidden, &plan[..1])
+                capture_all(&hidden, &plan[..1], false)
                     .await
                     .unwrap_err()
                     .to_string()
@@ -987,7 +1041,7 @@ mod tests {
             "</body>",
             "<aside style='position:fixed;inset:0;background:white;z-index:9999'></aside></body>",
         );
-        assert!(capture_all(&covered, &plan[..1])
+        assert!(capture_all(&covered, &plan[..1], false)
             .await
             .unwrap_err()
             .to_string()
@@ -999,7 +1053,9 @@ mod tests {
             )
             .replace("</body>", "</section></body>");
         assert!(
-            capture_all(&partly_clipped, &plan[..1]).await.is_ok(),
+            capture_all(&partly_clipped, &plan[..1], false)
+                .await
+                .is_ok(),
             "a visibly intersecting portion must remain valid"
         );
         // Exercise the real local artifact/manifest/baseline pipeline as well,
@@ -1242,7 +1298,7 @@ mod tests {
     #[test]
     fn capture_wrapper_sandboxes_scripts_and_blocks_network() {
         let artifact = "<!-- <head> --><html data-spoof='<head>'><head data-value='>'><script>window.marker = '</script-safe>';</script></head><body></body></html>";
-        let secured = inject_capture_csp(artifact).unwrap();
+        let secured = inject_capture_csp(artifact, false).unwrap();
         let policy_pos = secured.find("Content-Security-Policy").unwrap();
         let script_pos = secured.find("<script>").unwrap();
         assert!(policy_pos < script_pos);
@@ -1262,7 +1318,7 @@ mod tests {
             Some("Content-Security-Policy")
         );
 
-        let wrapper = capture_wrapper_script(artifact).unwrap();
+        let wrapper = capture_wrapper_script(artifact, false).unwrap();
         assert!(wrapper.contains("setAttribute('sandbox', 'allow-scripts')"));
         assert!(wrapper.contains("frame.srcdoc"));
         assert!(!wrapper.contains("allow-same-origin"));

@@ -12349,7 +12349,7 @@
       "fixStarted": "AI が修正を開始しました",
       "fixBusy": "会話の実行中です。しばらくしてからお試しください",
       "fixPrompt": "デザインの自己チェックで見つかった問題を修正してください：{{detail}}。デザインシステムのトークン（var(--ds-*)）で配色をまとめ、ハードコードされたスタイルを置き換えてください。必要最小限の変更のみを行い、他の部分とデザイン全体はそのまま保ってください。",
-      "componentPreviewUnavailable": "コンパイル済みのコンポーネントプレビューがありません。ソースとプレビューを確認し、再レビューしてください。",
+      "componentPreviewUnavailable": "コンポーネントのプレビューをキャプチャできませんでした。ソースとプレビューを確認し、再レビューしてください。",
       "visualScenarioIncomplete": "ビジュアル検証は未完了です。シナリオが未準備、ルートが未対応、またはマニフェストが変更されています。設定を確認して再実行してください。",
       "visualUnavailable": "Visual regression is unavailable; check the browser rendering backend",
       "baselineAccepted": "Current visuals accepted as the baseline",

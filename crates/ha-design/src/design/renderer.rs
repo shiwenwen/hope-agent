@@ -1110,6 +1110,7 @@ pub fn build_component_html(
     if (!el) {{ throw new Error('No <App/> component defined'); }}\n\
     ReactDOM.createRoot(document.getElementById('ds-root')).render(React.createElement(el));\n\
   }} catch (e) {{\n\
+    document.getElementById('ds-root').setAttribute('data-ds-component-error', '');\n\
     document.getElementById('ds-root').innerHTML =\n\
       '<pre style=\"color:#b23a34;padding:24px;white-space:pre-wrap;font:13px ui-monospace,monospace\">'\n\
       + String(e && e.message || e) + '</pre>';\n\
