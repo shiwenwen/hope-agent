@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hope 可在明确共享的本地资料中发现变化、准备方案并在原资料范围内追问，等待外部条件的事项支持到期复查。 (#920)
 
 - **Hope 持续跟进**：一句话交办可建立轻量事项，持续处理后台结果、部分进展和待回答问题，并将核实结果回到主对话；支持单项停止、恢复读回及明确追加执行额度。 (#919)
+- **Obscurify.ai 服务商**：新增隐私优先的 OpenAI Chat 兼容服务商模板（`https://obscurify.ai/v1`），预置 DeepSeek V4 Flash、GLM 5.3、Kimi K2 0905、Qwen3 Coder 与 Llama 3.3 70B，上下文与价格取自其公开的 `/v1/models`。
 
 ### Changed
 
