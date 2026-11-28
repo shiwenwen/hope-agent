@@ -189,10 +189,15 @@ impl DesktopEvalRuntime {
             let AppControlEvent::Hello { hello } = event else {
                 bail!("evaluation Sidecar did not begin with a hello event");
             };
-            if hello.product_version != env!("CARGO_PKG_VERSION")
-                || hello.runner_digest
-                    != ha_eval_runtime::evaluation::artifact_sha256(&std::fs::read(sidecar)?)
-            {
+            if hello.product_version != env!("CARGO_PKG_VERSION") {
+                bail!("evaluation Sidecar version or binary digest mismatch");
+            }
+            let sidecar_bytes = ha_core::blocking::run_blocking({
+                let sidecar = sidecar.to_path_buf();
+                move || std::fs::read(sidecar)
+            })
+            .await?;
+            if hello.runner_digest != ha_eval_runtime::evaluation::artifact_sha256(&sidecar_bytes) {
                 bail!("evaluation Sidecar version or binary digest mismatch");
             }
             session
@@ -700,22 +705,29 @@ impl EvalWorkerRuntime for DesktopEvalRuntime {
         {
             bail!("invalid evaluation run id for cleanup");
         }
-        let root = self.paths.output_root.canonicalize()?;
-        let target = root.join(run_id);
-        let metadata = match std::fs::symlink_metadata(&target) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error.into()),
-        };
-        let canonical = target.canonicalize()?;
-        if metadata.file_type().is_symlink()
-            || !metadata.is_dir()
-            || canonical.parent() != Some(root.as_path())
-        {
-            bail!("evaluation run cleanup target escaped its output root");
-        }
-        std::fs::remove_dir_all(&canonical)
-            .with_context(|| format!("removing evaluation output {}", canonical.display()))
+        // Canonicalize + `remove_dir_all` are disk-bound and the tree can be
+        // arbitrarily large — keep them off the async executor threads.
+        let run_id = run_id.to_string();
+        let root = self.paths.output_root.clone();
+        ha_core::blocking::run_blocking(move || {
+            let root = root.canonicalize()?;
+            let target = root.join(run_id);
+            let metadata = match std::fs::symlink_metadata(&target) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error.into()),
+            };
+            let canonical = target.canonicalize()?;
+            if metadata.file_type().is_symlink()
+                || !metadata.is_dir()
+                || canonical.parent() != Some(root.as_path())
+            {
+                bail!("evaluation run cleanup target escaped its output root");
+            }
+            std::fs::remove_dir_all(&canonical)
+                .with_context(|| format!("removing evaluation output {}", canonical.display()))
+        })
+        .await
     }
 }
 
@@ -846,12 +858,17 @@ async fn resolve_launch(
         )
     })?;
     let (reference, dirty) = local_build_identity(&runtime.paths.product);
+    let product_bytes = ha_core::blocking::run_blocking({
+        let product = runtime.paths.product.clone();
+        move || std::fs::read(product)
+    })
+    .await?;
     ha_eval_runtime::evaluation::resolve_local_launch(
         request,
         reference,
         dirty,
         env!("CARGO_PKG_VERSION").to_string(),
-        ha_eval_runtime::evaluation::artifact_sha256(&std::fs::read(&runtime.paths.product)?),
+        ha_eval_runtime::evaluation::artifact_sha256(&product_bytes),
         hello.runner_digest,
         hello.asset_root_digest,
     )
