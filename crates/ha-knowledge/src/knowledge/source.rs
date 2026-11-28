@@ -3523,7 +3523,35 @@ fn source_asset_path(kb_id: &str, stored_path: &str) -> Result<PathBuf> {
     if !path.starts_with(&dir) {
         bail!("source asset path escapes source directory");
     }
-    Ok(path)
+    // Defense in depth on top of the lexical check above: resolve symlinks
+    // via the nearest existing ancestor so a symlinked component inside the
+    // source directory cannot smuggle a read/write outside it (same
+    // algorithm as `WorkspaceScope::resolve_new`). `dir` is already
+    // canonical (`ensure_dir_canonical`).
+    let mut ancestor = path.as_path();
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let canon_ancestor = loop {
+        match ancestor.canonicalize() {
+            Ok(canonical) => break canonical,
+            Err(_) => {
+                let file = ancestor
+                    .file_name()
+                    .ok_or_else(|| anyhow!("invalid source asset stored path"))?;
+                tail.push(file.to_os_string());
+                ancestor = ancestor
+                    .parent()
+                    .ok_or_else(|| anyhow!("invalid source asset stored path"))?;
+            }
+        }
+    };
+    let mut resolved = canon_ancestor;
+    for part in tail.iter().rev() {
+        resolved.push(part);
+    }
+    if !resolved.starts_with(&dir) {
+        bail!("source asset path escapes source directory");
+    }
+    Ok(resolved)
 }
 
 fn ensure_kb_open(kb_id: &str) -> Result<()> {
@@ -4122,6 +4150,47 @@ mod tests {
 
         assert_eq!(kind, KnowledgeSourceKind::Markdown);
         assert_eq!(content, "\n  body  \n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn source_asset_path_resolves_symlinks_before_containment() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().expect("tempdir");
+        ha_core::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let kb_id = "kb-asset-symlink";
+            let assets = source_dir(kb_id)
+                .expect("source dir")
+                .join("assets/kb-asset-src");
+            std::fs::create_dir_all(&assets).expect("assets dir");
+
+            // Final component is a symlink pointing outside the source dir —
+            // the lexical check alone passes this; canonical resolution must
+            // reject it.
+            let outside = root.path().join("outside.pdf");
+            std::fs::write(&outside, b"secret").expect("outside file");
+            symlink(&outside, assets.join("evil.pdf")).expect("symlink");
+            let err = source_asset_path(kb_id, "assets/kb-asset-src/evil.pdf")
+                .expect_err("symlinked asset escaping the source dir must be rejected");
+            assert!(err.to_string().contains("escapes source directory"));
+
+            // A symlinked DIRECTORY component smuggling a nested file is
+            // rejected the same way.
+            let outside_dir = root.path().join("outside-dir");
+            std::fs::create_dir_all(&outside_dir).expect("outside dir");
+            std::fs::write(outside_dir.join("nested.pdf"), b"secret").expect("nested file");
+            symlink(&outside_dir, assets.join("link")).expect("dir symlink");
+            let err = source_asset_path(kb_id, "assets/kb-asset-src/link/nested.pdf")
+                .expect_err("symlinked directory ancestor must be rejected");
+            assert!(err.to_string().contains("escapes source directory"));
+
+            // A plain regular file inside the source dir still resolves.
+            std::fs::write(assets.join("ok.pdf"), b"pdf").expect("asset");
+            let resolved = source_asset_path(kb_id, "assets/kb-asset-src/ok.pdf")
+                .expect("regular in-dir asset resolves");
+            assert!(resolved.starts_with(source_dir(kb_id).expect("source dir")));
+        });
     }
 
     #[test]
